@@ -63,6 +63,10 @@ jobs:
 
       - name: Propose the kernel's newest release
         env:
+          # versions refresh opens the pull request as GITHUB_TOKEN before GH_TOKEN, and the run's
+          # own, set above, can neither open it nor start the checks on it; git pushes through gh,
+          # as GH_TOKEN.
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: go tool task refresh:kernel
 
