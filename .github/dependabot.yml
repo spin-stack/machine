@@ -52,3 +52,5 @@ updates:
     rebase-strategy: disabled
     cooldown:
       default-days: 7
+      # go-tools is ours: a release of it reaches every repository the week it is made.
+      exclude: ["github.com/spin-stack/go-tools"]
