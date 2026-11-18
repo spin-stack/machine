@@ -869,28 +869,13 @@ tasks:
 
   # Most of what a stable release fixes is fixed before it is called a CVE, so the kernel is only
   # as current as the last time somebody looked: refresh.yml asks every day. Within the pinned
-  # series and never past it (versions.yaml's kernel note). A version already proposed is not
-  # proposed again, closed or not: a person who closed it said no to that release.
+  # series and never past it (versions.yaml's kernel note, which is also the pull request's
+  # "check before merging"). The branch is named for versions.yaml's sum, so a set proposed once
+  # is not proposed again, closed or not: a person who closed it said no to that release.
   refresh:kernel:
-    desc: Propose the newest release of the kernel's series as a pull request (refresh/kernel-<version>), closing the one it supersedes; nothing when the pin is current or that version was proposed already.
-    env:
-      BODY: >-
-        The newest release of the pinned kernel series, proposed by refresh.yml. kernel.yml builds
-        it on this pull request. Before merging, boot it: `task kernel:build boot:ssh-first`.
+    desc: Propose the newest release of the kernel's series as a pull request (refresh/kernel-<sum>), closing the one it supersedes; nothing when the pin is current or that version was proposed already.
     cmds:
-      - |
-        set -euo pipefail
-        {{.VERSIONS}} bump kernel
-        if git diff --quiet -- versions.yaml; then echo "the kernel is current" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"; exit 0; fi
-        v=$({{.VERSIONS}} version kernel); branch="refresh/kernel-$v"
-        if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then echo "$branch was proposed already"; exit 0; fi
-        git switch -c "$branch"
-        git commit -q -m "versions: kernel $v" -- versions.yaml
-        git push origin "$branch"
-        url=$(gh pr create --base main --head "$branch" --title "versions: kernel $v" --body "$BODY")
-        echo "$url" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-        gh pr list --state open --json number,headRefName --jq ".[] | select((.headRefName | startswith(\"refresh/kernel-\")) and .headRefName != \"$branch\") | .number" |
-          while read -r n; do gh pr close "$n" --delete-branch --comment "Superseded by $url."; done
+      - '{{.VERSIONS}} refresh -propose -label kernel kernel'
 
   # The apk locks go stale without anyone touching them: the pinned Alpine's mirror serves only the
   # newest build of each package, so a lock that resolved yesterday fails a build today (`unable to

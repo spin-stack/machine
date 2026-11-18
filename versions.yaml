@@ -75,9 +75,9 @@
     on the kernel it was saved with (machine.Spec.Fingerprint). The configuration
     is the series', kernel/config-<major>.<minor>-x86_64, so a release within the series moves
     this entry and nothing else: refresh.yml proposes it every day, and kernel.yml builds it on
-    the pull request. A new series renames the configuration in the same commit, then
-    `task kernel:build`, `task boot:ssh-first`. The series is a person's choice, the same as
-    spin-ami's host kernel.
+    the pull request; before merging, boot it: `task kernel:build boot:ssh-first`. A new series
+    renames the configuration in the same commit, then `task kernel:build`, `task
+    boot:ssh-first`. The series is a person's choice, the same as spin-ami's host kernel.
 
 - name: debian
   kind: image
