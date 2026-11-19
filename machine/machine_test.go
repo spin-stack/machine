@@ -3,11 +3,9 @@
 package machine
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -34,6 +32,7 @@ func spec(t *testing.T) Spec {
 		Firmware: dir,
 		BootCPUs: 2,
 		Memory:   Memory{SizeMB: 512},
+		Monitors: []Monitor{{Socket: "/run/qmp"}},
 	}
 }
 
@@ -84,7 +83,7 @@ func TestArgs(t *testing.T) {
 		name: "fixed slots",
 		set: func(s *Spec) {
 			s.VsockCID = 7
-			s.Disks = []Disk{{Path: "/a.qcow2", Format: "qcow2"}, {Path: "/b.raw", Format: "raw"}}
+			s.Disks = []DiskSlot{{Serial: "root"}, {Serial: "home", Readonly: true}}
 			s.NICs = []NIC{nic()}
 		},
 		want: []string{
@@ -93,13 +92,16 @@ func TestArgs(t *testing.T) {
 			// The only way a running VM gives memory back. Without it the answer to
 			// "how is memory reclaimed?" is "the VM exits".
 			"virtio-balloon-pci,free-page-reporting=on,deflate-on-oom=on,disable-legacy=on,addr=0x4 ",
-			"virtio-blk-pci,drive=blk0,disable-legacy=on,addr=0x5 ",
-			"virtio-blk-pci,drive=blk1,disable-legacy=on,addr=0x6 ",
+			"virtio-blk-pci,id=disk0,drive=slot0,serial=root,disable-legacy=on,addr=0x5 ",
+			"virtio-blk-pci,id=disk1,drive=slot1,serial=home,disable-legacy=on,addr=0x6 ",
 			"virtio-net-pci,netdev=net0,mac=52:54:00:00:00:01,romfile=,disable-legacy=on,addr=0x10 ",
-			// Without these QEMU hands every block request to a worker pool and copies
-			// every packet through userspace, and nothing reports either.
-			"aio=io_uring",
+			// Without this QEMU copies every packet through userspace, and nothing reports it.
 			"tap,id=net0,fd=3,vhost=on ",
+			// A place for a disk is a raw node over an empty placeholder until one is bound,
+			// read-only when the place is: the device takes its permissions at exec.
+			`{"driver":"null-co","node-name":"slot0-empty","read-zeroes":true,"size":0} `,
+			`{"driver":"raw","node-name":"slot0","file":"slot0-empty","read-only":false,"discard":"unmap"} `,
+			`{"driver":"raw","node-name":"slot1","file":"slot1-empty","read-only":true,"discard":"unmap"} `,
 		},
 	}, {
 		// host_mtu is how the guest is told what it may send, and the only way of
@@ -181,28 +183,16 @@ func TestArgs(t *testing.T) {
 		},
 		absent: []string{"accel=kvm"},
 	}, {
-		// A disk given by path turns drop-cache off on its own node and not on a child
-		// the image may not have: naming backing.file makes QEMU open a backing file
-		// whether the header has one or not, and it refuses when it does not. The
-		// chain form is in TestEveryNodeOfAChain.
-		name:   "a disk by path",
-		set:    func(s *Spec) { s.Disks = []Disk{{Path: "/images/one.qcow2", Format: "qcow2"}} },
-		want:   []string{"file.drop-cache=off"},
-		absent: []string{"backing.file.drop-cache"},
-	}, {
 		// A value a caller supplies is a value, not more options. QEMU splits an option
 		// string on a single comma, so "a,readonly=off" as a path was a path "a" and a
 		// second option. Doubled, it is one value; TestQEMUAcceptsEveryArgument asks
 		// QEMU to open such paths.
 		name: "commas in values",
 		set: func(s *Spec) {
-			s.Disks = []Disk{{Path: "/img/a,readonly=off", Format: "raw", Serial: "x,addr=0x2"}}
 			s.Monitors = []Monitor{{Socket: "/run/q,wait=on"}}
 			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3, Opaque: "/o,p"}}}}
 		},
 		want: []string{
-			"file=/img/a,,readonly=off,if=none,",
-			",serial=x,,addr=0x2 ",
 			"unix:/run/q,,wait=on,server=on,wait=off ",
 			"opaque=/o,,p ",
 		},
@@ -243,21 +233,6 @@ func TestAnUnnamedCPUFollowsTheAccelerator(t *testing.T) {
 	}
 }
 
-// A disk arriving at run time is a SCSI disk at the target it was asked for, on the machine's
-// controller, and its serial is left out rather than sent empty.
-func TestHotplugDisk(t *testing.T) {
-	want := map[string]any{
-		"driver": "scsi-hd", "id": "d", "drive": "n", "bus": "scsi0.0", "scsi-id": 1, "lun": 0,
-	}
-	if got := HotplugDisk(1, "d", "n", ""); !reflect.DeepEqual(got, want) {
-		t.Errorf("HotplugDisk with no serial = %v, want %v", got, want)
-	}
-	want["serial"] = "s"
-	if got := HotplugDisk(1, "d", "n", "s"); !reflect.DeepEqual(got, want) {
-		t.Errorf("HotplugDisk with a serial = %v, want %v", got, want)
-	}
-}
-
 // The command line and the fingerprint read one Shape. If they read two, a VM could
 // resume a checkpoint of a machine it is not.
 func TestArgsCarriesTheShape(t *testing.T) {
@@ -285,184 +260,6 @@ func TestArgsCarriesTheShape(t *testing.T) {
 	}
 }
 
-// Every node of a disk handed over as a chain, and the layers below the top are the
-// ones that matter.
-//
-// discard=unmap on every node: the format node is where a guest's discard arrives,
-// and one opened without unmap drops it and answers the guest that it worked.
-//
-// drop-cache off on every file node: QEMU's default drops the host's page cache for a
-// node when the machine is activated after an incoming migration — see the note in
-// chainArgs. A sealed read-only layer cannot have a stale cache, and it is one file
-// that every VM on the host reads through, so dropping it is paid by all of them. It
-// comes back when a node is rewritten and shows up as a slow restore on a busy host
-// rather than as an error anywhere.
-func TestEveryNodeOfAChain(t *testing.T) {
-	s := spec(t)
-	s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 10}}}, {ID: 2, FDs: []FD{{Num: 11}}}}
-	s.Disks = []Disk{{Chain: []Image{{FDSet: 1, Format: "qcow2"}, {FDSet: 2, Format: "qcow2"}}, Serial: "root"}}
-	args, err := s.Args()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var nodes []string
-	for i, a := range args {
-		if a == "-blockdev" && i+1 < len(args) {
-			nodes = append(nodes, args[i+1])
-		}
-	}
-
-	for _, tc := range []struct {
-		which string
-		// of picks the nodes the row is about; count is how many a chain of two has.
-		of    func(node string) bool
-		count int
-		want  string
-	}{
-		{"every node", func(string) bool { return true }, 4, `"discard":"unmap"`},
-		{"every file node", func(n string) bool { return strings.Contains(n, `"driver":"file"`) }, 2, `"drop-cache":false`},
-	} {
-		t.Run(tc.which, func(t *testing.T) {
-			n := 0
-			for _, node := range nodes {
-				if !tc.of(node) {
-					continue
-				}
-				n++
-				if !strings.Contains(node, tc.want) {
-					t.Errorf("missing %s: %s", tc.want, node)
-				}
-			}
-			if n != tc.count {
-				t.Errorf("a chain of two images has %d of these nodes, want %d", n, tc.count)
-			}
-		})
-	}
-}
-
-// What the top of a chain may do that the layers under it may not: only the top is written,
-// locked or opened O_DIRECT, because a lower layer is a sealed file every VM on the host reads.
-func TestOnlyTheTopOfAChainIsWritten(t *testing.T) {
-	type opts struct {
-		readOnly bool
-		locking  string
-		direct   any
-	}
-	for _, tc := range []struct {
-		name string
-		disk Disk
-		// want is each node by name, the top's first.
-		want map[string]opts
-	}{
-		{"writable", Disk{}, map[string]opts{
-			"blk0-file": {}, "blk0": {},
-			"blk0-1-file": {readOnly: true}, "blk0-1": {readOnly: true},
-		}},
-		{"read-only", Disk{Readonly: true}, map[string]opts{
-			"blk0-file": {readOnly: true}, "blk0": {readOnly: true},
-			"blk0-1-file": {readOnly: true}, "blk0-1": {readOnly: true},
-		}},
-		{"locked, direct over its backing", Disk{Locking: true, DirectOverBacking: true}, map[string]opts{
-			"blk0-file": {locking: "on", direct: true}, "blk0": {},
-			"blk0-1-file": {readOnly: true, direct: false}, "blk0-1": {readOnly: true},
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := spec(t)
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 10}}}, {ID: 2, FDs: []FD{{Num: 11}}}}
-			tc.disk.Chain = []Image{{FDSet: 1, Format: "qcow2"}, {FDSet: 2, Format: "qcow2"}}
-			s.Disks = []Disk{tc.disk}
-			args, err := s.Args()
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := map[string]opts{}
-			for i, a := range args {
-				if a != "-blockdev" {
-					continue
-				}
-				var node struct {
-					NodeName string `json:"node-name"`
-					ReadOnly bool   `json:"read-only"`
-					Locking  string `json:"locking"`
-					Cache    *struct {
-						Direct bool `json:"direct"`
-					} `json:"cache"`
-				}
-				if err := json.Unmarshal([]byte(args[i+1]), &node); err != nil {
-					t.Fatalf("a -blockdev that is not JSON: %s", args[i+1])
-				}
-				o := opts{readOnly: node.ReadOnly, locking: node.Locking}
-				if node.Cache != nil {
-					o.direct = node.Cache.Direct
-				}
-				got[node.NodeName] = o
-			}
-			if len(got) != len(tc.want) {
-				t.Errorf("nodes %v, want %v", got, tc.want)
-			}
-			for name, want := range tc.want {
-				if got[name] != want {
-					t.Errorf("%s is %+v, want %+v", name, got[name], want)
-				}
-			}
-		})
-	}
-}
-
-// Where each node of a chain takes its backing from. Each image's backing is the node
-// under it, and the last image's is null, so QEMU follows no name a header holds; a raw
-// image has no backing option at all, and naming one is an error QEMU raises at open.
-func TestAChainsBacking(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		chain []Image
-		// want is each format node's "backing", top first; absent is the key missing.
-		want []any
-	}{
-		{"qcow2 over qcow2", []Image{{FDSet: 1, Format: "qcow2"}, {FDSet: 2, Format: "qcow2"}}, []any{"blk0-1", nil}},
-		{"qcow2 over raw", []Image{{FDSet: 1, Format: "qcow2"}, {FDSet: 2, Format: "raw"}}, []any{"blk0-1", "absent"}},
-		{"raw alone", []Image{{FDSet: 1, Format: "raw"}}, []any{"absent"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := spec(t)
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 10}}}, {ID: 2, FDs: []FD{{Num: 11}}}}
-			s.Disks = []Disk{{Chain: tc.chain}}
-			args, err := s.Args()
-			if err != nil {
-				t.Fatal(err)
-			}
-			backing := map[string]any{}
-			for i, a := range args {
-				if a != "-blockdev" {
-					continue
-				}
-				var node map[string]any
-				if err := json.Unmarshal([]byte(args[i+1]), &node); err != nil {
-					t.Fatalf("a -blockdev that is not JSON: %s", args[i+1])
-				}
-				if node["driver"] == "file" {
-					continue
-				}
-				b, ok := node["backing"]
-				if !ok {
-					b = "absent"
-				}
-				backing[node["node-name"].(string)] = b
-			}
-			for j, want := range tc.want {
-				name := "blk0"
-				if j > 0 {
-					name = fmt.Sprintf("blk0-%d", j)
-				}
-				if got := backing[name]; got != want {
-					t.Errorf("%s has backing %v, want %v", name, got, want)
-				}
-			}
-		})
-	}
-}
-
 // The fingerprint, one pair of machines per row: a is spec() changed by a, b is a
 // changed by b, and the row says whether a checkpoint saved on one resumes on the other.
 //
@@ -471,7 +268,6 @@ func TestAChainsBacking(t *testing.T) {
 // boot reads, or what is behind the devices, or a checkpoint resumes nowhere but on the release
 // that saved it.
 func TestFingerprint(t *testing.T) {
-	const intel, amd = "13th Gen Intel(R) Core(TM) i9-13900HK", "AMD EPYC 9634 84-Core Processor"
 	rewrite := func(t *testing.T, path, content string) {
 		t.Helper()
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -489,9 +285,7 @@ func TestFingerprint(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		a, b func(*testing.T, *Spec)
-		// hostB is the host CPU b is fingerprinted on; a is always on intel.
-		hostB string
-		same  bool
+		same bool
 	}{
 		{name: "the same machine twice", same: true},
 
@@ -503,7 +297,7 @@ func TestFingerprint(t *testing.T) {
 
 		// The disks are the VM's, and a host fingerprints its machine before there is a
 		// VM: a checkpoint is resumed with the disks it was saved with, by its caller.
-		{name: "a disk", same: true, b: func(_ *testing.T, s *Spec) { s.Disks = []Disk{{Path: "/a", Format: "raw"}} }},
+		{name: "a disk", same: true, b: func(_ *testing.T, s *Spec) { s.Disks = []DiskSlot{{Serial: "root"}} }},
 
 		// A descriptor number is which file the backend reads, the way a disk's path
 		// is, and a MAC is a property of the device and not of the bus. A caller that
@@ -517,14 +311,14 @@ func TestFingerprint(t *testing.T) {
 		// and whether it arrives by path or as a descriptor.
 		{name: "everything handed over as descriptors", same: true,
 			a: func(_ *testing.T, s *Spec) {
-				s.Disks = []Disk{{Path: "/one.qcow2", Format: "qcow2", Serial: "aaa"}}
+				s.Disks = []DiskSlot{{Serial: "aaa"}}
 				s.NICs = []NIC{nic()}
 				s.VsockCID = 7
 				s.Serial = "file:/var/log/console"
 			},
 			b: func(_ *testing.T, s *Spec) {
 				s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 10}}}, {ID: 2, FDs: []FD{{Num: 11}}}, {ID: 3, FDs: []FD{{Num: 13}}}}
-				s.Disks = []Disk{{Chain: []Image{{FDSet: 1, Format: "qcow2"}}, Serial: "bbb"}}
+				s.Disks = []DiskSlot{{Serial: "bbb"}}
 				s.NICs = []NIC{{TapFD: 9, MAC: "52:54:00:00:00:02", VhostFD: 15}}
 				s.VsockCID = 42
 				s.Serial, s.SerialFDSet = "", 2
@@ -534,8 +328,6 @@ func TestFingerprint(t *testing.T) {
 
 		// Naming a model is how a fleet gets VMs that move: every host shows the guest
 		// the same CPU, so the host's own silicon drops out.
-		{name: "a named CPU on another host", same: true, hostB: amd,
-			a: func(_ *testing.T, s *Spec) { s.CPU = "Skylake-Server-v4" }},
 
 		{name: "more memory", b: func(_ *testing.T, s *Spec) { s.Memory.SizeMB = 1024 }},
 		{name: "more vCPUs", b: func(_ *testing.T, s *Spec) { s.BootCPUs = 4 }},
@@ -576,21 +368,14 @@ func TestFingerprint(t *testing.T) {
 		// another. Announcing nothing is a third machine.
 		{name: "an MTU announced", a: withMTU(0), b: withMTU(1500)},
 		{name: "another MTU", a: withMTU(1500), b: withMTU(1400)},
-		// Under model host the guest is told through CPUID exactly which instructions
-		// this silicon has, and a checkpoint saved here describes a CPU the next host
-		// may not have.
-		{name: "another host under CPU host", hostB: amd},
 		{name: "a named CPU instead of host", b: func(_ *testing.T, s *Spec) { s.CPU = "Skylake-Server-v4" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			host := func(model string) func() (string, error) {
-				return func() (string, error) { return model, nil }
-			}
 			a := spec(t)
 			if tc.a != nil {
 				tc.a(t, &a)
 			}
-			fa, err := a.fingerprint(host(intel))
+			fa, err := a.Fingerprint()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -598,11 +383,7 @@ func TestFingerprint(t *testing.T) {
 			if tc.b != nil {
 				tc.b(t, &b)
 			}
-			hostB := intel
-			if tc.hostB != "" {
-				hostB = tc.hostB
-			}
-			fb, err := b.fingerprint(host(hostB))
+			fb, err := b.Fingerprint()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -726,9 +507,9 @@ func TestValidateRefuses(t *testing.T) {
 		// caller gets a machine that cannot grow having asked for one that can.
 		{"a memory ceiling below the boot size", func(s *Spec) { s.Memory.SizeMB, s.Memory.MaxMB = 2048, 512 }},
 		{"more disks than the slot range holds", func(s *Spec) {
-			s.Disks = make([]Disk, maxDisks+1)
+			s.Disks = make([]DiskSlot, maxDisks+1)
 			for i := range s.Disks {
-				s.Disks[i] = Disk{Path: "/a.qcow2", Format: "qcow2"}
+				s.Disks[i] = DiskSlot{Serial: fmt.Sprintf("d%d", i)}
 			}
 		}},
 		{"more NICs than the slot range holds", func(s *Spec) {
@@ -739,28 +520,13 @@ func TestValidateRefuses(t *testing.T) {
 		}},
 		{"more hotplug disks than the controller addresses", func(s *Spec) { s.HotplugDisks = MaxHotplugDisks + 1 }},
 		{"a negative number of hotplug disks", func(s *Spec) { s.HotplugDisks = -1 }},
-		{"a disk with no path", func(s *Spec) { s.Disks = []Disk{{Format: "qcow2"}} }},
-		// A wrong guess is a guest that boots and finds a disk full of nothing.
-		{"a disk with no format", func(s *Spec) { s.Disks = []Disk{{Path: "/a.qcow2"}} }},
-		{"a disk with a path and a chain", func(s *Spec) {
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}}
-			s.Disks = []Disk{{Path: "/a.qcow2", Format: "qcow2", Chain: []Image{{FDSet: 1, Format: "qcow2"}}}}
-		}},
-		{"a chain with a format of its own", func(s *Spec) {
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}}
-			s.Disks = []Disk{{Format: "qcow2", Chain: []Image{{FDSet: 1, Format: "qcow2"}}}}
-		}},
-		{"a chain image in a set nobody gave", func(s *Spec) {
-			s.Disks = []Disk{{Chain: []Image{{FDSet: 9, Format: "qcow2"}}}}
-		}},
-		{"a chain image with no format", func(s *Spec) {
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}}
-			s.Disks = []Disk{{Chain: []Image{{FDSet: 1}}}}
-		}},
-		{"a raw image with images under it", func(s *Spec) {
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}, {ID: 2, FDs: []FD{{Num: 4}}}}
-			s.Disks = []Disk{{Chain: []Image{{FDSet: 1, Format: "raw"}, {FDSet: 2, Format: "qcow2"}}}}
-		}},
+		// A disk is bound to its place by serial, and the serial names its nodes.
+		{"a place for a disk with no serial", func(s *Spec) { s.Disks = []DiskSlot{{}} }},
+		{"a serial QEMU would take as more options", func(s *Spec) { s.Disks = []DiskSlot{{Serial: "x,addr=0x2"}} }},
+		{"a serial longer than virtio-blk's 20 bytes", func(s *Spec) { s.Disks = []DiskSlot{{Serial: strings.Repeat("a", 21)}} }},
+		{"two places with one serial", func(s *Spec) { s.Disks = []DiskSlot{{Serial: "a"}, {Serial: "a"}} }},
+		// Held until a monitor says what to do: with none it never starts.
+		{"no monitor", func(s *Spec) { s.Monitors = nil }},
 		{"a descriptor set given twice", func(s *Spec) {
 			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}, {ID: 1, FDs: []FD{{Num: 4}}}}
 		}},
@@ -770,11 +536,6 @@ func TestValidateRefuses(t *testing.T) {
 		{"a monitor on stderr", func(s *Spec) { s.Monitors = []Monitor{{FD: 2}} }},
 		// A value from a fixed set is refused, not escaped: an escaped "qcow2,,x" is
 		// still not a format, and an unescaped one is a second option.
-		{"a disk format that is not one", func(s *Spec) { s.Disks = []Disk{{Path: "/a", Format: "qcow2,readonly=off"}} }},
-		{"a chain image format that is not one", func(s *Spec) {
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}}
-			s.Disks = []Disk{{Chain: []Image{{FDSet: 1, Format: "vmdk"}}}}
-		}},
 		{"a CPU model with options", func(s *Spec) { s.CPU = "Skylake-Server-v4,enforce=off" }},
 		{"an accelerator this machine does not run under", func(s *Spec) { s.Accel = "xen" }},
 		// The kernel command line: each of these boots a guest that is told something
@@ -886,7 +647,7 @@ func TestTheContractIsTheDevicesPresentAtRestore(t *testing.T) {
 			n.MTU, n.VhostFD = 1500, 15
 			s.NICs = []NIC{n}
 		}, want: []string{"device virtio-net-pci,romfile=,disable-legacy=on,addr=0x10,host_mtu=1500"}, absent: []string{"mac=", "netdev", "vhostfd"}},
-		{name: "a disk is the VM's", set: func(s *Spec) { s.Disks = []Disk{{Path: "/a", Format: "raw", Serial: "x"}} },
+		{name: "a disk is the VM's", set: func(s *Spec) { s.Disks = []DiskSlot{{Serial: "x"}} },
 			absent: []string{"virtio-blk-pci", "serial=x"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -907,51 +668,26 @@ func TestTheContractIsTheDevicesPresentAtRestore(t *testing.T) {
 	}
 }
 
-// Under model host the fingerprint carries this host's CPU. Every host this runs on has a
-// model name in /proc/cpuinfo.
-func TestHostCPUModelReadsThisHost(t *testing.T) {
-	model, err := hostCPUModel()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if model == "" {
-		t.Fatal("an empty CPU model name")
-	}
-}
-
-// Resuming a VM rather than booting one: a URI the command line does not carry is a
-// fresh guest that reports success, a restore that silently is not one.
-func TestIncomingNamesTheSourceOnTheCommandLine(t *testing.T) {
+// A machine starts held, for a boot or for a checkpoint, and never both: under -incoming defer
+// cont leaves the machine waiting for a migration, so a machine for a boot that carried it
+// would never boot, and one for a restore without it would boot a fresh guest instead.
+func TestAMachineStartsHeldForABootOrARestore(t *testing.T) {
 	for _, tc := range []struct {
-		what string
-		set  func(*Spec)
-		// want is -incoming's value, and empty for no -incoming at all: an -incoming
-		// with an empty value is a QEMU that waits for a migration nobody will send.
-		want string
+		restore      bool
+		want, absent string
 	}{
-		{"a URI at exec time", func(s *Spec) { s.Incoming = "file:/state" }, "file:/state"},
-		{"deferred to QMP", func(s *Spec) { s.Incoming = "defer" }, "defer"},
-		{"a boot", func(*Spec) {}, ""},
+		{false, " -S ", "-incoming"},
+		{true, " -incoming defer ", " -S "},
 	} {
-		t.Run(tc.what, func(t *testing.T) {
-			s := spec(t)
-			tc.set(&s)
-			args, err := s.Args()
-			if err != nil {
-				t.Fatal(err)
-			}
-			n := 0
-			for _, a := range args {
-				if a == "-incoming" {
-					n++
-				}
-			}
-			switch {
-			case tc.want == "" && n != 0:
-				t.Errorf("a machine asked to boot carries -incoming %q", argValue(args, "-incoming"))
-			case tc.want != "" && (n != 1 || argValue(args, "-incoming") != tc.want):
-				t.Errorf("-incoming %d times, value %q, want once with %q", n, argValue(args, "-incoming"), tc.want)
-			}
-		})
+		s := spec(t)
+		s.Restore = tc.restore
+		args, err := s.Args()
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := " " + strings.Join(args, " ") + " "
+		if !strings.Contains(joined, tc.want) || strings.Contains(joined, tc.absent) {
+			t.Errorf("restore %t: want %q and no %q in %s", tc.restore, tc.want, tc.absent, joined)
+		}
 	}
 }

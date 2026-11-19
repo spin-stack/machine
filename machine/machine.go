@@ -24,7 +24,6 @@
 package machine
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -87,26 +86,26 @@ const (
 	hotplugBus        = hotplugController + ".0"
 )
 
-// HotplugDisk is the device_add arguments for the disk arriving at hotplug position i, over
-// the block node named node: a scsi-hd at target i of the machine's controller, LUN 0, so the
-// position is the disk's address and two disks cannot be given the same one. The serial is the
+// hotplugDisk is the device_add arguments for the disk arriving at hotplug target i, over the
+// block node named node: a scsi-hd at target i of the machine's controller, LUN 0, so the
+// target is the disk's address and two disks cannot be given the same one. The serial is the
 // disk's name to the guest, as a virtio-blk's is, read there from the unit serial number page
-// (VPD page 0x80) rather than from /sys/block/*/serial. The id and the node are the caller's
-// names: it is the one that deletes them.
-func HotplugDisk(i int, id, node, serial string) map[string]any {
-	dev := map[string]any{
+// (VPD page 0x80) rather than from /sys/block/*/serial.
+func hotplugDisk(i int, node, serial string) map[string]any {
+	return map[string]any{
 		"driver":  "scsi-hd",
-		"id":      id,
+		"id":      hotDiskID(i),
 		"drive":   node,
 		"bus":     hotplugBus,
 		"scsi-id": i,
 		"lun":     0,
+		"serial":  serial,
 	}
-	if serial != "" {
-		dev["serial"] = serial
-	}
-	return dev
 }
+
+// hotDiskID is the id of the device at hotplug target i, so that the target is found from the
+// device and the device from the target.
+func hotDiskID(i int) string { return fmt.Sprintf("hd%d", i) }
 
 // virtioModern forces virtio 1.0 (modern-only) on a PCI virtio device.
 //
@@ -139,124 +138,21 @@ const memGrowthID = "mem.growth"
 // through is /machine/peripheral/<VirtioMemID>, its property requested-size.
 const VirtioMemID = "vmem0"
 
-// Disk is one virtio-blk device.
-type Disk struct {
-	// Path to the image file. QEMU opens it, and every backing file its header
-	// names, by path. Set Path or Chain, not both.
-	Path string
-	// Chain is the image and every image under it, top first, each handed to
-	// QEMU as a descriptor set (Spec.FDSets): QEMU opens no image by path, and
-	// follows no backing file a header names — each image's backing is the next
-	// one here, and the last has none. So a QEMU that is not allowed to see the
-	// caller's filesystem at all still reads the whole chain, and reads nothing
-	// a header could point it at. Format and Cache do not apply: each image
-	// carries its own format, and the chain is cached as QEMU does by default.
-	Chain []Image
-	// Format as QEMU names it: qcow2 or raw. Required — it is not guessed
-	// from the file name, because a wrong guess is a guest that boots and finds
-	// a disk full of nothing, and because letting QEMU probe the format of a
-	// file the guest can write is how an image is talked into being read as
-	// another format.
-	Format string
-	// Readonly opens the image read-only. A shared base image must be opened
-	// this way by every VM that maps it.
+// DiskSlot is a place for a disk the machine is started with: a virtio-blk device on its fixed
+// slot, over a raw node whose file is an empty placeholder until a disk is bound to it (Boot,
+// Resume). The guest finds the disk by Serial.
+//
+// The serial and whether the disk is read-only are the place's and not the disk's because the
+// device takes both when it is realized: QEMU refuses to change a realized virtio-blk's serial
+// ("after it was realized"), and a writable device refuses a read-only node under it. So a
+// machine started ahead of the workspace it will be is started with the places that workspace
+// will have, and every workspace has the same: spin's root and agent home.
+//
+// A place no disk is bound to is a disk of no size: the null-co placeholder, which a guest
+// that read it would find empty rather than full of zeroes.
+type DiskSlot struct {
+	Serial   string
 	Readonly bool
-	// Serial the guest can resolve the device by, through
-	// /sys/block/<dev>/serial. Worth setting on every disk: a /dev node depends
-	// on the order the guest probed devices in, and a serial does not.
-	Serial string
-	// Locking asks QEMU to hold an image lock on the file. Only meaningful for a
-	// writable disk, and only worth setting when something outside QEMU takes
-	// the same lock to find out whether a VM is running on the image.
-	Locking bool
-	// DirectOverBacking opens this image with O_DIRECT and leaves every image
-	// under it in its backing chain on the host page cache: cache.direct=on for
-	// this node, and backing.cache.direct=off, which the deeper backing files
-	// inherit. The writable overlay is the one file no other VM reads, so caching
-	// it on the host only holds its blocks twice — once in the guest — while the
-	// chain under it is shared by every VM on the host and is worth the one copy.
-	//
-	// Only for an image that has a backing file: QEMU refuses backing options on
-	// one that does not ("Could not open backing file"). And, like cache=none,
-	// not on tmpfs, which has no O_DIRECT.
-	DirectOverBacking bool
-}
-
-// chainArgs is disk i as -blockdev nodes over descriptor sets, the base first: each format
-// node is backed by the node below it, and the last by nothing, so QEMU never reads a backing
-// name from a header. The top node is blk<i>, as a -drive's id would be, and the rest
-// blk<i>-<depth>.
-//
-// The same options as the path form: aio=io_uring, discard=unmap, and the lock only where
-// asked for. Every image but the top is read-only, as a backing file is.
-//
-// JSON, not key=value: "no backing" is JSON null, which key=value cannot say — backing=null
-// names a node called null — and an opaque path needs no comma escaping.
-func (d Disk) chainArgs(i int) ([]string, error) {
-	nodeName := func(j int) string {
-		if j == 0 {
-			return fmt.Sprintf("blk%d", i)
-		}
-		return fmt.Sprintf("blk%d-%d", i, j)
-	}
-	var args []string
-	for j := len(d.Chain) - 1; j >= 0; j-- {
-		img := d.Chain[j]
-		node := nodeName(j)
-		readOnly := d.Readonly || j > 0
-		// drop-cache off, on every layer.
-		//
-		// QEMU's default is on, and what it does is not caching: when a machine is activated
-		// after an incoming migration, block/file-posix.c's raw_co_invalidate_cache flushes the
-		// node and then calls posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED) on it. That exists
-		// for a live migration onto a second host over shared storage, where the source may
-		// have written the image and the destination's page cache would otherwise serve what it
-		// read before.
-		//
-		// Neither half of that is true here. A layer below the top is sealed and read-only, so
-		// nothing can have made its cache stale — and it is one file that every VM on the host
-		// reads through, so dropping it is paid by all of them and by none of the one that
-		// restored. Traced with `strace -y`, a restore issues the call against the base image
-		// itself; it cost 4.8 ms here against a cache that had just been read, which is the case
-		// where invalidate_mapping_pages mostly declines to free anything, and has been measured
-		// at 251 ms elsewhere against a colder one. With this off the call is not made at all and
-		// cont goes from 8.9 ms to 2.8.
-		file := fileNode{
-			Driver: "file", NodeName: node + "-file",
-			Filename: fmt.Sprintf("/dev/fdset/%d", img.FDSet),
-			AIO:      "io_uring", Discard: "unmap", ReadOnly: readOnly,
-		}
-		if j == 0 && d.Locking {
-			file.Locking = "on"
-		}
-		if d.DirectOverBacking {
-			file.Cache = &nodeCache{Direct: j == 0}
-		}
-		// discard on the format node as well as the file: a guest's discard arrives at the
-		// format node, and QEMU drops one on a node opened without unmap and tells the guest it
-		// worked - so fstrim freed nothing, and what the guest deleted stayed in the image.
-		format := formatNode{
-			Driver: img.Format, NodeName: node, File: node + "-file", ReadOnly: readOnly,
-			Discard: "unmap",
-		}
-		switch {
-		case j < len(d.Chain)-1:
-			format.Backing = nodeName(j + 1)
-		case img.Format != "raw":
-			// Or QEMU opens whatever the header names.
-			format.Backing = json.RawMessage("null")
-		}
-		fileJSON, err := json.Marshal(file)
-		if err != nil {
-			return nil, fmt.Errorf("encoding %s's file node: %w", node, err)
-		}
-		formatJSON, err := json.Marshal(format)
-		if err != nil {
-			return nil, fmt.Errorf("encoding %s's format node: %w", node, err)
-		}
-		args = append(args, "-blockdev", string(fileJSON), "-blockdev", string(formatJSON))
-	}
-	return args, nil
 }
 
 // fileNode and formatNode are the two -blockdev nodes of one chain image. Structs and
@@ -268,7 +164,7 @@ type fileNode struct {
 	AIO      string `json:"aio"`
 	Discard  string `json:"discard"`
 	ReadOnly bool   `json:"read-only"`
-	// DropCache is always false; see chainArgs. Not omitempty: false is the point.
+	// DropCache is always false; see addImages. Not omitempty: false is the point.
 	DropCache bool       `json:"drop-cache"`
 	Locking   string     `json:"locking,omitempty"`
 	Cache     *nodeCache `json:"cache,omitempty"`
@@ -288,58 +184,6 @@ type formatNode struct {
 	// no backing option at all), null (the last image, which must not follow its
 	// header) and a node name.
 	Backing any `json:"backing,omitempty"`
-}
-
-// driveArg is disk i as one -drive, for a disk given by Path: QEMU opens the image
-// and whatever backing files its header names.
-//
-// aio=io_uring, and QEMU is built with it for this reason. The default is
-// aio=threads, which hands every request to a worker pool and pays a
-// context switch each way; io_uring submits and completes in batches
-// through one ring shared with the kernel.
-//
-// discard=unmap lets the guest's TRIM reach the image, so a qcow2 overlay
-// gives its blocks back when files are deleted inside the VM instead of
-// growing to the high-water mark of everything ever written.
-//
-// file.drop-cache=off for the reason in chainArgs, and only on this node: the option
-// names a child, and a disk given as one path has whatever backing file its own header
-// names, which QEMU opens implicitly. Naming that child here — backing.file.drop-cache
-// — makes QEMU open a backing file whether the image has one or not, and an image
-// without one then fails with "Could not open backing file: Must specify either driver
-// or file". A restore that wants every layer left alone declares its chain; see
-// Disk.Chain.
-//
-// No cache=: QEMU's default, writeback, is what this machine wants. The read-only base is
-// one file every VM on the host maps through a backing chain, so one copy in the host's
-// page cache serves all of them, where O_DIRECT would have each VM fault its own; and
-// cache=none fails outright on tmpfs. The overlay alone is DirectOverBacking's to decide.
-func (d Disk) driveArg(i int) string {
-	drive := fmt.Sprintf("file=%s,if=none,id=blk%d,format=%s,aio=io_uring,discard=unmap,file.drop-cache=off",
-		qemuOpt(d.Path), i, d.Format)
-	if d.DirectOverBacking {
-		drive += ",cache.direct=on,backing.cache.direct=off"
-	}
-	if d.Readonly {
-		drive += ",readonly=on"
-	}
-	if d.Locking {
-		drive += ",file.locking=on"
-	}
-	return drive
-}
-
-// Image is one image of a Disk's chain.
-type Image struct {
-	// FDSet is the id of the descriptor set holding the image (Spec.FDSets): one
-	// descriptor, opened read-write for the top of a writable disk and read-only
-	// for everything else. Sealing the top under a new overlay (blockdev-snapshot)
-	// needs nothing more — measured on QEMU 11.1.1, which keeps the old top's
-	// descriptor rather than reopening it read-only.
-	FDSet int
-	// Format as QEMU names it, qcow2 or raw, for the same reasons as Disk.Format.
-	// Only the last image of a chain may be raw: raw has no backing.
-	Format string
 }
 
 // FDSet is descriptors QEMU is handed open rather than a path to open: a path
@@ -468,8 +312,8 @@ type Spec struct {
 	// the least portable: a guest resumed on another host has already been told
 	// through CPUID which instructions exist, and it does not ask again. Restore
 	// it somewhere without AVX-512 and it executes an instruction that is not
-	// there. Fingerprint therefore folds the host's CPU model in when this is
-	// "host", so a checkpoint saved here does not match a machine elsewhere.
+	// there. A checkpoint therefore records the CPU its guest was shown (Saved.CPU),
+	// and resumes only where it can be shown again (CanResume).
 	//
 	// Naming a model instead — "Skylake-Server-v4", "EPYC-Rome-v3", whichever is
 	// the oldest microarchitecture in the fleet — gives every host the same guest
@@ -503,11 +347,13 @@ type Spec struct {
 	// hashes, and a guest's state under TCG is not a guest's state under KVM.
 	Accel string
 
-	Disks []Disk
+	// Disks are the places for disks the machine is started with, on fixed slots in this
+	// order. The disks themselves arrive later, bound by serial (VM.Boot, VM.Resume).
+	Disks []DiskSlot
 	NICs  []NIC
 
-	// HotplugDisks is how many disks this machine can be given at once while it runs, at
-	// HotplugDisk positions 0 to HotplugDisks-1, and zero for none.
+	// HotplugDisks, when not zero, gives the machine the controller disks attached while it
+	// runs go to (VM.AttachDisk), at the first of its 256 targets free.
 	//
 	// A disk that arrives later cannot go where the ones on the command line go: those
 	// slots are on the q35 root complex, and QEMU refuses device_add there - "Bus 'pcie.0'
@@ -555,8 +401,8 @@ type Spec struct {
 	// without asking the launcher to relay commands it does not understand.
 	Monitors []Monitor
 
-	// FDSets are the descriptor sets the command line names: a Disk's Chain,
-	// SerialFDSet, KVMFDSet.
+	// FDSets are the descriptor sets the command line names: SerialFDSet, KVMFDSet. A disk's
+	// images are handed over when it is bound, through the monitor.
 	FDSets []FDSet
 
 	// SerialFDSet is the console as a descriptor set QEMU writes to, instead of
@@ -577,17 +423,14 @@ type Spec struct {
 	// what the line is made of.
 	Cmdline Cmdline
 
-	// Incoming is -incoming: where the machine's state comes from when it is resumed
-	// rather than booted. A migration URI names it at exec time, most usefully
-	// "file:/path/to/state". "defer", QEMU's own word, starts QEMU with no state,
-	// waiting to be told over QMP where to load it from (migrate-incoming): how a
-	// checkpoint is resumed by a caller that starts the machine before it has the
-	// state in hand, or wants a word with QEMU before the first byte is read.
+	// Restore starts the machine to load a checkpoint (VM.Resume) rather than to boot (VM.Boot).
 	//
-	// The guest does not know this happened: it continues from the instruction it
-	// was stopped at, with the memory, the devices and the clock it had. Which is
-	// why the CPU model matters more here than anywhere else — see Shape.
-	Incoming string
+	// Either way QEMU starts held and does nothing until it is told over a monitor: -S for a
+	// boot, -incoming defer for a restore. One QEMU cannot wait for both: under -incoming defer,
+	// cont only notes that the machine is to run once a migration has arrived, and leaves it in
+	// inmigrate (QEMU 11.2.0-rc0, 2026-11-19). So a machine started ahead of its workspace is
+	// started for one or the other.
+	Restore bool
 }
 
 // Shape is the five arguments that decide what machine a guest sees: the chipset
@@ -825,6 +668,9 @@ func (s Spec) validate() error {
 		return fmt.Errorf("memory is %d MB", s.Memory.SizeMB)
 	case len(s.Disks) > maxDisks:
 		return fmt.Errorf("%d disks, and the slot range holds %d", len(s.Disks), maxDisks)
+	// Held until a monitor says what to do: with none it never starts.
+	case len(s.Monitors) == 0:
+		return errors.New("no monitor: the machine starts held, and is booted or resumed over one")
 	case len(s.NICs) > maxNICs:
 		return fmt.Errorf("%d NICs, and the slot range holds %d", len(s.NICs), maxNICs)
 	case s.HotplugDisks < 0 || s.HotplugDisks > MaxHotplugDisks:
@@ -862,10 +708,15 @@ func (s Spec) validate() error {
 			return fmt.Errorf("NIC %d: %w", i, err)
 		}
 	}
+	seen := map[string]bool{}
 	for i, d := range s.Disks {
-		if err := d.validate(sets); err != nil {
-			return fmt.Errorf("disk %d: %w", i, err)
+		switch {
+		case !serialPattern.MatchString(d.Serial):
+			return fmt.Errorf("disk %d: serial %q is not 1-20 of A-Z, a-z, 0-9, '-' and '_'", i, d.Serial)
+		case seen[d.Serial]:
+			return fmt.Errorf("disk %d: serial %q is another disk's: a disk is bound to its place by serial", i, d.Serial)
 		}
+		seen[d.Serial] = true
 	}
 	return nil
 }
@@ -902,34 +753,6 @@ func (n NIC) validate() error {
 	// anything net.ParseMAC accepts as 48 bits has no comma in it.
 	if mac, err := net.ParseMAC(n.MAC); err != nil || len(mac) != 6 {
 		return fmt.Errorf("MAC %q is not a 48-bit address", n.MAC)
-	}
-	return nil
-}
-
-func (d Disk) validate(sets map[int]bool) error {
-	switch {
-	case d.Path == "" && len(d.Chain) == 0:
-		return errors.New("no path and no chain")
-	case d.Path != "" && len(d.Chain) != 0:
-		return errors.New("both a path and a chain: which one the guest reads is not a guess")
-	case d.Path != "" && d.Format == "":
-		return fmt.Errorf("%s has no format: it is not guessed", d.Path)
-	case d.Path != "" && !slices.Contains(diskFormats, d.Format):
-		return fmt.Errorf("%s: format %q is not one of %v", d.Path, d.Format, diskFormats)
-	case len(d.Chain) != 0 && d.Format != "":
-		return errors.New("a chain carries a format per image")
-	}
-	for j, img := range d.Chain {
-		switch {
-		case !sets[img.FDSet]:
-			return fmt.Errorf("image %d is in descriptor set %d, which Spec.FDSets does not have", j, img.FDSet)
-		case img.Format == "":
-			return fmt.Errorf("image %d has no format: it is not guessed", j)
-		case !slices.Contains(diskFormats, img.Format):
-			return fmt.Errorf("image %d: format %q is not one of %v", j, img.Format, diskFormats)
-		case img.Format == "raw" && j != len(d.Chain)-1:
-			return fmt.Errorf("image %d is raw, which has no backing, and images follow it", j)
-		}
 	}
 	return nil
 }
@@ -977,7 +800,7 @@ func (s Spec) Args() ([]string, error) {
 	args = s.appendConsole(args)
 	args = s.appendMonitors(args)
 	args = s.appendFDSets(args)
-	args = s.appendIncoming(args)
+	args = s.appendHold(args)
 	return args, nil
 }
 
@@ -1089,26 +912,38 @@ func (s Spec) appendDevices(args []string) []string {
 	return args
 }
 
-// appendDisks is each disk, by path or as a chain, on its fixed slot.
+// appendDisks is each place for a disk, on its fixed slot: the device, over a raw node named
+// slot<i> whose file is an empty placeholder until a disk is bound (DiskSlot).
 func (s Spec) appendDisks(args []string) ([]string, error) {
 	for i, d := range s.Disks {
-		if len(d.Chain) != 0 {
-			chain, err := d.chainArgs(i)
-			if err != nil {
-				return nil, err
-			}
-			args = append(args, chain...)
-		} else {
-			args = append(args, "-drive", d.driveArg(i))
+		empty, err := json.Marshal(map[string]any{
+			"driver": "null-co", "node-name": emptyNode(i), "size": 0, "read-zeroes": true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("encoding disk %d's placeholder: %w", i, err)
 		}
-		dev := fmt.Sprintf("virtio-blk-pci,drive=blk%d,%s,addr=0x%x",
-			i, virtioModern, slotDiskBase+i)
-		if d.Serial != "" {
-			dev += ",serial=" + qemuOpt(d.Serial)
+		raw, err := json.Marshal(slotNode(i, emptyNode(i), d.Readonly))
+		if err != nil {
+			return nil, fmt.Errorf("encoding disk %d's node: %w", i, err)
 		}
-		args = append(args, "-device", dev)
+		args = append(args, "-blockdev", string(empty), "-blockdev", string(raw), "-device",
+			fmt.Sprintf("virtio-blk-pci,id=%s,drive=%s,serial=%s,%s,addr=0x%x",
+				slotDevice(i), slotNodePrefix+fmt.Sprint(i), d.Serial, virtioModern, slotDiskBase+i))
 	}
 	return args, nil
+}
+
+// slotNodePrefix names a place's raw node, slot<i>: the node the device's drive is, which a bind
+// moves onto the disk.
+const slotNodePrefix = "slot"
+
+func slotDevice(i int) string { return fmt.Sprintf("disk%d", i) }
+func emptyNode(i int) string  { return fmt.Sprintf("slot%d-empty", i) }
+
+// slotNode is place i's raw node over file: the placeholder at exec, the disk's top image once
+// bound.
+func slotNode(i int, file string, readonly bool) formatNode {
+	return formatNode{Driver: "raw", NodeName: slotNodePrefix + fmt.Sprint(i), File: file, ReadOnly: readonly, Discard: "unmap"}
 }
 
 // appendNICs is each NIC and its TAP backend, on its fixed slot.
@@ -1187,12 +1022,13 @@ func (s Spec) appendFDSets(args []string) []string {
 	return args
 }
 
-// appendIncoming is -incoming, when the machine is to be restored rather than booted.
-func (s Spec) appendIncoming(args []string) []string {
-	if s.Incoming != "" {
-		args = append(args, "-incoming", s.Incoming)
+// appendHold is what holds the machine until a monitor says what to do: -incoming defer for a
+// restore, -S for a boot (Spec.Restore).
+func (s Spec) appendHold(args []string) []string {
+	if s.Restore {
+		return append(args, "-incoming", "defer")
 	}
-	return args
+	return append(args, "-S")
 }
 
 // DefaultBIOS is the firmware a machine runs when Spec.BIOS names none: qboot with
@@ -1214,8 +1050,10 @@ func (s Spec) bios() string {
 // rather than an error, because QEMU does not check it.
 //
 // It hashes the versioned machine type and the shape (Shape), the chipset's globals and every
-// device as the command line gives it with what is one VM's taken out (Contract), the size of
-// the BIOS, and the host's CPU when the guest is shown it. Not the QEMU binary, the kernel, the
+// device as the command line gives it with what is one VM's taken out (Contract), and the size of
+// the BIOS. Not the host's CPU: under model host, which CPU a checkpoint needs is in the
+// checkpoint (Saved.CPU) and checked against the machine it is resumed into (CanResume), which
+// is exact where a model name was not - see hostCPU's removal in docs/log.md, 2026-11-19. Not the QEMU binary, the kernel, the
 // initrd or the option ROM that entered it (linuxboot_dma.bin, pvh.bin): QEMU's promise is per versioned machine type, so a newer QEMU of the same
 // type is the same machine; a resumed guest runs the kernel in its saved memory, and the
 // kernel, the initrd and the option ROM that entered it are read again only by a boot.
@@ -1225,12 +1063,6 @@ func (s Spec) bios() string {
 // checkpoint taken against the previous machine stops resuming. That is the design, and the
 // release notes say so (hack/fingerprint-diff).
 func (s Spec) Fingerprint() (string, error) {
-	return s.fingerprint(hostCPUModel)
-}
-
-// fingerprint is Fingerprint with the host's CPU passed in, because a test is two
-// hosts.
-func (s Spec) fingerprint(hostCPU func() (string, error)) (string, error) {
 	h := sha256.New()
 
 	// Length-prefixed, so that no two different machines can produce the same
@@ -1261,28 +1093,6 @@ func (s Spec) fingerprint(hostCPU func() (string, error)) (string, error) {
 	write("memory", shape.Memory)
 	for _, c := range s.Contract() {
 		write("contract", c)
-	}
-
-	// The host's own CPU, but only when the guest is being shown it.
-	//
-	// Under model "host" the guest is told through CPUID exactly which
-	// instructions this silicon has, and it never asks again — so a checkpoint
-	// saved here describes a CPU the next machine may not have, and resuming it
-	// there is a guest executing an instruction that does not exist. Nothing
-	// about the QEMU binary, the kernel or the five shape arguments differs
-	// between two hosts, so without this a Zen 4 checkpoint and a Skylake one
-	// have the same fingerprint and each machine happily accepts the other's.
-	//
-	// Under a named model it is deliberately left out: every host shows the guest
-	// the same CPU, which is the entire point of naming one, and folding the host
-	// in would pin checkpoints to the machine they were saved on for no reason.
-	if model, _, _ := strings.Cut(shape.CPU, ","); derivedFromHost(model) {
-		cpu, err := hostCPU()
-		if err != nil {
-			return "", fmt.Errorf("fingerprinting the host CPU, which model %q exposes to the guest: %w",
-				model, err)
-		}
-		write("host-cpu", cpu)
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
@@ -1358,40 +1168,6 @@ const BIOSBlock = "pc.bios"
 // NIC loads no option ROM (romfile=). boot:roms holds a booted machine to this list, so a
 // QEMU or a device that maps another ROM fails there rather than in a resume.
 var MachineBlocks = []string{"pc.rom", "/rom@etc/acpi/tables", "/rom@etc/table-loader", "/rom@etc/acpi/rsdp"}
-
-// hostCPUModel reports the host CPU's model name, which model "host" makes part
-// of what a checkpoint describes.
-//
-// The model name and not the feature flags. The flags would be the exact thing —
-// they are what the guest is shown — but they also move with microcode updates
-// and kernel mitigations, so hashing them would strand every checkpoint on a
-// machine that has not meaningfully changed. The model is the coarse identity
-// that separates one host's silicon from another's, which is what this is for.
-//
-// It reads only as far as the first processor's model name, which is in the first
-// few hundred bytes: /proc/cpuinfo is generated on read, one block per CPU, so on a
-// large host reading all of it costs a block per core for a line the first one has.
-func hostCPUModel() (string, error) {
-	f, err := os.Open("/proc/cpuinfo")
-	if err != nil {
-		return "", fmt.Errorf("reading /proc/cpuinfo: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		name, ok := strings.CutPrefix(sc.Text(), "model name")
-		if !ok {
-			continue
-		}
-		if _, value, found := strings.Cut(name, ":"); found {
-			return strings.TrimSpace(value), nil
-		}
-	}
-	if err := sc.Err(); err != nil { // mutate-exempt: either way the caller gets an error; only its wording differs
-		return "", fmt.Errorf("reading /proc/cpuinfo: %w", err)
-	}
-	return "", errors.New("no model name in /proc/cpuinfo")
-}
 
 func fileSize(path string) (int64, error) {
 	fi, err := os.Stat(path)

@@ -24,7 +24,7 @@ import (
 
 // The second of the two numbers in CLAUDE.md's goal: a checkpoint restored to the same first
 // login. Each row of boot:ssh-first (firstLoginRows) is booted cold, logged into, saved with
-// `spin-machine save` - which ends it - and later restored with `boot --incoming defer` and
+// `spin-machine save` - which ends it - and later restored with `boot --restore` and
 // `spin-machine restore`, and logged into again, from the moment before QEMU is exec'd.
 //
 // Two phases, as #246's boot:score had them: every cold boot first, of every row and repetition
@@ -40,7 +40,16 @@ import (
 // difference says whether QEMU reads the file as fast as the disk can (2026-11-19: a restore took
 // ~790 ms to running on nested and on metal alike, and nothing said which part was the disk).
 //
+// Every row runs this tree's spin-machine, built here, over the release's QEMU, kernel and image:
+// the save and restore flags a row asks for are this tree's.
+//
+// SPIN_RESTORE_FAST=1 adds a third way for each row: restored with --fast, QEMU 11.2's fast
+// snapshot load, where the guest runs once the device state is in and postcopy fetches its RAM
+// as it faults. It needs a QEMU of 11.2 or later in the release tree, and userfaultfd for the
+// user QEMU runs as (machine.QEMU.Resume).
+//
 //	SPIN_RESTORE_FIRST=1  run at all
+//	SPIN_RESTORE_FAST=1   also restore each row fast
 //	REPS=<n>              repetitions of each row (default 10)
 //	CPUS=<n>              vCPUs (default 2)
 func TestRestoreFirstSSH(t *testing.T) {
@@ -60,10 +69,19 @@ func TestRestoreFirstSSH(t *testing.T) {
 	type mode struct {
 		label  string
 		cached bool
+		fast   bool
 	}
 	var modes []mode
 	for _, v := range rows {
-		modes = append(modes, mode{v.label, false}, mode{v.label + ", cached", true})
+		modes = append(modes, mode{label: v.label}, mode{label: v.label + ", cached", cached: true})
+		if os.Getenv("SPIN_RESTORE_FAST") != "" {
+			modes = append(modes, mode{label: v.label + ", fast", fast: true})
+		}
+	}
+	perRow := len(modes) / len(rows)
+	cli := filepath.Join(t.TempDir(), "spin-machine")
+	if b, err := exec.Command("go", "build", "-o", cli, "../cmd/spin-machine").CombinedOutput(); err != nil {
+		t.Fatalf("building this tree's spin-machine: %v\n%s", err, b)
 	}
 	var runs []*checkpointRun
 	for i := range reps {
@@ -73,7 +91,7 @@ func TestRestoreFirstSSH(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = os.RemoveAll(socks) })
-			r := &checkpointRun{v: rows[j/2], label: m.label, cached: m.cached, out: out, signer: signer, dir: t.TempDir(), socks: socks}
+			r := &checkpointRun{v: rows[j/perRow], label: m.label, cached: m.cached, fast: m.fast, cli: cli, out: out, signer: signer, dir: t.TempDir(), socks: socks}
 			r.cold(t)
 			t.Logf("%s, repetition %d: cold login %v, saved %d MiB in %v", m.label, i+1,
 				r.coldLogin.Round(time.Millisecond), r.size>>20, r.save.Round(time.Millisecond))
@@ -125,8 +143,10 @@ func TestRestoreFirstSSH(t *testing.T) {
 
 type checkpointRun struct {
 	v      variant
-	label  string // the row's, and ", cached" when its state is restored from the page cache
+	label  string // the row's, and ", cached" or ", fast" for those ways of restoring it
 	cached bool
+	fast   bool   // restored with --fast
+	cli    string // the spin-machine every step runs
 	out    string
 	signer xssh.Signer
 	dir    string // the overlay and the state, on the disk TMPDIR names
@@ -135,6 +155,14 @@ type checkpointRun struct {
 
 	size                                      int64 // the state's bytes
 	coldLogin, save, read, up, running, login time.Duration
+}
+
+// spinMachine is the spin-machine a run's steps execute: the one given, or the release's.
+func (r *checkpointRun) spinMachine() string {
+	if r.cli != "" {
+		return r.cli
+	}
+	return filepath.Join(r.out, "bin", "spin-machine")
 }
 
 func (r *checkpointRun) overlay() string { return filepath.Join(r.dir, "overlay.qcow2") }
@@ -148,7 +176,7 @@ func (r *checkpointRun) launch(t *testing.T, qmp string, extra ...string) (exite
 	args := append([]string{"boot", "--release", r.out, "--disk", r.overlay(), "--memory", r.v.memory,
 		"--cpus", r.v.cpus, "--vsock-cid", fmt.Sprint(r.cid), "--qmp", qmp, "--console", "file:" + qmp + ".console",
 		"--append", "init=/sbin/init"}, extra...)
-	cmd := exec.Command(filepath.Join(r.out, "bin", "spin-machine"), args...)
+	cmd := exec.Command(r.spinMachine(), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("%s: launching the machine: %v", r.v.label, err)
@@ -203,7 +231,7 @@ func (r *checkpointRun) cold(t *testing.T) {
 	r.coldLogin = r.loggedIn(t, t0, "cold")
 
 	t0 = time.Now()
-	mustRun(t, filepath.Join(r.out, "bin", "spin-machine"), "save", "--qmp", qmp, "--to", r.state())
+	mustRun(t, r.spinMachine(), "save", "--qmp", qmp, "--to", r.state())
 	r.save = time.Since(t0)
 	select { // save quits QEMU, and the restore opens the same overlay
 	case <-exited:
@@ -215,7 +243,9 @@ func (r *checkpointRun) cold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.size = st.Size()
+	// What is on the disk and not the file's length: a mapped-ram state is as long as the
+	// machine's RAM at its ceilings, and what was never written is holes.
+	r.size = st.Sys().(*syscall.Stat_t).Blocks * 512
 }
 
 // restore resumes the saved state read from the disk, logs in, and kills the machine: a restored
@@ -228,7 +258,7 @@ func (r *checkpointRun) restore(t *testing.T) {
 	}
 	qmp := filepath.Join(r.socks, "restored.qmp")
 	t0 := time.Now()
-	_, stop := r.launch(t, qmp, "--incoming", "defer")
+	_, stop := r.launch(t, qmp, "--restore")
 	for {
 		if c, err := net.Dial("unix", qmp); err == nil {
 			_ = c.Close()
@@ -240,7 +270,11 @@ func (r *checkpointRun) restore(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	r.up = time.Since(t0)
-	mustRun(t, filepath.Join(r.out, "bin", "spin-machine"), "restore", "--qmp", qmp, "--from", r.state())
+	restore := []string{"restore", "--release", r.out, "--qmp", qmp, "--from", r.state(), "--disk", r.overlay()}
+	if r.fast {
+		restore = append(restore, "--fast")
+	}
+	mustRun(t, r.spinMachine(), restore...)
 	r.running = time.Since(t0)
 	r.login = r.loggedIn(t, t0, "restored")
 	stop()

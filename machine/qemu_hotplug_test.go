@@ -3,8 +3,12 @@
 package machine
 
 import (
+	"context"
 	"encoding/json"
+	"net"
+	"os"
 	"testing"
+	"time"
 )
 
 // TestADiskArrivesAtItsTargetOnTheHotplugController is the question the hotplug controller
@@ -28,7 +32,7 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 		BootCPUs:     2,
 		Memory:       Memory{SizeMB: 512},
 		Cmdline:      DefaultCmdline(),
-		Monitors:     []Monitor{{Socket: socket}},
+		Monitors:     []Monitor{{Socket: socket}, {Socket: socket + ".2"}},
 		HotplugDisks: 2,
 	}
 	args, err := spec.Args()
@@ -43,43 +47,67 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 		t.Logf("rewritten for the TCG binary: %s", r)
 	}
 
-	vm := startQEMU(t, qemu, append(args, "-S"))
+	vm := startQEMU(t, qemu, args)
 	q := dialQMP(t, socket, vm)
+	q.do("query-status", nil)
+	_ = q
+
+	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket + ".2", Net: "unix"})
+	if err != nil {
+		vm.fail(t, "dialling the second monitor", err)
+	}
+	m, err := Attach(conn)
+	if err != nil {
+		vm.fail(t, "attaching", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
 	image := qcow2In(t, qemu, t.TempDir(), "extension.qcow2", "")
-	q.do("blockdev-add", map[string]any{
-		"node-name": "ext0",
-		"driver":    "qcow2",
-		"read-only": true,
-		"file":      map[string]any{"driver": "file", "filename": image, "read-only": true},
-	})
-	q.do("device_add", HotplugDisk(1, "hd1", "ext0", "vsc-abc"))
-
-	// The disk exists, on the block node it was given and at the target it was given.
-	for property, want := range map[string]any{"drive": "ext0", "scsi-id": float64(1), "serial": "vsc-abc"} {
-		reply, err := q.try("qom-get", map[string]any{"path": "/machine/peripheral/hd1", "property": property})
+	disk := func(serial string) Disk {
+		f, err := os.Open(image) // #nosec G304 -- a file this test made
 		if err != nil {
-			t.Fatalf("the disk was accepted and has no %s: %v", property, err)
-		}
-		var got any
-		if err := json.Unmarshal(reply, &got); err != nil {
 			t.Fatal(err)
 		}
-		if got != want {
-			t.Errorf("the disk's %s is %v, want %v", property, got, want)
+		t.Cleanup(func() { _ = f.Close() })
+		return Disk{Serial: serial, Readonly: true, Images: []Image{{File: f, Format: "qcow2"}}}
+	}
+	for _, serial := range []string{"vsc-a", "vsc-b"} {
+		if err := m.AttachDisk(ctx, disk(serial)); err != nil {
+			t.Fatalf("attaching %s: %v", serial, err)
+		}
+	}
+
+	// Each disk exists at the first target free when it came, on its top node.
+	for target, serial := range []string{"vsc-a", "vsc-b"} {
+		for property, want := range map[string]any{"drive": TopNode(serial), "scsi-id": float64(target), "serial": serial} {
+			reply, err := q.try("qom-get", map[string]any{"path": "/machine/peripheral/" + hotDiskID(target), "property": property})
+			if err != nil {
+				t.Fatalf("the disk %s was accepted and has no %s: %v", serial, property, err)
+			}
+			var got any
+			if err := json.Unmarshal(reply, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Errorf("the disk %s's %s is %v, want %v", serial, property, got, want)
+			}
 		}
 	}
 
 	// A target is one disk's.
-	q.do("blockdev-add", map[string]any{
-		"node-name": "ext1",
-		"driver":    "qcow2",
-		"read-only": true,
-		"file":      map[string]any{"driver": "file", "filename": image, "read-only": true},
-	})
-	if _, err := q.try("device_add", HotplugDisk(1, "hd2", "ext1", "")); err == nil {
-		t.Error("a second disk was taken at a target that holds one")
-	} else {
-		t.Logf("the second disk at target 1 was refused, as it must be: %v", err)
+	if err := m.attachAt(ctx, 1, disk("vsc-c")); err == nil {
+		t.Error("a third disk was taken at a target that holds one")
+	}
+
+	// Detached, its target, its nodes and its descriptors are free for the next.
+	if err := m.DetachDisk(ctx, "vsc-a"); err != nil {
+		t.Fatalf("detaching: %v", err)
+	}
+	if err := m.AttachDisk(ctx, disk("vsc-a")); err != nil {
+		t.Fatalf("attaching a disk again after it was detached: %v", err)
+	}
+	if err := m.DetachDisk(ctx, "nothing"); err == nil {
+		t.Error("detaching a disk the machine never had succeeded")
 	}
 }

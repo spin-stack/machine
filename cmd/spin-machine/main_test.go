@@ -21,120 +21,6 @@ import (
 	"github.com/spin-stack/spin-machine/machine"
 )
 
-// A QMP conversation against a monitor that answers from a script: one reply per
-// command the client sends, each reply one or more lines, events included.
-//
-// Every row also asks whether the client let the monitor go. A monitor accepts one
-// client at a time, so a connection left open after a failed handshake is a monitor
-// the next command cannot reach.
-func TestQMP(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		replies []string
-		// silent is a monitor that accepted and never greets: one whose single
-		// connection is somebody else's.
-		silent bool
-		// do is what the client does once the handshake is through.
-		do      func(*qmpConn) error
-		wantErr string
-	}{{
-		// QEMU's refusal in its own words. It was printed as a Go map —
-		// "map[class:GenericError desc:...]" — at the moment somebody most needs to
-		// read it.
-		name: "a refusal names its class and what went wrong",
-		replies: []string{
-			`{"return": {}}`,
-			`{"error": {"class": "GenericError", "desc": "Bus 'scsi0.0' not found"}}`,
-		},
-		do: func(q *qmpConn) error {
-			return q.run("device_add", map[string]any{"id": "hd0"}, nil)
-		},
-		wantErr: "device_add: GenericError: Bus 'scsi0.0' not found",
-	}, {
-		// A DEVICE_DELETED that arrives before device_del's own reply is kept, or
-		// detach waits out its timeout for an event it already read.
-		name: "an event before the reply is not lost",
-		replies: []string{
-			`{"return": {}}`,
-			`{"event": "DEVICE_DELETED", "data": {"device": "hd0"}}` + "\n" + `{"return": {}}`,
-		},
-		do: func(q *qmpConn) error {
-			if err := q.run("device_del", map[string]any{"id": "hd0"}, nil); err != nil {
-				return err
-			}
-			return q.waitDeleted("hd0", time.Second)
-		},
-	}, {
-		name: "a return value is decoded",
-		replies: []string{
-			`{"return": {}}`,
-			`{"return": {"status": "failed", "error-desc": "No space left on device"}}`,
-		},
-		do: func(q *qmpConn) error {
-			var m struct {
-				Status    string `json:"status"`
-				ErrorDesc string `json:"error-desc"`
-			}
-			if err := q.run("query-migrate", nil, &m); err != nil {
-				return err
-			}
-			return errors.New(m.Status + ": " + m.ErrorDesc)
-		},
-		wantErr: "failed: No space left on device",
-	}, {
-		name:    "a refused handshake",
-		replies: []string{`{"error": {"class": "CommandNotFound", "desc": "not in this mode"}}`},
-		wantErr: "qmp_capabilities: CommandNotFound: not in this mode",
-	}, {
-		// A monitor serves one client and queues the next without a word. Waiting on
-		// its greeting without a deadline was a command that hung forever and said
-		// nothing.
-		name:    "a monitor that never greets",
-		silent:  true,
-		wantErr: "no greeting within",
-	}} {
-		t.Run(tc.name, func(t *testing.T) {
-			client, monitor := net.Pipe()
-			released := make(chan error, 1)
-			if tc.silent {
-				go func() {
-					// Holds the connection until the client lets it go.
-					_, err := io.Copy(io.Discard, monitor)
-					_ = monitor.Close()
-					released <- err
-				}()
-			} else {
-				go func() {
-					_, err := serve(monitor, tc.replies)
-					released <- err
-				}()
-			}
-
-			q, err := newQMP(client, 100*time.Millisecond)
-			if err == nil && tc.do != nil {
-				err = tc.do(q)
-			}
-			if q != nil {
-				_ = q.Close()
-			}
-			switch {
-			case tc.wantErr == "" && err != nil:
-				t.Fatal(err)
-			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
-				t.Fatalf("error %v, want one containing %q", err, tc.wantErr)
-			}
-			if err := <-released; err != nil {
-				t.Error(err)
-			}
-		})
-	}
-}
-
-type qmpRequest struct {
-	Execute   string         `json:"execute"`
-	Arguments map[string]any `json:"arguments"`
-}
-
 // serve is the scripted monitor: a greeting, then one reply per request read. It
 // returns what it was asked once the client has closed the connection, and an error
 // if the client is still holding it a second after the script ran out.
@@ -198,12 +84,14 @@ func TestHowACommandEnds(t *testing.T) {
 		},
 	}, {
 		// Refused before a monitor is dialled: the socket here does not exist, so an
-		// error about it would mean the target was never looked at.
-		name: "a target no machine has",
-		do: func() error {
-			return run([]string{"attach", "--qmp", "/nonexistent", "--disk", "d", "--target", "999"})
-		},
-		is: func(err error) bool { return err != nil && strings.Contains(err.Error(), "target 999") },
+		// error about it would mean the serial was never looked at.
+		name: "a detach that names no disk",
+		do:   func() error { return run([]string{"detach", "--qmp", "/nonexistent"}) },
+		is:   func(err error) bool { return err != nil && strings.Contains(err.Error(), "--disk-serial are required") },
+	}, {
+		name: "a held machine with no monitor to boot it through",
+		do:   func() error { return boot(machine.Spec{}, machineFlags{held: true}, nil) },
+		is:   func(err error) bool { return err != nil && strings.Contains(err.Error(), "none was given") },
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.do(); !tc.is(err) {
@@ -219,8 +107,10 @@ func TestHowACommandEnds(t *testing.T) {
 func TestBootBecomesQEMU(t *testing.T) {
 	if qemu := os.Getenv("SPIN_MACHINE_TEST_QEMU"); qemu != "" {
 		dir := filepath.Dir(qemu)
+		// Held, so that nothing is started beside QEMU to boot it.
 		err := boot(machine.Spec{QEMU: qemu, Kernel: qemu, Firmware: dir, BootCPUs: 1,
-			Memory: machine.Memory{SizeMB: 64}}, false)
+			Memory: machine.Memory{SizeMB: 64}, Monitors: []machine.Monitor{{Socket: "/q"}}},
+			machineFlags{held: true, qmp: "/q"}, nil)
 		// Reached only if the exec failed.
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(100)
@@ -248,4 +138,9 @@ func TestBootBecomesQEMU(t *testing.T) {
 	if got, want := strings.TrimSpace(string(pid)), strconv.Itoa(cmd.Process.Pid); got != want {
 		t.Errorf("QEMU ran as pid %s and spin-machine as %s: a child, not an exec", got, want)
 	}
+}
+
+type qmpRequest struct {
+	Execute   string         `json:"execute"`
+	Arguments map[string]any `json:"arguments"`
 }
