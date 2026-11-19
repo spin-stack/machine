@@ -46,7 +46,7 @@ on:
         required: false
         type: string
       kernel_run:
-        description: "A Kernel workflow run id whose vmlinux is compared against the release's (SPIN_KERNEL_B)"
+        description: "A Kernel workflow run id whose bzImage is compared against the release's (SPIN_KERNEL_B)"
         required: false
         type: string
       kernel_run_c:
@@ -133,7 +133,7 @@ jobs:
       - name: Unpack the release
         run: go tool task lab:unpack
 
-      # Another build to compare: a Kernel run's vmlinux (B, and C beside it) or a QEMU run's
+      # Another build to compare: a Kernel run's bzImage (B, and C beside it) or a QEMU run's
       # QEMU and firmware. qemu.yml and kernel.yml build any branch on dispatch.
       - name: Fetch the builds to compare
         if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != ''

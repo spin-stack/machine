@@ -20,7 +20,7 @@ vars:
 tasks:
 
   build:
-    desc: Build the guest kernel (vmlinux, PVH, stripped) into _output/.
+    desc: Build the guest kernel (bzImage, and vmlinux stripped) into _output/.
     cmds:
       - mkdir -p {{.OUTPUT_ABS}}
       - |
@@ -43,11 +43,21 @@ tasks:
     cmds:
       - |
         set -euo pipefail
+        b={{.OUTPUT_ABS}}/kernel/bzImage
+        test -f "$b" || { echo "no kernel at $b — run: task kernel:build" >&2; exit 1; }
+        # The bzImage is what the machine boots, and its decompressor is where KASLR picks a
+        # random base: its setup header has to say bzImage ("HdrS" at 0x202) and relocatable
+        # (relocatable_kernel at 0x234), or QEMU does not boot it as one and the kernel runs
+        # where it was linked. kernel/Dockerfile asserts the same before it hands the file over.
+        hdr() { od -An -j "$1" -N "$2" -t "$3" "$b" | tr -d ' '; }
+        test "$(hdr 514 4 c)" = HdrS || { echo "$b has no HdrS setup header — QEMU cannot boot it as a bzImage" >&2; exit 1; }
+        test "$(hdr 564 1 u1)" = 1 || { echo "$b is not relocatable — KASLR cannot move it" >&2; exit 1; }
+        echo "OK: $b, a relocatable bzImage, sha256 $(sha256sum "$b" | cut -c1-16)…"
         k={{.OUTPUT_ABS}}/kernel/vmlinux
-        test -f "$k" || { echo "no kernel at $k — run: task kernel:build" >&2; exit 1; }
-        # The PVH notes are the entry point: there is no bootloader and no UEFI here, and
-        # QEMU enters this ELF through pvh.bin using them. The build strips the symbol
-        # table, which is the one step that could plausibly take them with it.
+        test -f "$k" || { echo "no vmlinux at $k — run: task kernel:build" >&2; exit 1; }
+        # The same kernel as an ELF, entered through pvh.bin by its PVH notes when it is passed
+        # as --kernel. The build strips the symbol table, which is the one step that could
+        # plausibly take them with it.
         readelf -n "$k" 2>/dev/null | grep -qi xen || {
           echo "$k carries no Xen PVH notes — QEMU has no entry point into it" >&2; exit 1; }
         echo "OK: $k, PVH notes present, sha256 $(sha256sum "$k" | cut -c1-16)…"
@@ -59,6 +69,7 @@ tasks:
         set -euo pipefail
         {
           echo "kernel sha256: $(sha256sum {{.OUTPUT_ABS}}/kernel/vmlinux | cut -d' ' -f1)"
+          echo "bzImage sha256: $(sha256sum {{.OUTPUT_ABS}}/kernel/bzImage | cut -d' ' -f1)"
           echo "config sha256: $(sha256sum {{.OUTPUT_ABS}}/kernel/kernel-config | cut -d' ' -f1)"
         } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 

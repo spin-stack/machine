@@ -52,7 +52,7 @@ func untraceable(console string) string {
 	const how = "trace a kernel built without it: on a branch, take " +
 		"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY out of kernel/config-* and out of " +
 		"kernel/Dockerfile's check of it, build it (task kernel:build there, or the Kernel workflow), " +
-		"and run this with SPIN_KERNEL_B=<its vmlinux> and GRAPH_KERNEL=b - in the lab, kernel_run=<the run>"
+		"and run this with SPIN_KERNEL_B=<its bzImage> and GRAPH_KERNEL=b - in the lab, kernel_run=<the run>"
 	l := reLockdown.FindStringSubmatch(console)
 	f := reTracefs.FindStringSubmatch(console)
 	if l == nil || f == nil {

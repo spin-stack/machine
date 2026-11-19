@@ -47,10 +47,11 @@ import (
 //	SPIN_INITCALL_PROBE=1   run at all
 //	REPS=<n>                boots per variant (default 10)
 //	TOP=<n>                 how many initcalls to print (default 30)
-//	SPIN_KERNEL_B=<vmlinux> adds a variant booting this kernel instead of the release's,
+//	SPIN_KERNEL_B=<bzImage> adds a variant booting this kernel instead of the release's (a vmlinux
+//	                        is entered through PVH instead, which skips KASLR's decompressor),
 //	                        which is how a config change is compared without two runs on a
 //	                        host that is not the same host from one minute to the next
-//	SPIN_KERNEL_C=<vmlinux> a third kernel, interleaved with the other two
+//	SPIN_KERNEL_C=<bzImage> a third kernel, interleaved with the other two
 //	SPIN_APPEND_B=<params>  adds a variant with these kernel parameters, for the same reason
 //	CPUS=<n> MEMORY_MIB=<n> the machine's shape (default 2 and 2048)
 //	FLAGS=<flags>           spin-machine boot flags for every boot, e.g. the hotplug ceilings

@@ -247,6 +247,11 @@ func stageOf(what string) string {
 		return "initrd"
 	case key == "0x10" || key == "0x08": // kernel entry and size, read last before the jump
 		return "kernel handoff"
+	// A bzImage's setup address, size and data and its payload, which qboot copies out of
+	// fw_cfg itself (boot_from_fwcfg) between the kernel's size and the command line and initrd
+	// it reads last; a vmlinux's segments are copied by QEMU at reset instead, in QEMU's start.
+	case key == "0x16" || key == "0x17" || key == "0x18" || key == "0x11":
+		return "kernel load"
 	}
 	return ""
 }
@@ -389,7 +394,7 @@ func startWaits(evs []event, exec0 time.Time) map[string]float64 {
 // stageTable is the p50 of each step over the boots, in the order a boot takes them.
 func stageTable(runs []map[string]stage) string {
 	order := []string{"QEMU start", "firmware start", "PCI walk", "fw_cfg directory", "ACPI tables", "e820",
-		"SMBIOS", "command line", "initrd", "kernel handoff", "kernel and init"}
+		"SMBIOS", "command line", "initrd", "kernel handoff", "kernel load", "kernel and init"}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nbefore the kernel, p50 over %d traced boots (tracing inflates every step a little)\n\n", len(runs))
 	fmt.Fprintf(&b, "%-18s %10s %8s\n", "STEP", "MS", "EXITS")

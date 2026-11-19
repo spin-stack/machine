@@ -27,10 +27,10 @@ func spec(t *testing.T) Spec {
 	}
 	write(DefaultBIOS, "qboot")
 	write("bios-256k.bin", "seabios")
-	write("pvh.bin", "pvh")
+	write("linuxboot_dma.bin", "linuxboot")
 	return Spec{
 		QEMU:     write("qemu-system-x86_64", "qemu"),
-		Kernel:   write("vmlinux", "kernel"),
+		Kernel:   write("bzImage", "kernel"),
 		Firmware: dir,
 		BootCPUs: 2,
 		Memory:   Memory{SizeMB: 512},
@@ -545,9 +545,10 @@ func TestFingerprint(t *testing.T) {
 		// Another QEMU of the same versioned machine type is another emulator of one machine:
 		// QEMU's migration promise, which boot:compat holds a release to.
 		{name: "a new QEMU", same: true, b: func(t *testing.T, s *Spec) { rewrite(t, s.QEMU, "a different qemu") }},
-		// pvh.bin enters the kernel through fw_cfg at a boot and is no block a resume loads.
-		{name: "a new pvh.bin", same: true, b: func(t *testing.T, s *Spec) {
-			rewrite(t, filepath.Join(s.Firmware, "pvh.bin"), "a different pvh")
+		// The option ROM QEMU adds for the kernel reaches the guest through fw_cfg at a boot
+		// and is no block a resume loads.
+		{name: "a new linuxboot_dma.bin", same: true, b: func(t *testing.T, s *Spec) {
+			rewrite(t, filepath.Join(s.Firmware, "linuxboot_dma.bin"), "a different linuxboot")
 		}},
 		// The BIOS is the pc.bios block a saved machine carries whole, contents included: one
 		// of another length is refused, and a rebuild of the same length is the same machine.

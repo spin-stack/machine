@@ -20,6 +20,24 @@ if echo none > /sys/kernel/security/lockdown 2>/dev/null; then
 fi
 grep -q '\[confidentiality\]' /sys/kernel/security/lockdown
 
+# The kernel is at a random address (KASLR). It is the bzImage's decompressor that picks one: a
+# vmlinux entered through PVH skips it and runs where it was linked, ffffffff81000000, with
+# CONFIG_RANDOMIZE_BASE=y all the same - which the machine did until 2026-11-19. So the address
+# is asked of the kernel: _text, readable to root once kptr_restrict is 0, and not the linked
+# one. A randomized kernel lands on that one 2 MiB slot about once in 480 boots (the slots of a
+# 1 GiB kernel image space, less the first 16 MiB and the kernel's own size), so a failure here
+# that does not repeat on a second run is that, and one that does is KASLR off.
+if grep -qw nokaslr /proc/cmdline; then
+    echo "the kernel was booted with nokaslr: $(cat /proc/cmdline)"
+    exit 1
+fi
+echo 0 > /proc/sys/kernel/kptr_restrict
+text=$(awk '$3 == "_text" { print $1 }' /proc/kallsyms)
+echo "_text: ${text:-none}"
+test -n "$text"
+test "$text" != 0000000000000000
+test "$text" != ffffffff81000000
+
 # The boot asks for nothing lockdown refuses (#261). The archive's systemd loads its restrict-fs
 # BPF program at every start and lockdown refuses it the bpf_probe_read_kernel it uses; the
 # systemd image/systemd builds has no BPF framework. Which one PID 1 is, the installed systemd

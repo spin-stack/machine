@@ -93,7 +93,7 @@ release and pass the change to every boot, and compare:
 
 ```sh
 task report OUT=base.json
-task report OUT=exp.json FLAGS='--append mitigations=off'   # or --kernel /path/vmlinux
+task report OUT=exp.json FLAGS='--append mitigations=off'   # or --kernel /path/bzImage
 _output/bin/spin-machine compare --old base.json --new exp.json
 ```
 

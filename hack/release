@@ -76,13 +76,14 @@ done
 require "${OUTPUT_DIR}/e2fsprogs/mke2fs.conf" "${SHARE}/e2fsprogs/mke2fs.conf" "mke2fs.conf"
 
 echo "Firmware:"
-# pvh.bin is how QEMU enters a PVH ELF kernel and there is no other boot path here;
+# linuxboot_dma.bin is the option ROM QEMU adds for a bzImage, the kernel the machine boots, and
+# pvh.bin the one it adds for a vmlinux passed as --kernel; missing, QEMU prints a rom-open error;
 # efi-virtio.rom is the option ROM of the one NIC the build keeps, and a VM given a
 # virtio-net-pci without it does not start at all.
 # qboot.bin is the BIOS the machine boots with (machine.DefaultBIOS), built beside QEMU with
 # this repository's patches; the patches and qboot's licence ship beside it, as the kernel's
 # patches ship beside the kernel.
-for f in bios.bin bios-256k.bin pvh.bin kvmvapic.bin efi-virtio.rom qboot.bin; do
+for f in bios.bin bios-256k.bin linuxboot_dma.bin pvh.bin kvmvapic.bin efi-virtio.rom qboot.bin; do
   require "${OUTPUT_DIR}/qemu/${f}" "${SHARE}/qemu/${f}" "firmware ${f}"
 done
 # Every patch in the directory, not a list of them: mtrr.patch was added to the build and not to
@@ -99,7 +100,10 @@ for p in qemu/patches/*.patch; do
 done
 
 echo "Kernel:"
-require "${OUTPUT_DIR}/kernel/vmlinux" "${SHARE}/kernel/vmlinux" "the guest kernel" 0644
+# The bzImage is what the machine boots (its decompressor is where KASLR happens); vmlinux, the
+# same kernel as an ELF, is for --kernel, a debugger and kernel:verify.
+require "${OUTPUT_DIR}/kernel/bzImage" "${SHARE}/kernel/bzImage" "the guest kernel" 0644
+require "${OUTPUT_DIR}/kernel/vmlinux" "${SHARE}/kernel/vmlinux" "the guest kernel as an ELF" 0644
 require "${OUTPUT_DIR}/kernel/kernel-config" "${SHARE}/kernel/kernel-config" "the kernel config"
 # What the kernel compiled, one source or header a line (kernel/Dockerfile): what hack/kernelcves
 # judges a release's kernel against the kernel CNA's CVEs with.
@@ -199,7 +203,7 @@ e2fsprogs ${E2FSPROGS_VERSION}
             named there; their sources are the Alpine package sources for that release
 
 Linux ${KERNEL_VERSION}
-  binary:   usr/share/spin-stack/kernel/vmlinux
+  binary:   usr/share/spin-stack/kernel/bzImage and usr/share/spin-stack/kernel/vmlinux
   source:   ${KERNEL_URL}
   sha256:   ${KERNEL_SHA256}
   built by: kernel/Dockerfile, with the patches shipped alongside the binary in
@@ -267,7 +271,7 @@ sbom pins -name sources -version "${VERSION}" -out "${PARTS}/sources.cdx.json" \
   qemu qboot e2fsprogs kernel ubuntu systemd-source task git-lfs buildkit
 # The files themselves, by their hashes: the firmware is the QEMU tarball's own build of it.
 for f in "${SHARE}"/bin/qemu-system-x86_64 "${SHARE}"/bin/qemu-system-x86_64-tcg "${SHARE}"/bin/qemu-img \
-  "${SHARE}"/qemu/bios.bin "${SHARE}"/qemu/bios-256k.bin "${SHARE}"/qemu/pvh.bin "${SHARE}"/qemu/kvmvapic.bin "${SHARE}"/qemu/efi-virtio.rom; do
+  "${SHARE}"/qemu/bios.bin "${SHARE}"/qemu/bios-256k.bin "${SHARE}"/qemu/linuxboot_dma.bin "${SHARE}"/qemu/pvh.bin "${SHARE}"/qemu/kvmvapic.bin "${SHARE}"/qemu/efi-virtio.rom; do
   sbom file -name "$(basename "$f")" -version "${QEMU_VERSION}" -out "${PARTS}/$(basename "$f").cdx.json" "$f"
 done
 for f in mkfs.ext4 debugfs e2fsck dumpe2fs; do
@@ -275,6 +279,7 @@ for f in mkfs.ext4 debugfs e2fsck dumpe2fs; do
 done
 sbom file -name qboot.bin -version "${QBOOT_COMMIT}" -out "${PARTS}/qboot.bin.cdx.json" "${SHARE}/qemu/qboot.bin"
 sbom file -name vmlinux -version "${KERNEL_VERSION}" -out "${PARTS}/vmlinux.cdx.json" "${SHARE}/kernel/vmlinux"
+sbom file -name bzImage -version "${KERNEL_VERSION}" -out "${PARTS}/bzImage.cdx.json" "${SHARE}/kernel/bzImage"
 sbom file -name rootfs.qcow2 -version "${VERSION}" -out "${PARTS}/rootfs.qcow2.cdx.json" "${SHARE}/image/rootfs.qcow2"
 # The machine, as the manifest above describes it; inside the tarball, where whatever lays the
 # release keeps it.

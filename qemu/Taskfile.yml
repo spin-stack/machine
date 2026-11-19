@@ -51,12 +51,13 @@ tasks:
         # qemu-img is not a convenience: a container's writable layer is a qcow2 overlay
         # created by running it, so a release with the emulator and without it cannot give
         # a container anywhere to write.
-        # pvh.bin is how -kernel enters a PVH ELF kernel, which is the only boot path here.
+        # linuxboot_dma.bin is the option ROM QEMU adds when -kernel is a bzImage, the kernel
+        # the machine boots, and pvh.bin the one it adds for a vmlinux (--kernel).
         # efi-virtio.rom is the option ROM of the one NIC this build keeps; a VM given a
         # virtio-net-pci without it does not start.
         # qboot.bin is the BIOS the machine boots with (machine.DefaultBIOS), built beside QEMU
         # from qemu/qboot/; 64 KiB is the ROM window it is linked for.
-        for f in bios.bin bios-256k.bin pvh.bin kvmvapic.bin efi-virtio.rom qboot.bin; do
+        for f in bios.bin bios-256k.bin linuxboot_dma.bin pvh.bin kvmvapic.bin efi-virtio.rom qboot.bin; do
           test -f {{.OUTPUT_ABS}}/qemu/$f || {
             echo "missing firmware $f — run: task qemu:build" >&2; exit 1; }
         done
@@ -77,7 +78,7 @@ tasks:
         {{.OUTPUT_ABS}}/bin/qemu-system-x86_64-tcg -accel help | grep -qx tcg || {
           echo "qemu-system-x86_64-tcg cannot emulate, so a runner without /dev/kvm has nothing to boot with" >&2
           exit 1; }
-        echo "OK: both qemu-system binaries run here, qemu-img runs, six firmware files,"
+        echo "OK: both qemu-system binaries run here, qemu-img runs, seven firmware files,"
         echo "    and only the CI binary can emulate"
       # The versioned q35 every checkpoint is saved on (machine.MachineType), offered and not
       # deprecated by both binaries; a newer one is said here and in a release's notes, and is

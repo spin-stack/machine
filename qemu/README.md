@@ -25,7 +25,10 @@ is a qcow2 overlay created by running it, so a release with the emulator and wit
 cannot give a container anywhere to write. `qemu-nbd` comes out of the same flag and is
 deliberately not shipped — it exports a disk over NBD, which nothing here does.
 
-**PVH, not BIOS.** The kernel is an ELF `vmlinux` with Xen PVH notes and QEMU enters it
-through `pvh.bin`. There is no bootloader and no UEFI: the same guest under UEFI + Secure
-Boot was measured at +356 ms and rejected. The BIOS is qboot, patched and built here, with
+**A bzImage, through qboot.** QEMU puts the kernel's setup and payload in fw_cfg and qboot
+loads and enters them itself; the bzImage's decompressor is where KASLR picks the kernel's
+random base. Until 2026-11-19 the machine entered an ELF `vmlinux` through its Xen PVH notes
+and `pvh.bin`, which skips that decompressor and left the kernel at the same address on every
+boot; `pvh.bin` is still shipped, for `--kernel vmlinux`. There is no bootloader and no UEFI:
+the same guest under UEFI + Secure Boot was measured at +356 ms and rejected. The BIOS is qboot, patched and built here, with
 SeaBIOS shipped as the fallback; see [qboot/README.md](qboot/README.md).

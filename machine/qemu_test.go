@@ -200,7 +200,8 @@ func qemuTCG(t *testing.T) (qemu, firmware string) {
 }
 
 // pvhStub writes a kernel QEMU will load and never execute: an ELF with a PVH
-// entry note, which is the only way into this machine.
+// entry note, the smallest file QEMU accepts as -kernel (the machine boots a
+// bzImage, which a stub would have to carry a whole setup header to imitate).
 //
 // A stub and not the kernel from _output/kernel, deliberately. What is under
 // test is the command line, and requiring the real kernel would tie this check

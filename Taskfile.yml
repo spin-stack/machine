@@ -553,7 +553,7 @@ tasks:
       - |
         set -euo pipefail
         out={{.OUTPUT_ABS}}
-        for f in "$out/bin/spin-machine" "$out/bin/qemu-system-x86_64" "$out/kernel/vmlinux" \
+        for f in "$out/bin/spin-machine" "$out/bin/qemu-system-x86_64" "$out/kernel/bzImage" \
                  "$out/image/rootfs.qcow2"; do
           test -f "$f" || { echo "missing $f — run: task build" >&2; exit 1; }
         done
@@ -705,17 +705,21 @@ tasks:
         }
         b=$PWD/_output/lab/release-b
         tree_b() { [ -d "$b" ] || cp -as "$SPIN_MACHINE_OUTPUT" "$b"; }
+        # The bzImage, which is what the machine boots: its vmlinux would be entered through PVH,
+        # without the decompressor KASLR runs in, and compare two ways in rather than two
+        # kernels. A kernel run from before 2026-11-19 uploaded none.
         if [ -n "$KERNEL_RUN" ]; then
-          k=$(one _output/lab/kernel-b '*/vmlinux')
+          k=$(one _output/lab/kernel-b '*/bzImage')
           if [ "$VARIANT" = instead ]; then
-            tree_b; rm -f "$b/kernel/vmlinux"; install -m 0644 "$k" "$b/kernel/vmlinux"
+            tree_b; rm -f "$b/kernel/bzImage" "$b/kernel/vmlinux"
+            install -m 0644 "$k" "$b/kernel/bzImage"; install -m 0644 "$(dirname "$k")/vmlinux" "$b/kernel/vmlinux"
           else
             echo "SPIN_KERNEL_B=$k" >> "$env"
           fi
         fi
         if [ -n "$KERNEL_RUN_C" ]; then
           [ "$VARIANT" = beside ] || { echo "::error::kernel_run_c is a third kernel beside the release, not one to boot instead"; exit 1; }
-          echo "SPIN_KERNEL_C=$(one _output/lab/kernel-c '*/vmlinux')" >> "$env"
+          echo "SPIN_KERNEL_C=$(one _output/lab/kernel-c '*/bzImage')" >> "$env"
         fi
         if [ -n "$QEMU_RUN" ]; then
           q=$(one _output/lab/qemu-b '*/bin/qemu-system-x86_64')

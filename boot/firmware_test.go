@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/spin-machine/boot"
+	"github.com/spin-stack/spin-machine/machine"
 )
 
 // Whether the machine's firmware runs it, against a diagnostic initrd: qboot boots, publishes
@@ -48,6 +49,12 @@ func TestFirmwareRuns(t *testing.T) {
 		t.Skip("set SPIN_FIRMWARE_PROBE=1: this boots dozens of VMs")
 	}
 	out := releaseDir(t)
+	// The kernel the machine boots: SeaBIOS enters a bzImage through linuxboot_dma.bin and a
+	// vmlinux through pvh.bin, and qboot reads either out of fw_cfg itself.
+	rel, err := machine.OpenRelease(out)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	bios := map[string]string{
 		"seabios": filepath.Join(out, "qemu", "bios-256k.bin"),
@@ -56,7 +63,7 @@ func TestFirmwareRuns(t *testing.T) {
 	p := &probe{
 		out:      out,
 		firmware: filepath.Join(out, "qemu"),
-		kernel:   filepath.Join(out, "kernel", "vmlinux"),
+		kernel:   rel.Kernel(),
 		initrd:   probeInitrd(t),
 		bios:     bios,
 		dir:      t.TempDir(),
