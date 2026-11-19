@@ -131,4 +131,50 @@ lab's and the report's run what the verbs built.
 
 ## Measuring
 
-The probes, the lab and the report: `boot/`, `lab.yml` and `report.yml`.
+`spin-machine-dev lab` is how this machine is measured: here, where a laptop finds leads, and on the
+bench fleet, where a number decides something (AGENTS.md, "The goal"). Its code is
+`internal/lab`; each verb's `--help` says what it takes.
+
+| noun | is | where |
+|---|---|---|
+| tree | a whole machine - QEMU and its firmware, a kernel, the image, a spin-machine - laid out as a release, with a `manifest.json` naming where each part came from and the edits made to every boot's overlay | `_output/trees/NAME/` |
+| probe | a measurement of a tree: it boots it, records named numbers for each repetition, and says what it lost | `internal/lab`, one file each |
+| experiment | a probe over trees, repetitions of each, interleaved, written as `result.json`: every sample, the options, each tree's manifest, the host | `_output/lab/results/`, or a lab run's artifact |
+
+A tree starts from a release (`--from release`, `--from release:v20261119.01`) or a directory laid
+out as one (`--from _output`), and replaces what is asked for: `--kernel run:N` (a Kernel workflow
+run's bzImage; a run from before 2026-11-19 has none and is refused by name), `--qemu run:N`,
+`--spin-machine here` (built from this checkout), `--append ARGS`, `--edit lane` (the first login's
+lane as this checkout builds it, put into a published release's overlays), `--systemd PATCH`
+(image/systemd/experiments). Nothing is written through the tree it starts from: parts are links,
+and a replaced part is a copy. A tree whose manifest is missing, names no source for a part, or
+does not match the file is refused before anything boots - a probe is handed trees, never a path
+in an environment variable it may not read.
+
+```
+spin-machine-dev lab tree NAME [tree flags]              make _output/trees/NAME
+spin-machine-dev lab run PROBE [TREE...] [--tree NAME=SPEC]... [--reps N] [--opt K=V]...
+spin-machine-dev lab show RUN_ID|DIR                     a lab run's result.json, downloaded, as its table
+spin-machine-dev lab dispatch PROBE --tree NAME=SPEC... [--reps N] [--opt K=V]... [--host bench|bench-metal]
+spin-machine-dev lab check TARGET [--tree NAME=SPEC]     boot:TARGET on one tree
+```
+
+The probes: `ssh-first` and `restore-first` are the goal's two numbers, `prestart` a QEMU started
+ahead against today's, `initcalls` the kernel's boot by initcall. Every probe takes `cpus`,
+`memory` and `flags` (spin-machine boot flags, e.g. the ceilings a workspace boots with), and its
+own: `restore-first` `fast=true`, `initcalls` `top=N`. A name a probe does not take is refused.
+
+`lab dispatch` starts lab.yml once no other lab run is queued or running - the bench fleet
+measures one at a time, and two runs side by side measure each other - waits for it, and prints
+its result. It is the way to compare: `host=bench` (nested, the default) unless the question is
+nested against metal. `lab run` exits 1 when a measurement was lost (a machine that never
+answered, counted in the table's LOST) and 2 when the experiment could not run.
+
+What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
+`firmware`, `roms`, `compat`, `hotadd`, `logind`, `lockdown`, and two probes not yet ported,
+`firmware-stages` and `waits`. `lab check TARGET` runs one on any tree, here or as lab.yml's
+`check:TARGET`.
+
+lab.yml is one step, `task lab:ci`: it makes the trees its `trees` input names
+(`NAME=SPEC; NAME=SPEC`), runs the probe, puts the table on the run's summary and keeps
+`result.json` as the artifact `lab-RUN_ID`, which `lab show RUN_ID` reads.

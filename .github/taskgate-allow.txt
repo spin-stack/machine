@@ -7,10 +7,6 @@
 # Every line here was over the limit when go-tools set it, and is work owed: what decides goes to a
 # spin-machine-dev verb with a test, what drives tools in order stays shell once it is short.
 Taskfile.yml:coverage  # formats the coverage profile for the run's summary: Go
-Taskfile.yml:lab:unpack  # fetches and unpacks a release for the lab: shell, once shorter
-Taskfile.yml:lab:place  # lays the lab's tree out from a release: Go, beside hack/machine place
-Taskfile.yml:lab:vars  # decides the lab's variables from its inputs: Go
-Taskfile.yml:lab:about  # reports the run and its host on the summary: Go, with report:runner
 Taskfile.yml:report:runner  # reports what the host can measure: Go
 Taskfile.yml:report:compare  # compares two runs' numbers: Go
 boot/Taskfile.yml:previous  # fetches the previous release for boot:compat: shell, once shorter

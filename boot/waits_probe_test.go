@@ -560,3 +560,36 @@ grep -q 'spin1' "$MNT/usr/lib/systemd/libsystemd-shared-"*.so 2>/dev/null || str
 `
 	return v
 }
+
+// guestRAM is the resident memory, in MB, of pid's mapping that is the guest's RAM - the one
+// anonymous mapping of exactly the machine's memory, sizeMB - and how much of it the host backs
+// with transparent huge pages.
+func guestRAM(pid, sizeMB int) (resident, huge float64, err error) {
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/smaps", pid))
+	if err != nil {
+		return 0, 0, err
+	}
+	kb := func(s string) float64 { n, _ := strconv.ParseFloat(s, 64); return n / 1024 }
+	var inRAM, found bool
+	for l := range strings.Lines(string(raw)) {
+		f := strings.Fields(l)
+		switch {
+		case len(f) == 0:
+		case strings.Contains(f[0], "-") && !strings.HasSuffix(f[0], ":"):
+			if inRAM && found {
+				return resident, huge, nil
+			}
+			inRAM = false
+		case f[0] == "Size:" && len(f) > 1:
+			inRAM = kb(f[1]) == float64(sizeMB)
+		case f[0] == "Rss:" && inRAM && len(f) > 1:
+			resident, found = kb(f[1]), true
+		case f[0] == "AnonHugePages:" && inRAM && len(f) > 1:
+			huge = kb(f[1])
+		}
+	}
+	if !found {
+		return 0, 0, fmt.Errorf("/proc/%d/smaps has no mapping of %d MB", pid, sizeMB)
+	}
+	return resident, huge, nil
+}

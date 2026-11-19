@@ -1,13 +1,13 @@
-# The probes: what a boot of this machine costs and where, and whether its firmware runs it.
-# They boot VMs, need /dev/kvm and a built release, and print what they found; `go test ./...`
-# skips every one of them unless its SPIN_* switch is set, which is what these targets do.
+# The checks of a booted machine - whether its firmware runs it, a checkpoint of the release before
+# resumes, lockdown, logind, a core hot-added - and the probes still Go tests: firmware-stages and
+# waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
+# unless its SPIN_* switch is set, which is what these targets do. Each boots the release tree
+# OUTPUT_DIR names; `spin-machine-dev lab check TARGET --tree NAME=SPEC` runs one on any tree, on the
+# bench fleet too (lab.yml's check:TARGET).
 #
-# Each one's question, and what it answered, is in its test file's doc comment. They run on
-# the lab runner through .github/workflows/lab.yml, against a published release and optionally
-# a kernel or QEMU built from a branch; a laptop is not a quiet enough host to compare boots.
-#
-# Every probe boots the release tree OUTPUT_DIR names (the lab points it at the release it
-# unpacked), with the spin-machine this checkout builds.
+# The goal's numbers and the kernel's breakdown are spin-machine-dev lab's probes (ssh-first,
+# restore-first, prestart, initcalls; docs/cli.md); the targets of those names run them over
+# OUTPUT_DIR, here, where a laptop finds leads and decides nothing.
 
 version: '3'
 
@@ -98,19 +98,6 @@ tasks:
     cmds:
       - SPIN_COMPAT_PREVIOUS="$(cat {{.OUTPUT_ABS}}/compat/previous)" go test ./boot/ -run '^TestACheckpointOfTheReleaseBeforeResumesHere$' -count=1 -v -timeout 10m
 
-  page-cache:
-    desc: >-
-      The page caches a machine has: a guest writing, reading and removing a file, with QEMU's
-      memory and the overlay's and the base image's pages in the host's cache at each step, and
-      what the host's copy is worth to a guest reading a file and 8 KiB files back, the disk as
-      it is against --disk-direct-over-backing; and memory.reclaim asked for a file read once
-      beside a working set read twice. Needs /dev/kvm, a built release
-      and sudo. REPS= boots per variant, FILE_MB= the guest's file, CACHE_TIMEOUT_S= a boot's
-      limit.
-    deps: [':tools']
-    cmds:
-      - SPIN_PAGE_CACHE=1 go test ./boot/ -run '^TestPageCache$' -count=1 -v -timeout 60m
-
   logind:
     desc: >-
       Check first SSH login, reconnect, user services and logout in a disposable guest.
@@ -143,13 +130,10 @@ tasks:
 
   initcalls:
     desc: >-
-      Where the kernel's own boot goes, initcall by initcall, as a p50 over REPS boots.
-      Needs KVM, a built release and sudo. It boots with the console silent and reads the
-      ring buffer afterwards, because initcall_debug on a serial console puts a VM exit
-      inside every interval it reports. TOP= how many rows, REPS= how many boots.
-    deps: [':tools']
+      Where the kernel's own boot goes, initcall by initcall, over OUTPUT_DIR: spin-machine-dev lab
+      run initcalls (its --help). Needs KVM and sudo. REPS= boots, TOP= rows.
     cmds:
-      - SPIN_INITCALL_PROBE=1 go test ./boot/ -run TestKernelInitcalls -count=1 -v -timeout 30m
+      - go run ./cmd/spin-machine-dev lab run initcalls --tree 'here=--from {{.OUTPUT_ABS}}' --reps {{.REPS | default 10}} --opt top={{.TOP | default 30}}
 
   waits:
     desc: >-
@@ -165,62 +149,27 @@ tasks:
 
   ssh-first:
     desc: >-
-      When a workspace can first be logged into from the host over SSH, through the machine's
-      vsock: sshd accepting, the first login done, a second login's cost, and the console
-      prompt beside them, logged in with golang.org/x/crypto/ssh over ML-KEM, the one key
-      exchange the image's sshd accepts. Needs KVM, /dev/vhost-vsock (task vsock), a built
-      release and sudo. REPS= boots.
-    deps: [':tools']
+      The goal's first number over OUTPUT_DIR, the lane as this checkout builds it in its image:
+      spin-machine-dev lab run ssh-first (its --help). Needs KVM, /dev/vhost-vsock (task vsock)
+      and sudo. REPS= boots.
     cmds:
-      - SPIN_SSH_FIRST=1 go test ./boot/ -run '^TestFirstSSH$' -count=1 -v -timeout 30m
-
-  login-lane:
-    desc: >-
-      Where the first SSH login's own time goes between sshd's accept and the command running, on
-      the guest's clock: authenticated, PAM's session open, logind's new session, the scope active,
-      the command, for each of boot:ssh-first's rows. Needs KVM, /dev/vhost-vsock (task vsock), a
-      built release and sudo. REPS= boots.
-    deps: [':tools']
-    cmds:
-      - SPIN_LOGIN_LANE=1 go test ./boot/ -run '^TestLoginLane$' -count=1 -v -timeout 60m
-
-  density:
-    desc: >-
-      What one more idle workspace costs its host, kernel included: the host's meminfo and slabinfo
-      before and after N machines booted, logged into and left idle SETTLE seconds, per machine, and
-      each QEMU's share of what it maps. Needs KVM, /dev/vhost-vsock (task vsock), a built release
-      and sudo. N= machines (default 8), SETTLE= seconds (default 30).
-    deps: [':tools']
-    cmds:
-      - SPIN_DENSITY=1 go test ./boot/ -run '^TestDensity$' -count=1 -v -timeout 30m
+      - go run ./cmd/spin-machine-dev lab run ssh-first --tree 'here=--from {{.OUTPUT_ABS}} --edit lane' --reps {{.REPS | default 10}}
 
   restore-first:
     desc: >-
-      The goal's second number: a checkpoint restored to the first SSH login over vsock, beside
-      the same machine booted cold, for each of boot:ssh-first's rows. Every cold boot runs and is
-      saved before any restore, and each state is read from the disk, not the page cache. Needs
-      KVM, /dev/vhost-vsock (task vsock), a built release, sudo and a TMPDIR on a disk. REPS=
-      repetitions. SPIN_RESTORE_FAST=1 adds the fast-load rows, which need userfaultfd for the
-      user QEMU runs as: the target turns on vm.unprivileged_userfaultfd for them, which is why
-      they belong on a throwaway host.
-    deps: [':tools']
+      The goal's second number over OUTPUT_DIR, this checkout's spin-machine and lane:
+      spin-machine-dev lab run restore-first (its --help). Needs KVM, /dev/vhost-vsock (task vsock),
+      sudo and a TMPDIR on a disk. REPS= repetitions.
     cmds:
-      - |
-        if [ -n "${SPIN_RESTORE_FAST:-}" ] && [ "$(cat /proc/sys/vm/unprivileged_userfaultfd)" != 1 ]; then
-          sudo sysctl -q -w vm.unprivileged_userfaultfd=1
-        fi
-      - SPIN_RESTORE_FIRST=1 go test ./boot/ -run '^TestRestoreFirstSSH$' -count=1 -v -timeout 60m
+      - go run ./cmd/spin-machine-dev lab run restore-first --tree 'here=--from {{.OUTPUT_ABS}} --spin-machine here --edit lane' --reps {{.REPS | default 10}}
 
   prestart:
     desc: >-
-      Whether a QEMU started ahead of the workspace (boot --held or --restore: held, its disk's
-      place empty) moves the goal's numbers: a cold boot against one started ahead and given its
-      disk by `spin-machine start`, and a restore against one into a machine started ahead, each
-      pair interleaved, to the first SSH login over vsock. Needs KVM, /dev/vhost-vsock (task
-      vsock), a built release, sudo and a TMPDIR on a disk. REPS= repetitions.
-    deps: [':tools']
+      A QEMU started ahead against today's, booted and restored, over OUTPUT_DIR:
+      spin-machine-dev lab run prestart (its --help). Needs KVM, /dev/vhost-vsock (task vsock),
+      sudo and a TMPDIR on a disk. REPS= repetitions.
     cmds:
-      - SPIN_PRESTART=1 go test ./boot/ -run '^TestPrestart$' -count=1 -v -timeout 60m
+      - go run ./cmd/spin-machine-dev lab run prestart --tree 'here=--from {{.OUTPUT_ABS}} --spin-machine here --edit lane' --reps {{.REPS | default 10}}
 
   firmware-stages:
     desc: >-

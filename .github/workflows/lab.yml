@@ -1,75 +1,51 @@
 name: Lab
 
-# One of the boot/ experiments, run on the bench fleet (spin-stack/ci, one instance type) against
-# a published release: the same Task targets a developer runs, on a host that is doing nothing else.
+# A probe of spin-machine-dev lab, run on the bench fleet (spin-stack/ci, one instance type) over
+# the trees the dispatch names: `spin-machine-dev lab dispatch` is how a person starts one, and
+# `lab show RUN_ID` reads what it found (docs/cli.md).
 #
 # A workflow and not a laptop because a boot time is only worth comparing on a quiet host, and a
-# developer's machine is not one: three runs of one kernel on one read 59.5, 96.8 and 167.7 ms
-# (boot/bench_test.go), and 61 ms against 105 ms minutes apart on 2026-09-29, a hybrid CPU putting
-# the vCPU on an efficiency core. The runner is the host report.yml measures releases on, so what
-# an experiment finds compares with the releases' own reports.
+# developer's machine is not one: three runs of one kernel on one read 59.5, 96.8 and 167.7 ms,
+# and 61 ms against 105 ms minutes apart on 2026-09-29, a hybrid CPU putting the vCPU on an
+# efficiency core. The runner is the host report.yml measures releases on.
 #
-# An experiment is a release plus, optionally, a build of a branch: kernel_run (and kernel_run_c)
-# names a Kernel workflow run, qemu_run a QEMU one, and `variant` says whether the build boots
-# beside the release's, interleaved - the only comparison this runner's minute-to-minute drift
-# leaves honest - or instead of it, to check what it breaks. The probes that take a B say so in
-# their test file.
-#
-# vars is `KEY=VALUE; KEY=VALUE`, each exported to the target: REPS, TOP, ONLY, FLAGS and the
-# SPIN_* switches the target's test documents. A target that takes FLAGS (report, the firmware
-# and initcall probes) adds them to every boot: `FLAGS=--bios bios-256k.bin` boots SeaBIOS, the
-# fallback firmware. Only those
-# names are taken, so a typo fails here rather than being ignored by the target. It is not a
-# sandbox: Task templates some of them into shell commands, and whoever can dispatch this can
-# push code that runs on the same runner.
+# trees is `NAME=SPEC; NAME=SPEC`, each SPEC lab tree's flags - a release, a Kernel or QEMU run's
+# build in it, this checkout's spin-machine, an edit of every overlay - made on the runner, every
+# part of each named in its manifest and in the result. The probe boots them interleaved, the only
+# comparison this runner's minute-to-minute drift leaves honest. check:TARGET runs boot:TARGET, a
+# pass/fail check or a probe still a Go test, on the first tree instead. It is not a sandbox:
+# whoever can dispatch this can push code that runs on the same runner.
 
 on:
   workflow_dispatch:
     inputs:
-      experiment:
-        description: "The boot/ target to run"
+      probe:
+        description: "A spin-machine-dev lab probe, or check:TARGET for boot:TARGET on the first tree"
         required: true
         type: choice
         options:
-          - boot:initcalls
-          - boot:waits
-          - boot:ssh-first
-          - boot:restore-first
-          - boot:prestart
-          - boot:login-lane
-          - boot:density
-          - boot:page-cache
-          - boot:firmware
-          - boot:firmware-stages
-          - report
-      release:
-        description: "The release to boot, e.g. v20260929.01 (default: the newest)"
+          - ssh-first
+          - restore-first
+          - prestart
+          - initcalls
+          - check:firmware
+          - check:firmware-stages
+          - check:waits
+          - check:roms
+      trees:
+        description: "NAME=SPEC; NAME=SPEC - lab tree's flags, e.g. release=--from release; kaslr=--kernel run:44584704610"
+        required: true
+        type: string
+        default: "release=--from release"
+      reps:
+        description: "Repetitions of each tree"
         required: false
         type: string
-      kernel_run:
-        description: "A Kernel workflow run id whose bzImage is compared against the release's (SPIN_KERNEL_B)"
+        default: "20"
+      options:
+        description: "The probe's options, NAME=VALUE; NAME=VALUE, e.g. cpus=1; memory=512; flags=--max-cpus 16 --max-memory 8192 --hotplug-disks 1"
         required: false
         type: string
-      kernel_run_c:
-        description: "A second Kernel workflow run id, compared as SPIN_KERNEL_C (boot:initcalls)"
-        required: false
-        type: string
-      qemu_run:
-        description: "A QEMU workflow run id whose QEMU and firmware are compared against the release's (SPIN_MACHINE_OUTPUT_B)"
-        required: false
-        type: string
-      systemd_experiment:
-        description: "EXPERIMENT: an image/systemd/experiments patch to build systemd with, on this runner, into each boot's overlay (SPIN_SYSTEMD_DEBS)"
-        required: false
-        type: string
-      variant:
-        description: "With a build to compare: boot it beside the release's, interleaved, or instead of it on every boot"
-        required: false
-        type: choice
-        default: beside
-        options:
-          - beside
-          - instead
       host:
         description: "Where it runs: bench (nested KVM, the default) or bench-metal (bare metal, the same CPU), spin-stack/ci's two bench fleets"
         required: true
@@ -78,10 +54,6 @@ on:
         options:
           - bench
           - bench-metal
-      vars:
-        description: "KEY=VALUE; KEY=VALUE for the target, e.g. REPS=20; TOP=40"
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -89,7 +61,7 @@ permissions:
 
 # No concurrency group: the bench fleet runs one job at a time and queues the rest, and a group
 # keeps one run pending and cancels the one before it, which lost two of three experiments
-# queued back to back.
+# queued back to back. lab dispatch waits for the run before its own instead.
 
 # As ci.yml: go-tools' downloads ask GitHub with it, which sheds anonymous ones first.
 env:
@@ -100,18 +72,14 @@ jobs:
     # A number compares only with one taken on the same kind of host, so the host is named.
     runs-on: runs-on/fleet=${{ inputs.host }}/env=production
     # bench-metal is a c8i.metal-48xl, on-demand when spot has none (spin-stack/ci#20): its bound
-    # is what one run may cost. A lab run there takes 1-10 minutes; boot:report, the longest, has
-    # not run on it. 360 elsewhere, where an hour of a c8i.4xlarge's spot is cents.
+    # is what one run may cost. 360 elsewhere, where an hour of a c8i.4xlarge's spot is cents.
     timeout-minutes: ${{ inputs.host == 'bench-metal' && 60 || 360 }}
     env:
       GH_TOKEN: ${{ github.token }}
-      EXPERIMENT: ${{ inputs.experiment }}
-      RELEASE: ${{ inputs.release }}
-      KERNEL_RUN: ${{ inputs.kernel_run }}
-      KERNEL_RUN_C: ${{ inputs.kernel_run_c }}
-      QEMU_RUN: ${{ inputs.qemu_run }}
-      SYSTEMD_EXPERIMENT: ${{ inputs.systemd_experiment }}
-      VARS: ${{ inputs.vars }}
+      PROBE: ${{ inputs.probe }}
+      TREES: ${{ inputs.trees }}
+      REPS: ${{ inputs.reps }}
+      OPTIONS: ${{ inputs.options }}
       # GitHub reads a workflow command (::error::) only at the start of a line, where Task's
       # prefixed output puts the task's name.
       TASK_OUTPUT: interleaved
@@ -131,49 +99,14 @@ jobs:
       - name: Load vhost_vsock
         run: go tool task vsock
 
-      - name: Unpack the release
-        run: go tool task lab:unpack
-
-      # Another build to compare: a Kernel run's bzImage (B, and C beside it) or a QEMU run's
-      # QEMU and firmware. qemu.yml and kernel.yml build any branch on dispatch.
-      - name: Fetch the builds to compare
-        if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != ''
-        run: go tool task lab:fetch
-
-      # beside: the build is booted interleaved with the release's own - SPIN_KERNEL_B and
-      # SPIN_KERNEL_C for a kernel, and for QEMU a second release tree, SPIN_MACHINE_OUTPUT_B,
-      # with the rest linked - the only comparison this runner's drift leaves honest.
-      # instead: every boot is on the build, for report and boot:firmware, which check what a
-      # change breaks rather than what it costs: the tree the experiment boots is the release
-      # with the build in it.
-      - name: Put the build where the experiment boots it
-        if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != '' || inputs.systemd_experiment != ''
-        env:
-          VARIANT: ${{ inputs.variant }}
-        run: go tool task lab:place
-
-      - name: Take the variables
-        run: go tool task lab:vars
-
-      - name: What this run is
-        env:
-          VARIANT: ${{ inputs.variant }}
-        run: go tool task lab:about
-
-      # report writes its JSON where OUT says; the others print their tables through t.Log.
+      # Makes the trees, runs the probe, writes result.json and puts the table on the summary.
       - name: Run the experiment
-        run: go tool task lab:run
+        run: go tool task lab:ci
 
-      - name: What it found
-        if: always()
-        run: go tool task lab:found
-
-      - name: Keep the log
+      - name: Keep the result
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lab-${{ github.run_id }}
-          path: |
-            _output/lab/lab.log
-            _output/lab/report.json
+          path: _output/lab/result/result.json
           if-no-files-found: ignore
