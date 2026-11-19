@@ -144,7 +144,9 @@ bench fleet, where a number decides something (AGENTS.md, "The goal"). Its code 
 A tree starts from a release (`--from release`, `--from release:v20261119.01`) or a directory laid
 out as one (`--from _output`), and replaces what is asked for: `--kernel run:N` (a Kernel workflow
 run's bzImage; a run from before 2026-11-19 has none and is refused by name), `--qemu run:N`,
-`--spin-machine here` (built from this checkout), `--append ARGS`, `--edit lane` (the first login's
+`--spin-machine here` (built from this checkout; a release ships none, so a tree from one always
+gets this checkout's, as the `boot:` targets' `:tools` dependency gave the probes before),
+`--append ARGS`, `--edit lane` (the first login's
 lane as this checkout builds it, put into a published release's overlays), `--systemd PATCH`
 (image/systemd/experiments). Nothing is written through the tree it starts from: parts are links,
 and a replaced part is a copy. A tree whose manifest is missing, names no source for a part, or

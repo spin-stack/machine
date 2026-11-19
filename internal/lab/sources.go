@@ -38,7 +38,7 @@ func (s Sources) from(from string) (dir, source string, err error) {
 func (s Sources) release(tag string) (string, error) {
 	cache := filepath.Join(s.Cache, "releases", tag)
 	dir := filepath.Join(cache, "spin-machine-"+tag+"-linux-x86_64", "usr", "share", "spin-stack")
-	if _, err := os.Stat(filepath.Join(dir, partFiles["spin-machine"])); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, partFiles["qemu"])); err == nil {
 		return dir, nil
 	}
 	if err := os.RemoveAll(cache); err != nil {

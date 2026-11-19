@@ -164,7 +164,7 @@ func TestATreeRefusesWhatIsNotWhole(t *testing.T) {
 		{"a run id that is not one", TreeSpec{Kernel: "run:12x"}, "is a number"},
 		{"a missing kernel", TreeSpec{Kernel: "/nonexistent"}, "opening kernel"},
 		{"a QEMU directory without one", TreeSpec{QEMU: t.TempDir()}, "qemu-system-x86_64"},
-		{"a spin-machine from nowhere", TreeSpec{SpinMachine: "elsewhere"}, "release or here"},
+		{"a spin-machine from nowhere", TreeSpec{SpinMachine: "elsewhere"}, "is here, or left out"},
 		{"an edit with no name", TreeSpec{Edits: []string{"nope"}}, "no edit named"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -253,6 +253,44 @@ func TestTheLaneEditIsThisCheckoutsLane(t *testing.T) {
 	}
 	if s := systemdPackages("/x/debs").Setup; !strings.Contains(s, "debs=/x/debs") || !strings.Contains(s, "test \"$replaced\" -gt 0") {
 		t.Errorf("systemd's edit: %q", s)
+	}
+}
+
+// --spin-machine here builds this checkout's: the tree's is a copy, named for its commit, and a
+// checkout that does not build, or a systemd that does not, is no tree.
+func TestATreesSpinMachineCanBeThisCheckouts(t *testing.T) {
+	base := fakeRelease(t, "k")
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "h"), TreeSpec{Name: "h", From: base, SpinMachine: "here"}, src(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := tr.Manifest.Parts["spin-machine"].Source; !strings.HasPrefix(s, "built from ") {
+		t.Errorf("source %q", s)
+	}
+	if fi, err := os.Lstat(tr.SpinMachine()); err != nil || fi.Mode()&os.ModeSymlink != 0 || fi.Size() < 1<<20 {
+		t.Errorf("the built spin-machine: %v, %v", fi, err)
+	}
+	if read(t, filepath.Join(base, "bin/spin-machine")) != "spin-machine" {
+		t.Error("building wrote the base's")
+	}
+	// Left out, a base that has one keeps it.
+	if tr, err := MakeTree(filepath.Join(t.TempDir(), "k"), TreeSpec{Name: "k", From: base}, src(t)); err != nil || tr.Manifest.Parts["spin-machine"].Source != base {
+		t.Errorf("a base's own spin-machine: %+v, %v", tr, err)
+	}
+	// A release ships no spin-machine: left out, it is this checkout's.
+	_ = os.Remove(filepath.Join(base, "bin/spin-machine"))
+	tr, err = MakeTree(filepath.Join(t.TempDir(), "r"), TreeSpec{Name: "r", From: base}, src(t))
+	if err != nil || !strings.HasPrefix(tr.Manifest.Parts["spin-machine"].Source, "built from ") {
+		t.Errorf("a base with no spin-machine: %v", err)
+	}
+	nowhere := Sources{Checkout: t.TempDir(), Cache: t.TempDir(), Log: io.Discard}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "x"), TreeSpec{Name: "x", From: base, SpinMachine: "here"}, nowhere); err == nil ||
+		!strings.Contains(err.Error(), "building this checkout's spin-machine") {
+		t.Errorf("a checkout that does not build: %v", err)
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "y"), TreeSpec{Name: "y", From: fakeRelease(t, "k"), Systemd: "pid1-marks"}, nowhere); err == nil ||
+		!strings.Contains(err.Error(), "building systemd with the experiment pid1-marks") {
+		t.Errorf("a systemd that does not build: %v", err)
 	}
 }
 

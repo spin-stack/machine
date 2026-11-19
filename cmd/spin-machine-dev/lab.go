@@ -46,7 +46,7 @@ func treeFlags(fs *pflag.FlagSet, s *lab.TreeSpec) {
 	fs.StringVar(&s.From, "from", "release", "what the tree starts from: release, release:vYYYYMMDD.NN, or a directory laid out as one (_output)")
 	fs.StringVar(&s.Kernel, "kernel", "", "the kernel instead: run:N (a Kernel workflow run) or a bzImage")
 	fs.StringVar(&s.QEMU, "qemu", "", "QEMU and its firmware instead: run:N (a QEMU workflow run) or a directory with bin/ and qemu/")
-	fs.StringVar(&s.SpinMachine, "spin-machine", "release", "release, or here: built from this checkout (prestart needs --held)")
+	fs.StringVar(&s.SpinMachine, "spin-machine", "", "here: built from this checkout; left out, the --from tree's own when it has one, else this checkout's (a release ships none)")
 	fs.StringVar(&s.Append, "append", "", "added to the kernel command line of every boot")
 	fs.StringArrayVar(&s.Edits, "edit", nil, "an edit of every boot's overlay, by name: lane (the first login's lane as this checkout builds it)")
 	fs.StringVar(&s.Systemd, "systemd", "", "an image/systemd/experiments patch: systemd built with it here, in every overlay")
@@ -82,11 +82,15 @@ func splitWords(s string) ([]string, error) {
 	var quote rune
 	in := false
 	for _, r := range s {
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+			continue
+		}
 		switch {
-		case quote != 0 && r == quote:
-			quote = 0
-		case quote != 0:
-			cur.WriteRune(r)
 		case r == '\'' || r == '"':
 			quote, in = r, true
 		case r == ' ' || r == '\t' || r == '\n':

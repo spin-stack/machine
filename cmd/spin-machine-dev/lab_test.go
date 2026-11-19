@@ -24,9 +24,15 @@ func TestATreeSpecIsANameAndLabTreesFlags(t *testing.T) {
 		s.SpinMachine != "here" || s.From != "release" {
 		t.Errorf("parsed %+v", s)
 	}
-	for _, bad := range []string{"no-equals", "=--from release", "t=--nope", "t=--from release stray", `t=--append "open`} {
-		if _, err := parseTreeSpec(bad); err == nil {
-			t.Errorf("parseTreeSpec(%q) took it", bad)
+	for bad, says := range map[string]string{
+		"no-equals":              "a tree is NAME=FLAGS",
+		"=--from release":        "a tree is NAME=FLAGS",
+		"t=--nope":               "unknown flag",
+		"t=--from release stray": `"stray" is not a flag`,
+		`t=--append "open`:       "an unclosed",
+	} {
+		if _, err := parseTreeSpec(bad); err == nil || !strings.Contains(err.Error(), says) {
+			t.Errorf("parseTreeSpec(%q) = %v, want an error saying %q", bad, err, says)
 		}
 	}
 }
@@ -107,8 +113,10 @@ func fakeRelease(t *testing.T) string {
 func runLab(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	c := root()
-	c.SetArgs(append([]string{"lab"}, args...))
+	// A command of its own each time: root's verbs are made once, at init, and a flag set in one
+	// run would still be set in the next.
+	c := labCommand()
+	c.SetArgs(args)
 	c.SetOut(&out)
 	c.SetErr(&errOut)
 	err := c.ExecuteContext(t.Context())
@@ -155,6 +163,28 @@ func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
 	// show reads it back from the directory.
 	if stdout, _, err := runLab(t, "show", out); err != nil || !strings.Contains(stdout, "labtest-a") {
 		t.Errorf("show: %v\n%s", err, stdout)
+	}
+
+	// With no --out, the result goes under _output/lab/results, named for when and what.
+	results := filepath.Join("..", "..", "_output", "lab", "results")
+	before, _ := filepath.Glob(filepath.Join(results, "*-counter"))
+	if _, _, err := runLab(t, "run", "counter", "labtest-a", "--reps", "1"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := filepath.Glob(filepath.Join(results, "*-counter"))
+	for _, d := range after {
+		if !slices.Contains(before, d) {
+			t.Cleanup(func() { _ = os.RemoveAll(d) })
+			if _, err := lab.ReadResult(filepath.Join(d, "result.json")); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	if len(after) != len(before)+1 {
+		t.Errorf("results named *-counter: %d before, %d after", len(before), len(after))
+	}
+	if _, _, err := runLab(t, "run", "nope", "labtest-a"); err == nil || !strings.Contains(err.Error(), `no probe "nope"`) {
+		t.Errorf("an unknown probe: %v", err)
 	}
 
 	for _, args := range [][]string{
