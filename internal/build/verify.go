@@ -158,8 +158,8 @@ func PVH(path string) error {
 // hasNote is whether an ELF note segment holds a note of name.
 func hasNote(b []byte, name string) bool {
 	for len(b) >= 12 {
-		namesz := binary.LittleEndian.Uint32(b[0:4])
-		descsz := binary.LittleEndian.Uint32(b[4:8])
+		namesz := binary.LittleEndian.Uint32(b[0:4]) // mutate-exempt: Uint32 reads the first four bytes of a slice however long it is
+		descsz := binary.LittleEndian.Uint32(b[4:8]) // mutate-exempt: Uint32 reads the first four bytes of a slice however long it is
 		n := int(align4(namesz))
 		d := int(align4(descsz))
 		if 12+n+d > len(b) || int(namesz) > n {
