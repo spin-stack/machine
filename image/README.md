@@ -37,7 +37,7 @@ grown from the image onto a larger disk would keep 5% of the larger size.
 - **The base must not be written to.** Every VM maps it read-only through a backing file and
   many VMs share one. A build step that opens it read-write invalidates every overlay in
   existence — silently, because the overlays keep working until they read a cluster that
-  moved. It is written `0444`, and `task shell` checks its checksum across a boot.
+  moved. It is written `0444`, and `spin-machine-dev shell` checks its checksum across a boot.
 - **No identity in the image.** No hostname, no machine-id, no `/etc/resolv.conf`, no SSH
   host keys, no random seed. A VM is handed its identity by whoever runs it; anything
   baked in is shared by every VM that ever boots from it.
@@ -93,8 +93,8 @@ each part did, and `build.sh` asserts each on the finished filesystem.
 ## Looking inside
 
 ```
-task shell                    # systemd; the console autologins as root
-task shell INIT=/bin/bash     # a bare shell, for when systemd is the broken thing
+spin-machine-dev shell                   # systemd; the console autologins as root
+spin-machine-dev shell --init /bin/bash   # a bare shell, for when systemd is the broken thing
 ```
 
 The default is `/sbin/init` because that is what this image is: a userland whose first
@@ -145,7 +145,7 @@ from outside:
 mkosi assembles a root filesystem by unsharing a user and mount namespace, and BuildKit
 forbids it (`mkosi was forbidden to unshare namespaces`, `PermissionError` on `unshare(2)`).
 The alternatives were `RUN --security=insecure`, which needs a `buildkitd` started with an
-entitlement flag — so `task image:build` would fail on any machine whose builder was created
+entitlement flag — so `spin-machine-dev build image` would fail on any machine whose builder was created
 the ordinary way — or a container run with the privileges mkosi needs. `Dockerfile` pins the
 toolchain, `build.sh` is the build, and the task runs it with `--cap-add SYS_ADMIN` and
 seccomp/apparmor unconfined. Not `--privileged`.

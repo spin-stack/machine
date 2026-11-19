@@ -4,8 +4,8 @@
 
 The workflows are split by cost. `ci.yml` runs on every push and builds none of
 the three artefacts — it is `task lint` and `task test`, which is fast and catches most
-mistakes. It also *pulls* one: `task qemu:fetch` unpacks the published QEMU of the pinned
-version in seconds, and `task verify:args` hands it the command line `machine.Spec.Args`
+mistakes. It also *pulls* one: `spin-machine-dev fetch qemu` unpacks the published QEMU of the pinned
+version in seconds, and `spin-machine-dev verify args` hands it the command line `machine.Spec.Args`
 builds. The device set is decided in `qemu/devices.mak` and the device and property names
 are written out by hand in `machine/machine.go`; nothing else connects the two, and a
 device dropped from the allowlist reads exactly like a typo added here — a VM that does not
@@ -33,10 +33,10 @@ number anybody chose: a release that keeps it resumes every checkpoint the one b
 (`task boot:compat`), whatever QEMU, kernel or firmware it ships. A release is the workflow dispatched on main, and nothing else - a pushed
 tag starts nothing: given a version it makes that one, with no input it generates the next
 sequence for today; either way it tags the commit once its files are signed, and writes the
-notes: what changed since the release before (`hack/releasenotes`: the commits that reached
+notes: what changed since the release before (`internal/releasenotes`: the commits that reached
 the machine by the part they changed, the pins that moved, the kernel options turned on, off
 or changed, and the patches added, changed or removed), whether checkpoints carry over
-(`hack/fingerprint-diff`), and the checksums.
+(`internal/release`'s verdict), and the checksums.
 
 Each file the release offers - the tarball, its `.sha256` and `machine.env` - carries two
 Sigstore bundles beside it: `<file>.sigstore.json`, the signature of the workflow that built it,
@@ -60,7 +60,7 @@ Every release ran on `refs/heads/main`, and that is the ref its certificate name
 a file is, its provenance says (`buildDefinition.externalParameters.version`), and whoever takes it
 holds it to the version they asked for.
 
-What the release is made of is its CycloneDX SBOM, written by `hack/release` from what the builds
+What the release is made of is its CycloneDX SBOM, written by `spin-machine-dev release` from what the builds
 recorded - the apk databases QEMU and e2fsprogs were statically linked in (each build's
 `/lib/apk/db/installed`, extracted to `_output/sbom/`), the image's `packages.txt`, the pins in
 `versions.yaml`, and each shipped file by its hash - and checked with go-tools' `sbom check`: a
@@ -73,7 +73,7 @@ each patch file by name and hash, so the SBOM says the binary is upstream's sour
 The builders' packages are a commit's, not the mirror's on the day: `qemu/apk.list` and
 `e2fsprogs/apk.list` say what each installs, and `qemu/apk.lock` and `e2fsprogs/apk.lock` pin every
 package installed, dependencies included, at a version. A pin Alpine has dropped from its mirror
-fails a cold build at `apk add`; `task apk:lock` writes both locks again from a fresh install on the
+fails a cold build at `apk add`; `spin-machine-dev lock` writes both locks again from a fresh install on the
 pinned Alpine, and the diff is the review.
 `workflows/workflows_test.go` holds every workflow to attesting before it publishes.
 

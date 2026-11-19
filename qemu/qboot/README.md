@@ -46,8 +46,8 @@ MMCONFIG and the BIOS32 entry, and drops the walk.
 
 ## Build
 
-`task qemu:build` builds it, in the `qboot` stage of `qemu/Dockerfile`, and it lands beside
-the SeaBIOS blobs as `_output/qemu/qboot.bin`, where a release, `task qemu:fetch` and CI all
+`spin-machine-dev build qemu` builds it, in the `qboot` stage of `qemu/Dockerfile`, and it lands beside
+the SeaBIOS blobs as `_output/qemu/qboot.bin`, where a release, `spin-machine-dev fetch qemu` and CI all
 find it. The stage clones the pinned commit, verifies the SHA-256 of the tar `git archive`
 writes for it, applies `write-pointer.patch`, `pam.patch`, `mtrr.patch` and `no-pci-walk.patch` with no fuzz, and compiles with upstream's
 meson.build flags plus `-Os`. It asserts on what came out: 65536 bytes, the ROM window it is

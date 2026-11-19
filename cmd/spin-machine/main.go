@@ -7,7 +7,7 @@
 // drifts: the package next door says which chipset, which slots and which kernel
 // command line, and this is what proves those still boot. The second is that it
 // gives this repository a way to run its own artefacts without borrowing a
-// runtime from somewhere else — `boot` is what `task shell` runs.
+// runtime from somewhere else — `boot` is what `spin-machine-dev shell` runs.
 //
 // It is also how a check of this machine is done by hand. Whatever a caller does
 // to a running machine through the contract this repository promises — a disk given

@@ -109,7 +109,6 @@ func osvScan(ctx context.Context, w workspace, tag, findings string) (int, error
 	}
 	cmd := exec.CommandContext(ctx, "go", "run", "github.com/google/osv-scanner/v2/cmd/osv-scanner@"+e.Version,
 		"scan", "source", "-L", filepath.Join(dir, sbom), "--format", "json")
-	cmd.Dir = w.root
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	// osv-scanner exits 1 when it found something, which is the answer; above 1 it failed.

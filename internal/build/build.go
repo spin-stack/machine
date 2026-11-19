@@ -306,11 +306,12 @@ func KernelSeries(v *versions.Versions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	parts := strings.SplitN(e.Version, ".", 3)
-	if len(parts) < 2 {
+	major, rest, _ := strings.Cut(e.Version, ".")
+	minor, _, _ := strings.Cut(rest, ".")
+	if major == "" || minor == "" {
 		return "", fmt.Errorf("the kernel's version %q has no major.minor", e.Version)
 	}
-	return parts[0] + "." + parts[1], nil
+	return major + "." + minor, nil
 }
 
 // Result is what a build did with one part.

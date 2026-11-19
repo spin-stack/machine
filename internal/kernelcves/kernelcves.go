@@ -12,8 +12,6 @@
 //
 // The record's semver ranges are read and its git ranges are not: the kernel is built from a
 // release tarball, so its version is all there is to compare.
-//
-//	go run ./hack/kernelcves -published vulns/cve/published -version 7.3.3 -sources _output/kernel/sources
 package kernelcves
 
 import (

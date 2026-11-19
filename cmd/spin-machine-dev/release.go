@@ -319,7 +319,7 @@ not a GitHub Actions run: provenance with no builder in it says nothing.`,
 			}
 			b, err := p.JSON()
 			if err != nil {
-				return couldNot(err) // mutate-exempt: strings and maps of strings always marshal
+				return couldNot(err)
 			}
 			if err := os.MkdirAll(w.out, 0o755); err != nil {
 				return couldNot(err)

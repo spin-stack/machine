@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package release
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// components is every name and version an SBOM holds, however deep, each name with the versions
+// it is given.
+func components(t *testing.T, path string) map[string][]string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	var walk func(any)
+	walk = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			name, n := v["name"].(string)
+			version, ok := v["version"].(string)
+			if n && ok {
+				got[name] = append(got[name], version)
+			}
+			for _, c := range v {
+				walk(c)
+			}
+		case []any:
+			for _, c := range v {
+				walk(c)
+			}
+		}
+	}
+	walk(doc)
+	return got
+}
+
+// The firmware is QEMU's own build of it, at QEMU's version; qboot.bin is built from its own
+// commit, and is said once, at that.
+func TestEachFileIsAtTheVersionItWasBuiltFrom(t *testing.T) {
+	root, out := tree(t)
+	o := options(t, root, out)
+	if _, err := Pack(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := o.Pins.Get("qemu")
+	b, _ := o.Pins.Get("qboot")
+	k, _ := o.Pins.Get("kernel")
+	got := components(t, filepath.Join(out, "release", Name(o.Version), "usr/share/spin-stack/sbom/machine.cdx.json"))
+	for name, want := range map[string]string{"bios.bin": q.Version, "pvh.bin": q.Version, "qemu-img": q.Version, "qboot.bin": b.Pin,
+		"bzImage": k.Version, "rootfs.qcow2": o.Version} {
+		if v := got[name]; len(v) != 1 || v[0] != want {
+			t.Errorf("%s is %v in the SBOM, want once at %s", name, v, want)
+		}
+	}
+}

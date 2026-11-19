@@ -10,11 +10,8 @@
 //
 // compat prints what the newer types change, from QEMU's own source: the properties
 // hw_compat_X_Y (hw/core/machine.c) and pc_compat_X_Y (hw/i386/pc.c) switch back off for the
-// pinned X.Y. That list is what moving the pin would change under every guest, and task bump
+// pinned X.Y. That list is what moving the pin would change under every guest, and spin-machine-dev bump
 // NAME=qemu prints it from the tarball the pin names.
-//
-//	go run ./hack/machinetype check -qemu _output/bin/qemu-system-x86_64
-//	go run ./hack/machinetype compat <qemu>/hw/core/machine.c <qemu>/hw/i386/pc.c
 package machinetype
 
 import (
@@ -147,7 +144,7 @@ func Check(help, pinned string) (notice string, err error) {
 		return "", fmt.Errorf("this QEMU offers no %s, the machine type every checkpoint is saved on", pinned)
 	}
 	if newest.newer(want) {
-		return fmt.Sprintf("QEMU offers pc-q35-%d.%d; this machine stays on %s (machine.MachineType), and moving it is a new machine: task qemu:compat says what would change.",
+		return fmt.Sprintf("QEMU offers pc-q35-%d.%d; this machine stays on %s (machine.MachineType), and moving it is a new machine: spin-machine-dev bump qemu says what would change.",
 			newest.major, newest.minor, pinned), nil
 	}
 	return "", nil

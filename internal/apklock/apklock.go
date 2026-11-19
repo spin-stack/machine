@@ -3,9 +3,7 @@
 // Package apklock writes the lock of an Alpine builder: every package an apk database says is
 // installed, as name=version, sorted - what the builder's `apk add` is then held to, so the static
 // libraries QEMU and e2fsprogs link are the versions a commit names, not whatever the mirror held
-// that day. task apk:lock runs it over a fresh install of the part's apk.list.
-//
-//	go run ./hack/apklock <installed db> > <part>/apk.lock
+// that day. spin-machine-dev lock runs it over a fresh install of the part's apk.list.
 package apklock
 
 import (

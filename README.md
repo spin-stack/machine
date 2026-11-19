@@ -46,14 +46,14 @@ One tarball:
 
 `LICENSE` and `NOTICE` sit at the root of the tarball.
 
-`task build` writes that same tree into `_output/`, and `machine.OpenRelease` reads
-either. What a release has beyond a build directory is what `hack/release` creates or
+`spin-machine-dev build` writes that same tree into `_output/`, and `machine.OpenRelease` reads
+either. What a release has beyond a build directory is what `spin-machine-dev release` creates or
 copies when it names one: `machine.env` and `SOURCES` it writes, and the QEMU and qboot
 patches under `qemu/` it takes from this repository, not from the build. A tree without
 a manifest is still a release for every purpose except being named — the fingerprint
 decides whether checkpoints resume, and it is computed from the machine's definition and its
 BIOS, not from `machine.env`. `_output/bin/` holds one thing more: `spin-machine`,
-which `task tools` builds for working in this repository and `hack/release` does not ship —
+which `spin-machine-dev build spin-machine` builds for working in this repository and `spin-machine-dev release` does not ship —
 a release is the machine, not the tool that boots it. There is one layout: nothing rearranges
 the files on the way out of a build, into a tarball or into a consumer. Let the three differ
 and what falls out of the translation between them is a path that exists and holds the
@@ -69,7 +69,7 @@ args, err := spec.Args()          // the QEMU command line
 fp, err := spec.Fingerprint()     // which checkpoints this machine may resume
 ```
 
-By hand, `spin-machine` (`task tools`) boots one, prints its command line or its
+By hand, `spin-machine` (`spin-machine-dev build spin-machine`) boots one, prints its command line or its
 fingerprint, attaches, detaches or saves on a running one, and restores a saved one; `spin-machine <command> -h`
 lists each command's flags.
 
@@ -78,7 +78,7 @@ non-interactively. The guest's console is on stdin/stdout, so a script on stdin 
 what the guest's shell runs; `poweroff -f` ends the boot.
 
 ```sh
-task build                                   # once; a boot reads _output/
+spin-machine-dev build                       # once; a boot reads _output/
 printf '\n\n\n\n\n\n\n\n\n\nmount -t proc proc /proc\necho hello from $(uname -r)\npoweroff -f\n' |
   _output/bin/spin-machine boot --release _output \
     --init /bin/sh --console stdio --memory 1024 --cpus 2
@@ -109,29 +109,32 @@ anything about its host's KVM — read those on the host.
 ## Building
 
 ```
-task build         # everything, into _output/
-task shell         # boot the machine and look around inside it
-task lint          # gofmt, vet, and whether the scripts and Taskfiles parse
-task test          # the machine definition
-task verify:args   # and whether the QEMU in _output/ accepts what it produces
-task fingerprint   # this machine's identity
-task release       # one tarball, one version
+go tool task bin                      # spin-machine-dev, into _output/bin/
+spin-machine-dev build                # everything that is missing or stale, into _output/
+spin-machine-dev shell                # boot the machine and look around inside it
+go tool task lint                     # gofmt, vet, and go-tools' gates
+go tool task test                     # the machine definition and the verbs
+spin-machine-dev verify args          # and whether the QEMU in _output/ accepts what it produces
+_output/bin/spin-machine fingerprint --release _output   # this machine's identity
+spin-machine-dev release              # one tarball, one version
 ```
 
-`task` is [taskfile.dev](https://taskfile.dev), not GNU task, at the version go.mod pins:
-`go tool task build` runs it with nothing installed, and is what CI runs. The part builds
-run in containers (`qemu/Dockerfile`, `kernel/Dockerfile`, `e2fsprogs/Dockerfile`,
-`image/Dockerfile`), so a container engine is needed to build; a boot is not, and neither
-is `task build` — a consumer points `--release` at an unpacked release tree instead.
+`spin-machine-dev` is how this machine is built, verified and released (`docs/cli.md`); the
+Taskfile holds the gates CI runs and the probes. `task` is [taskfile.dev](https://taskfile.dev),
+not GNU task, at the version go.mod pins: `go tool task` runs it with nothing installed, and is
+what CI runs. The part builds run in containers (`qemu/Dockerfile`, `kernel/Dockerfile`,
+`e2fsprogs/Dockerfile`, `image/Dockerfile`), so a container engine is needed to build; a boot is
+not, and neither is a build directory - a consumer points `--release` at an unpacked release tree
+instead.
 A boot needs `/dev/kvm` readable and writable by whoever runs it, the same requirement
 `docs/releasing.md` states for the lab runner; a host without it boots the release's TCG
 build with `--accel tcg`, at perhaps fifty times the cost, which is why it is stated and
 never silently fallen back to.
 
-Each part's targets live beside what they build — `task qemu:build` is next to
-`qemu/Dockerfile` — and the root `Taskfile.yml` holds the vars every part reads and the
-targets that cross all of them. Every version, digest and commit a build takes from outside is
-in `versions.yaml`: `task versions` says what is behind, `task bump NAME=...` moves one.
+A part's build is its directory's Dockerfile, run by `spin-machine-dev build <part>`
+(`internal/build`), and each build ends in the part's verification. Every version, digest and
+commit a build takes from outside is in `versions.yaml`: `spin-machine-dev outdated` says what is
+behind, `spin-machine-dev bump <entry>` moves one.
 
 ## Where to read next
 

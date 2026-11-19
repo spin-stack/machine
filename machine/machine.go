@@ -1072,7 +1072,7 @@ func (s Spec) bios() string {
 //
 // A change to any of what it does hash is a change of hardware under every guest, and every
 // checkpoint taken against the previous machine stops resuming. That is the design, and the
-// release notes say so (hack/fingerprint-diff).
+// release notes say so (internal/release's verdict).
 func (s Spec) Fingerprint() (string, error) {
 	h := sha256.New()
 

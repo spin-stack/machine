@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package osvissues keeps one issue per package of the base image for what OSV knows against the
-// newest release (task osv): it opens one for a package that has findings, rewrites its list as
+// newest release (spin-machine-dev osv): it opens one for a package that has findings, rewrites its list as
 // the findings change, and closes it once the release has none in that package.
 //
 // One issue a package and not a finding, because a package is what gets fixed: Ubuntu ships one
@@ -11,8 +11,6 @@
 //
 // A closed issue is an answer - fixed, or judged not to matter - and stays closed while its
 // package has only the findings it listed. A finding it did not list reopens it.
-//
-//	go run ./hack/osvissues -release v20261014.01 -findings _output/osv.tsv
 package osvissues
 
 import (
@@ -34,7 +32,7 @@ func Run(args []string, cli func(args ...string) ([]byte, error), stdout, stderr
 	fs := flag.NewFlagSet("osvissues", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	release := fs.String("release", "", "the release the findings are of")
-	findingsPath := fs.String("findings", "", "task osv's findings: id, package@version and summary, a tab between them")
+	findingsPath := fs.String("findings", "", "spin-machine-dev osv's findings: id, package@version and summary, a tab between them")
 	dryRun := fs.Bool("n", false, "say what would be done, and do nothing")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -96,7 +94,7 @@ func (f finding) name() string {
 	return name
 }
 
-// readFindings reads task osv's lines: id, package@version and summary.
+// readFindings reads spin-machine-dev osv's lines: id, package@version and summary.
 func readFindings(r io.Reader) ([]finding, error) {
 	var out []finding
 	sc := bufio.NewScanner(r)
@@ -146,7 +144,7 @@ func body(release string, fs []finding) string {
 			pkgs = append(pkgs, f.pkg)
 		}
 	}
-	fmt.Fprintf(&b, "%s, the newest release, has %s with what OSV lists below (`task osv`, run daily by osv.yml). "+
+	fmt.Fprintf(&b, "%s, the newest release, has %s with what OSV lists below (`spin-machine-dev osv`, run daily by osv.yml). "+
 		"A new release built after the distribution ships a fix closes this issue; closing it by hand says the rest does not matter here, "+
 		"and only a finding not listed reopens it.\n\n", release, "`"+strings.Join(pkgs, "`, `")+"`")
 	for _, f := range fs {

@@ -92,7 +92,7 @@ func output(key, value string) error {
 	}
 	line := key + "=" + value + "\n"
 	if strings.Contains(value, "\n") {
-		b := make([]byte, 8)
+		b := make([]byte, 8) // mutate-exempt: any length of random delimiter is one no value holds
 		_, _ = rand.Read(b)
 		delim := "EOF_" + hex.EncodeToString(b)
 		line = key + "<<" + delim + "\n" + strings.TrimSuffix(value, "\n") + "\n" + delim + "\n"
