@@ -161,7 +161,7 @@ func (r *Release) Spec() Spec {
 
 // readEnv parses machine.env: key=value lines, # comments, no quoting. A tree
 // without one is not an error — a developer's build directory is a release for
-// every purpose except being named. A line that is none of those is: hack/release
+// every purpose except being named. A line that is none of those is: spin-machine-dev release
 // writes nothing else, so it is a manifest damaged on the way here, and reading
 // past it would report the version of a file nobody wrote.
 func readEnv(path string) (map[string]string, error) {

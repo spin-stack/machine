@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+
 	"slices"
 	"strings"
 
@@ -29,7 +29,7 @@ type buildFlags struct {
 }
 
 func (f *buildFlags) register(c *cobra.Command) {
-	c.Flags().IntVar(&f.jobs, "jobs", min(runtime.NumCPU(), 8), "compile jobs each build runs")
+	c.Flags().IntVar(&f.jobs, "jobs", 8, "compile jobs each build runs (CI: its runner's cores)")
 	c.Flags().BoolVar(&f.registry, "cache-registry", false, "read and write BuildKit's cache in "+build.CacheRegistry+" (CI) instead of under .cache/")
 	c.Flags().BoolVar(&f.export, "cache-export", true, "write the cache back; only main's lanes need to")
 	c.Flags().StringVar(&f.experiment, "systemd-experiment", "", "build systemd with image/systemd/experiments/<name>.patch")
@@ -195,7 +195,7 @@ no QEMU to ask: spin-machine-dev fetch qemu (seconds) or build qemu (tens of min
 			for _, n := range names {
 				p, err := build.Lookup(n)
 				if err != nil {
-					return couldNot(err) // mutate-exempt: cobra.OnlyValidArgs refused any other name before this
+					return couldNot(err)
 				}
 				plan = append(plan, p)
 			}
@@ -227,7 +227,7 @@ func verifyArgs(c *cobra.Command, w workspace) error {
 func withEnv(key, value string, f func() error) error {
 	old, had := os.LookupEnv(key)
 	if err := os.Setenv(key, value); err != nil {
-		return couldNot(err) // mutate-exempt: Setenv fails only on a key with = or NUL, and this one is a literal
+		return couldNot(err)
 	}
 	defer func() {
 		if had {

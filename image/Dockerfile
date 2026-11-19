@@ -5,7 +5,7 @@
 # mkosi assembles a root filesystem by unsharing a user and mount namespace, and BuildKit
 # forbids that — `mkosi was forbidden to unshare namespaces`, PermissionError on unshare(2),
 # measured 2026-09-07. The escape hatches are RUN --security=insecure, which needs a
-# buildkitd started with an entitlement flag (so `task build:image` would fail on any
+# buildkitd started with an entitlement flag (so `spin-machine-dev build image` would fail on any
 # machine whose builder was created the ordinary way), or a container run with the
 # privileges mkosi needs. The second is one flag on one `docker run`.
 #

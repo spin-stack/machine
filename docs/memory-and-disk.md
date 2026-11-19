@@ -4,7 +4,7 @@ A measurement record: what this machine does with a guest's page cache, its free
 its disk, what was measured to decide each default, and what was tried and turned down. Every
 number here was taken on construct - the KVM runner, Spin OS metal, two WD Red SN700 NVMe
 disks - between 2026-09-30 and 2026-10-01, through `.github/workflows/lab.yml` and the probes
-in `boot/` (`boot/pagecache_test.go`, `boot/report_test.go`). A number with no run beside it
+in `boot/` (the page-cache probe, since deleted and in git history, and `boot/report_test.go`). A number with no run beside it
 came from the run named at the top of its section.
 
 Decisions that span spin as well as this machine - the guest's reclaim service, the qcow2
@@ -178,7 +178,7 @@ The probes are `go test` behind the `boot/` Task targets, run on the bench fleet
 (caches, reclaim), optionally with `kernel_run`/`qemu_run` and
 `variant=beside|instead` for a build of a branch. The cold-boot, `memory.high`, reclaimers and
 first-write probes behind the other tables were deleted once answered; they are in
-`boot/pagecache_test.go`'s history. What the lab taught about itself:
+the page-cache probe's git history. What the lab taught about itself:
 
 - **Only a quiet host's numbers count**, and only against numbers from the same kind of host:
   the tables above are construct's, and the bench fleet's instance type is another host. A

@@ -98,9 +98,7 @@ func Tools(ctx context.Context, o Options) error {
 	if err := os.MkdirAll(filepath.Join(o.Out, "bin"), 0o755); err != nil {
 		return fmt.Errorf("making %s: %w", filepath.Join(o.Out, "bin"), err)
 	}
-	b := o
-	b.Stdout = io.Discard
-	return runEnv(ctx, b, []string{"CGO_ENABLED=0"}, "go", "build", "-ldflags", "-s -w",
+	return runEnv(ctx, o, []string{"CGO_ENABLED=0"}, "go", "build", "-ldflags", "-s -w",
 		"-o", filepath.Join(o.Out, "bin", "spin-machine"), "./cmd/spin-machine")
 }
 

@@ -9,7 +9,7 @@
 # Not here, on purpose: every pin the machine is built from. They are in versions.yaml - the
 # base images by digest, the upstream tarballs by SHA-256, qboot by commit - and the Dockerfiles
 # are handed them as build arguments with no default, so Dockerfile scanning finds nothing to
-# bump. `task versions` says what is behind and `task bump NAME=...` moves one entry, resolving
+# bump. `spin-machine-dev outdated` says what is behind and `spin-machine-dev bump <entry>` moves one entry, resolving
 # its pin with it; a bot that bumped a version without its hash would produce a build that fails
 # on the checksum, at best. A bump of qemu or the kernel changes what every guest runs, which is
 # a decision and not a routine merge.

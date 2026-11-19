@@ -1,7 +1,7 @@
 # QEMU
 
-One build, **statically linked**, against musl on Alpine. `task qemu:build` builds it from
-source (tens of minutes); `task qemu:fetch` unpacks the published build of the pinned
+One build, **statically linked**, against musl on Alpine. `spin-machine-dev build qemu` builds it from
+source (tens of minutes); `spin-machine-dev fetch qemu` unpacks the published build of the pinned
 version (seconds). `devices.mak` is the device allowlist.
 
 A dynamically linked QEMU is not one artefact — it is an artefact plus the libraries it was

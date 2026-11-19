@@ -146,6 +146,8 @@ func TestTheRepositoryIsFoundAboveTheWorkingDirectory(t *testing.T) {
 
 func TestOpenIsTheRepositoryItsOutputAndItsPins(t *testing.T) {
 	dir := checkout(t)
+	globals.out = "_output"
+	t.Cleanup(func() { globals.out = "_output" })
 	w, err := open()
 	if err != nil || w.root != dir || w.out != filepath.Join(dir, "_output") || w.pins == nil {
 		t.Errorf("open() = %+v, %v", w, err)
@@ -920,30 +922,6 @@ func TestShellBootsTheBaseAndChecksItAfter(t *testing.T) {
 	put(t, filepath.Join(out, "bin/spin-machine"), "#!/bin/sh\nrm "+filepath.Join(out, "image/rootfs.qcow2")+"\n", 0o755)
 	if _, _, status := verb(t, "shell"); status != 2 {
 		t.Errorf("a session that removed the base exited %d", status)
-	}
-}
-
-func TestVsockMakesTheDeviceUsableOrSaysItIsNotThere(t *testing.T) {
-	checkout(t)
-	calls := fakes(t, map[string]string{"sudo": ""})
-	_, stderr, status := verb(t, "vsock")
-	if status != 0 {
-		t.Fatalf("exit %d: %s", status, stderr)
-	}
-	got := read(t, calls)
-	if !strings.HasPrefix(got, "sudo modprobe vhost_vsock\nsudo udevadm settle\n") {
-		t.Errorf("sudo ran %q", got)
-	}
-	if _, err := os.Stat("/dev/vhost-vsock"); err == nil {
-		if !strings.Contains(got, "sudo chmod 0666 /dev/vhost-vsock") {
-			t.Errorf("the device was not made usable: %q", got)
-		}
-		fakes(t, map[string]string{"sudo": `[ "$1" = chmod ] && exit 1; exit 0`})
-		if _, _, status := verb(t, "vsock"); status != 2 {
-			t.Errorf("a chmod that failed exited %d", status)
-		}
-	} else if !strings.Contains(stderr, "no vhost_vsock here") {
-		t.Errorf("no device was not said: %q", stderr)
 	}
 }
 

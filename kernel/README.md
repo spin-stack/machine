@@ -4,8 +4,8 @@ A version and a config file for its series (`config-<major>.<minor>-<arch>`), so
 within the series builds from the same file. It is here because a kernel and the
 machine that boots it are released together. A new kernel does not strand checkpoints: a
 resumed guest runs the kernel in its saved memory until it reboots, and boots this one then
-(`machine.Spec.Fingerprint` hashes the machine's contract, not the kernel). `task kernel:build`
-builds it; `task kernel:verify` reads the ELF notes out of the kernel it just stripped.
+(`machine.Spec.Fingerprint` hashes the machine's contract, not the kernel). `spin-machine-dev build kernel`
+builds it; `spin-machine-dev verify kernel` reads the ELF notes out of the kernel it just stripped.
 
 ## Memory that moves
 
@@ -94,7 +94,7 @@ load 6-10, where the p95 was 342 ms.
 ## Changing it
 
 A change to the config is a new kernel for every guest's next boot, and the release notes say
-what changed (`hack/releasenotes` lists the options turned on, off or changed). It does not
+what changed (`internal/releasenotes` lists the options turned on, off or changed). It does not
 move the fingerprint, and checkpoints keep resuming: each resumed guest goes on running the
 kernel it was saved with until it reboots.
 

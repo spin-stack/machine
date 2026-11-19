@@ -83,7 +83,7 @@ SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
 # qemu/apk.list says what, and why; qemu/apk.lock the version of everything installed, so the
 # libraries a static QEMU links are a commit's and not the mirror's of the day. A version the
-# mirror no longer has fails here: task apk:lock moves the lock, which is a new machine.
+# mirror no longer has fails here: spin-machine-dev lock moves the lock, which is a new machine.
 COPY qemu/apk.list qemu/apk.lock /tmp/apk/
 RUN --mount=type=cache,sharing=locked,id=qemu-apk,target=/var/cache/apk \
     apk add --cache-dir /var/cache/apk $(grep -v '^#' /tmp/apk/apk.list) $(cat /tmp/apk/apk.lock)
@@ -93,7 +93,7 @@ WORKDIR /build
 # Source tarball + extracted tree live in a cache mount, shared across builds. Each step that
 # reads the tree runs qemu/source.sh first and builds the tree it prints, which says why. The
 # patches this QEMU carries are applied there; each says what it changes and what it was
-# measured to be worth, and the release ships them beside the binary (hack/release).
+# measured to be worth, and the release ships them beside the binary (spin-machine-dev release).
 COPY qemu/source.sh /build/qemu-source.sh
 COPY qemu/patches/ /build/qemu-patches/
 RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/cache/qemu \
@@ -463,7 +463,7 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
 # rebuilds its PAM setup costs QEMU; qboot/README.md says what each does.
 #
 # Built here and not by a Dockerfile of its own, because it ships beside the SeaBIOS blobs it
-# replaces: everything that reads this build's qemu/ directory - a release, `task qemu:fetch`,
+# replaces: everything that reads this build's qemu/ directory - a release, `spin-machine-dev fetch qemu`,
 # CI - has the firmware the machine boots.
 #
 # Debian and not the Alpine above: the compiler is part of the firmware. The toolchain once
@@ -571,6 +571,6 @@ COPY --from=builder /opt/qemu/bin/qemu-img /bin/qemu-img
 COPY --from=builder /build/pc-bios/ /qemu/
 COPY --from=qboot /build/qboot.bin /qemu/qboot.bin
 # The packages the builder installed, as apk recorded them: the static libraries the binaries
-# link are among them, by the version that was linked, and hack/release's SBOM reads them here.
+# link are among them, by the version that was linked, and the release's SBOM (internal/release) reads them here.
 # A copy out of the finished builder, so nothing the compile depends on changes.
 COPY --from=builder /lib/apk/db/installed /sbom/qemu.apk

@@ -6,10 +6,8 @@
 // added, removed or changed. Everything is read from git at the two refs, so it says what is
 // in the tree, not what somebody remembered to write down.
 //
-// The fingerprint verdict (hack/fingerprint-diff) and the boot report's comparison are the
+// The fingerprint verdict (internal/release) and the boot report's comparison are the
 // notes' other two parts; this is the one that says why they moved.
-//
-//	go run ./hack/releasenotes -from v20260930.02 [-to HEAD]
 package releasenotes
 
 import (

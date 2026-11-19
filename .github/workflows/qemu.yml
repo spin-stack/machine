@@ -3,7 +3,7 @@ name: QEMU
 # QEMU takes tens of minutes to build from source, far too slow for the per-push gate. So
 # it is its own workflow, triggered only by the files that can change the artefact.
 #
-# The build ends in `task qemu:verify`, and the Dockerfile carries assertions of its own,
+# The build ends in `spin-machine-dev verify qemu`, and the Dockerfile carries assertions of its own,
 # so a configuration that lost a device or produced the wrong accelerator fails here rather
 # than in a VM that will not start weeks later.
 

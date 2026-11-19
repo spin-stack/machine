@@ -76,6 +76,10 @@ the speed. Leave with 'poweroff -f', or Ctrl-A then X.`,
 	return c
 }
 
+// vsockDevice is the guests' vsock transport, which QEMU opens: a variable for a test, which has
+// no host's device to make usable.
+var vsockDevice = "/dev/vhost-vsock"
+
 func vsockCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "vsock",
@@ -91,12 +95,12 @@ it in has the device from boot, and modprobe there finds nothing. Needs sudo.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			_ = exec.CommandContext(c.Context(), "sudo", "modprobe", "vhost_vsock").Run()
 			_ = exec.CommandContext(c.Context(), "sudo", "udevadm", "settle").Run()
-			if fi, err := os.Stat("/dev/vhost-vsock"); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+			if fi, err := os.Stat(vsockDevice); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
 				say(c, "no vhost_vsock here; verify args will name vhost-vsock-pci as unchecked")
 				return nil
 			}
-			if out, err := exec.CommandContext(c.Context(), "sudo", "chmod", "0666", "/dev/vhost-vsock").CombinedOutput(); err != nil {
-				return couldNot(fmt.Errorf("making /dev/vhost-vsock usable: %w: %s", err, strings.TrimSpace(string(out))))
+			if out, err := exec.CommandContext(c.Context(), "sudo", "chmod", "0666", vsockDevice).CombinedOutput(); err != nil {
+				return couldNot(fmt.Errorf("making %s usable: %w: %s", vsockDevice, err, strings.TrimSpace(string(out))))
 			}
 			return nil
 		},
@@ -126,7 +130,7 @@ discarding every edit, and exited 0 doing it.`,
 			}
 			kernel, err := build.Lookup("kernel")
 			if err != nil {
-				return couldNot(err) // mutate-exempt: kernel is a part of build.Parts, which build's tests make
+				return couldNot(err)
 			}
 			args, err := build.Args(w.pins, kernel.Pins...)
 			if err != nil {

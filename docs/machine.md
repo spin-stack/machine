@@ -1,7 +1,7 @@
 # The machine
 
 `machine/` is the definition, and it is Go rather than a document because a definition
-nothing executes drifts. `task shell` boots a VM through it, so a slot that moved or a
+nothing executes drifts. `spin-machine-dev shell` boots a VM through it, so a slot that moved or a
 kernel argument that stopped working stops working here first.
 
 ```go
@@ -71,7 +71,7 @@ a checkpoint the newest release saved resumes on this tree's build.
 
 Moving `machine.MachineType` is moving every guest to new hardware, decided, not a side effect of
 a QEMU bump: `qemu:verify` says when a QEMU offers a newer type and fails once the pinned one is
-deprecated, and `task qemu:compat` prints what the newer types change against it.
+deprecated, and `spin-machine-dev bump qemu` prints what the newer types change against it.
 
 `spin-machine fingerprint` prints it with the shape and the contract that went into it, because
 the number alone answers "did it change?" and not "what changed?".
