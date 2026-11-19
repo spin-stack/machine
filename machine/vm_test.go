@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -30,8 +32,17 @@ type call struct {
 // the tests here hold a VM to the conversation QEMU needs - which commands, in which order, with
 // what - and to what it makes of the answers.
 type fakeQEMU struct {
+	// mu guards calls: serve appends on its own goroutine while the test reads them.
+	mu     sync.Mutex
 	calls  []call
 	answer func(c call) string
+}
+
+// recorded is a copy of the calls so far.
+func (f *fakeQEMU) recorded() []call {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
 }
 
 // ok is QEMU's reply to a command that returns nothing.
@@ -124,7 +135,9 @@ func (f *fakeQEMU) serve(c *net.UnixConn) {
 			fd = false
 			reply := ok
 			if cl.Command != "qmp_capabilities" {
+				f.mu.Lock()
 				f.calls = append(f.calls, cl)
+				f.mu.Unlock()
 				reply = f.answer(cl)
 			}
 			_, _ = w.WriteString(reply + "\n")
@@ -136,7 +149,7 @@ func (f *fakeQEMU) serve(c *net.UnixConn) {
 // commands is the commands asked, in order.
 func (f *fakeQEMU) commands() []string {
 	var out []string
-	for _, c := range f.calls {
+	for _, c := range f.recorded() {
 		out = append(out, c.Command)
 	}
 	return out
@@ -145,7 +158,7 @@ func (f *fakeQEMU) commands() []string {
 // sent is the arguments of every call of command, in order.
 func (f *fakeQEMU) sent(command string) []map[string]any {
 	var out []map[string]any
-	for _, c := range f.calls {
+	for _, c := range f.recorded() {
 		if c.Command == command {
 			out = append(out, c.Args)
 		}
@@ -214,7 +227,7 @@ func TestBootBindsEachDiskToItsPlaceThenRuns(t *testing.T) {
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("commands\n%v\nwant\n%v", got, want)
 	}
-	for _, c := range f.calls {
+	for _, c := range f.recorded() {
 		if c.FD != (c.Command == "add-fd") {
 			t.Errorf("%s sent a descriptor: %t", c.Command, c.FD)
 		}
@@ -596,8 +609,8 @@ func TestResumeRefuses(t *testing.T) {
 // Loaded waits for the last page, and a load that failed after the guest ran is an error.
 func TestLoaded(t *testing.T) {
 	f := &fakeQEMU{answer: migrations(machineAnswers("running"), "postcopy-active", "postcopy-active", "completed")}
-	if err := f.attach(t).Loaded(ctx(t)); err != nil || len(f.calls) != 3 {
-		t.Errorf("Loaded = %v after %d polls, want nil after 3", err, len(f.calls))
+	if err := f.attach(t).Loaded(ctx(t)); err != nil || len(f.recorded()) != 3 {
+		t.Errorf("Loaded = %v after %d polls, want nil after 3", err, len(f.recorded()))
 	}
 	f = &fakeQEMU{answer: migrations(machineAnswers("running"), "postcopy-active", "failed")}
 	if err := f.attach(t).Loaded(ctx(t)); err == nil {

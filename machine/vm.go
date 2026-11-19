@@ -121,6 +121,12 @@ type Image struct {
 type Load struct {
 	// Fast runs the guest as soon as its devices are loaded and reads its memory as it touches
 	// it, the rest behind it. Without Fast the guest runs once all of it has been read.
+	//
+	// Slower to the first login on the bench fleet (nested, QEMU 11.2.0-rc0, a 140 MiB state read
+	// from disk, 2026-11-19, lab 44585840498): running at 38 ms instead of 102, logged in at 293
+	// instead of 152. Every page the guest touches on the way to a login is a fault served by one
+	// read from the file, and a nested fault is expensive; the full load reads the file in one
+	// pass. It is kept for a caller whose state is large and whose guest needs little of it soon.
 	Fast bool
 }
 
