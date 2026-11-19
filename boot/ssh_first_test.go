@@ -324,14 +324,21 @@ func vsockAccepts(cid, port uint32) bool {
 // sshLogin runs `true` as spin over SSH on cid's port 22, offering only the key exchange kex,
 // and says how long it took from the connect.
 func sshLogin(cid uint32, signer xssh.Signer, kex string) (time.Duration, error) {
+	d, _, err := sshRun(cid, signer, kex, "true")
+	return d, err
+}
+
+// sshRun runs command as spin over SSH on cid's port 22, offering only the key exchange kex, and
+// returns how long it took from the connect and what it wrote to stdout.
+func sshRun(cid uint32, signer xssh.Signer, kex, command string) (time.Duration, string, error) {
 	t0 := time.Now()
 	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
-		return 0, fmt.Errorf("opening a vsock socket: %w", err)
+		return 0, "", fmt.Errorf("opening a vsock socket: %w", err)
 	}
 	if err := unix.Connect(fd, &unix.SockaddrVM{CID: cid, Port: 22}); err != nil {
 		_ = unix.Close(fd)
-		return 0, fmt.Errorf("connecting to vsock %d:22: %w", cid, err)
+		return 0, "", fmt.Errorf("connecting to vsock %d:22: %w", cid, err)
 	}
 	conn := vsockConn{os.NewFile(uintptr(fd), "vsock")}
 	defer conn.Close()
@@ -342,19 +349,20 @@ func sshLogin(cid uint32, signer xssh.Signer, kex string) (time.Duration, error)
 		Config:          xssh.Config{KeyExchanges: []string{kex}},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("ssh to vsock %d:22: %w", cid, err)
+		return 0, "", fmt.Errorf("ssh to vsock %d:22: %w", cid, err)
 	}
 	client := xssh.NewClient(c, chans, reqs)
 	defer client.Close()
 	s, err := client.NewSession()
 	if err != nil {
-		return 0, fmt.Errorf("opening a session on vsock %d:22: %w", cid, err)
+		return 0, "", fmt.Errorf("opening a session on vsock %d:22: %w", cid, err)
 	}
 	defer s.Close()
-	if err := s.Run("true"); err != nil {
-		return 0, fmt.Errorf("running true on vsock %d:22: %w", cid, err)
+	out, err := s.Output(command)
+	if err != nil {
+		return 0, "", fmt.Errorf("running %q on vsock %d:22: %w", command, cid, err)
 	}
-	return time.Since(t0), nil
+	return time.Since(t0), string(out), nil
 }
 
 // vsockConn is a connected vsock socket as the net.Conn x/crypto/ssh takes: net.FileConn

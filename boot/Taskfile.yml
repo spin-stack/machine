@@ -174,6 +174,16 @@ tasks:
     cmds:
       - SPIN_SSH_FIRST=1 go test ./boot/ -run '^TestFirstSSH$' -count=1 -v -timeout 30m
 
+  login-lane:
+    desc: >-
+      Where the first SSH login's own time goes between sshd's accept and the command running, on
+      the guest's clock: authenticated, PAM's session open, logind's new session, the scope active,
+      the command, for each of boot:ssh-first's rows. Needs KVM, /dev/vhost-vsock (task vsock), a
+      built release and sudo. REPS= boots.
+    deps: [':tools']
+    cmds:
+      - SPIN_LOGIN_LANE=1 go test ./boot/ -run '^TestLoginLane$' -count=1 -v -timeout 60m
+
   restore-first:
     desc: >-
       The goal's second number: a checkpoint restored to the first SSH login over vsock, beside
