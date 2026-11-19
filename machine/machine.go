@@ -1009,7 +1009,7 @@ func appendChipset(args []string) []string {
 // appendBoot is what the machine boots: the kernel, the initrd, and its command line.
 //
 // QEMU copies the kernel's loaded segments into guest memory, 6.7 ms of a start
-// (boot:firmware-stages, 2026-09-30); qemu/patches/0003 moves the first copy onto threads
+// (boot:firmware-stages, 2026-09-30); qemu/patches/0002 moves the first copy onto threads
 // beside the machine's creation. Mapping the ELF instead would not save it:
 // read back at a login prompt, the guest had written 53% of the 8749 pages it was given and
 // 86% of .text (return thunks and ENDBR sealing reach nearly every function), so a mapping
