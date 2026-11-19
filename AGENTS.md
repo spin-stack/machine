@@ -137,7 +137,7 @@ machine at start-up.
 - **Assert what came out, not what went in.** A build that produced an empty filesystem
   produces a perfectly valid empty filesystem. `image/build.sh` opens the finished image
   and looks for `/sbin/init`; the QEMU build asks the binary it just produced which devices
-  it has; `kernel:verify` reads the ELF notes out of the kernel it just stripped.
+  it has; `spin-machine-dev verify kernel` reads the ELF notes out of the kernel it just stripped.
 - **Check the tool's output, not only its exit status.** `debugfs -R` exits 0 whether or
   not the file it was asked about exists, which made every filesystem check in this
   repository vacuously pass until someone looked.
@@ -145,8 +145,8 @@ machine at start-up.
   ship it, not in a VM three weeks later that will not start. Every workflow ends in the
   verification that belongs to it.
 - **A tarball with something missing is worse than no tarball**: it installs, and the
-  missing piece surfaces somewhere else. `hack/release` refuses rather than warning.
-  A list of files to ship is how one goes missing: `hack/release` named qboot's patches one
+  missing piece surfaces somewhere else. `spin-machine-dev release` refuses rather than warning.
+  A list of files to ship is how one goes missing: the release script named qboot's patches one
   by one, and v20261001.01 shipped a `qboot.bin` without the patch it was built with. Ship
   what a directory holds.
 - **Ask the kernel for a feature, never for its module.** Spin OS's kernels have no loadable
@@ -157,11 +157,11 @@ machine at start-up.
 
 ## Trying the machine
 
-`spin-machine` (`cmd/spin-machine`, built by `task tools`) is how this machine is run by
-hand. Use whatever is quickest to explore with; a check that will be repeated, or that decides
+`spin-machine` (`cmd/spin-machine`, built by `spin-machine-dev build spin-machine`) is how this
+machine is run by hand. Use whatever is quickest to explore with; a check that will be repeated, or that decides
 something, ends up in `boot/` as a Task target, so the next person measures the same thing.
 
-- **Rebuild it first.** `_output/bin/spin-machine` is whatever `task tools` last built, so
+- **Rebuild it first.** `_output/bin/spin-machine` is whatever `spin-machine-dev build` last built, so
   a change to `machine/` is invisible until the tool is rebuilt. `spin-machine args` shows
   the command line that will actually run.
 - **The base is safe by default.** Without `--disk`, `boot` puts the base image under a
@@ -208,11 +208,13 @@ leading `sleep` would be the thing eaten — `mount` arrived as `unt` and `sleep
 line count, so keep the number of blanks generous rather than tuning it; a blank
 costs only a prompt.
 
-## Taskfiles
+## spin-machine-dev and the Taskfile
 
-Each part's targets live beside what they build — `qemu/Taskfile.yml`, `kernel/Taskfile.yml`,
-`image/Taskfile.yml` — and the root file holds the vars they share and the targets that
-cross all of them. CI calls the same targets a developer calls: a second definition of what
+`spin-machine-dev` (`cmd/spin-machine-dev`, `docs/cli.md`) is what a person types to build,
+verify, boot, release and keep the pins: a verb is a goal, its state is files under `_output`,
+and a workflow is the same verbs, a step each. `go tool task bin` builds it into `_output/bin`.
+The Taskfile is go-tools' gates (`test`, `lint`, `mutate`, `coverage`) and CI's plumbing, and
+the probes' targets in `boot/`. CI calls what a developer calls: a second definition of what
 the gate is, kept in a workflow file, goes out of step with the first exactly when a check
 is added.
 
@@ -222,7 +224,7 @@ Apache-2.0. New Go files carry `// SPDX-License-Identifier: Apache-2.0`.
 
 Anything vendored into this tree goes in `NOTICE`, with its licence and — if it was
 changed — a statement that it was. Anything that ends up *inside a release* goes in the
-`SOURCES` file that `hack/release` writes: what it is, which upstream tarball it was built
+`SOURCES` file that `spin-machine-dev release` writes: what it is, which upstream tarball it was built
 from, that tarball's SHA-256, and how to get it. The repository's licence covers the
 recipes; a tarball of GPL binaries carries obligations of its own, and the release is where
 they are answered.
@@ -230,7 +232,7 @@ they are answered.
 An input downloaded from outside is pinned by hash and checked on every build, not only
 after a download — the caches outlive the builds that filled them. The pin is written once, in
 `versions.yaml`, and handed to the Dockerfile as a build argument with no default; a test fails
-on a digest or a commit written anywhere else. `task bump NAME=...` moves one entry, and the
+on a digest or a commit written anywhere else. `spin-machine-dev bump <entry>` moves one entry, and the
 entry's note says what the bump is checked with.
 
 ## Versions
