@@ -1,0 +1,210 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Thu, 19 Nov 2026 13:40:00 -0300
+Subject: [PATCH] hw/core/loader: copy a kernel's segments beside the machine's
+ creation
+
+The first system reset copies every ROM into guest memory on the main
+thread.  For a PVH vmlinux that is two ELF segments, 25 and 10 MiB, read
+through the file's mapping into RAM nothing has touched, so the host
+zeroes a fresh huge page every 2 MiB on the way.  spin-machine's
+boot:firmware-stages measured 4.3 + 1.8 ms of a 30.5 ms start on a nested
+KVM host and 3.8 + 1.6 of 28.1 on metal (lab runs 44535161371 and
+44535156851, 2026-11-18).
+
+The destination exists as soon as the board maps RAM, before the kernel
+is loaded, and nothing reads it until the guest runs.  Start a thread
+per segment of 1 MiB or more when it is added, and join it before the
+vCPUs first run, before an outgoing migration and before any reset after
+the first.  The first reset skips a segment being copied.
+
+Nothing is started on an incoming migration: rom_reset() leaves RAM to
+the stream then, and a copy would race it.  A pmemsave or a dump of a
+machine started with -S, before it ever ran, could read the range while
+it is written; this machine does neither.
+
+Assisted-by: LLM
+---
+--- a/hw/core/loader.c
++++ b/hw/core/loader.c
+@@ -64,6 +64,9 @@
+ #include "hw/core/boards.h"
+ #include "qemu/cutils.h"
+ #include "system/runstate.h"
++#include "migration/misc.h"
++#include "qemu/thread.h"
++#include "qemu/timer.h"
+ #include "tcg/debuginfo.h"
+ 
+ #include <zlib.h>
+@@ -986,6 +989,12 @@
+ 
+     bool committed;
+ 
++    /* Being written into guest RAM by @copier; see rom_copy_start(). */
++    bool copying;
++    QemuThread copier;
++    void *host;
++    MemoryRegion *host_mr;
++
+     hwaddr addr;
+     QTAILQ_ENTRY(Rom) next;
+ };
+@@ -1206,6 +1215,118 @@
+  * is why romsize and datasize are different. Also, this function takes its own
+  * reference to "mapped_file", so we don't have to allocate and copy the buffer.
+  */
++/*
++ * A kernel's ELF segments are copied into guest RAM by the first system reset,
++ * on the main thread, while nothing else happens: 25 and 10 MiB for a PVH
++ * vmlinux, read through the file's mapping and written into RAM that has never
++ * been touched, so every 2 MiB the host zeroes a fresh huge page first.  It was
++ * 4.3 and 1.8 ms of a 30.5 ms QEMU start on a nested KVM host, 3.8 and 1.6 of
++ * 28.1 on metal (spin-machine boot:firmware-stages, measured 2026-11-18).
++ *
++ * The RAM a segment lands in exists from the moment the board maps it, which
++ * is before the kernel is loaded, and nothing reads that range until the guest
++ * runs.  So a large segment is copied on a thread of its own from the moment
++ * it is added, beside the rest of the machine's creation, and the copy is
++ * joined before anything can read it: before the vCPUs first run, before an
++ * outgoing migration, and before any reset after the first, which would
++ * otherwise write the same range again.  The first reset skips it.
++ *
++ * Not on an incoming migration: rom_reset() leaves RAM to the stream then,
++ * and a copy racing it would overwrite the guest's memory with the kernel's.
++ */
++#define ROM_COPY_MIN_SIZE (1 * MiB)
++
++static bool rom_first_reset_done;
++static bool rom_copy_hooked;
++static NotifierWithReturn rom_copy_migration;
++
++static void *rom_copy_thread(void *opaque)
++{
++    Rom *rom = opaque;
++
++    memcpy(rom->host, rom->data, rom->datasize);
++    memset(rom->host + rom->datasize, 0, rom->romsize - rom->datasize);
++    return NULL;
++}
++
++static void rom_copy_join_all(void)
++{
++    Rom *rom;
++
++    QTAILQ_FOREACH(rom, &roms, next) {
++        int64_t t0;
++
++        if (!rom->copying) {
++            continue;
++        }
++        t0 = get_clock();
++        qemu_thread_join(&rom->copier);
++        rom->copying = false;
++        /*
++         * No dirty bits to set, unlike address_space_write_rom(): a new
++         * RAM block is dirty for every client, and every join comes before
++         * anything could have cleared it.
++         */
++        address_space_flush_icache_range(rom->as, rom->addr, rom->datasize);
++        memory_region_unref(rom->host_mr);
++        rom->host_mr = NULL;
++        rom->host = NULL;
++        trace_loader_rom_copied(rom->name, rom->addr, rom->datasize,
++                                get_clock() - t0);
++    }
++}
++
++static void rom_copy_vm_state(void *opaque, bool running, RunState state)
++{
++    if (running) {
++        rom_copy_join_all();
++    }
++}
++
++static int rom_copy_migration_notify(NotifierWithReturn *notifier,
++                                     MigrationEvent *e, Error **errp)
++{
++    if (e->type == MIG_EVENT_SETUP) {
++        rom_copy_join_all();
++    }
++    return 0;
++}
++
++static void rom_copy_start(Rom *rom)
++{
++    MemoryRegionSection section;
++
++    if (rom->datasize < ROM_COPY_MIN_SIZE || !rom->data ||
++        runstate_check(RUN_STATE_INMIGRATE) ||
++        rom->as != &address_space_memory) {
++        return;
++    }
++    /* The whole ROM must land in one RAM region that already exists. */
++    section = memory_region_find(get_system_memory(), rom->addr, rom->romsize);
++    if (!section.mr) {
++        return;
++    }
++    if (int128_get64(section.size) != rom->romsize ||
++        !memory_region_is_ram(section.mr) ||
++        memory_region_is_rom(section.mr) ||
++        memory_region_is_ram_device(section.mr) ||
++        !memory_region_get_ram_ptr(section.mr)) {
++        memory_region_unref(section.mr);
++        return;
++    }
++    rom->host_mr = section.mr;
++    rom->host = memory_region_get_ram_ptr(section.mr) +
++                section.offset_within_region;
++    if (!rom_copy_hooked) {
++        qemu_add_vm_change_state_handler(rom_copy_vm_state, NULL);
++        migration_add_notifier(&rom_copy_migration, rom_copy_migration_notify);
++        rom_copy_hooked = true;
++    }
++    rom->copying = true;
++    qemu_thread_create(&rom->copier, "rom-copy", rom_copy_thread, rom,
++                       QEMU_THREAD_JOINABLE);
++}
++
+ int rom_add_elf_program(const char *name, GMappedFile *mapped_file, void *data,
+                         size_t datasize, size_t romsize, hwaddr addr,
+                         AddressSpace *as)
+@@ -1226,6 +1347,7 @@
+     }
+ 
+     rom_insert(rom);
++    rom_copy_start(rom);
+     return 0;
+ }
+ 
+@@ -1242,11 +1364,20 @@
+ static void rom_reset(void *unused)
+ {
+     Rom *rom;
++    bool first = !rom_first_reset_done;
+ 
++    rom_first_reset_done = true;
++    if (!first) {
++        rom_copy_join_all();
++    }
+     QTAILQ_FOREACH(rom, &roms, next) {
+         if (rom->fw_file) {
+             continue;
+         }
++        if (rom->copying) {
++            /* Being written by its copier, joined before the guest runs. */
++            continue;
++        }
+         /*
+          * We don't need to fill in the RAM with ROM data because we'll fill
+          * the data in during the next incoming migration in all cases.  Note
+--- a/hw/core/trace-events
++++ b/hw/core/trace-events
+@@ -1,5 +1,6 @@
+ # loader.c
+ loader_write_rom(const char *name, uint64_t gpa, uint64_t size, bool isrom) "%s: @0x%"PRIx64" size=0x%"PRIx64" ROM=%d"
++loader_rom_copied(const char *name, uint64_t gpa, uint64_t size, int64_t waited_ns) "%s: @0x%"PRIx64" size=0x%"PRIx64" waited_ns=%"PRId64
+ 
+ # qdev.c
+ qdev_update_parent_bus(void *obj, const char *objtype, void *oldp, const char *oldptype, void *newp, const char *newptype) "obj=%p(%s) old_parent=%p(%s) new_parent=%p(%s)"
+-- 
+2.53.0
