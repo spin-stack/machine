@@ -645,17 +645,28 @@ tasks:
         # restore read its state from gp3 at ~300 MB/s on a c8i, ~680 of its ~840 ms (lab
         # 44542990433). An instance store nothing has mounted is formatted and mounted here; the
         # summary says which disk it was, so no restore number is read without it.
+        #
+        # RunsOn may have taken the instance store already (its runner-setup-mount-points), through
+        # a partition or a RAID over it, so the disk itself shows no mount: where any device on it is
+        # mounted, that is used. Only a disk with nothing on it - no partition, no holder, no
+        # filesystem signature - is formatted; the first version formatted on "not mounted" alone,
+        # and only failing first kept it off a disk RunsOn was using (2026-11-19).
+        lsblk -o NAME,MODEL,SIZE,FSTYPE,MOUNTPOINTS
         tmp=$PWD/_output/lab/tmp
         store=$(lsblk -dnpo NAME,MODEL | awk '/Instance Storage/ {print $1; exit}')
         if [ -n "$store" ]; then
-          mnt=$(findmnt -nro TARGET -S "$store" | head -1)
-          if [ -z "$mnt" ]; then
+          mnt=$(lsblk -nro MOUNTPOINTS "$store" | awk 'NF && $1 != "[SWAP]" {print $1; exit}')
+          if [ -z "$mnt" ] && [ "$(lsblk -nro NAME "$store" | wc -l)" = 1 ] && [ -z "$(sudo blkid -p "$store" || true)" ]; then
             mnt=/mnt/instance-store
-            sudo mkfs.ext4 -q -F "$store"
+            sudo mkfs.ext4 -q "$store"
             sudo mkdir -p "$mnt" && sudo mount "$store" "$mnt"
           fi
-          sudo install -d -o "$(id -u)" -g "$(id -g)" "$mnt/spin-lab-tmp"
-          tmp=$mnt/spin-lab-tmp
+          if [ -n "$mnt" ]; then
+            sudo install -d -o "$(id -u)" -g "$(id -g)" "$mnt/spin-lab-tmp"
+            tmp=$mnt/spin-lab-tmp
+          else
+            echo "::warning::$store is in use and mounted nowhere this can write; TMPDIR stays on the root volume"
+          fi
         fi
         {
           echo "RELEASE=$RELEASE"
