@@ -35,6 +35,7 @@ on:
           - boot:waits
           - boot:ssh-first
           - boot:restore-first
+          - boot:login-lane
           - boot:page-cache
           - boot:firmware
           - boot:firmware-stages
