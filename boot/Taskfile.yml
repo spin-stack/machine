@@ -174,6 +174,17 @@ tasks:
     cmds:
       - SPIN_SSH_FIRST=1 go test ./boot/ -run '^TestFirstSSH$' -count=1 -v -timeout 30m
 
+  restore-first:
+    desc: >-
+      The goal's second number: a checkpoint restored to the first SSH login over vsock, beside
+      the same machine booted cold, for each of boot:ssh-first's rows. Every cold boot runs and is
+      saved before any restore, and each state is read from the disk, not the page cache. Needs
+      KVM, /dev/vhost-vsock (task vsock), a built release, sudo and a TMPDIR on a disk. REPS=
+      repetitions.
+    deps: [':tools']
+    cmds:
+      - SPIN_RESTORE_FIRST=1 go test ./boot/ -run '^TestRestoreFirstSSH$' -count=1 -v -timeout 60m
+
   firmware-stages:
     desc: >-
       Where the time before the kernel goes on the machine a workspace boots: QEMU's start and
