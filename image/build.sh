@@ -177,10 +177,28 @@ done < "$SHARE/packages.txt"
 # costs the image almost nothing, since mke2fs does not zero it — an empty 974 MiB filesystem
 # converts to 1540 KiB of qcow2 with it and 1220 KiB without — and an overlay at most 64 MiB,
 # once the guest has cycled through it (all measured 2026-09-14).
+#
+# No orphan_file, which mke2fs.conf turns on for ext4 since 1.47.0. Every mount, read-only
+# included, loads the orphan file into memory one block at a time (ext4_init_orphan_info,
+# fs/ext4/orphan.c in 7.3): about 73 sequential single-block reads with no readahead, each a
+# virtio round trip, inside the root mount the whole boot waits for. What the feature buys is
+# scale for a filesystem unlinking many open files at once from many CPUs, where the classic
+# orphan list in the superblock serialises on one lock; a workspace is not that. Crash
+# correctness is the same either way - an inode unlinked while open is recorded in the classic
+# list and the journal, and released at the next mount, as on every ext4 before 1.47.
+#
+# lazy_itable_init=0: the inode tables are zeroed here and every group is marked so
+# (ITABLE_ZEROED). Without it - mke2fs -d left every group unmarked - the first read-write mount
+# of each overlay set ext4lazyinit to zero every inode table, in the first second of the boot,
+# while the machine is reaching its first login: 16.06 MiB of zero clusters in the overlay after
+# one boot, and none with the tables zeroed here (`--init /bin/sh`, laptop, 2026-11-19). The
+# thread itself still starts, to prefetch block bitmaps, which only reads. Zeros cost the image
+# nothing, because qemu-img does not allocate a cluster of them: with both changes it came out
+# 256 KiB smaller than the build before it.
 mkbase() {
     rm -f /work/base.raw
-    "$bin/mkfs.ext4" -q -F -L "" -U clear -J size=64 -m 0 -b 4096 -E root_owner=0:0 \
-        -d "$tree" /work/base.raw "${1}k"
+    "$bin/mkfs.ext4" -q -F -L "" -U clear -J size=64 -m 0 -b 4096 -O ^orphan_file \
+        -E root_owner=0:0,lazy_itable_init=0 -d "$tree" /work/base.raw "${1}k"
 }
 # The size is given in KiB with its unit spelled. A bare number is KiB only until -b is on the
 # command line, after which mke2fs reads it as a count of blocks: adding -b 4096 made this image
@@ -222,6 +240,19 @@ grep -q '^Filesystem features:.* has_journal' <<<"$header" || { echo "ERROR: the
 grep -q '^Filesystem features:.* needs_recovery' <<<"$header" && { echo "ERROR: the filesystem's journal needs recovery" >&2; exit 1; }
 grep -q '^Total journal size: *64M$' <<<"$header" || { echo "ERROR: the journal is not 64M: $(grep '^Total journal size' <<<"$header")" >&2; exit 1; }
 grep -q '^Filesystem state: *clean$' <<<"$header" || { echo "ERROR: the filesystem is not clean" >&2; exit 1; }
+# The two choices mkbase makes against mke2fs.conf's defaults, read back: an e2fsprogs bump whose
+# mke2fs ignored one would build a filesystem that mounts and boots, only slower.
+grep -q '^Filesystem features:.* orphan_file' <<<"$header" && {
+    echo "ERROR: the filesystem has orphan_file; every mount reads it block by block" >&2; exit 1; }
+# Every group, from the group descriptors: dumpe2fs prints one "Group N:" line each, with
+# ITABLE_ZEROED among its flags when the mark is there. The count is compared with the header's
+# group count rather than only looking for a group without it, so that output dumpe2fs did not
+# print, or printed differently, fails rather than passes.
+groups=$("$bin/dumpe2fs" /work/base.raw 2>/dev/null | grep '^Group [0-9]*:')
+want=$(awk -F: '/^Block count:/ { b = $2 } /^Blocks per group:/ { g = $2 } END { printf "%d\n", (b + g - 1) / g }' <<<"$header")
+zeroed=$(grep -c 'ITABLE_ZEROED' <<<"$groups" || true)
+test "$want" -gt 0 && test "$zeroed" = "$want" || {
+    echo "ERROR: $zeroed of $want groups have zeroed inode tables; each overlay would run ext4lazyinit" >&2; exit 1; }
 
 # debugfs is asked and its *output* is read, not its exit status: `debugfs -R` exits 0
 # whether or not the request succeeded, printing "File not found by ext2_lookup" to stderr
