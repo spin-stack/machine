@@ -60,6 +60,7 @@ Usage:
   spin-machine memory      [flags]   grow or shrink a running VM between its memory and its ceiling
   spin-machine save        [flags]   stop a running VM and write its state to a file
   spin-machine restore     [flags]   load a saved state into a VM booted with --incoming defer
+  spin-machine start       [flags]   give a VM booted with --prestart its disk, and run it or restore into it
   spin-machine compare     [flags]   say what changed between two reports of the feature matrix
 
 spin-machine <command> -h lists a command's flags.
@@ -131,6 +132,12 @@ func run(argv []string) error {
 			return err
 		}
 		return restore(o)
+	case "start":
+		var o startFlags
+		if err := parse(cmd, argv, o.register); err != nil {
+			return err
+		}
+		return start(o)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return nil
@@ -178,6 +185,7 @@ type machineFlags struct {
 	bios     string
 
 	disk              string
+	prestart          bool
 	diskFormat        string
 	readonly          bool
 	serial            string
@@ -211,6 +219,8 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.bios, "bios", "", "the BIOS, a file in the firmware directory (default: "+machine.DefaultBIOS+"; bios-256k.bin is SeaBIOS)")
 
 	fs.StringVar(&o.disk, "disk", "", "disk image, opened as given (default: the base image under a throwaway overlay; - for no disk)")
+	fs.BoolVar(&o.prestart, "prestart", false,
+		"start QEMU with no disk bound and no vCPU run, for start to give it one (needs --qmp; no --disk)")
 	fs.StringVar(&o.diskFormat, "disk-format", "qcow2", "format of the disk image; never guessed")
 	fs.BoolVar(&o.readonly, "disk-readonly", false, "open the disk read-only, and mount root ro")
 	fs.StringVar(&o.serial, "disk-serial", "", "serial the guest can resolve the disk by")
@@ -241,7 +251,7 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 // scratch is whether the disk is the base image under an overlay QEMU makes and
 // throws away. The base is never written (rule 2 in CLAUDE.md), and a command that
 // booted it read-write by default made every caller build an overlay of its own.
-func (o *machineFlags) scratch() bool { return o.disk == "" }
+func (o *machineFlags) scratch() bool { return o.disk == "" && !o.prestart }
 
 // spec turns the flags into a machine, filling in every path from the release
 // tree so that the common case is no flags at all.
@@ -296,7 +306,12 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 			return machine.Spec{}, err
 		}
 	}
-	if disk != "-" {
+	switch {
+	case o.prestart && o.disk != "":
+		return machine.Spec{}, errors.New("--prestart binds the disk later: name it to start, not to boot")
+	case o.prestart:
+		s.Disks = []machine.Disk{{Later: true, Readonly: o.readonly, Serial: o.serial}}
+	case disk != "-":
 		s.Disks = []machine.Disk{{
 			Path:              disk,
 			Format:            o.diskFormat,
@@ -670,11 +685,19 @@ func restore(o restoreFlags) error {
 		return err
 	}
 	defer func() { _ = c.Close() }()
+	if err := c.load(from, o.timeout); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "restored %s\n", from)
+	return nil
+}
 
-	if err := c.run("migrate-incoming", map[string]any{"uri": "file:" + from}, nil); err != nil {
+// load is restore's conversation: the state loaded into a VM waiting for one, and the VM run.
+func (q *qmpConn) load(from string, timeout time.Duration) error {
+	if err := q.run("migrate-incoming", map[string]any{"uri": "file:" + from}, nil); err != nil {
 		return fmt.Errorf("loading %s: %w", from, err)
 	}
-	if err := c.waitMigration(o.timeout); err != nil {
+	if err := q.waitMigration(timeout); err != nil {
 		return fmt.Errorf("loading %s: %w", from, err)
 	}
 	// A VM saved stopped comes back stopped: QEMU carries the source's run state across
@@ -683,15 +706,75 @@ func restore(o restoreFlags) error {
 	var st struct {
 		Status string `json:"status"`
 	}
-	if err := c.run("query-status", nil, &st); err != nil {
+	if err := q.run("query-status", nil, &st); err != nil {
 		return err
 	}
 	if st.Status != "running" {
-		if err := c.run("cont", nil, nil); err != nil {
+		if err := q.run("cont", nil, nil); err != nil {
 			return fmt.Errorf("starting the restored VM (it was %s): %w", st.Status, err)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "restored %s\n", from)
+	return nil
+}
+
+type startFlags struct {
+	qmp      string
+	disk     string
+	format   string
+	readonly bool
+	from     string
+	timeout  time.Duration
+}
+
+func (o *startFlags) register(fs *flag.FlagSet) {
+	fs.StringVar(&o.qmp, "qmp", "", "QMP socket of a VM booted with --prestart (required)")
+	fs.StringVar(&o.disk, "disk", "", "the root disk image, opened as given: an overlay, never the base (required)")
+	fs.StringVar(&o.format, "disk-format", "qcow2", "format of the disk image; never guessed")
+	fs.BoolVar(&o.readonly, "disk-readonly", false, "open the disk read-only, as boot --prestart --disk-readonly said")
+	fs.StringVar(&o.from, "from", "", "a state save wrote, for a VM booted with --prestart --incoming defer: restore it")
+	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "how long the load may take")
+}
+
+// start makes a prestarted VM a workspace's: it binds the disk (machine.Disk.Bind) to a VM
+// booted with --prestart, which has been waiting with its devices realized, its kernel copied
+// into memory and no vCPU run, and then runs it - or, with --from, loads a state into it.
+//
+// What this moves out of a workspace's wait is QEMU's own start: exec, the machine's creation and
+// the reset that copies the kernel in, ~30 ms nested (boot:firmware-stages). The guest is the
+// same guest from its first instruction: nothing it reads has been decided before the bind but
+// its vmgenid, which is QEMU's per process, and its vsock context id, which the pool chose.
+func start(o startFlags) error {
+	if o.qmp == "" || o.disk == "" {
+		return errors.New("start: --qmp and --disk are required")
+	}
+	path, err := filepath.Abs(o.disk)
+	if err != nil {
+		return fmt.Errorf("resolving %s: %w", o.disk, err)
+	}
+	cmds, err := machine.Disk{Path: path, Format: o.format, Readonly: o.readonly, Later: true}.Bind(0)
+	if err != nil {
+		return fmt.Errorf("start: %w", err)
+	}
+	c, err := dialQMP(o.qmp)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	for _, cmd := range cmds {
+		if err := c.run(cmd.Execute, cmd.Arguments, nil); err != nil {
+			return fmt.Errorf("binding %s: %w", path, err)
+		}
+	}
+	if o.from != "" {
+		from, err := filepath.Abs(o.from)
+		if err != nil {
+			return fmt.Errorf("resolving %s: %w", o.from, err)
+		}
+		return c.load(from, o.timeout)
+	}
+	if err := c.run("cont", nil, nil); err != nil {
+		return fmt.Errorf("running the VM: %w", err)
+	}
 	return nil
 }
 
@@ -820,7 +903,7 @@ func (q *qmpConn) Close() error { return q.c.Close() }
 
 // run sends cmd and waits for its reply, decoding the return value into out when out
 // is not nil.
-func (q *qmpConn) run(cmd string, args map[string]any, out any) error {
+func (q *qmpConn) run(cmd string, args, out any) error {
 	req := map[string]any{"execute": cmd}
 	if args != nil {
 		req["arguments"] = args

@@ -329,6 +329,9 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 		{"a flag boot does not take", []string{"fingerprint", "--nope"}, "flag provided but not defined"},
 		{"restore without its socket", []string{"restore", "--from", "x"}, "are required"},
 		{"detach without its socket", []string{"detach"}, "--qmp is required"},
+		{"start without its disk", []string{"start", "--qmp", "q"}, "are required"},
+		{"a prestart given its disk at exec", []string{"args", "--release", dir, "--prestart", "--qmp", "q", "--disk", "d"}, "name it to start"},
+		{"a prestart nobody can start", []string{"args", "--release", dir, "--prestart"}, "has none"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := run(tc.argv); err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -561,5 +564,35 @@ func TestATargetIsOneTheControllerAddresses(t *testing.T) {
 		if err := checkTarget(target); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("target %d: %v, want an error containing %q", target, err, want)
 		}
+	}
+}
+
+// start, against a monitor that answers as QEMU does: the disk bound first, then the VM run, or,
+// with a state, the state loaded and the VM run once it is.
+func TestStartBindsTheDiskThenRuns(t *testing.T) {
+	bind := []string{"blockdev-add", "blockdev-add", "blockdev-reopen", "blockdev-del"}
+	for _, tc := range []struct {
+		name    string
+		from    string
+		replies []string
+		want    []string
+	}{
+		{"a boot", "", []string{ok, ok, ok, ok, ok, ok}, append(bind, "cont")},
+		{"a restore", "state", []string{ok, ok, ok, ok, ok, ok, `{"return": {"status": "completed"}}`, `{"return": {"status": "running"}}`},
+			append(bind, "migrate-incoming", "query-migrate", "query-status")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMonitor(t, tc.replies...)
+			if err := start(startFlags{qmp: m.socket, disk: "/w/overlay.qcow2", format: "qcow2", from: tc.from, timeout: time.Second}); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, r := range m.commands(t)[1:] {
+				got = append(got, r.Execute)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("asked %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

@@ -738,6 +738,12 @@ func TestValidateRefuses(t *testing.T) {
 		{"more hotplug disks than the controller addresses", func(s *Spec) { s.HotplugDisks = MaxHotplugDisks + 1 }},
 		{"a negative number of hotplug disks", func(s *Spec) { s.HotplugDisks = -1 }},
 		{"a disk with no path", func(s *Spec) { s.Disks = []Disk{{Format: "qcow2"}} }},
+		{"a disk bound later named at exec", func(s *Spec) {
+			s.Monitors = []Monitor{{Socket: "/q"}}
+			s.Disks = []Disk{{Later: true, Path: "/a.qcow2", Format: "qcow2"}}
+		}},
+		// Held until the disk is bound over a monitor, it would never start.
+		{"a disk bound later and no monitor", func(s *Spec) { s.Disks = []Disk{{Later: true}} }},
 		// A wrong guess is a guest that boots and finds a disk full of nothing.
 		{"a disk with no format", func(s *Spec) { s.Disks = []Disk{{Path: "/a.qcow2"}} }},
 		{"a disk with a path and a chain", func(s *Spec) {
@@ -951,5 +957,74 @@ func TestIncomingNamesTheSourceOnTheCommandLine(t *testing.T) {
 				t.Errorf("-incoming %d times, value %q, want once with %q", n, argValue(args, "-incoming"), tc.want)
 			}
 		})
+	}
+}
+
+// A disk bound Later is a device over a placeholder at exec, and the vCPUs are held until it is
+// bound: by -S for a boot, by -incoming for a restore, never by both.
+func TestADiskBoundLaterHoldsTheVCPUs(t *testing.T) {
+	for _, tc := range []struct {
+		what     string
+		incoming string
+		wantS    bool
+	}{
+		{"a boot", "", true},
+		{"a restore", "defer", false},
+	} {
+		t.Run(tc.what, func(t *testing.T) {
+			s := spec(t)
+			s.Monitors = []Monitor{{Socket: "/q"}}
+			s.Incoming = tc.incoming
+			s.Disks = []Disk{{Later: true}}
+			args, err := s.Args()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := slices.Contains(args, "-S"); got != tc.wantS {
+				t.Errorf("-S on the command line: %v, want %v", got, tc.wantS)
+			}
+			line := strings.Join(args, " ")
+			for _, want := range []string{
+				`"driver":"null-co","node-name":"blk0-later","read-zeroes":true,"size":0`,
+				`"driver":"raw","node-name":"blk0","file":"blk0-later"`,
+				"virtio-blk-pci,drive=blk0,",
+			} {
+				if !strings.Contains(line, want) {
+					t.Errorf("missing %s in %s", want, line)
+				}
+			}
+			if strings.Contains(line, "-drive") {
+				t.Errorf("a disk bound later opened an image at exec: %s", line)
+			}
+		})
+	}
+}
+
+// Bind reopens the raw node the device is attached to onto the image, which is opened as -drive
+// opens one at exec, and deletes the placeholder.
+func TestBind(t *testing.T) {
+	cmds, err := Disk{Path: "/w/overlay.qcow2", Format: "qcow2", Later: true}.Bind(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range cmds {
+		b, err := json.Marshal(c.Arguments)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, c.Execute+" "+string(b))
+	}
+	want := []string{
+		`blockdev-add {"driver":"file","node-name":"blk0-image-file","filename":"/w/overlay.qcow2","aio":"io_uring","discard":"unmap","read-only":false,"drop-cache":false}`,
+		`blockdev-add {"driver":"qcow2","node-name":"blk0-image","file":"blk0-image-file","read-only":false,"discard":"unmap"}`,
+		`blockdev-reopen {"options":[{"driver":"raw","node-name":"blk0","file":"blk0-image","read-only":false,"discard":"unmap"}]}`,
+		`blockdev-del {"node-name":"blk0-later"}`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if _, err := (Disk{Path: "/w/a.qcow2", Later: true}).Bind(0); err == nil {
+		t.Error("bound a disk with no format")
 	}
 }

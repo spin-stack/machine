@@ -180,6 +180,82 @@ type Disk struct {
 	// one that does not ("Could not open backing file"). And, like cache=none,
 	// not on tmpfs, which has no O_DIRECT.
 	DirectOverBacking bool
+	// Later leaves the image to be bound after QEMU has started: a machine started ahead of
+	// the workspace it will become, with no workspace's disk yet. The device is there from
+	// exec, over a raw node whose file is an empty placeholder, and Bind is what puts the
+	// image under it. Path and Chain are not given to Args, and Args adds -S unless Incoming
+	// already holds the vCPUs: a guest that ran before the bind would read the placeholder.
+	//
+	// The raw node is the seam because blockdev-reopen may change a raw node's file and a
+	// device's drive may not change once it is realized; QEMU 11.1 has no command that
+	// replaces the node under a device. raw passes every request through to its file.
+	Later bool
+}
+
+// Bind is the QMP commands that bind the image at Path to disk i, declared Later, in the
+// order they are sent: the image's file and format nodes added with the options driveArg
+// gives a disk opened at exec (the backing chain still the header's), the disk's raw node
+// reopened onto them, and the placeholder deleted. Sent while the vCPUs are held, so no
+// request is in flight across the swap.
+//
+// A Path only. A Chain would be the same nodes over descriptor sets added through QMP's
+// add-fd, which nothing here does yet.
+func (d Disk) Bind(i int) ([]Command, error) {
+	switch {
+	case d.Path == "":
+		return nil, errors.New("binding a disk needs its path")
+	case len(d.Chain) != 0:
+		return nil, errors.New("a chain is not bound after start: its descriptors would have to be added over QMP first")
+	case d.DirectOverBacking:
+		return nil, errors.New("a disk bound after start has no direct-over-backing")
+	case !slices.Contains(diskFormats, d.Format):
+		return nil, fmt.Errorf("%s: format %q is not one of %v", d.Path, d.Format, diskFormats)
+	}
+	node := fmt.Sprintf("blk%d-image", i)
+	file := fileNode{
+		Driver: "file", NodeName: node + "-file", Filename: d.Path,
+		AIO: "io_uring", Discard: "unmap", ReadOnly: d.Readonly,
+	}
+	if d.Locking {
+		file.Locking = "on"
+	}
+	return []Command{
+		{"blockdev-add", file},
+		{"blockdev-add", formatNode{Driver: d.Format, NodeName: node, File: node + "-file", ReadOnly: d.Readonly, Discard: "unmap"}},
+		{"blockdev-reopen", map[string]any{"options": []formatNode{d.lateNode(i, node)}}},
+		{"blockdev-del", map[string]any{"node-name": placeholderNode(i)}},
+	}, nil
+}
+
+// Command is one QMP command and its arguments, for a caller to send as it is.
+type Command struct {
+	Execute   string
+	Arguments any
+}
+
+func placeholderNode(i int) string { return fmt.Sprintf("blk%d-later", i) }
+
+// lateNode is the raw node disk i's device is attached to when the disk is bound Later, over
+// file: the placeholder at exec, the image after Bind.
+func (d Disk) lateNode(i int, file string) formatNode {
+	return formatNode{Driver: "raw", NodeName: fmt.Sprintf("blk%d", i), File: file, ReadOnly: d.Readonly, Discard: "unmap"}
+}
+
+// laterArgs is disk i, declared Later, as it is at exec: the raw node the device is attached to,
+// over a null-co placeholder of no size - a guest that somehow read it would find no disk at all
+// rather than a disk of zeroes.
+func (d Disk) laterArgs(i int) ([]string, error) {
+	placeholder, err := json.Marshal(map[string]any{
+		"driver": "null-co", "node-name": placeholderNode(i), "size": 0, "read-zeroes": true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encoding disk %d's placeholder: %w", i, err)
+	}
+	raw, err := json.Marshal(d.lateNode(i, placeholderNode(i)))
+	if err != nil {
+		return nil, fmt.Errorf("encoding disk %d's node: %w", i, err)
+	}
+	return []string{"-blockdev", string(placeholder), "-blockdev", string(raw)}, nil
 }
 
 // chainArgs is disk i as -blockdev nodes over descriptor sets, the base first: each format
@@ -865,6 +941,10 @@ func (s Spec) validate() error {
 		if err := d.validate(sets); err != nil {
 			return fmt.Errorf("disk %d: %w", i, err)
 		}
+		// Held until its disk is bound, and bound over a monitor: with none it never starts.
+		if d.Later && len(s.Monitors) == 0 {
+			return fmt.Errorf("disk %d is bound later, over a monitor, and the machine has none", i)
+		}
 	}
 	return nil
 }
@@ -907,6 +987,10 @@ func (n NIC) validate() error {
 
 func (d Disk) validate(sets map[int]bool) error {
 	switch {
+	case d.Later && (d.Path != "" || len(d.Chain) != 0):
+		return errors.New("a disk bound later is named when it is bound (Bind), not at exec")
+	case d.Later:
+		return nil
 	case d.Path == "" && len(d.Chain) == 0:
 		return errors.New("no path and no chain")
 	case d.Path != "" && len(d.Chain) != 0:
@@ -1091,13 +1175,20 @@ func (s Spec) appendDevices(args []string) []string {
 // appendDisks is each disk, by path or as a chain, on its fixed slot.
 func (s Spec) appendDisks(args []string) ([]string, error) {
 	for i, d := range s.Disks {
-		if len(d.Chain) != 0 {
+		switch {
+		case d.Later:
+			later, err := d.laterArgs(i)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, later...)
+		case len(d.Chain) != 0:
 			chain, err := d.chainArgs(i)
 			if err != nil {
 				return nil, err
 			}
 			args = append(args, chain...)
-		} else {
+		default:
 			args = append(args, "-drive", d.driveArg(i))
 		}
 		dev := fmt.Sprintf("virtio-blk-pci,drive=blk%d,%s,addr=0x%x",
@@ -1186,10 +1277,14 @@ func (s Spec) appendFDSets(args []string) []string {
 	return args
 }
 
-// appendIncoming is -incoming, when the machine is to be restored rather than booted.
+// appendIncoming is -incoming, when the machine is to be restored rather than booted, and -S
+// when a disk is bound Later and nothing else holds the vCPUs until it is.
 func (s Spec) appendIncoming(args []string) []string {
 	if s.Incoming != "" {
-		args = append(args, "-incoming", s.Incoming)
+		return append(args, "-incoming", s.Incoming)
+	}
+	if slices.ContainsFunc(s.Disks, func(d Disk) bool { return d.Later }) {
+		args = append(args, "-S")
 	}
 	return args
 }
