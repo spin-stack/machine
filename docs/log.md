@@ -343,6 +343,25 @@ Measured and not shipped:
 
 **11-13 · image · udev's coldplug keeps cpu (this change).** The coldplug filtered in `630fa2c` left out cpu, and a core attached before systemd starts - spin gives a workspace its cores while its own init is PID 1 - is onlined by that replay reaching `40-spin-hotadd.rules` and by nothing else: with v20261113.03 every workspace came up with one core whatever it was sized to (spin's kvm run 43527839765, four tests "still waiting for the guest to have its floor's two cores"). `task boot:hotadd` attaches a core before systemd and reads `online` after: `0` on v20261113.03's image, `0-1` with cpu in the filter. What cpu costs the first login was not measured; it is one device per core.
 
+
+### Week 11: 2026-11-14 to 11-20
+
+**11-19 · image · systemd from Ubuntu's source package, stage1 (this change).** The image installs Ubuntu's own systemd 259.9-0ubuntu0.1, rebuilt from its .dsc (versions.yaml `systemd-source`) by `image/systemd/Dockerfile`. The build uses Debian's `stage1` build profile (no BPF framework, audit, AppArmor, SELinux, OpenSSL, TPM2, homed, cryptsetup…) and links systemd-executor, udevd, systemctl and journalctl statically against libsystemd-shared. The packages are versioned `+spin1` and held. *Why:* PID 1 spent ~25 ms in the BPF verifier on socket-bind at every boot (#240, "measured, nothing done"), and restrict-fs failed to load under lockdown on every boot (#261). *Measured:*
+- `boot:ssh-first` on the bench fleet, 20 boots of each, interleaved, first login p50 against the archive's systemd:
+  - stage1: −47 (lab 44531842773), −38 (44537549305) and −47 ms (44538877783);
+  - static over stage1: −10 and −1 ms, within noise. Accept → login was −7 ms in both runs.
+- `boot:waits` on a laptop: PID 1's setup before the generators goes from 25.8 to 5.6 ms.
+- `boot:restore-first` (new, below): unchanged. The guest's part, from running to login, is ~50 ms with either systemd (44533227886).
+
+*Left out:* masking `systemd-udev-load-credentials` (−8, −6 ms) and `-Db_lto=true` (Ubuntu already builds with `-flto=auto`); see §4. The patch that would make restrict-fs load under lockdown, reading `s_magic` through BTF, loaded in this guest. It is for systemd upstream and is not needed here. *Cost:* a rebuild whenever Ubuntu publishes a systemd. The archive serves only the current source, so the build fails the day it moves, and `refresh:systemd` proposes the move.
+
+**11-19 · boot · `boot:restore-first` (this change).** The goal's second number had had no probe in the tree since #246 closed. Every row of `boot:ssh-first` is booted cold, logged into and saved, then restored with its state evicted from the page cache (checked with mincore) and logged into again. Every cold boot runs before every restore. On the bench fleet a restore reaches the first login at 841/913 ms, ~790 of it before the guest runs, reading the state from the runner's gp3 volume (44533227886). #246 read 386 ms on 11-13; what moved is not known. On a c8i.metal-48xl it is 905/942 (44535167653), so the restore is the host's disk, not the virtualization.
+
+**11-19 · lab · nested against metal.** `bench-metal` ran for the first time (spin-stack/ci#20 keeps it to c8i.metal-48xl, on-demand when spot has none; spin-machine#272 caps the job at 60 minutes). The same CPU (Xeon 6975P-C) on both, p50:
+- first login: 378-392 ms nested (two runs) against 332 metal (44537498507), so **nesting costs ~50-60 ms**;
+- `boot:firmware-stages`: QEMU start 30.5 against 28.1, the PCI walk 5.00 against 2.22 (173 exits, ~29 against 13 µs each), kernel and init 108.7 against 69.5 (44535161371, 44535156851).
+
+An r7i.metal-24xl (Sapphire Rapids, slower per core) read 296 ms (44534028478), faster than the c8i.metal. Unexplained; repeat before quoting it. Every number in §1 is nested.
 ---
 
 ## 3. Rework cycles
@@ -520,6 +539,8 @@ Also the reusable builder, added and reverted on 10-13.
 | CPUWeight/IOWeight/Nice on the first login's lane | −2 ms over coldplug filtered; second login 63 vs 45 | lab 43518915618 | 11-13 |
 | One sshd for every connection (vsock Accept=no, `sshd -D` early) | First login 382 vs 381; second 40 vs 48 ms | lab 43524721490 | 11-13 |
 | Login without pam_systemd (diagnostic bound) | 380 vs 436, but no session, no XDG_RUNTIME_DIR | lab 43518044150 | 11-13 |
+| Mask `systemd-udev-load-credentials` | First login −8 then −6 ms, p95 unchanged: not separable from noise at 20 boots | lab 44537549305, 44538877783 | 11-19 |
+| systemd with `-Db_lto=true` | Ubuntu's dpkg-buildflags already pass `-flto=auto`: the same packages to within a few hundred bytes | image/systemd/Dockerfile | 11-19 |
 | Lower the vCPU ceiling, drop the balloon or ACPI for boot time | Not tried: hotplug and dynamic memory are an invariant | AGENTS.md | 11-13 |
 
 ---
@@ -583,7 +604,7 @@ Also the reusable builder, added and reverted on 10-13.
   These are #242's checklist.
 - **Is `10-seats.conf` still needed?** The control that should fail passes on systemd 259 (#240, "Not settled here").
 - **virtio-rng removal.** -13.6 ms to the prompt (lab 43321809471), a fingerprint change, not taken (#240).
-- **PID 1 time.** ~25 ms in the BPF verifier for systemd's socket-bind program, "measured, nothing done" (#240). The ~32 ms transaction-build gap is "explained, not removable" (`boot/waits_probe_test.go:391-399`).
+- **PID 1 time.** The ~25 ms in the BPF verifier for systemd's socket-bind program (#240) is gone with the systemd image/systemd builds (11-19). The ~32 ms transaction-build gap is "explained, not removable" (`boot/waits_probe_test.go:391-399`); with systemd built here, it can now be instrumented.
 - **musl under long-running load.** Never measured (`31a57e7`).
 - **`page_reporting_order`.** Revisit "only if memory per host becomes the limit" (docs/memory-and-disk.md).
 - **Moving `MachineType` off pc-q35-11.1.** "its own change" (CLAUDE.md rule 1, `hack/machinetype`).

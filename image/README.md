@@ -13,6 +13,14 @@ The contents are an Ubuntu 26.04 userland with systemd as the container's first 
 the tools a workspace expects, and the boot optimizations in
 `mkosi.extra/usr/local/lib/spin-base/optimize-systemd.sh`.
 
+Every package comes from the Ubuntu archive except systemd's. Those are Ubuntu's own source
+package rebuilt here (`systemd/Dockerfile`, which says what is built out and what it measured),
+versioned `+spin1` and held, so an `apt upgrade` in a workspace cannot bring back the archive's
+build. `build.sh` fails an image whose systemd is not that build or whose packages are not held.
+The other side of that: another package of the same source the image does not carry -
+`systemd-container`, `systemd-resolved` - asks for the archive's systemd at exactly its version,
+so `apt install` of it in a workspace is refused rather than mixing the two builds.
+
 **ext4**, because the guest kernel has `EXT4_FS` and `OVERLAY_FS` and explicitly not
 `XFS_FS`, `BTRFS_FS`, `SQUASHFS` or `EROFS_FS`. Anything else starts with a kernel config
 change one directory over — which `kernel/Dockerfile` asserts.

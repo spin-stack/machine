@@ -1,23 +1,35 @@
-# EXPERIMENT (branch systemd-stage1): Ubuntu's own systemd, rebuilt from its deb-src with less in
-# it, to measure what PID 1, udevd and journald stop doing at boot. Not a release input until the
-# numbers say so; see docs/log.md.
+# The systemd the base image installs: Ubuntu's own, rebuilt from its source package with less
+# in it, because what PID 1, udevd and the units' executor do at every boot is the first login's
+# largest share after the kernel.
 #
-# The source is Ubuntu's source package of the version the image would otherwise install, from
-# the archive's signed Sources index: its patches, and so its security fixes, are Ubuntu's. What
-# changes is the build profile:
+# The source is Ubuntu's source package of the version the image would otherwise install, by
+# its .dsc: its patches, and so its security fixes, are Ubuntu's. What changes is the build:
 #
-#   stage1   Debian's own reduced build, maintained in debian/rules and debian/control: no audit,
-#            cryptsetup, coredump, AppArmor, OpenSSL, TPM2, p11-kit, FIDO2, PCRE2, homed, userdb,
-#            importd, curl, sysupdate, boot loader or ukify, and no BPF framework. That last one
-#            is what PID 1 spends ~25 ms on in the verifier at every boot (socket-bind, docs/log.md)
-#            and what fails to load under lockdown (restrict-fs, #261). None of the packages the
-#            image installs is left out by it.
+#   stage1   Debian's own reduced build, maintained in debian/rules and debian/control: no
+#            audit, cryptsetup, coredump, AppArmor, OpenSSL, TPM2, p11-kit, FIDO2, PCRE2, homed,
+#            userdb, importd, curl, sysupdate, boot loader or ukify, and no BPF framework. That
+#            last one is where the time was: PID 1's setup before the generators went from 25.8
+#            to 5.6 ms (boot:waits), the BPF verifier loading socket-bind at every boot and
+#            restrict-fs failing to under lockdown (#261). So no unit here can use
+#            RestrictFileSystems=, SocketBind*= or RestrictNetworkInterfaces=; none does, and
+#            spin's guard loads its own programs. None of the packages the image installs is
+#            left out by the profile.
 #   SELinux  off as well: the guest kernel's LSMs are lockdown, capability and bpf.
+#   static   systemd-executor - exec'd once for every unit PID 1 starts - udevd and its
+#            helpers, systemctl and journalctl link libsystemd-shared in instead of loading it.
+#            PID 1, journald and logind have no such option.
 #
-# The version gets a +spin1 suffix, so apt prefers it over the archive's and anything reading the
-# image's package list can tell the two apart.
+# Measured on the bench fleet, 20 boots of each interleaved, p50 ms of the first SSH login: stage1
+# −47, −38 and −47 against the archive's systemd (lab runs 44531842773, 44537549305, 44538877783);
+# static over stage1 −10 and −1, within noise, with accept-to-login −7 in both runs. A checkpoint
+# restored to the first login: unchanged, its guest part ~50 ms either way (44533227886). Not
+# taken: -Db_lto=true (Ubuntu's dpkg-buildflags already compile with -flto=auto, and it built the
+# same packages to within a few hundred bytes).
+#
+# The version gets a +spin1 suffix, so apt prefers it over the archive's, a reader of
+# packages.txt can tell the two apart, and image/mkosi.postinst.chroot can hold it.
 ARG UBUNTU_IMAGE
-FROM ${UBUNTU_IMAGE}
+FROM ${UBUNTU_IMAGE} AS build
 
 # versions.yaml's systemd-source: the .dsc, by sha256. dpkg-source checks the tarballs it names
 # against the checksums inside it, so the pin holds the whole source.
@@ -32,8 +44,9 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # From the archive's deb-src, which apt checks against the signed Sources index, and then the .dsc
 # against the pin. The archive keeps only the version resolute publishes now: once Ubuntu moves
-# systemd, this fails at the download, which is when the pin has to move with it (Launchpad keeps
-# every upload, versions.yaml's source, but its librarian answered 502 to a whole build here).
+# systemd, this fails at the download, which is when the pin has to move with it (task
+# refresh:systemd proposes it). Launchpad keeps every upload, versions.yaml's source, but its
+# librarian answered 502 to a whole build here (2026-11-19).
 RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends dpkg-dev devscripts
@@ -44,31 +57,32 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
     dpkg-source -x "systemd_${SYSTEMD_SOURCE_VERSION}.dsc" src && test -f src/debian/rules && \
     apt-get build-dep -y --build-profiles="${DEB_BUILD_PROFILES// /,}" "systemd=${SYSTEMD_SOURCE_VERSION}"
 
-# A variant is meson options after the packaging's own, which meson takes over them: debian/rules
-# hands $(CONFFLAGS_UPSTREAM) last and never sets it, so it comes from here. Each variant is its
-# own image/Taskfile.yml call and its own directory of packages, a row of its own in the probes.
-ARG MESON_EXTRA=""
+# The options after the packaging's own, which meson takes over them: debian/rules hands
+# $(CONFFLAGS_UPSTREAM) last and never sets it. meson-took.py then asks the configured build
+# whether it took each, so a misspelt option is a failed build and not stage1 under another name.
 COPY image/systemd/meson-took.py /build/meson-took.py
 WORKDIR /build/src
-RUN grep -q -- '-Dselinux=enabled' debian/rules && \
+RUN extra="-Dlink-executor-shared=false -Dlink-udev-shared=false -Dlink-systemctl-shared=false -Dlink-journalctl-shared=false" && \
+    grep -q -- '-Dselinux=enabled' debian/rules && \
     sed -i 's/-Dselinux=enabled/-Dselinux=disabled/' debian/rules && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "${SYSTEMD_SOURCE_VERSION}+spin1" --distribution resolute \
-            "Rebuilt with the stage1 profile and SELinux off (spin-machine experiment). ${MESON_EXTRA}" && \
-    CONFFLAGS_UPSTREAM="${MESON_EXTRA}" dpkg-buildpackage -b -uc -us -j"${JOBS}" && \
-    meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${MESON_EXTRA}
+            "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}." && \
+    CONFFLAGS_UPSTREAM="${extra}" dpkg-buildpackage -b -uc -us -j"${JOBS}" && \
+    meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra}
 
-# What came out: the packages the image installs, at the new version, and a PID 1 without the
-# BPF framework or SELinux linked in.
+# What came out: every package the image installs, at the new version; libsystemd-shared without
+# SELinux, AppArmor, audit or libcrypto; and an executor that loads no libsystemd at all.
 RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
     for p in systemd systemd-sysv udev libsystemd0 libsystemd-shared libudev1 libpam-systemd; do \
-        f=$(ls /debs/${p}_*+spin1_*.deb) || { echo "ERROR: no ${p} built"; exit 1; }; \
+        ls /debs/${p}_*+spin1_*.deb > /dev/null || { echo "ERROR: no ${p} built"; exit 1; }; \
     done && \
-    dpkg-deb -x /debs/libsystemd-shared_*.deb /tmp/x && \
-    ! find /tmp/x -name 'libsystemd-shared-*.so' -exec ldd {} \; | grep -E 'libselinux|libapparmor|libaudit|libcrypto' && \
-    dpkg-deb -x /debs/systemd_*.deb /tmp/s && \
-    echo "systemd-executor: $(ldd /tmp/s/usr/lib/systemd/systemd-executor | grep -c libsystemd) libsystemd libraries" && \
-    ls -la /debs
+    dpkg-deb -x /debs/libsystemd-shared_*.deb /tmp/shared && \
+    so=$(find /tmp/shared -name 'libsystemd-shared-*.so') && test -n "$so" && \
+    ! ldd "$so" | grep -E 'libselinux|libapparmor|libaudit|libcrypto' && \
+    dpkg-deb -x /debs/systemd_*.deb /tmp/systemd && \
+    ! ldd /tmp/systemd/usr/lib/systemd/systemd-executor | grep libsystemd && \
+    echo "OK: $(ls /debs | wc -l) packages, libsystemd-shared without the LSMs it was built without, the executor static"
 
 FROM scratch AS debs
-COPY --from=0 /debs/ /
+COPY --from=build /debs/ /

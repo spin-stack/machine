@@ -36,7 +36,6 @@ import (
 //	SPIN_RESTORE_FIRST=1  run at all
 //	REPS=<n>              repetitions of each row (default 10)
 //	CPUS=<n>              vCPUs (default 2)
-//	SPIN_SYSTEMD_DEBS=<d> a row with the systemd built by image/systemd (EXPERIMENT)
 func TestRestoreFirstSSH(t *testing.T) {
 	if os.Getenv("SPIN_RESTORE_FIRST") == "" {
 		t.Skip("set SPIN_RESTORE_FIRST=1: boots, saves and restores VMs with a vsock device")

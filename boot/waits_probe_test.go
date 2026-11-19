@@ -60,10 +60,6 @@ func TestBootWaits(t *testing.T) {
 	raw := os.Getenv("RAW")
 
 	v := waitsVariant(cmp.Or(os.Getenv("CPUS"), "2"))
-	// With SPIN_SYSTEMD_DEBS, the first variant's systemd (EXPERIMENT, branch systemd-stage1).
-	if builds := systemdDebs(t); len(builds) > 0 {
-		v = withPackages(v, "waits, systemd "+builds[0].name, builds[0].dir)
-	}
 
 	var boots []waitsBoot
 	for rep := range reps {

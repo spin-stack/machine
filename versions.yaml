@@ -143,10 +143,12 @@
   pin: 17ad848e882b6b91ac0d31300181bb4ec6b221077329b0c5296c9765cce769b5
   track: page https://launchpad.net/ubuntu/resolute/+source/systemd
   note: >-
-    EXPERIMENT (branch systemd-stage1): image/systemd/Dockerfile, Ubuntu's systemd source package as
-    resolute publishes it, by its .dsc, which holds the tarballs' checksums dpkg-source checks.
-    Launchpad keeps a superseded upload, the archive's pool does not. After the bump:
-    `task image:systemd`, then boot:ssh-first with SPIN_SYSTEMD_DEBS.
+    image/systemd/Dockerfile: Ubuntu's systemd source package as resolute publishes it, by its
+    .dsc, which holds the tarballs' checksums dpkg-source checks; rebuilt with the stage1 profile
+    and installed in place of the archive's. The archive serves only the current version, so the
+    build fails once Ubuntu moves it, and task refresh:systemd proposes the new one. After the
+    bump: `task image:build` (its checks: the meson options taken, the packages held), then
+    `task boot:ssh-first` and `task boot:lockdown`.
 
 - name: mkosi
   kind: download

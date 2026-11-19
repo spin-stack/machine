@@ -16,8 +16,9 @@ VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo d
 # The versions and the upstream tarballs' SHA-256s this release was compiled from, read from
 # versions.yaml - the same values the builds were handed and checked the tarballs against - so
 # SOURCES states them without anybody reading a build file. Nothing passes these in, so there
-# is no second copy to disagree: QEMU_VERSION, QEMU_SHA256, KERNEL_*, E2FSPROGS_*, QBOOT_*.
-pins=$(versions env qemu kernel e2fsprogs qboot)
+# is no second copy to disagree: QEMU_VERSION, QEMU_SHA256, KERNEL_*, E2FSPROGS_*, QBOOT_*,
+# SYSTEMD_SOURCE_*.
+pins=$(versions env qemu kernel e2fsprogs qboot systemd-source)
 while IFS='=' read -r key value; do
   declare "${key}=${value}"
 done <<< "${pins}"
@@ -26,6 +27,7 @@ done <<< "${pins}"
 QEMU_URL=$(versions url qemu)
 KERNEL_URL=$(versions url kernel)
 E2FSPROGS_URL=$(versions url e2fsprogs)
+SYSTEMD_SOURCE_URL=$(versions url systemd-source)
 
 RELEASE_NAME="spin-machine-${VERSION}-linux-${KERNEL_ARCH}"
 RELEASE_DIR="${OUTPUT_DIR}/release/${RELEASE_NAME}"
@@ -209,9 +211,21 @@ Ubuntu userland
   image:    usr/share/spin-stack/image/rootfs.qcow2
   contents: usr/share/spin-stack/packages.txt — every package and its exact version
   licences: usr/share/spin-stack/licenses.txt — the copyright and licence text of each
-  source:   the Ubuntu archive. For any package listed there:
+  source:   the Ubuntu archive. For any package listed there whose version does not end
+            in +spinN:
                 apt-get source <package>=<version>
   built by: image/mkosi.conf and the scripts beside it
+
+systemd ${SYSTEMD_SOURCE_VERSION}+spin1
+  packages: those in usr/share/spin-stack/packages.txt at ${SYSTEMD_SOURCE_VERSION}+spin1
+            (systemd, systemd-sysv, udev, libsystemd0, libsystemd-shared, libudev1,
+            libpam-systemd and the rest of that source's binary packages the image installs)
+  source:   Ubuntu's source package, unpatched: ${SYSTEMD_SOURCE_URL}
+            and the tarballs it names beside it
+  sha256:   ${SYSTEMD_SOURCE_SHA256} (the .dsc, which holds the tarballs' checksums)
+  built by: image/systemd/Dockerfile: Debian's stage1 build profile, SELinux disabled and
+            systemd-executor, udevd, systemctl and journalctl linked statically against
+            libsystemd-shared, with a changelog entry for the +spin1 version
 
 Written offer
   For three years from the date of this release, the copyright holders will provide, to
@@ -250,7 +264,7 @@ sbom dpkg -name base-image -version "${VERSION}" -distro ubuntu -out "${PARTS}/b
 # pedigree, so the SBOM does not say upstream's source is what was compiled.
 sbom pins -name sources -version "${VERSION}" -out "${PARTS}/sources.cdx.json" \
   -patches qemu=qemu/patches -patches qboot=qemu/qboot -patches kernel="${OUTPUT_DIR}/kernel/patches" \
-  qemu qboot e2fsprogs kernel ubuntu task git-lfs buildkit
+  qemu qboot e2fsprogs kernel ubuntu systemd-source task git-lfs buildkit
 # The files themselves, by their hashes: the firmware is the QEMU tarball's own build of it.
 for f in "${SHARE}"/bin/qemu-system-x86_64 "${SHARE}"/bin/qemu-system-x86_64-tcg "${SHARE}"/bin/qemu-img \
   "${SHARE}"/qemu/bios.bin "${SHARE}"/qemu/bios-256k.bin "${SHARE}"/qemu/pvh.bin "${SHARE}"/qemu/kvmvapic.bin "${SHARE}"/qemu/efi-virtio.rom; do

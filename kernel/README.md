@@ -69,20 +69,22 @@ release's kernel, and says so. They trace a kernel B built with
 of `Dockerfile`'s check, on a branch or in a scratch worktree, never in a release. The rest of
 the boot probes read the ring buffer and systemd, which lockdown leaves alone.
 
-systemd notices at boot, and the console shows two lines that read like missing protection
-and are lockdown working:
+The archive's systemd noticed at boot, and the console showed two lines that read like missing
+protection and are lockdown working:
 
 ```
 bpf-restrict-fs: Failed to load BPF object: Invalid argument
 Lockdown: init: use of bpf to read kernel RAM is restricted; see man kernel_lockdown.7
 ```
 
-The second is lockdown refusing `bpf_probe_read_kernel` to PID 1. The first is what that costs:
-systemd's `RestrictFileSystems=` program reads each file's filesystem type out of kernel memory
-with that helper, the verifier rejects it, and systemd carries on without it. So a unit in the
-guest cannot use `RestrictFileSystems=`; it is not enforced, and systemd does not say so per
-unit. That is the price of confidentiality, kept on purpose: integrity would give it back by
-letting root read the kernel's memory again. Logins are unaffected (`task boot:logind`).
+PID 1 loads its `RestrictFileSystems=` program at every start, whatever the units ask, and the
+program reads each file's filesystem type with `bpf_probe_read_kernel`, which lockdown refuses
+it. The image's systemd (`image/systemd/Dockerfile`) is built without the BPF framework, so it
+asks for nothing lockdown refuses and neither line appears; `task boot:lockdown` holds that for an
+image built with it (#261). What that costs is the directives the framework implements:
+`RestrictFileSystems=`, `SocketBind*=` and `RestrictNetworkInterfaces=` do nothing in the guest,
+and nothing here uses them. Confidentiality is kept on purpose: integrity would give the helper
+back by letting root read the kernel's memory again. Logins are unaffected (`task boot:logind`).
 
 Measured 2026-10-01, `task boot:initcalls` with `SPIN_KERNEL_B` set to the kernel without these
 options: no cost that can be told from noise. Over 20 interleaved boots each, kernel start to

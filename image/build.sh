@@ -51,14 +51,11 @@ mkdir -p "$(dirname "$OUT")" "$SHARE" /work/out /cache
 cd /work
 
 echo "==> mkosi: assembling the userland"
-# EXPERIMENT (branch systemd-stage1): packages built here (image/systemd), mounted at /debs by
-# `task image:build SYSTEMD_DEBS=<dir>`, are a local repository apt prefers by version.
-packages=()
-if compgen -G '/debs/*.deb' > /dev/null; then
-    echo "==> mkosi: with the packages in /debs: $(cd /debs && echo *.deb)"
-    packages=(--package-directory=/debs)
-fi
-mkosi --force "${packages[@]}" build
+# The systemd this repository builds (image/systemd, task image:systemd), mounted at /debs: a
+# local repository apt prefers by version (+spin1) for everything the tree installs from it.
+compgen -G '/debs/systemd_*+spin[0-9]*_*.deb' > /dev/null ||
+    { echo "ERROR: /debs has no systemd package of ours - task image:systemd" >&2; exit 1; }
+mkosi --force --package-directory=/debs build
 tree=/work/out/rootfs
 test -d "$tree" || { echo "ERROR: mkosi produced no tree at $tree" >&2; exit 1; }
 
@@ -113,12 +110,11 @@ dpkg-query --admindir="$tree/var/lib/dpkg" -W -f='${Package} ${Version} ${Archit
     2>/dev/null | sort > "$SHARE/packages.txt"
 echo "==> $(wc -l < "$SHARE/packages.txt") packages recorded"
 
-# EXPERIMENT (branch systemd-stage1): what came out of /debs. Given packages, systemd is ours, and
-# every package of ours is held (mkosi.postinst.chroot): dpkg's own status, not apt-mark's word.
-if [ ${#packages[@]} -gt 0 ]; then
-    grep -qE '^systemd [^ ]+\+spin[0-9]+ ' "$SHARE/packages.txt" ||
-        { echo "ERROR: /debs held packages, and the image's systemd is not one of them" >&2; exit 1; }
-fi
+# What came out of /debs: systemd is ours, and every package of ours is held
+# (mkosi.postinst.chroot), by dpkg's own status and not apt-mark's word. A tree that took the
+# archive's systemd boots, and pays again for everything image/systemd/Dockerfile says it built out.
+grep -qE '^systemd [^ ]+\+spin[0-9]+ ' "$SHARE/packages.txt" ||
+    { echo "ERROR: the image's systemd is the archive's, not image/systemd's" >&2; exit 1; }
 while read -r pkg version _; do
     case "$version" in *+spin[0-9]*) ;; *) continue ;; esac
     want=$(dpkg-query --admindir="$tree/var/lib/dpkg" -W -f='${db:Status-Want}' "$pkg")
