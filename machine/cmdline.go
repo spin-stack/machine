@@ -75,6 +75,17 @@ func (c Cmdline) String() string {
 			mode = "ro"
 		}
 		parts = append(parts, "root="+c.Root, mode)
+
+		// The root is an ext4 (image/build.sh), and saying so is one mount instead of
+		// three. Without rootfstype the kernel tries every block filesystem in the order
+		// it registered them (init/do_mounts.c), and ext4's init registers ext3 and,
+		// with EXT4_USE_FOR_EXT2, ext2 ahead of ext4 itself: the root mount reads the
+		// superblock as an ext3, is refused for its features, reads it again as an
+		// ext2, and only then mounts it, each attempt a superblock read over virtio
+		// after a block size change. A disk handed in with --disk is an overlay of the
+		// same image, so it is the same filesystem; a root that is not one says so with
+		// its own rootfstype= in Extra, which comes later and is the one the kernel keeps.
+		parts = append(parts, "rootfstype=ext4")
 	}
 
 	// Scan PCI bus 0 and stop.

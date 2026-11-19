@@ -654,7 +654,8 @@ func TestCmdline(t *testing.T) {
 	}, {
 		name: "root",
 		c:    withRoot,
-		want: []string{"root=/dev/vda rw"},
+		// Named, or the root mount tries ext3 and ext2 on the superblock first.
+		want: []string{"root=/dev/vda rw rootfstype=ext4"},
 	}, {
 		name:   "no console",
 		c:      noConsole,
