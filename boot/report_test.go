@@ -5,6 +5,7 @@ package boot_test
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/spin-machine/boot"
+	"github.com/spin-stack/spin-machine/internal/lab"
 )
 
 // axis is one feature of the machine and the choices on it, each as spin-machine boot flags.
@@ -218,24 +220,28 @@ func measure(t *testing.T, out string, v variant, reps int) boot.Boot {
 }
 
 // measureFirstLogin boots the release as built reps times and logs into each over SSH through
-// its vsock, as boot:ssh-first does: the goal's number, in the report beside the console's.
+// its vsock, with spin-machine-dev lab's ssh-first probe: the goal's number, in the report beside
+// the console's. The release is the published one this report is of, so it has no tree manifest.
 func measureFirstLogin(t *testing.T, out string, reps int, flags []string) *boot.Boot {
 	t.Helper()
-	row, signer := sshRow(t)
-	v := row("first login", "")
-	v.flags = flags
+	tree := &lab.Tree{Dir: out, Manifest: lab.Manifest{Name: "release"}}
+	r, err := lab.Experiment{Probe: lab.Probes["ssh-first"], Trees: []*lab.Tree{tree}, Reps: reps,
+		Options: lab.Options{"flags": strings.Join(flags, " ")}, Scratch: t.TempDir(), Log: io.Discard}.Run(t.Context())
+	if err != nil {
+		t.Fatalf("first login: %v", err)
+	}
 	b := &boot.Boot{Boots: reps, Phases: map[string]boot.Summary{}}
 	var accepts, logins []time.Duration
-	for range reps {
-		r := firstSSH(t, out, v, signer)
-		if r.listen == 0 || r.login == 0 {
+	ms := func(v float64) time.Duration { return time.Duration(v * float64(time.Millisecond)) }
+	for _, s := range r.Samples {
+		if s.Missed != "" {
 			b.Failed++
 			if b.Error == "" {
-				b.Error = r.why
+				b.Error = s.Missed
 			}
 			continue
 		}
-		accepts, logins = append(accepts, r.listen), append(logins, r.login)
+		accepts, logins = append(accepts, ms(s.Values["sshd_accepts"])), append(logins, ms(s.Values["first_login"]))
 	}
 	if s, ok := boot.SummaryOf(accepts); ok {
 		b.Phases["accepts"] = s

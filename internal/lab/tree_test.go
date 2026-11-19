@@ -1,0 +1,303 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package lab
+
+import (
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// bzImage is a file with a bzImage's setup header magic where a kernel's is, and body after it.
+func bzImage(body string) []byte {
+	b := make([]byte, 0x210)
+	copy(b[0x202:], "HdrS")
+	return append(b, body...)
+}
+
+// fakeRelease is a directory laid out as a release, every file a few bytes: what a tree is made
+// of, without a machine to boot.
+func fakeRelease(t *testing.T, kernel string) string {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string][]byte{
+		"bin/qemu-system-x86_64": []byte("qemu"),
+		"bin/qemu-img":           []byte("qemu-img"),
+		"bin/spin-machine":       []byte("spin-machine"),
+		"qemu/qboot.bin":         []byte("qboot"),
+		"qemu/linuxboot_dma.bin": []byte("rom"),
+		"qemu/pvh.bin":           []byte("pvh"),
+		"image/rootfs.qcow2":     []byte("base"),
+		"kernel/vmlinux":         []byte("elf"),
+	}
+	if kernel != "" {
+		files["kernel/bzImage"] = bzImage(kernel)
+	}
+	for p, b := range files {
+		write(t, filepath.Join(dir, p), b)
+	}
+	return dir
+}
+
+func write(t *testing.T, path string, b []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func read(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func src(t *testing.T) Sources {
+	return Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), Log: io.Discard}
+}
+
+func TestATreeIsItsBaseLinkedAndSaysWhereEachPartCameFrom(t *testing.T) {
+	base := fakeRelease(t, "k1")
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "t"), TreeSpec{Name: "t", From: base, Append: "quiet x=1"}, src(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Name() != "t" || tr.Cmdline() != "init=/sbin/init quiet x=1" {
+		t.Errorf("name %q, cmdline %q", tr.Name(), tr.Cmdline())
+	}
+	for name := range partFiles {
+		if got := tr.Manifest.Parts[name].Source; got != base {
+			t.Errorf("%s came from %q, want %q", name, got, base)
+		}
+	}
+	sum, _ := fileSHA256(filepath.Join(base, "kernel/bzImage"))
+	if tr.Manifest.Parts["kernel"].SHA256 != sum || tr.Manifest.Parts["qemu"].SHA256 == "" || tr.Manifest.Parts["spin-machine"].SHA256 == "" {
+		t.Errorf("the one-file parts' sums: %+v", tr.Manifest.Parts)
+	}
+	if tr.Manifest.Parts["image"].SHA256 != "" {
+		t.Error("the image is a gigabyte, and is not summed")
+	}
+	for _, p := range []string{"bin/qemu-system-x86_64", "image/rootfs.qcow2", "kernel/bzImage"} {
+		if target, err := os.Readlink(filepath.Join(tr.Dir, p)); err != nil || target != filepath.Join(base, p) {
+			t.Errorf("%s links to %q (%v), want the base's", p, target, err)
+		}
+	}
+	if tr.SpinMachine() != filepath.Join(tr.Dir, "bin/spin-machine") || tr.QEMUImg() != filepath.Join(tr.Dir, "bin/qemu-img") ||
+		tr.Rootfs() != filepath.Join(tr.Dir, "image/rootfs.qcow2") {
+		t.Error("a part's path is not the tree's")
+	}
+	var m Manifest
+	if err := json.Unmarshal([]byte(read(t, filepath.Join(tr.Dir, "manifest.json"))), &m); err != nil || m.Name != "t" || m.Append != "quiet x=1" {
+		t.Errorf("manifest.json: %+v, %v", m, err)
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "x"), TreeSpec{From: base}, src(t)); err == nil {
+		t.Error("a tree with no name was made")
+	}
+}
+
+func TestAPartPutIntoATreeIsACopyAndTheBaseIsUntouched(t *testing.T) {
+	base := fakeRelease(t, "release kernel")
+	newKernel := filepath.Join(t.TempDir(), "k", "bzImage")
+	write(t, newKernel, bzImage("branch kernel"))
+	write(t, filepath.Join(filepath.Dir(newKernel), "vmlinux"), []byte("branch elf"))
+	newQEMU := t.TempDir()
+	write(t, filepath.Join(newQEMU, "bin/qemu-system-x86_64"), []byte("qemu 11.2"))
+	write(t, filepath.Join(newQEMU, "qemu/qboot.bin"), []byte("qboot 2"))
+	write(t, filepath.Join(newQEMU, "qemu/linuxboot_dma.bin"), []byte("rom 2"))
+
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "b"), TreeSpec{Name: "b", From: base, Kernel: newKernel, QEMU: newQEMU}, src(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(read(t, filepath.Join(tr.Dir, "kernel/bzImage")), "branch kernel") ||
+		read(t, filepath.Join(tr.Dir, "kernel/vmlinux")) != "branch elf" ||
+		read(t, filepath.Join(tr.Dir, "bin/qemu-system-x86_64")) != "qemu 11.2" ||
+		read(t, filepath.Join(tr.Dir, "qemu/qboot.bin")) != "qboot 2" {
+		t.Error("the tree does not hold the parts put into it")
+	}
+	if !strings.HasSuffix(read(t, filepath.Join(base, "kernel/bzImage")), "release kernel") || read(t, filepath.Join(base, "kernel/vmlinux")) != "elf" ||
+		read(t, filepath.Join(base, "bin/qemu-system-x86_64")) != "qemu" || read(t, filepath.Join(base, "qemu/qboot.bin")) != "qboot" {
+		t.Error("putting a part into the tree wrote the base")
+	}
+	if fi, err := os.Lstat(filepath.Join(tr.Dir, "kernel/bzImage")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Error("a part put into the tree is still a link")
+	}
+	if tr.Manifest.Parts["kernel"].Source != newKernel || tr.Manifest.Parts["qemu"].Source != newQEMU || tr.Manifest.Parts["firmware"].Source != newQEMU {
+		t.Errorf("the manifest's sources: %+v", tr.Manifest.Parts)
+	}
+	sum, _ := fileSHA256(newKernel)
+	if tr.Manifest.Parts["kernel"].SHA256 != sum {
+		t.Error("the kernel's sum is not the one put in")
+	}
+
+	// A kernel with no vmlinux beside it leaves none: the release's would describe another kernel.
+	lone := filepath.Join(t.TempDir(), "bzImage")
+	write(t, lone, bzImage("lone"))
+	tr, err = MakeTree(filepath.Join(t.TempDir(), "c"), TreeSpec{Name: "c", From: base, Kernel: lone}, src(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileExists(filepath.Join(tr.Dir, "kernel/vmlinux")) {
+		t.Error("the release's vmlinux was left beside another kernel")
+	}
+}
+
+func TestATreeRefusesWhatIsNotWhole(t *testing.T) {
+	base := fakeRelease(t, "k")
+	elf := filepath.Join(t.TempDir(), "vmlinux")
+	write(t, elf, []byte("\x7fELF not a bzImage"))
+	for _, tc := range []struct {
+		name string
+		spec TreeSpec
+		want string
+	}{
+		{"a vmlinux for a kernel", TreeSpec{Kernel: elf}, "not a bzImage"},
+		{"a run id that is not one", TreeSpec{Kernel: "run:12x"}, "is a number"},
+		{"a missing kernel", TreeSpec{Kernel: "/nonexistent"}, "opening kernel"},
+		{"a QEMU directory without one", TreeSpec{QEMU: t.TempDir()}, "qemu-system-x86_64"},
+		{"a spin-machine from nowhere", TreeSpec{SpinMachine: "elsewhere"}, "release or here"},
+		{"an edit with no name", TreeSpec{Edits: []string{"nope"}}, "no edit named"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.spec.Name, tc.spec.From = "x", base
+			_, err := MakeTree(filepath.Join(t.TempDir(), "x"), tc.spec, src(t))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("MakeTree = %v, want an error saying %q", err, tc.want)
+			}
+		})
+	}
+
+	good, err := MakeTree(filepath.Join(t.TempDir(), "good"), TreeSpec{Name: "good", From: base}, src(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		break_ func(dir string)
+		want   string
+	}{
+		{"no manifest", func(d string) { _ = os.Remove(filepath.Join(d, manifestName)) }, "has no manifest"},
+		{"a manifest that is not one", func(d string) { write(t, filepath.Join(d, manifestName), []byte("{")) }, "reading"},
+		{"a part replaced after", func(d string) {
+			_ = os.Remove(filepath.Join(d, "bin/spin-machine"))
+			write(t, filepath.Join(d, "bin/spin-machine"), []byte("another"))
+		}, "its manifest says"},
+		{"a part with no source", func(d string) {
+			var m Manifest
+			_ = json.Unmarshal([]byte(read(t, filepath.Join(d, manifestName))), &m)
+			delete(m.Parts, "image")
+			b, _ := json.Marshal(m)
+			write(t, filepath.Join(d, manifestName), b)
+		}, "where its image came from"},
+		{"a part gone", func(d string) { _ = os.Remove(filepath.Join(d, "image/rootfs.qcow2")) }, "has no image"},
+		{"not a machine", func(d string) { _ = os.Remove(filepath.Join(d, "qemu/qboot.bin")) }, "not a whole machine"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := filepath.Join(t.TempDir(), "copy")
+			if err := linkTree(good.Dir, d); err != nil {
+				t.Fatal(err)
+			}
+			_ = os.Remove(filepath.Join(d, manifestName))
+			write(t, filepath.Join(d, manifestName), []byte(read(t, filepath.Join(good.Dir, manifestName))))
+			if _, err := OpenTree(d); err != nil {
+				t.Fatalf("the copy before breaking it: %v", err)
+			}
+			tc.break_(d)
+			if _, err := OpenTree(d); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("OpenTree = %v, want an error saying %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A release from before 2026-11-19 has a vmlinux and no bzImage: it is a tree, its kernel the
+// vmlinux, as machine.OpenRelease boots it.
+func TestAReleaseFromBeforeTheBzImageIsATree(t *testing.T) {
+	base := fakeRelease(t, "")
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "old"), TreeSpec{Name: "old", From: base}, src(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum, _ := fileSHA256(filepath.Join(base, "kernel/vmlinux"))
+	if tr.Manifest.Parts["kernel"].SHA256 != sum {
+		t.Error("the old release's kernel is not its vmlinux")
+	}
+}
+
+func TestTheLaneEditIsThisCheckoutsLane(t *testing.T) {
+	base := fakeRelease(t, "k")
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "l"), TreeSpec{Name: "l", From: base, Edits: []string{"lane"}}, src(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tr.Manifest.Edits) != 1 || tr.Manifest.Edits[0].Name != "lane" {
+		t.Fatalf("edits: %+v", tr.Manifest.Edits)
+	}
+	e := tr.Manifest.Edits[0].Edit
+	want := read(t, filepath.Join(checkoutRoot(t), "image/mkosi.extra/usr/local/lib/spin-base/rootfs/etc/systemd/system/sshd@.service.d/10-lane.conf"))
+	if e.Files["/etc/systemd/system/sshd@.service.d/10-lane.conf"] != want || len(e.Files) != 8 || len(e.Links) != 1 ||
+		!strings.Contains(e.Setup, "linger/spin") {
+		t.Errorf("the lane edit: %d files, %d links, setup %q", len(e.Files), len(e.Links), e.Setup)
+	}
+	if _, err := laneEdit(t.TempDir()); err == nil || !strings.Contains(err.Error(), "reading the lane's") {
+		t.Errorf("a checkout with no image: %v", err)
+	}
+	if s := systemdPackages("/x/debs").Setup; !strings.Contains(s, "debs=/x/debs") || !strings.Contains(s, "test \"$replaced\" -gt 0") {
+		t.Errorf("systemd's edit: %q", s)
+	}
+}
+
+func TestOneIsTheOneFileWithThatName(t *testing.T) {
+	d := t.TempDir()
+	write(t, filepath.Join(d, "a/bzImage"), nil)
+	write(t, filepath.Join(d, "a/notbzImage"), nil)
+	if got, err := one(d, "bzImage"); err != nil || got != filepath.Join(d, "a/bzImage") {
+		t.Errorf("one = %q, %v", got, err)
+	}
+	write(t, filepath.Join(d, "b/bzImage"), nil)
+	if _, err := one(d, "bzImage"); err == nil || !strings.Contains(err.Error(), "found 2") {
+		t.Errorf("two: %v", err)
+	}
+	if _, err := one(d, "vmlinux"); err == nil || !strings.Contains(err.Error(), "found 0") {
+		t.Errorf("none: %v", err)
+	}
+	if _, err := one(filepath.Join(d, "missing"), "x"); err == nil {
+		t.Error("a missing directory has one of something")
+	}
+}
+
+func TestATreeFromADirectoryNamesItWhole(t *testing.T) {
+	d := fakeRelease(t, "k")
+	wd, _ := os.Getwd()
+	rel, _ := filepath.Rel(wd, d)
+	got, source, err := Sources{}.from(rel)
+	if err != nil || got != d || source != d {
+		t.Errorf("from(%s) = %s, %s, %v; want %s", rel, got, source, err, d)
+	}
+}
+
+func TestReplaceRefusesWhatItCannotRead(t *testing.T) {
+	d := t.TempDir()
+	if err := replace(filepath.Join(d, "missing"), filepath.Join(d, "to"), 0o644); err == nil {
+		t.Error("replaced from a file that is not there")
+	}
+	write(t, filepath.Join(d, "from"), []byte("x"))
+	if err := replace(filepath.Join(d, "from"), filepath.Join(d, "deep/er/to"), 0o600); err != nil || read(t, filepath.Join(d, "deep/er/to")) != "x" {
+		t.Errorf("replace into a new directory: %v", err)
+	}
+	if fi, _ := os.Stat(filepath.Join(d, "deep/er/to")); fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v", fi.Mode())
+	}
+	if _, err := fileSHA256(filepath.Join(d, "missing")); err == nil {
+		t.Error("summed a file that is not there")
+	}
+}

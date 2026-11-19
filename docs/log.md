@@ -411,6 +411,13 @@ Config: `X86_MSR`, `X86_CPUID` off (nothing in the image or spin opens `/dev/cpu
 
 Bench, nested, workspace shape (2026-11-19, lab 44587603255, 20 boots each): kernel start to "Freeing" 96.4 → 86.6 ms (−9.8), in initcalls 61.7 → 58.7, outside them 35.1 → 27.8, where ORC and ftrace are. `virtio_pci_driver_init` 8.57 → 8.59: 0011 does not show even nested.
 
+**11-19 · lab · the probes become `spin-machine-dev lab` (branch `dev-cli-lab`, this change).** Each probe was a Go test behind a `SPIN_*` switch of its own, and took a second kernel, a second QEMU, an edit of the image or a rebuilt systemd each through another environment variable (`SPIN_KERNEL_B`, `SPIN_KERNEL_C`, `SPIN_MACHINE_OUTPUT_B`, `SPIN_APPEND_B`, `SPIN_SYSTEMD_DEBS`), laid out by lab.yml's `variant=beside|instead`. Two failures in one day came from that shape: `boot:restore-first` read no `SPIN_MACHINE_OUTPUT_B` and measured the release's QEMU under the name of 11.2's (lab 44584214362), and a Kernel run from before the bzImage failed `lab:place` with no message (lab 44587254371). Now a tree is a whole machine with a manifest naming every part's source, refused when it is not whole, and a probe is handed trees (`internal/lab`, docs/cli.md). Ported: `ssh-first`, `restore-first` (its `fast` rows an option), `prestart`, `initcalls` (totals, the initcalls of interest per tree, each tree's slowest initcalls and largest gaps). The "as this branch" row is the tree edit `lane`. Not ported, and kept as `boot:` targets `lab check` runs on any tree: `firmware-stages`, `waits`. Deleted, each question answered and its answer in this log or beside it:
+- `boot:login-lane` (`boot/login_lane_test.go`): where the first login's own time goes, on the guest's clock - §1's row and the 11-19 entry above, lab 44555905383.
+- `boot:density` (`boot/density_test.go`): one idle workspace's host memory, ~125 MiB - §1, lab 44546329726.
+- `boot:page-cache` (`boot/pagecache_test.go`): the page caches a machine has - docs/memory-and-disk.md, and §4's page-cache sub-probes.
+- initcalls' extra passes, not ported: `SPIN_GRAPH` (function_graph under chosen functions, `boot/graph_test.go`), `SPIN_CPU_SHARE` (who had the CPU during one initcall, `boot/cpushare_test.go`), `SPIN_EARLY` (the lines before the first initcall) and `SPIN_FORMAT_CHECK` (an event's format after patch 0003). Each served one question, answered above; when another asks for one, it comes back from git (`boot/initcalls_test.go` and those two files before this change) as an option of the `initcalls` probe.
+- `boot:ssh-first`, `boot:restore-first`, `boot:prestart`, `boot:initcalls` are now lab runs over `OUTPUT_DIR`, the same targets.
+
 ---
 
 ## 3. Rework cycles

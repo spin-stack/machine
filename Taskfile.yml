@@ -217,188 +217,26 @@ tasks:
         SPIN_REPORT_ONLY='{{.ONLY}}' SPIN_REPORT_FLAGS='{{.FLAGS}}' REPS={{.REPS}}
         go test ./boot/ -run '^TestReport$' -count=1 -v -timeout 6h
 
-  # The KVM runner: what lab.yml and report.yml do around a target, in their order. What the dispatch asked for comes in the job's environment (RELEASE,
-  # EXPERIMENT, KERNEL_RUN, KERNEL_RUN_C, QEMU_RUN, VARIANT, VARS; VERSION for a report), and what
-  # one step finds reaches the next through $GITHUB_ENV.
-
-  lab:unpack:
-    desc: The release RELEASE, or the newest, unpacked into _output/lab as the tree the experiment boots. Needs gh.
+  # Measuring is spin-machine-dev lab (docs/cli.md); these build it and run it. Built rather than
+  # go run, which flattens a verb's exit status to 1, and a lost measurement (1) is not a lab that
+  # could not run (2).
+  lab:
+    desc: spin-machine-dev lab with the arguments after --, e.g. `task lab -- run ssh-first --tree 'r=--from release'`.
     cmds:
-      - |
-        set -euo pipefail
-        if [ -z "$RELEASE" ]; then
-          RELEASE=$(gh release list -R "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName -q '.[0].tagName')
-        fi
-        rm -rf _output/lab
-        mkdir -p _output/lab/tmp
-        gh release download "$RELEASE" -R "$GITHUB_REPOSITORY" -p '*.tar.gz' -D _output/lab
-        tar -xzf _output/lab/*.tar.gz -C _output/lab
-        # On disk: the overlays and memory files go here, gigabytes a tmpfs /tmp holds in RAM. On
-        # the host's local NVMe when it has one, which is where spin's hosts keep checkpoints: a
-        # restore read its state from gp3 at ~300 MB/s on a c8i, ~680 of its ~840 ms (lab
-        # 44542990433). An instance store nothing has mounted is formatted and mounted here; the
-        # summary says which disk it was, so no restore number is read without it.
-        #
-        # RunsOn may have taken the instance store already (its runner-setup-mount-points), through
-        # a partition or a RAID over it, so the disk itself shows no mount: where any device on it is
-        # mounted, that is used. Only a disk with nothing on it - no partition, no holder, no
-        # filesystem signature - is formatted; the first version formatted on "not mounted" alone,
-        # and only failing first kept it off a disk RunsOn was using (2026-11-19).
-        lsblk -o NAME,MODEL,SIZE,FSTYPE,MOUNTPOINTS
-        tmp=$PWD/_output/lab/tmp
-        store=$(lsblk -dnpo NAME,MODEL | awk '/Instance Storage/ {print $1; exit}')
-        if [ -n "$store" ]; then
-          # Each device on the disk's mountpoints, one a line (lsblk -r joins a device's several
-          # with \x0a, which became TMPDIR once); a mount of its own over docker's or containerd's.
-          mnt=$(for dev in $(lsblk -nlpo NAME "$store"); do findmnt -nro TARGET -S "$dev" || true; done |
-            awk '!/^\/var\/lib\// && m == "" {m = $0} END {print m}')
-          if [ -z "$mnt" ] && [ "$(lsblk -nro NAME "$store" | wc -l)" = 1 ] && [ -z "$(sudo blkid -p "$store" || true)" ]; then
-            mnt=/mnt/instance-store
-            sudo mkfs.ext4 -q "$store"
-            sudo mkdir -p "$mnt" && sudo mount "$store" "$mnt"
-          fi
-          if [ -n "$mnt" ]; then
-            sudo install -d -o "$(id -u)" -g "$(id -g)" "$mnt/spin-lab-tmp"
-            tmp=$mnt/spin-lab-tmp
-          else
-            echo "::warning::$store is in use and mounted nowhere this can write; TMPDIR stays on the root volume"
-          fi
-        fi
-        {
-          echo "RELEASE=$RELEASE"
-          echo "SPIN_MACHINE_OUTPUT=$PWD/_output/lab/spin-machine-${RELEASE}-linux-x86_64/usr/share/spin-stack"
-          echo "TMPDIR=$tmp"
-        } >> "${GITHUB_ENV:-/dev/stdout}"
+      - go build -o {{.OUTPUT_ABS}}/bin/spin-machine-dev ./cmd/spin-machine-dev
+      - '{{.OUTPUT_ABS}}/bin/spin-machine-dev lab {{.CLI_ARGS}}'
 
-  lab:fetch:
-    desc: The builds to compare, from the runs KERNEL_RUN, KERNEL_RUN_C and QEMU_RUN name, into _output/lab. Needs gh.
-    cmds:
-      - |
-        set -euo pipefail
-        fetch() { # run, artifact pattern, directory
-          [[ "$1" =~ ^[0-9]+$ ]] || { echo "::error::a run id is a number, got: $1"; exit 1; }
-          gh run download "$1" -R "$GITHUB_REPOSITORY" -p "$2" -D "$3"
-        }
-        if [ -n "$KERNEL_RUN" ]; then fetch "$KERNEL_RUN" 'vmlinux-*' _output/lab/kernel-b; fi
-        if [ -n "$KERNEL_RUN_C" ]; then fetch "$KERNEL_RUN_C" 'vmlinux-*' _output/lab/kernel-c; fi
-        if [ -n "$QEMU_RUN" ]; then fetch "$QEMU_RUN" 'qemu-*-linux-amd64' _output/lab/qemu-b; fi
-
-  lab:place:
+  lab:ci:
     desc: >-
-      Put the fetched builds where the experiment boots them: beside the release's (VARIANT=beside)
-      or in place of it (VARIANT=instead).
+      lab.yml's experiment from the job's PROBE, TREES, REPS and OPTIONS: a probe run over the trees
+      into _output/lab/result, or check:TARGET, boot:TARGET on the first tree.
     cmds:
+      - go build -o {{.OUTPUT_ABS}}/bin/spin-machine-dev ./cmd/spin-machine-dev
       - |
-        set -euo pipefail
-        env=${GITHUB_ENV:-/dev/stdout}
-        one() { # the one file under $1 whose path matches $2
-          f=$(find "$1" -path "$2" -type f | head -1)
-          [ -n "$f" ] || { echo "::error::$1 has no $2"; exit 1; }
-          echo "$PWD/$f"
-        }
-        b=$PWD/_output/lab/release-b
-        tree_b() { [ -d "$b" ] || cp -as "$SPIN_MACHINE_OUTPUT" "$b"; }
-        # The bzImage, which is what the machine boots: its vmlinux would be entered through PVH,
-        # without the decompressor KASLR runs in, and compare two ways in rather than two
-        # kernels. A kernel run from before 2026-11-19 uploaded none.
-        if [ -n "$KERNEL_RUN" ]; then
-          k=$(one _output/lab/kernel-b '*/bzImage')
-          if [ "$VARIANT" = instead ]; then
-            tree_b; rm -f "$b/kernel/bzImage" "$b/kernel/vmlinux"
-            install -m 0644 "$k" "$b/kernel/bzImage"; install -m 0644 "$(dirname "$k")/vmlinux" "$b/kernel/vmlinux"
-          else
-            echo "SPIN_KERNEL_B=$k" >> "$env"
-          fi
-        fi
-        if [ -n "$KERNEL_RUN_C" ]; then
-          [ "$VARIANT" = beside ] || { echo "::error::kernel_run_c is a third kernel beside the release, not one to boot instead"; exit 1; }
-          echo "SPIN_KERNEL_C=$(one _output/lab/kernel-c '*/bzImage')" >> "$env"
-        fi
-        if [ -n "$QEMU_RUN" ]; then
-          q=$(one _output/lab/qemu-b '*/bin/qemu-system-x86_64')
-          tree_b; rm -rf "$b/bin/qemu-system-x86_64" "$b/qemu"
-          install -m 0755 "$q" "$b/bin/qemu-system-x86_64"
-          cp -r "$(dirname "$(dirname "$q")")/qemu" "$b/qemu"
-          [ "$VARIANT" = instead ] || echo "SPIN_MACHINE_OUTPUT_B=$b" >> "$env"
-        fi
-        # EXPERIMENT: systemd built here, on this runner and before anything is measured, with
-        # image/systemd/experiments/$SYSTEMD_EXPERIMENT.patch; the probes put it in each overlay.
-        if [ -n "${SYSTEMD_EXPERIMENT:-}" ]; then
-          go run ./cmd/spin-machine-dev build systemd --systemd-experiment "$SYSTEMD_EXPERIMENT" --cache-export=false --jobs "$(nproc)"
-          echo "SPIN_SYSTEMD_DEBS=$PWD/_output/systemd" >> "$env"
-        fi
-        if [ "$VARIANT" = instead ]; then echo "SPIN_MACHINE_OUTPUT=$b" >> "$env"; fi
-
-  lab:vars:
-    desc: >-
-      VARS, `KEY=VALUE; KEY=VALUE`, for the experiment: only the names a target reads, so a typo
-      fails here rather than being ignored, and none of the ones lab:unpack and lab:place set.
-    cmds:
-      - |
-        set -euo pipefail
-        IFS=';' read -ra pairs <<< "$VARS"
-        for pair in "${pairs[@]}"; do
-          pair="${pair#"${pair%%[![:space:]]*}"}"
-          pair="${pair%"${pair##*[![:space:]]}"}"
-          [ -z "$pair" ] && continue
-          key="${pair%%=*}"
-          [[ "$pair" == *=* && "$key" =~ ^(REPS|N|SETTLE|TOP|GAP|ONLY|FLAGS|CPUS|TARGET|BUCKET|LINGER|MEMORY_MIB|DEBUG|FILE_MB|CACHE_TIMEOUT_S|GRAPH_[A-Z_]+|SHARE_[A-Z_]+|SPIN_[A-Z0-9_]+)$ ]] ||
-            { echo "::error::not a variable this workflow passes on: $pair"; exit 1; }
-          case "$key" in
-            SPIN_MACHINE_OUTPUT|SPIN_MACHINE_OUTPUT_B|SPIN_KERNEL_B|SPIN_KERNEL_C|SPIN_SYSTEMD_DEBS) echo "::error::$key is set by this workflow"; exit 1 ;;
-          esac
-          echo "$pair" >> "${GITHUB_ENV:-/dev/stdout}"
-        done
-
-  lab:about:
-    desc: What this lab run is and the host it runs on, on the run's summary in CI; fails without a usable /dev/kvm.
-    cmds:
-      - |
-        set -e
-        {
-          echo "### $EXPERIMENT on ${RUNNER_NAME:-$(hostname)}"
-          echo
-          echo "- release: $RELEASE"
-          echo "- kernel B: ${KERNEL_RUN:+run }${KERNEL_RUN:-none}"
-          echo "- kernel C: ${KERNEL_RUN_C:+run }${KERNEL_RUN_C:-none}"
-          echo "- QEMU B: ${QEMU_RUN:+run }${QEMU_RUN:-none}"
-          echo "- systemd experiment: ${SYSTEMD_EXPERIMENT:-none}"
-          if [ -n "$KERNEL_RUN$KERNEL_RUN_C$QEMU_RUN" ]; then echo "- booted: $VARIANT the release"; fi
-          echo "- vars: ${VARS:-none}"
-          echo "- CPU: $(sed -n 's/^model name\s*: //p' /proc/cpuinfo | head -1), $(nproc) CPUs"
-          echo "- TMPDIR: ${TMPDIR:-/tmp} on $(df --output=source "${TMPDIR:-/tmp}" | tail -1) ($(lsblk -dno MODEL "$(df --output=source "${TMPDIR:-/tmp}" | tail -1)" 2>/dev/null | sed 's/ *$//' || echo unknown))"
-          echo "- load: $(cut -d' ' -f1-3 /proc/loadavg)"
-          if sudo -n true 2>/dev/null; then echo "- sudo -n: yes"; else echo "- sudo -n: **no** (targets that edit an overlay skip)"; fi
-        } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-        [ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo "::error::no usable /dev/kvm"; exit 1; }
-
-  lab:run:
-    desc: >-
-      The experiment EXPERIMENT, on the tree SPIN_MACHINE_OUTPUT, logged to _output/lab/lab.log;
-      report writes its JSON to _output/lab/report.json.
-    # A skipped test exits 0, and a green run that measured nothing reads as a result, so a skip
-    # fails the run with the test's reason.
-    cmds:
-      - |
-        set -o pipefail
-        {{.TASK_EXE}} "$EXPERIMENT" OUTPUT_DIR="$SPIN_MACHINE_OUTPUT" OUT="$PWD/_output/lab/report.json" 2>&1 | tee _output/lab/lab.log
-        if grep -q -- '--- SKIP' _output/lab/lab.log; then
-          echo "::error::the experiment skipped: $(grep -B1 -- '--- SKIP' _output/lab/lab.log | head -1 | sed 's/^.*_test.go:[0-9]*: //')"
-          exit 1
-        fi
-
-  lab:found:
-    desc: What the experiment printed, from _output/lab/lab.log, on the run's summary in CI.
-    cmds:
-      - |
-        set -e
-        [ -f _output/lab/lab.log ] || exit 0
-        {
-          echo
-          echo '```'
-          grep -E '^\s{4}\S' _output/lab/lab.log | sed 's/^    //' | tail -300
-          echo '```'
-        } >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+        case "$PROBE" in
+          check:*) {{.OUTPUT_ABS}}/bin/spin-machine-dev lab check "${PROBE#check:}" --tree "$TREES" ;;
+          *) {{.OUTPUT_ABS}}/bin/spin-machine-dev lab run "$PROBE" --tree "$TREES" --reps "$REPS" --opt "$OPTIONS" --out _output/lab/result ;;
+        esac
 
   report:runner:
     desc: What this host can measure, said before anything is, on the run's summary in CI; fails without a usable /dev/kvm.
