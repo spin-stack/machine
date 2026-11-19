@@ -205,6 +205,17 @@ tasks:
     cmds:
       - SPIN_RESTORE_FIRST=1 go test ./boot/ -run '^TestRestoreFirstSSH$' -count=1 -v -timeout 60m
 
+  prestart:
+    desc: >-
+      Whether a QEMU started ahead of the workspace (boot --held or --restore: held, its disk's
+      place empty) moves the goal's numbers: a cold boot against one started ahead and given its
+      disk by `spin-machine start`, and a restore against one into a machine started ahead, each
+      pair interleaved, to the first SSH login over vsock. Needs KVM, /dev/vhost-vsock (task
+      vsock), a built release, sudo and a TMPDIR on a disk. REPS= repetitions.
+    deps: [':tools']
+    cmds:
+      - SPIN_PRESTART=1 go test ./boot/ -run '^TestPrestart$' -count=1 -v -timeout 60m
+
   firmware-stages:
     desc: >-
       Where the time before the kernel goes on the machine a workspace boots: QEMU's start and

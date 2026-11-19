@@ -3,23 +3,26 @@
 package machine
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"testing"
+	"time"
 )
 
-// A disk handed over as descriptors is read without a path: the chain is opened after the
-// directory that held it is gone, so a backing name in a header points nowhere and QEMU
-// reads what it was given or nothing. Then the top is sealed under a new overlay handed over
-// the same way, with one descriptor per image, and query-fdsets gives back what each
-// descriptor was. The monitor is on a socket this test listens on and QEMU was handed, as a
-// QEMU that may create no socket needs.
+// A disk handed over as descriptors is bound to its place and read without a path: the chain
+// is opened after the directory that held it is gone, so a backing name in a header points
+// nowhere and QEMU reads what it was given or nothing. Then the top is sealed under a new
+// overlay through TopNode, as spin's storage does, and the place reads the overlay; and
+// query-fdsets gives back what each descriptor was. The monitor is on a socket this test listens
+// on and QEMU was handed, as a QEMU that may create no socket needs.
 //
 // Under the TCG binary, like TestQEMUAcceptsEveryArgument, and skipped where there is none.
-func TestAChainOverDescriptorsIsReadWithoutAPathAndSealedUnderAnOverlay(t *testing.T) {
+func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testing.T) {
 	qemu, firmware := qemuTCG(t)
 	kernel := pvhStub(t)
 
@@ -37,15 +40,18 @@ func TestAChainOverDescriptorsIsReadWithoutAPathAndSealedUnderAnOverlay(t *testi
 		t.Cleanup(func() { _ = f.Close() })
 		return f
 	}
-	// Descriptors 3 onwards, in this order.
-	files := []*os.File{open(top, os.O_RDWR), open(base, os.O_RDONLY), open(next, os.O_RDWR)}
+	disk := Disk{Serial: "root", Locking: true, Images: []Image{
+		{File: open(top, os.O_RDWR), Format: "qcow2"},
+		{File: open(base, os.O_RDONLY), Format: "qcow2"},
+	}}
+	nextFile := open(next, os.O_RDWR)
 	// The console, a FIFO as a runner keeps one: its reader first, or opening the writer blocks.
 	fifo := filepath.Join(t.TempDir(), "console")
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_ = open(fifo, os.O_RDONLY|syscall.O_NONBLOCK)
-	files = append(files, open(fifo, os.O_WRONLY))
+	files := []*os.File{open(fifo, os.O_WRONLY)}
 	socket := qmpSocket(t)
 	unix, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
@@ -70,15 +76,10 @@ func TestAChainOverDescriptorsIsReadWithoutAPathAndSealedUnderAnOverlay(t *testi
 	spec := Spec{
 		QEMU: qemu, Kernel: kernel, Firmware: firmware,
 		BootCPUs: 1, Memory: Memory{SizeMB: 512}, Cmdline: DefaultCmdline(),
-		Monitors: []Monitor{{FD: 7}},
-		FDSets: []FDSet{
-			{ID: 1, FDs: []FD{{Num: 3, Opaque: top}}},
-			{ID: 2, FDs: []FD{{Num: 4, Opaque: base}}},
-			{ID: 3, FDs: []FD{{Num: 5, Opaque: next}}},
-			{ID: 4, FDs: []FD{{Num: 6, Opaque: fifo}}},
-		},
-		SerialFDSet: 4,
-		Disks:       []Disk{{Chain: []Image{{FDSet: 1, Format: "qcow2"}, {FDSet: 2, Format: "qcow2"}}, Serial: "root", Locking: true}},
+		Monitors:    []Monitor{{FD: 4}},
+		FDSets:      []FDSet{{ID: 1, FDs: []FD{{Num: 3, Opaque: fifo}}}},
+		SerialFDSet: 1,
+		Disks:       []DiskSlot{{Serial: "root"}},
 	}
 	args, err := spec.Args()
 	if err != nil {
@@ -88,36 +89,76 @@ func TestAChainOverDescriptorsIsReadWithoutAPathAndSealedUnderAnOverlay(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	vm := startQEMU(t, qemu, args, files...)
 
-	vm := startQEMU(t, qemu, append(args, "-S"), files...)
-	q := dialQMP(t, socket, vm)
+	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
+	if err != nil {
+		vm.fail(t, "dialling the monitor", err)
+	}
+	m, err := Attach(conn)
+	if err != nil {
+		vm.fail(t, "attaching", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := m.Boot(ctx, disk); err != nil {
+		vm.fail(t, "booting", err)
+	}
+	// Sealed through the same monitor: a socket chardev serves one client at a time.
+	set, err := m.q.addFD(ctx, nextFile, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []map[string]any{
+		{"driver": "file", "node-name": "next-file", "filename": "/dev/fdset/" + strconv.Itoa(set), "aio": "io_uring", "locking": "on"},
+		{"driver": "qcow2", "node-name": "next", "file": "next-file", "backing": nil},
+	} {
+		if err := m.q.run(ctx, "blockdev-add", n, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.q.run(ctx, "blockdev-snapshot", map[string]any{"node": TopNode("root"), "overlay": "next"}, nil); err != nil {
+		t.Fatalf("sealing the top under an overlay: %v", err)
+	}
 
-	q.do("blockdev-add", map[string]any{
-		"driver": "file", "node-name": "next-file", "filename": "/dev/fdset/3", "aio": "io_uring", "locking": "on",
-	})
-	q.do("blockdev-add", map[string]any{
-		"driver": "qcow2", "node-name": "next", "file": "next-file", "backing": nil,
-	})
-	q.do("blockdev-snapshot", map[string]any{"node": "blk0", "overlay": "next"})
-
+	var blocks []struct {
+		Inserted struct {
+			NodeName string `json:"node-name"`
+			Image    struct {
+				BackingImage *struct {
+					Filename string `json:"filename"`
+				} `json:"backing-image"`
+			} `json:"image"`
+		} `json:"inserted"`
+	}
+	if err := m.q.run(ctx, "query-block", nil, &blocks); err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 1 || blocks[0].Inserted.NodeName != "slot0" {
+		t.Fatalf("query-block = %+v, want the one place, slot0", blocks)
+	}
 	var sets []struct {
-		ID  int `json:"fdset-id"`
 		FDs []struct {
 			Opaque string `json:"opaque"`
 		} `json:"fds"`
 	}
-	if err := json.Unmarshal(q.do("query-fdsets", nil), &sets); err != nil {
+	if err := m.q.run(ctx, "query-fdsets", nil, &sets); err != nil {
 		t.Fatal(err)
 	}
-	opaque := map[int]string{}
+	var opaque []string
 	for _, s := range sets {
 		for _, fd := range s.FDs {
-			opaque[s.ID] = fd.Opaque
+			opaque = append(opaque, fd.Opaque)
 		}
 	}
-	for id, want := range map[int]string{1: top, 2: base, 3: next, 4: fifo} {
-		if opaque[id] != want {
-			t.Errorf("descriptor set %d says it is %q, want %q", id, opaque[id], want)
+	b, _ := json.Marshal(opaque)
+	for _, want := range []string{diskNode("root", 0), diskNode("root", 1), next, fifo} {
+		found := false
+		for _, o := range opaque {
+			found = found || o == want
+		}
+		if !found {
+			t.Errorf("no descriptor set says it is %q: %s", want, b)
 		}
 	}
 }

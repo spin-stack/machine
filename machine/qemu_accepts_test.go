@@ -148,7 +148,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 		// where to load it from.
 		name: "restore target",
 		spec: func(s Spec) Spec {
-			s.Incoming = "defer"
+			s.Restore = true
 			return s
 		},
 	}, {
@@ -168,27 +168,11 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 			return s
 		},
 	}, {
-		// Both disks a VM here gets: the read-only base, opened by every VM on
-		// the host at once, and a writable overlay with a lock and a serial.
-		name: "disks",
+		// Places for both kinds of disk a VM here gets: a writable one and a read-only one,
+		// each a device over an empty placeholder until a disk is bound to it.
+		name: "places for disks",
 		spec: func(s Spec) Spec {
-			s.Disks = []Disk{
-				{Path: rawDisk(t, "base.raw"), Format: "raw", Readonly: true, Serial: "base"},
-				{Path: qcow2In(t, qemu, t.TempDir(), "overlay.qcow2", ""), Format: "qcow2",
-					Serial: "overlay", Locking: true},
-			}
-			return s
-		},
-	}, {
-		// A writable overlay opened O_DIRECT over a chain the host caches: the options
-		// name a node that exists only because the image has a backing file, so it
-		// is asked of a real one.
-		name: "direct over backing",
-		spec: func(s Spec) Spec {
-			dir := diskDir(t)
-			base := qcow2In(t, qemu, dir, "base.qcow2", "")
-			s.Disks = []Disk{{Path: qcow2In(t, qemu, dir, "overlay.qcow2", base), Format: "qcow2",
-				Serial: "overlay", Locking: true, DirectOverBacking: true}}
+			s.Disks = []DiskSlot{{Serial: "root"}, {Serial: "base", Readonly: true}}
 			return s
 		},
 	}, {
@@ -225,13 +209,11 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 			return s
 		},
 	}, {
-		// Paths with commas in them, which QEMU splits an option string on. Started
-		// and not only rendered: that a doubled comma reads back as one is QEMU's
-		// parser's contract, so it is QEMU that is asked. Undoubled, the disk's name
-		// is a readonly= QEMU cannot parse and the socket's is a wait= it obeys.
+		// A path with a comma in it, which QEMU splits an option string on. Started and
+		// not only rendered: that a doubled comma reads back as one is QEMU's parser's
+		// contract, so it is QEMU that is asked. Undoubled, the socket's is a wait= it obeys.
 		name: "commas in paths",
 		spec: func(s Spec) Spec {
-			s.Disks = []Disk{{Path: rawDisk(t, "a,readonly=off.raw"), Format: "raw", Serial: "a,b"}}
 			s.Monitors = []Monitor{{Socket: qmpSocket(t) + ",wait=on"}}
 			return s
 		},
@@ -267,9 +249,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 		spec: func(s Spec) Spec {
 			s.Memory.MaxMB, s.MaxCPUs = 2048, 8
 			s.VsockCID = 12345
-			s.Disks = []Disk{
-				{Path: rawDisk(t, "everything.raw"), Format: "raw", Readonly: true, Serial: "base"},
-			}
+			s.Disks = []DiskSlot{{Serial: "root"}}
 			s.NICs = []NIC{{TapFD: 3, MAC: "52:54:00:12:34:56"}}
 			s.Serial = "file:" + filepath.Join(t.TempDir(), "console.log")
 			return s
@@ -321,10 +301,9 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 				t.Logf("rewritten for the TCG binary: %s", r)
 			}
 
-			// -S, and it is the only argument added: it stops the machine before
-			// the first instruction, so what is measured is device creation and
-			// not a guest booting under emulation.
-			vm := startQEMU(t, qemu, append(args, "-S"))
+			// Held, as every machine starts: what is measured is device creation and not a
+			// guest booting under emulation.
+			vm := startQEMU(t, qemu, args)
 
 			// Every monitor, and not the process: a machine with two of them has to
 			// serve both, because they exist so that two components can drive it

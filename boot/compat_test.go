@@ -63,12 +63,16 @@ func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {
 	qa.close()
 	a.kill()
 
-	b := startGuest(t, machineArgs(t, cli, out, append([]string{"--qmp", filepath.Join(dir, "b.sock"), "--incoming", "defer"}, disk...)))
-	qb := dial(t, filepath.Join(dir, "b.sock"), b.said)
-	defer qb.close()
-	qb.do(t, "migrate-incoming", map[string]any{"uri": "file:" + state})
-	qb.until(t, "query-migrate", "completed", 60*time.Second)
-	qb.do(t, "cont", nil)
+	// Restored the way every checkpoint is, with its disk bound to its place before the load.
+	// The state was written by migrate over a monitor, as a release before machine.Saved did,
+	// with no record beside it: restore reads it as the stream format, which is what shows
+	// that a checkpoint from before mapped-ram still loads.
+	b := startGuest(t, machineArgs(t, cli, out, append([]string{"--qmp", filepath.Join(dir, "b.sock"), "--restore"}, disk...)))
+	// #nosec G204 -- this tree's spin-machine
+	if o, err := exec.Command(cli, "restore", "--release", out, "--qmp", filepath.Join(dir, "b.sock"), "--from", state,
+		"--disk", overlay, "--disk-format", "qcow2").CombinedOutput(); err != nil {
+		t.Fatalf("restoring: %v: %s\n%s", err, o, b.said())
+	}
 	b.await(t, regexp.MustCompile(fmt.Sprintf(`TICK-%d\b`, last+3)), 30*time.Second)
 	// Read through the disk the guest had before it was saved: a file it never opened, so
 	// the read reaches the restored virtio-blk and the overlay behind it.
