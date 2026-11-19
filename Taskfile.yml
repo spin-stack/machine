@@ -688,7 +688,8 @@ tasks:
           [ "$VARIANT" = instead ] || echo "SPIN_MACHINE_OUTPUT_B=$b" >> "$env"
         fi
         if [ -n "${SYSTEMD_RUN:-}" ]; then
-          d=$(dirname "$(one _output/lab/systemd-debs '*/systemd_*.deb')")
+          # <artifact>/<variant>/*.deb: the probes take the directory of variants.
+          d=$(dirname "$(dirname "$(one _output/lab/systemd-debs '*/systemd_*.deb')")")
           echo "SPIN_SYSTEMD_DEBS=$d" >> "$env"
         fi
         if [ "$VARIANT" = instead ]; then echo "SPIN_MACHINE_OUTPUT=$b" >> "$env"; fi

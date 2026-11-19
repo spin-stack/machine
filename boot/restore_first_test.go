@@ -86,9 +86,9 @@ func TestRestoreFirstSSH(t *testing.T) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nms from the moment before QEMU is exec'd, p50/p95 over %d of each, %s vCPUs; every cold boot before every restore\n\n",
 		reps, rows[0].cpus)
-	fmt.Fprintf(&b, "  %-16s %13s %13s   %13s %13s %13s\n", "", "COLD LOGIN", "SAVE", "RESTORE: UP", "RUNNING", "LOGIN")
+	fmt.Fprintf(&b, "  %-22s %13s %13s   %13s %13s %13s\n", "", "COLD LOGIN", "SAVE", "RESTORE: UP", "RUNNING", "LOGIN")
 	for _, v := range rows {
-		fmt.Fprintf(&b, "  %-16s %s %s   %s %s %s\n", v.label,
+		fmt.Fprintf(&b, "  %-22s %s %s   %s %s %s\n", v.label,
 			ms(v.label, func(r *checkpointRun) time.Duration { return r.coldLogin }),
 			ms(v.label, func(r *checkpointRun) time.Duration { return r.save }),
 			ms(v.label, func(r *checkpointRun) time.Duration { return r.up }),
