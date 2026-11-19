@@ -70,14 +70,14 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		printed string
 	}{{
 		name:    "attach a raw disk",
-		replies: []string{ok, `{"return": []}`, `{"return": {"fdset-id": 1}}`, ok, ok, ok},
+		replies: []string{ok, `{"return": []}`, `{"return": {"fdset-id": 1}}`, ok, ok, ok, ok},
 		do: func(t *testing.T, sock string) error {
 			return attach(attachFlags{qmp: sock, disks: diskFlags{path: rawFile(t), format: "raw", serial: "ext"}})
 		},
-		asked: []string{"qom-list", "add-fd", "blockdev-add", "blockdev-add", "device_add"},
+		asked: []string{"qom-list", "add-fd", "add-fd", "blockdev-add", "blockdev-add", "device_add"},
 	}, {
 		name:    "attach a disk QEMU refuses",
-		replies: []string{ok, `{"return": []}`, `{"return": {"fdset-id": 1}}`, ok, ok, no},
+		replies: []string{ok, `{"return": []}`, `{"return": {"fdset-id": 1}}`, ok, ok, ok, no},
 		do: func(t *testing.T, sock string) error {
 			return attach(attachFlags{qmp: sock, disks: diskFlags{path: rawFile(t), format: "raw", serial: "ext"}})
 		},
