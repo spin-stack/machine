@@ -15,6 +15,9 @@
 #            spin's guard loads its own programs. None of the packages the image installs is
 #            left out by the profile.
 #   SELinux  off as well: the guest kernel's LSMs are lockdown, capability and bpf.
+#   pcre2    back on, which stage1 turns off: without it `journalctl --grep` in a workspace says
+#            "compiled without pattern matching support". journalctl dlopens libpcre2 only when
+#            asked to grep, so a boot never loads it.
 #   static   systemd-executor - exec'd once for every unit PID 1 starts - udevd and its
 #            helpers, systemctl and journalctl link libsystemd-shared in instead of loading it.
 #            PID 1, journald and logind have no such option.
@@ -43,26 +46,29 @@ ENV DEBIAN_FRONTEND=noninteractive \
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # From the archive's deb-src, which apt checks against the signed Sources index, and then the .dsc
-# against the pin. The archive keeps only the version resolute publishes now: once Ubuntu moves
+# against the pin; acl because the journal's install step runs setfacl and says "not found"
+# without it, harmlessly (`|| :`, src/journal/meson.build). The archive keeps only the version
+# resolute publishes now: once Ubuntu moves
 # systemd, this fails at the download, which is when the pin has to move with it (task
 # refresh:systemd proposes it). Launchpad keeps every upload, versions.yaml's source, but its
 # librarian answered 502 to a whole build here (2026-11-19).
 RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update && \
-    apt-get install -y --no-install-recommends dpkg-dev devscripts
+    apt-get install -y --no-install-recommends dpkg-dev devscripts acl
 
 WORKDIR /build
 RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
     echo "${SYSTEMD_SOURCE_SHA256}  systemd_${SYSTEMD_SOURCE_VERSION}.dsc" | sha256sum -c - && \
     dpkg-source -x "systemd_${SYSTEMD_SOURCE_VERSION}.dsc" src && test -f src/debian/rules && \
-    apt-get build-dep -y --build-profiles="${DEB_BUILD_PROFILES// /,}" "systemd=${SYSTEMD_SOURCE_VERSION}"
+    apt-get build-dep -y --build-profiles="${DEB_BUILD_PROFILES// /,}" "systemd=${SYSTEMD_SOURCE_VERSION}" && \
+    apt-get install -y --no-install-recommends libpcre2-dev
 
 # The options after the packaging's own, which meson takes over them: debian/rules hands
 # $(CONFFLAGS_UPSTREAM) last and never sets it. meson-took.py then asks the configured build
 # whether it took each, so a misspelt option is a failed build and not stage1 under another name.
 COPY image/systemd/meson-took.py /build/meson-took.py
 WORKDIR /build/src
-RUN extra="-Dlink-executor-shared=false -Dlink-udev-shared=false -Dlink-systemctl-shared=false -Dlink-journalctl-shared=false" && \
+RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false -Dlink-systemctl-shared=false -Dlink-journalctl-shared=false" && \
     grep -q -- '-Dselinux=enabled' debian/rules && \
     sed -i 's/-Dselinux=enabled/-Dselinux=disabled/' debian/rules && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
@@ -72,7 +78,8 @@ RUN extra="-Dlink-executor-shared=false -Dlink-udev-shared=false -Dlink-systemct
     meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra}
 
 # What came out: every package the image installs, at the new version; libsystemd-shared without
-# SELinux, AppArmor, audit or libcrypto; and an executor that loads no libsystemd at all.
+# SELinux, AppArmor, audit or libcrypto; an executor that loads no libsystemd at all; and a
+# journalctl that greps - run, not read about, over an empty journal directory.
 RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
     for p in systemd systemd-sysv udev libsystemd0 libsystemd-shared libudev1 libpam-systemd; do \
         ls /debs/${p}_*+spin1_*.deb > /dev/null || { echo "ERROR: no ${p} built"; exit 1; }; \
@@ -82,7 +89,10 @@ RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
     ! ldd "$so" | grep -E 'libselinux|libapparmor|libaudit|libcrypto' && \
     dpkg-deb -x /debs/systemd_*.deb /tmp/systemd && \
     ! ldd /tmp/systemd/usr/lib/systemd/systemd-executor | grep libsystemd && \
-    echo "OK: $(ls /debs | wc -l) packages, libsystemd-shared without the LSMs it was built without, the executor static"
+    mkdir -p /tmp/no-journal && \
+    grep_out=$(/tmp/systemd/usr/bin/journalctl -D /tmp/no-journal --grep x 2>&1) ; \
+    case "$grep_out" in *"No entries"*) ;; *) echo "ERROR: journalctl --grep: $grep_out"; exit 1 ;; esac && \
+    echo "OK: $(ls /debs | wc -l) packages, libsystemd-shared without the LSMs it was built without, the executor static, journalctl --grep"
 
 FROM scratch AS debs
 COPY --from=build /debs/ /
