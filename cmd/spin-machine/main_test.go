@@ -116,7 +116,7 @@ func TestBootBecomesQEMU(t *testing.T) {
 		os.Exit(100)
 	}
 
-	dir := t.TempDir()
+	dir := withBIOS(t, t.TempDir())
 	qemu := filepath.Join(dir, "qemu")
 	pidFile := filepath.Join(dir, "pid")
 	script := "#!/bin/sh\necho $$ > " + pidFile + "\nexit 7\n"

@@ -21,7 +21,7 @@ type CPU struct {
 	Features []string `json:"features,omitempty"`
 }
 
-// CanResume says whether a checkpoint of a guest shown saved may resume where here is shown,
+// canShowCPU says whether a checkpoint of a guest shown saved may resume where here is shown,
 // and why not when it may not.
 //
 // The same vendor, and every feature the guest was shown is one here can show: a guest that
@@ -35,7 +35,7 @@ type CPU struct {
 // of one model differ in nothing a guest sees, and a host whose microcode or kernel moved a flag
 // was a new machine to the model's flags line - and too loose: two hosts of one model name with
 // different features were one machine (spin-stack/spin#1348, 2026-11-19).
-func CanResume(saved, here CPU) error {
+func canShowCPU(saved, here CPU) error {
 	switch {
 	case saved.Vendor != here.Vendor:
 		return fmt.Errorf("the checkpoint's guest was shown a %s CPU, and this machine shows a %s one", saved.Vendor, here.Vendor)

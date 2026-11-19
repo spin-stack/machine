@@ -5,7 +5,11 @@ package machine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 )
 
 // VM is a machine that has been started and is held, waiting to be booted or to be handed a
@@ -80,6 +84,10 @@ type VM interface {
 	// CPU is the CPU the guest is shown: what a checkpoint of it records, and what a machine
 	// a checkpoint is resumed into has to be able to show again (CanResume).
 	CPU(ctx context.Context) (CPU, error)
+	// Target is what this machine can resume: the checkpoints CanResume lets into it. A
+	// caller choosing where a checkpoint resumes asks each candidate for its Target before
+	// starting anything, rather than learning from a failed load.
+	Target(ctx context.Context) (Target, error)
 
 	// Quit ends the VMM without asking the guest.
 	Quit(ctx context.Context) error
@@ -139,7 +147,91 @@ type Saved struct {
 	// CPU is the CPU the guest was shown. A VM resumes it only where CanResume says it may: a
 	// record without one, from before it was kept, is not checked.
 	CPU CPU `json:"cpu"`
+	// Fingerprint is the machine the guest was saved from, as the VMM names it (for QEMU,
+	// Spec.Fingerprint): the devices, the shape and the firmware a resume has to rebuild. A
+	// record without one, from before it was kept, is not checked.
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// VMM is the program and version that wrote the state, "qemu 11.2.0": a VMM loads what
+	// its own or an older version wrote, and promises nothing about a newer one's. A record
+	// without one is not checked.
+	VMM string `json:"vmm,omitempty"`
 	// Machine is what this VMM needs besides the state to rebuild the machine it was saved
 	// from - the vCPUs and the disks added while it ran - in a form only the VMM reads.
 	Machine json.RawMessage `json:"machine,omitempty"`
+}
+
+// Target is what a machine can resume (VM.Target): the formats it reads, the machine it is, the
+// VMM it runs under and the CPU it shows its guest.
+type Target struct {
+	Formats     []string `json:"formats"`
+	Fingerprint string   `json:"fingerprint"`
+	VMM         string   `json:"vmm"`
+	CPU         CPU      `json:"cpu"`
+}
+
+// CanResume says whether a checkpoint may be resumed into a machine of this Target, and if not,
+// why. It is the one rule: a caller placing checkpoints, and Resume before it reads a byte, ask
+// the same question.
+//
+//   - the format is one the machine reads;
+//   - the machine is the same one (Fingerprint), since a resume rebuilds the saved machine's
+//     devices, shape and firmware and QEMU does not refuse every difference;
+//   - the VMM is the same program, at the version that wrote the state or newer: QEMU loads
+//     what an older QEMU of the same machine type wrote, never the other way, so a rolling
+//     update does not send a checkpoint back to a host that has not been updated yet;
+//   - the CPU can be shown again (canShowCPU).
+//
+// A field the record does not have, from before it was kept, is not checked.
+func CanResume(saved Saved, here Target) error {
+	if !slices.Contains(here.Formats, saved.Format) {
+		return fmt.Errorf("the checkpoint is in format %q, and this machine reads %s", saved.Format, strings.Join(here.Formats, ", "))
+	}
+	if saved.Fingerprint != "" && saved.Fingerprint != here.Fingerprint {
+		return fmt.Errorf("the checkpoint is of machine %s, and this is machine %s", saved.Fingerprint, here.Fingerprint)
+	}
+	if saved.VMM != "" {
+		if err := newEnough(saved.VMM, here.VMM); err != nil {
+			return err
+		}
+	}
+	if saved.CPU.Vendor != "" {
+		return canShowCPU(saved.CPU, here.CPU)
+	}
+	return nil
+}
+
+// newEnough says whether a VMM here, "qemu 11.2.0", loads a state the VMM saved wrote.
+func newEnough(saved, here string) error {
+	sp, sv, err := vmmVersion(saved)
+	if err != nil {
+		return fmt.Errorf("the checkpoint's VMM: %w", err)
+	}
+	hp, hv, err := vmmVersion(here)
+	if err != nil {
+		return fmt.Errorf("this machine's VMM: %w", err)
+	}
+	if sp != hp {
+		return fmt.Errorf("the checkpoint was written by %s, and this machine runs %s", sp, hp)
+	}
+	if slices.Compare(hv, sv) < 0 {
+		return fmt.Errorf("the checkpoint was written by %s, newer than this machine's %s", saved, here)
+	}
+	return nil
+}
+
+// vmmVersion splits "qemu 11.2.0" into its program and version numbers.
+func vmmVersion(v string) (string, []int, error) {
+	program, version, ok := strings.Cut(v, " ")
+	if !ok || program == "" {
+		return "", nil, fmt.Errorf("%q is not a program and a version", v)
+	}
+	var nums []int
+	for _, p := range strings.Split(version, ".") {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return "", nil, fmt.Errorf("%q is not a program and a version: %w", v, err)
+		}
+		nums = append(nums, n)
+	}
+	return program, nums, nil
 }
