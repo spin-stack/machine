@@ -316,6 +316,9 @@ RUN <<EOT
     # patches/0008 takes init's 1,989 ftrace records out with one memmove, not one each: 2.6
     # ms before "Freeing unused kernel image" on the bench fleet, nested and on metal alike;
     # ftrace_free_mem() is 59 us after it.
+    # patches/0009 has the boot CPU poll for an AP by local_clock() while the system boots,
+    # rather than sleep on the jiffies clocksource: "CPUs: #1" to "Brought up" was 4.1 ms
+    # nested against under 1.4 on metal. Not yet measured nested; a laptop's AP never waits.
 
     # Boot performance: the RAID6 PQ benchmark probes all SIMD implementations at boot to
     # pick the fastest. It must stay disabled. (RAID6_PQ itself is not selected today, so
