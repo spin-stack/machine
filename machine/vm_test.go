@@ -1214,7 +1214,8 @@ func TestAnAttachQEMURefusesIsUndone(t *testing.T) {
 		case "device_add":
 			return refused("no room")
 		case "query-named-block-nodes":
-			return ret(`[{"node-name": "d-ext-0", "file": "json:{}"}, {"node-name": "d-ext-0-f", "file": "/dev/fdset/9"}]`)
+			// The file node first: QEMU lists nodes in no order a release promises.
+			return ret(`[{"node-name": "d-ext-0-f", "file": "/dev/fdset/9"}, {"node-name": "d-ext-0", "file": "json:{}"}]`)
 		}
 		return ok
 	}
