@@ -1,0 +1,18 @@
+diff --git a/pci.c b/pci.c
+index 63ebda6..f56b938 100644
+--- a/pci.c
++++ b/pci.c
+@@ -172,6 +172,12 @@ void setup_pci(void)
+ 	else
+ 		panic();
+ 
+-	do_setup_pci_bus();
++	/*
++	 * spin-machine: no walk of the bus. What it did - an INTx line written into each function's
++	 * PCI_INTERRUPT_LINE, and bridges numbered - nothing on this machine reads: Linux routes
++	 * interrupts from ACPI's _PRT, every device it drives uses MSI-X, and bus 0 carries no
++	 * bridge. The walk was 173 config-space exits, 5.0 ms on nested KVM against 2.2 on metal
++	 * (boot:firmware-stages, lab runs 44535161371 and 44535156851, 2026-11-19).
++	 */
+ 	setup_bios32();
+ }
