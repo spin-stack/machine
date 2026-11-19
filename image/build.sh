@@ -113,6 +113,19 @@ dpkg-query --admindir="$tree/var/lib/dpkg" -W -f='${Package} ${Version} ${Archit
     2>/dev/null | sort > "$SHARE/packages.txt"
 echo "==> $(wc -l < "$SHARE/packages.txt") packages recorded"
 
+# EXPERIMENT (branch systemd-stage1): what came out of /debs. Given packages, systemd is ours, and
+# every package of ours is held (mkosi.postinst.chroot): dpkg's own status, not apt-mark's word.
+if [ ${#packages[@]} -gt 0 ]; then
+    grep -qE '^systemd [^ ]+\+spin[0-9]+ ' "$SHARE/packages.txt" ||
+        { echo "ERROR: /debs held packages, and the image's systemd is not one of them" >&2; exit 1; }
+fi
+while read -r pkg version _; do
+    case "$version" in *+spin[0-9]*) ;; *) continue ;; esac
+    want=$(dpkg-query --admindir="$tree/var/lib/dpkg" -W -f='${db:Status-Want}' "$pkg")
+    [ "$want" = hold ] || { echo "ERROR: $pkg $version is ours and not held (it is '$want')" >&2; exit 1; }
+    echo "==> held: $pkg $version"
+done < "$SHARE/packages.txt"
+
 # The filesystem, sized to what the tree needs, plus a small margin, and nothing else. Free space in the base
 # is free space in every overlay built on it, whether or not that overlay's disk was meant to
 # have it: a disk larger than the image, with the filesystem grown to fill it, has the space it

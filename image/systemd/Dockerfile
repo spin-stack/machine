@@ -19,7 +19,10 @@
 ARG UBUNTU_IMAGE
 FROM ${UBUNTU_IMAGE}
 
+# versions.yaml's systemd-source: the .dsc, by sha256. dpkg-source checks the tarballs it names
+# against the checksums inside it, so the pin holds the whole source.
 ARG SYSTEMD_SOURCE_VERSION
+ARG SYSTEMD_SOURCE_SHA256
 ARG JOBS=8
 ENV DEBIAN_FRONTEND=noninteractive \
     DEB_BUILD_PROFILES="stage1 nocheck noinsttest nodoc" \
@@ -27,14 +30,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# From the archive's deb-src, which apt checks against the signed Sources index, and then the .dsc
+# against the pin. The archive keeps only the version resolute publishes now: once Ubuntu moves
+# systemd, this fails at the download, which is when the pin has to move with it (Launchpad keeps
+# every upload, versions.yaml's source, but its librarian answered 502 to a whole build here).
 RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update && \
-    apt-get install -y --no-install-recommends dpkg-dev devscripts && \
-    apt-get build-dep -y --build-profiles="${DEB_BUILD_PROFILES// /,}" "systemd=${SYSTEMD_SOURCE_VERSION}"
+    apt-get install -y --no-install-recommends dpkg-dev devscripts
 
 WORKDIR /build
-RUN apt-get source "systemd=${SYSTEMD_SOURCE_VERSION}" && \
-    ln -s "systemd-${SYSTEMD_SOURCE_VERSION%%-*}" src && test -f src/debian/rules
+RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
+    echo "${SYSTEMD_SOURCE_SHA256}  systemd_${SYSTEMD_SOURCE_VERSION}.dsc" | sha256sum -c - && \
+    dpkg-source -x "systemd_${SYSTEMD_SOURCE_VERSION}.dsc" src && test -f src/debian/rules && \
+    apt-get build-dep -y --build-profiles="${DEB_BUILD_PROFILES// /,}" "systemd=${SYSTEMD_SOURCE_VERSION}"
 
 WORKDIR /build/src
 RUN grep -q -- '-Dselinux=enabled' debian/rules && \

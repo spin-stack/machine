@@ -151,7 +151,8 @@ jobs:
       - name: Build systemd from Ubuntu's source package
         run: go tool task image:systemd QEMU_JOBS="$(nproc)"
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload the systemd packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: systemd-debs-${{ github.run_id }}
           path: _output/exp-systemd/debs/*.deb

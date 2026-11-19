@@ -136,6 +136,18 @@
     The base image's packages come from the archive, not from this image. After the bump:
     `task image:build`.
 
+- name: systemd-source
+  kind: download
+  source: https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/systemd/{version}/systemd_{version}.dsc
+  version: 259.9-0ubuntu0.1
+  pin: 17ad848e882b6b91ac0d31300181bb4ec6b221077329b0c5296c9765cce769b5
+  track: page https://launchpad.net/ubuntu/resolute/+source/systemd
+  note: >-
+    EXPERIMENT (branch systemd-stage1): image/systemd/Dockerfile, Ubuntu's systemd source package as
+    resolute publishes it, by its .dsc, which holds the tarballs' checksums dpkg-source checks.
+    Launchpad keeps a superseded upload, the archive's pool does not. After the bump:
+    `task image:systemd`, then boot:ssh-first with SPIN_SYSTEMD_DEBS.
+
 - name: mkosi
   kind: download
   source: https://github.com/systemd/mkosi/archive/refs/tags/v{version}.tar.gz
