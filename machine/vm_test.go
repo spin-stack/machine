@@ -769,9 +769,11 @@ func TestDetachDisk(t *testing.T) {
 		case "query-status":
 			return `{"event": "DEVICE_DELETED", "data": {"device": "hd4"}}` + "\n" + ret(`{"status": "running"}`)
 		case "query-named-block-nodes":
-			return ret(`[{"node-name": "d-ext-0"}, {"node-name": "d-ext-0-f"}, {"node-name": "d-ext-1"}, {"node-name": "d-ext-1-f"}, {"node-name": "d-other-0"}]`)
-		case "query-fdsets":
-			return ret(`[{"fdset-id": 1, "fds": [{"opaque": "d-ext-0"}]}, {"fdset-id": 2, "fds": [{"opaque": "d-other-0"}]}, {"fdset-id": 3, "fds": []}, {"fdset-id": 4, "fds": [{"opaque": "d-ext-1"}]}]`)
+			// The sets are named by the image's path, which says nothing of the disk: they are
+			// found through the disk's file nodes.
+			return ret(`[{"node-name": "d-ext-0", "file": "json:{}"}, {"node-name": "d-ext-0-f", "file": "/dev/fdset/1"},
+				{"node-name": "d-ext-1", "file": "json:{}"}, {"node-name": "d-ext-1-f", "file": "/dev/fdset/4"},
+				{"node-name": "d-other-0-f", "file": "/dev/fdset/2"}]`)
 		}
 		return ok
 	}
@@ -1170,5 +1172,64 @@ func TestADeletionIsWaitedOnOnce(t *testing.T) {
 	defer cancel()
 	if err := m.q.waitDeleted(short, "a"); err == nil {
 		t.Error("a deletion was waited on twice")
+	}
+}
+
+// A checkpoint's vCPU is added again only as a vCPU in a slot: its record is what the saved
+// machine's QEMU answered, and device_add attaches whatever it is given.
+func TestACheckpointsVCPUIsOnlyAVCPU(t *testing.T) {
+	ok := addedCPU{ID: "vcpu1", Driver: "host" + cpuSuffix, Props: map[string]any{"socket-id": 0.0, "core-id": 1.0, "thread-id": 0.0}}
+	if args, err := ok.deviceArgs(); err != nil || args["driver"] != "host"+cpuSuffix || args["id"] != "vcpu1" || args["core-id"] != 1.0 {
+		t.Errorf("deviceArgs(%+v) = %v, %v", ok, args, err)
+	}
+	for _, tc := range []struct {
+		name string
+		cpu  addedCPU
+	}{
+		{"another device", addedCPU{ID: "x", Driver: "virtio-net-pci"}},
+		{"no id", addedCPU{Driver: "host" + cpuSuffix}},
+		{"a property no slot has", addedCPU{ID: "x", Driver: "host" + cpuSuffix, Props: map[string]any{"romfile": 0.0}}},
+		{"a coordinate that is not a number", addedCPU{ID: "x", Driver: "host" + cpuSuffix, Props: map[string]any{"core-id": "1"}}},
+		{"a property that names the driver", addedCPU{ID: "x", Driver: "host" + cpuSuffix, Props: map[string]any{"driver": "virtio-net-pci"}}},
+		{"a property that names the id", addedCPU{ID: "x", Driver: "host" + cpuSuffix, Props: map[string]any{"id": "y"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if args, err := tc.cpu.deviceArgs(); err == nil {
+				t.Errorf("deviceArgs(%+v) = %v, want refused", tc.cpu, args)
+			}
+		})
+	}
+}
+
+// A disk QEMU refuses to attach leaves nothing behind: its nodes go, and the set its image was
+// handed over in, so the image is not held open and the serial can be attached again.
+func TestAnAttachQEMURefusesIsUndone(t *testing.T) {
+	f := &fakeQEMU{}
+	f.answer = func(c call) string {
+		switch c.Command {
+		case "qom-list":
+			return ret(`[]`)
+		case "add-fd":
+			return ret(`{"fdset-id": 9, "fd": 20}`)
+		case "device_add":
+			return refused("no room")
+		case "query-named-block-nodes":
+			return ret(`[{"node-name": "d-ext-0", "file": "json:{}"}, {"node-name": "d-ext-0-f", "file": "/dev/fdset/9"}]`)
+		}
+		return ok
+	}
+	err := f.attach(t).AttachDisk(ctx(t), Disk{Serial: "ext", Readonly: true, Images: []Image{image(t, "raw")}})
+	if err == nil || !strings.Contains(err.Error(), "no room") {
+		t.Fatalf("AttachDisk = %v, want QEMU's refusal", err)
+	}
+	var dels []string
+	for _, d := range f.sent("blockdev-del") {
+		dels = append(dels, d["node-name"].(string))
+	}
+	if want := []string{"d-ext-0", "d-ext-0-f"}; !reflect.DeepEqual(dels, want) {
+		t.Errorf("deleted %v, want %v", dels, want)
+	}
+	if got := f.sent("remove-fd"); !reflect.DeepEqual(got, []map[string]any{{"fdset-id": 9.0}}) {
+		t.Errorf("removed %v, want set 9", got)
 	}
 }

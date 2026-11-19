@@ -337,7 +337,10 @@ func (m *QEMU) attachAt(ctx context.Context, target int, d Disk) error {
 		return err
 	}
 	if err := m.q.run(ctx, "device_add", hotplugDisk(target, top, d.Serial), nil); err != nil {
-		return fmt.Errorf("disk %q: attaching it at target %d: %w", d.Serial, target, err)
+		// What was added for a device that never came goes with it: its images open, and its
+		// node names taken for the next attach of the same serial.
+		return errors.Join(fmt.Errorf("disk %q: attaching it at target %d: %w", d.Serial, target, err),
+			m.releaseImages(context.WithoutCancel(ctx), d.Serial))
 	}
 	return nil
 }
@@ -386,45 +389,48 @@ func (m *QEMU) DetachDisk(ctx context.Context, serial string) error {
 	if err := m.q.waitDeleted(ctx, id); err != nil {
 		return fmt.Errorf("detaching disk %q: %w", serial, err)
 	}
+	return m.releaseImages(ctx, serial)
+}
+
+// releaseImages deletes a disk's image nodes, the top first since a node cannot go while
+// another is backed by it, and lets go of the descriptor sets they were opened from.
+//
+// The sets are found through the nodes - each file node reads /dev/fdset/<id> - and not by
+// their opaque, which is the image's path and says nothing of which disk it is now. QEMU keeps
+// a set until it is removed, and so keeps the image open: a detached disk whose sets stayed
+// would still be readable, or writable, by the machine it left (spin-stack/spin#1367's review).
+func (m *QEMU) releaseImages(ctx context.Context, serial string) error {
 	var nodes []struct {
 		NodeName string `json:"node-name"`
+		File     string `json:"file"`
 	}
 	if err := m.q.run(ctx, "query-named-block-nodes", map[string]any{"flat": true}, &nodes); err != nil {
 		return fmt.Errorf("listing disk %q's nodes: %w", serial, err)
 	}
-	// The top first: a node cannot go while another is backed by it.
-	for j := 0; slices.ContainsFunc(nodes, func(n struct {
-		NodeName string `json:"node-name"`
-	}) bool {
-		return n.NodeName == diskNode(serial, j)
-	}); j++ {
+	var sets []int
+	for j := 0; ; j++ {
+		k := slices.IndexFunc(nodes, func(n struct {
+			NodeName string `json:"node-name"`
+			File     string `json:"file"`
+		}) bool {
+			return n.NodeName == diskNode(serial, j)+"-f"
+		})
+		if k < 0 {
+			break
+		}
+		var set int
+		if _, err := fmt.Sscanf(nodes[k].File, "/dev/fdset/%d", &set); err == nil {
+			sets = append(sets, set)
+		}
 		for _, n := range []string{diskNode(serial, j), diskNode(serial, j) + "-f"} {
 			if err := m.q.run(ctx, "blockdev-del", map[string]any{"node-name": n}, nil); err != nil {
 				return fmt.Errorf("deleting disk %q's node %s: %w", serial, n, err)
 			}
 		}
 	}
-	return m.removeFDSets(ctx, "d-"+serial+"-")
-}
-
-// removeFDSets lets go of the descriptor sets whose descriptors were handed over for nodes named
-// with this prefix: QEMU keeps a set until it is removed, and frees it once nothing has it open.
-func (m *QEMU) removeFDSets(ctx context.Context, prefix string) error {
-	var sets []struct {
-		ID  int `json:"fdset-id"`
-		FDs []struct {
-			Opaque string `json:"opaque"`
-		} `json:"fds"`
-	}
-	if err := m.q.run(ctx, "query-fdsets", nil, &sets); err != nil {
-		return fmt.Errorf("listing the descriptors handed to QEMU: %w", err)
-	}
-	for _, s := range sets {
-		if len(s.FDs) == 0 || !strings.HasPrefix(s.FDs[0].Opaque, prefix) {
-			continue
-		}
-		if err := m.q.run(ctx, "remove-fd", map[string]any{"fdset-id": s.ID}, nil); err != nil {
-			return fmt.Errorf("letting go of descriptor set %d: %w", s.ID, err)
+	for _, set := range sets {
+		if err := m.q.run(ctx, "remove-fd", map[string]any{"fdset-id": set}, nil); err != nil {
+			return fmt.Errorf("letting go of disk %q's descriptor set %d: %w", serial, set, err)
 		}
 	}
 	return nil
@@ -443,6 +449,31 @@ type addedCPU struct {
 	ID     string         `json:"id"`
 	Driver string         `json:"driver"`
 	Props  map[string]any `json:"props"`
+}
+
+// cpuTopology is every property a vCPU's slot is named by: all a checkpoint's vCPU may set.
+var cpuTopology = []string{"node-id", "socket-id", "die-id", "cluster-id", "module-id", "core-id", "thread-id"}
+
+// deviceArgs is the device_add that adds c again, refused unless it is a vCPU in a slot.
+//
+// The record is what the saved machine's QEMU answered, and device_add attaches whatever device
+// and properties it is given: a QEMU the guest had taken over could have answered with another
+// device, or a vCPU with properties of its choosing, for the machine that resumes it to add. So
+// the driver has to be a vCPU's and every property a slot's coordinate, a number, and neither
+// can name the driver or the id (spin-stack/spin#1367's review; spin's own client refused the
+// same before it moved here).
+func (c addedCPU) deviceArgs() (map[string]any, error) {
+	if !strings.HasSuffix(c.Driver, cpuSuffix) || c.ID == "" {
+		return nil, fmt.Errorf("the checkpoint records a vCPU %q of type %q, which is not a vCPU", c.ID, c.Driver)
+	}
+	args := map[string]any{"driver": c.Driver, "id": c.ID}
+	for k, v := range c.Props {
+		if _, number := v.(float64); !number || !slices.Contains(cpuTopology, k) {
+			return nil, fmt.Errorf("the checkpoint gives vCPU %s the property %s=%v, which names no slot", c.ID, k, v)
+		}
+		args[k] = v
+	}
+	return args, nil
 }
 
 func (m *QEMU) cpuSlots(ctx context.Context) ([]cpuSlot, error) {
@@ -795,9 +826,9 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 		return fmt.Errorf("resuming: %w", err)
 	}
 	for _, c := range sm.CPUs {
-		args := map[string]any{"driver": c.Driver, "id": c.ID}
-		for k, v := range c.Props {
-			args[k] = v
+		args, err := c.deviceArgs()
+		if err != nil {
+			return fmt.Errorf("resuming: %w", err)
 		}
 		if err := m.q.run(ctx, "device_add", args, nil); err != nil {
 			return fmt.Errorf("resuming: adding vCPU %s: %w", c.ID, err)
