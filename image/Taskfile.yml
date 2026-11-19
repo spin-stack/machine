@@ -35,20 +35,33 @@ tasks:
   systemd:
     desc: >-
       EXPERIMENT (branch systemd-stage1): Ubuntu's systemd rebuilt from its deb-src with the stage1
-      profile and SELinux off, into _output/exp-systemd/debs. boot:ssh-first takes them as a row
-      with SPIN_SYSTEMD_DEBS.
+      profile and SELinux off, once for each variant, into _output/exp-systemd/debs/<variant>.
+      boot:ssh-first and boot:restore-first take each as a row with SPIN_SYSTEMD_DEBS.
     cmds:
       - rm -rf {{.OUTPUT_ABS}}/exp-systemd/debs
-      - mkdir -p {{.OUTPUT_ABS}}/exp-systemd/debs
-      - |
-        docker buildx build \
-          --file image/systemd/Dockerfile \
-          --target debs \
-          --platform linux/amd64 \
-          $({{.VERSIONS}} args ubuntu systemd-source) \
-          --build-arg JOBS={{.QEMU_JOBS}} \
-          --output type=local,dest={{.OUTPUT_ABS}}/exp-systemd/debs \
-          .
+      - for:
+          # The variants, by meson options after the packaging's own. static: the binaries the
+          # boot execs most - systemd-executor once for every unit started, udevd and its
+          # helpers - and the two command-line tools, with libsystemd-shared linked in instead
+          # of loaded. PID 1, journald and logind have no such option. No LTO variant: Ubuntu's
+          # dpkg-buildflags already compile with -flto=auto, and -Db_lto=true built the same
+          # packages to within a few hundred bytes (2026-11-19).
+          - stage1=
+          - stage1-static=-Dlink-executor-shared=false -Dlink-udev-shared=false -Dlink-systemctl-shared=false -Dlink-journalctl-shared=false
+        cmd: |
+          set -euo pipefail
+          variant='{{.ITEM}}'
+          name=${variant%%=*}
+          mkdir -p {{.OUTPUT_ABS}}/exp-systemd/debs/$name
+          docker buildx build \
+            --file image/systemd/Dockerfile \
+            --target debs \
+            --platform linux/amd64 \
+            $({{.VERSIONS}} args ubuntu systemd-source) \
+            --build-arg MESON_EXTRA="${variant#*=}" \
+            --build-arg JOBS={{.QEMU_JOBS}} \
+            --output type=local,dest={{.OUTPUT_ABS}}/exp-systemd/debs/$name \
+            .
 
   builder:
     desc: Build the container that builds the base image (mkosi, qemu-utils).

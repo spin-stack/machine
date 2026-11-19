@@ -44,13 +44,19 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
     dpkg-source -x "systemd_${SYSTEMD_SOURCE_VERSION}.dsc" src && test -f src/debian/rules && \
     apt-get build-dep -y --build-profiles="${DEB_BUILD_PROFILES// /,}" "systemd=${SYSTEMD_SOURCE_VERSION}"
 
+# A variant is meson options after the packaging's own, which meson takes over them: debian/rules
+# hands $(CONFFLAGS_UPSTREAM) last and never sets it, so it comes from here. Each variant is its
+# own image/Taskfile.yml call and its own directory of packages, a row of its own in the probes.
+ARG MESON_EXTRA=""
+COPY image/systemd/meson-took.py /build/meson-took.py
 WORKDIR /build/src
 RUN grep -q -- '-Dselinux=enabled' debian/rules && \
     sed -i 's/-Dselinux=enabled/-Dselinux=disabled/' debian/rules && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "${SYSTEMD_SOURCE_VERSION}+spin1" --distribution resolute \
-            "Rebuilt with the stage1 profile and SELinux off (spin-machine experiment)." && \
-    dpkg-buildpackage -b -uc -us -j"${JOBS}"
+            "Rebuilt with the stage1 profile and SELinux off (spin-machine experiment). ${MESON_EXTRA}" && \
+    CONFFLAGS_UPSTREAM="${MESON_EXTRA}" dpkg-buildpackage -b -uc -us -j"${JOBS}" && \
+    meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${MESON_EXTRA}
 
 # What came out: the packages the image installs, at the new version, and a PID 1 without the
 # BPF framework or SELinux linked in.
@@ -60,6 +66,8 @@ RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
     done && \
     dpkg-deb -x /debs/libsystemd-shared_*.deb /tmp/x && \
     ! find /tmp/x -name 'libsystemd-shared-*.so' -exec ldd {} \; | grep -E 'libselinux|libapparmor|libaudit|libcrypto' && \
+    dpkg-deb -x /debs/systemd_*.deb /tmp/s && \
+    echo "systemd-executor: $(ldd /tmp/s/usr/lib/systemd/systemd-executor | grep -c libsystemd) libsystemd libraries" && \
     ls -la /debs
 
 FROM scratch AS debs

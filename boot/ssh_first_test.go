@@ -89,13 +89,13 @@ func TestFirstSSH(t *testing.T) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nms from the moment before QEMU is exec'd, p50/p95 over %d boots of each, interleaved, %s vCPUs\n\n", reps, rows[0].cpus)
-	fmt.Fprintf(&b, "  %-16s %15s %15s %15s %15s %15s %9s %14s\n", "", "SSHD ACCEPTS", "FIRST LOGIN", "ACCEPT TO LOGIN", "A SECOND TOOK", "CONSOLE PROMPT", "NO LOGIN", "CURVE25519 IN")
+	fmt.Fprintf(&b, "  %-22s %15s %15s %15s %15s %15s %9s %14s\n", "", "SSHD ACCEPTS", "FIRST LOGIN", "ACCEPT TO LOGIN", "A SECOND TOOK", "CONSOLE PROMPT", "NO LOGIN", "CURVE25519 IN")
 	for _, v := range rows {
 		g := got[v.label]
 		if g == nil {
 			g = &samples{}
 		}
-		fmt.Fprintf(&b, "  %-16s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %9d %14d\n", v.label,
+		fmt.Fprintf(&b, "  %-22s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %9d %14d\n", v.label,
 			ms(g.listen, .5), ms(g.listen, .95), ms(g.login, .5), ms(g.login, .95), ms(g.accepted, .5), ms(g.accepted, .95),
 			ms(g.again, .5), ms(g.again, .95),
 			ms(g.prompt, .5), ms(g.prompt, .95), failed[v.label], classical[v.label])
@@ -177,8 +177,17 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 `
 	rows := []variant{row("as released", ""), asBuilt}
-	if debs := systemdDebs(t); debs != "" {
-		rows = append(rows, withPackages(asBuilt, "systemd stage1", debs))
+	// Each systemd variant is a row, and stage1 a second time without
+	// systemd-udev-load-credentials: a oneshot on the critical path before udevd in 8 of 10
+	// boots (boot:waits, 7.8 ms its own and 4.6 waiting), which imports credentials nobody here
+	// passes. A mask, not a build: it is the image's to say.
+	for _, b := range systemdDebs(t) {
+		rows = append(rows, withPackages(asBuilt, b.name, b.dir))
+		if b.name == "stage1" {
+			r := withPackages(asBuilt, "stage1, no udev creds", b.dir)
+			r.mask = []string{"systemd-udev-load-credentials.service"}
+			rows = append(rows, r)
+		}
 	}
 	return rows, signer
 }
@@ -374,24 +383,33 @@ func (vsockAddr) String() string  { return "vsock" }
 func (vsockConn) LocalAddr() net.Addr  { return vsockAddr{} }
 func (vsockConn) RemoteAddr() net.Addr { return vsockAddr{} }
 
-// systemdDebs is the directory SPIN_SYSTEMD_DEBS names, resolved, or "" when it names none:
-// packages built by image/systemd (EXPERIMENT, branch systemd-stage1), put into a row of their
-// own beside the image as built, interleaved with it.
-func systemdDebs(t *testing.T) string {
+// systemdBuild is one variant of the systemd image/systemd builds: its name and the directory of
+// its packages.
+type systemdBuild struct{ name, dir string }
+
+// systemdDebs are the variants under the directory SPIN_SYSTEMD_DEBS names, one subdirectory of
+// packages each, as `task image:systemd` writes them; none when it names nothing (EXPERIMENT,
+// branch systemd-stage1).
+func systemdDebs(t *testing.T) []systemdBuild {
 	t.Helper()
 	d := os.Getenv("SPIN_SYSTEMD_DEBS")
 	if d == "" {
-		return ""
+		return nil
 	}
 	abs, err := filepath.Abs(d)
 	if err != nil {
 		t.Fatalf("resolving SPIN_SYSTEMD_DEBS=%q: %v", d, err)
 	}
-	debs, err := filepath.Glob(filepath.Join(abs, "*.deb"))
+	debs, err := filepath.Glob(filepath.Join(abs, "*", "systemd_*.deb"))
 	if err != nil || len(debs) == 0 {
-		t.Fatalf("SPIN_SYSTEMD_DEBS=%s holds no .deb", abs)
+		t.Fatalf("SPIN_SYSTEMD_DEBS=%s holds no <variant>/systemd_*.deb", abs)
 	}
-	return abs
+	var builds []systemdBuild
+	for _, deb := range debs {
+		dir := filepath.Dir(deb)
+		builds = append(builds, systemdBuild{name: filepath.Base(dir), dir: dir})
+	}
+	return builds
 }
 
 // withPackages is base with the packages in debs put into the overlay the way dpkg would
