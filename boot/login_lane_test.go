@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -41,6 +42,11 @@ import (
 //
 //	SPIN_LOGIN_LANE=1  run at all
 //	REPS=<n>           boots of each row (default 10)
+//	SPIN_LANE_DIAG=1   instead of boot:ssh-first's rows, two that log what the lane does: sshd at
+//	                   LogLevel DEBUG1 and logind at debug, and the first RAW boots' journal lines
+//	                   with their offsets from accept. Logging inflates what it logs, so these say
+//	                   which step a hop is made of, not what it costs.
+//	RAW=<n>            boots whose timeline is printed (default 3 with SPIN_LANE_DIAG, else 0)
 func TestLoginLane(t *testing.T) {
 	if os.Getenv("SPIN_LOGIN_LANE") == "" {
 		t.Skip("set SPIN_LOGIN_LANE=1: boots VMs with a vsock device and logs into them")
@@ -54,17 +60,32 @@ func TestLoginLane(t *testing.T) {
 	}
 	reps := envInt(t, "REPS", 10)
 	rows, signer := firstLoginRows(t)
+	raw := 0
+	if os.Getenv("SPIN_LANE_DIAG") != "" {
+		base := rows[len(rows)-1]
+		sshd, logind := base, base
+		sshd.label, logind.label = "sshd debug", "logind debug"
+		sshd.files, logind.files = maps.Clone(base.files), maps.Clone(base.files)
+		sshd.files["/etc/ssh/sshd_config.d/99-lane-debug.conf"] = "LogLevel DEBUG1\n"
+		logind.files["/etc/systemd/system/systemd-logind.service.d/99-lane-debug.conf"] = "[Service]\nEnvironment=SYSTEMD_LOG_LEVEL=debug\n"
+		rows = []variant{sshd, logind}
+		raw = 3
+	}
+	raw = envInt(t, "RAW", raw)
 
 	marks := []string{"accept", "authenticated", "session open", "logind", "scope active", "command"}
 	got := map[string][][]time.Duration{} // row -> boot -> mark offsets from accept
-	for range reps {
+	for i := range reps {
 		for _, v := range rows {
-			m, err := loginLane(t, out, v, signer)
+			m, timeline, err := loginLane(t, out, v, signer)
 			if err != nil {
 				t.Logf("%s: %v", v.label, err)
 				continue
 			}
 			got[v.label] = append(got[v.label], m)
+			if i < raw {
+				t.Logf("%s, boot %d, ms after accept:\n%s", v.label, i+1, timeline)
+			}
 		}
 	}
 
@@ -96,7 +117,7 @@ func TestLoginLane(t *testing.T) {
 
 // loginLane boots v once, logs in with the probe as the first login's command, reads the journal
 // in a second login, and returns the marks' times in TestLoginLane's order.
-func loginLane(t *testing.T, out string, v variant, signer xssh.Signer) ([]time.Duration, error) {
+func loginLane(t *testing.T, out string, v variant, signer xssh.Signer) ([]time.Duration, string, error) {
 	t.Helper()
 	socks, err := os.MkdirTemp("/tmp", "ll")
 	if err != nil {
@@ -120,7 +141,7 @@ systemctl show -p Id -p InactiveExitTimestampMonotonic -p ActiveEnterTimestampMo
 	deadline := time.Now().Add(60 * time.Second)
 	for !vsockAccepts(r.cid, 22) {
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("sshd never accepted on vsock")
+			return nil, "", fmt.Errorf("sshd never accepted on vsock")
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
@@ -132,16 +153,49 @@ systemctl show -p Id -p InactiveExitTimestampMonotonic -p ActiveEnterTimestampMo
 			break
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("never logged in: %w", err)
+			return nil, "", fmt.Errorf("never logged in: %w", err)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	_, journal, err := sshRun(r.cid, signer, xssh.KeyExchangeMLKEM768X25519,
 		"sudo journalctl -b -o json --output-fields=MESSAGE,SYSLOG_IDENTIFIER,__MONOTONIC_TIMESTAMP SYSLOG_IDENTIFIER=sshd-session SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=systemd-logind SYSLOG_IDENTIFIER=spin-lane")
 	if err != nil {
-		return nil, fmt.Errorf("reading the journal: %w", err)
+		return nil, "", fmt.Errorf("reading the journal: %w", err)
 	}
-	return laneMarks(units, journal)
+	m, err := laneMarks(units, journal)
+	if err != nil {
+		return nil, "", err
+	}
+	return m, laneTimeline(m[0], journal), nil
+}
+
+// laneTimeline is the journal's lines from accept until a second after, each with its offset in
+// ms, its identifier and its message cut to a line.
+func laneTimeline(accept time.Duration, journal string) string {
+	var b strings.Builder
+	sc := bufio.NewScanner(strings.NewReader(journal))
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		var e struct {
+			Message string `json:"MESSAGE"`
+			Ident   string `json:"SYSLOG_IDENTIFIER"`
+			Mono    string `json:"__MONOTONIC_TIMESTAMP"`
+		}
+		if json.Unmarshal(sc.Bytes(), &e) != nil {
+			continue
+		}
+		n, _ := strconv.ParseInt(e.Mono, 10, 64)
+		at := time.Duration(n)*time.Microsecond - accept
+		if at < -5*time.Millisecond || at > time.Second {
+			continue
+		}
+		msg := e.Message
+		if len(msg) > 110 {
+			msg = msg[:110]
+		}
+		fmt.Fprintf(&b, "    %8.1f  %-15s %s\n", float64(at)/float64(time.Millisecond), e.Ident, msg)
+	}
+	return b.String()
 }
 
 // laneMarks reads the marks out of systemctl show's output and the journal's: the first of each
