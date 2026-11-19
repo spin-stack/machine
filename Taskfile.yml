@@ -514,12 +514,18 @@ tasks:
         attestgate files -require cdx -except '*.sha256,machine.env,*.cdx.json' _output/release
 
   release:tag:
-    desc: Tag this commit VERSION and push the tag. A version tagged already is refused, since git push does not move a tag.
+    desc: Tag this commit VERSION on GitHub. A version tagged already is refused, since creating a ref that exists fails.
     cmds:
+      # Through the API and not `git push`: GitHub refuses a pushed ref from GITHUB_TOKEN when the
+      # commits under it change .github/workflows/, a permission that token cannot hold ("refusing
+      # to allow a GitHub App to create or update workflow ... without `workflows` permission",
+      # v20261119.01, the first release with a workflow change since the one before it). Creating
+      # the ref is contents: write, which the release has. A lightweight tag, as the pushed one was.
       - |
         set -euo pipefail
-        git tag "$VERSION"
-        git push origin "$VERSION"
+        gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+          -f ref="refs/tags/${VERSION}" -f sha="$(git rev-parse HEAD)" --jq '.ref'
+        git fetch --quiet origin "refs/tags/${VERSION}:refs/tags/${VERSION}"
 
   shell:
     desc: >-
