@@ -144,14 +144,15 @@ func (x waitsBoot) target() boot.Unit { u, _ := x.w.Unit(x.login); return u }
 // the same arguments, less those devices - as boot:firmware-stages runs it to add
 // QEMU's trace flags. A machine with a device fewer has another fingerprint, which is a
 // fleet-wide decision, so spin-machine has no flag for it on purpose: an experiment does not
-// belong in the release's path. Everything else the line holds is the definition's.
-func machineCommand(t *testing.T, out string, v variant, args ...string) *exec.Cmd {
+// belong in the release's path. Everything else the line holds is the definition's. start boots
+// the machine once the command runs: nothing for `spin-machine boot`, which boots its own.
+func machineCommand(t *testing.T, out string, v variant, args ...string) (cmd *exec.Cmd, start func(t *testing.T)) {
 	t.Helper()
 	bin := filepath.Join(out, "bin", "spin-machine")
 	if len(v.without) == 0 {
-		return exec.Command(bin, append([]string{"boot", "--release", out}, args...)...)
+		return exec.Command(bin, append([]string{"boot", "--release", out}, args...)...), func(*testing.T) {}
 	}
-	line := machineArgs(t, bin, out, args)
+	line, start := machineArgs(t, bin, out, args)
 	removed := 0
 	for i := 0; i+1 < len(line); i++ {
 		if line[i] != "-device" {
@@ -169,7 +170,7 @@ func machineCommand(t *testing.T, out string, v variant, args ...string) *exec.C
 	if removed != len(v.without) {
 		t.Fatalf("took %d devices out of %v; the command line has:\n%s", removed, v.without, strings.Join(line, "\n"))
 	}
-	return exec.Command(line[0], line[1:]...)
+	return exec.Command(line[0], line[1:]...), start
 }
 
 // bootWaits boots once and reads the console until end, which is SPIN-WAITS-END or the marker
@@ -182,7 +183,7 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 	editOverlay(t, overlay, v)
 
 	// FLAGS, as the other probes take it: spin-machine boot flags after the rest.
-	cmd := machineCommand(t, out, v, append([]string{"--disk", overlay, "--memory", v.memory, "--cpus", v.cpus,
+	cmd, start := machineCommand(t, out, v, append([]string{"--disk", overlay, "--memory", v.memory, "--cpus", v.cpus,
 		"--console", "file:/dev/stdout", "--append", "init=/sbin/init"}, strings.Fields(os.Getenv("FLAGS"))...)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	r, w, err := os.Pipe()
@@ -195,6 +196,7 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 		t.Fatalf("launching the machine: %v", err)
 	}
 	_ = w.Close()
+	start(t)
 	defer func() {
 		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil {
 			_ = syscall.Kill(-pgid, syscall.SIGKILL)
