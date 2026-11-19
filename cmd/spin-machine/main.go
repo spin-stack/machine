@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -82,8 +83,22 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
+		if o.prefaultRAM && cmd != "boot" {
+			return errors.New("--prefault-ram makes a memfd only boot hands on: give args --memory-fd")
+		}
 		switch cmd {
 		case "boot":
+			if o.prefaultRAM {
+				// A launcher does this before the clock starts, for the machine after next;
+				// here it is on boot's own time, which is what a lane timing boot measures.
+				ram, err := machine.PrefaultRAM(spec.Memory.SizeMB)
+				if err != nil {
+					return err
+				}
+				spec.Memory.FD = int(ram.Fd())
+				// Reachable until the exec, or its finalizer closes the descriptor QEMU is told to open.
+				defer runtime.KeepAlive(ram)
+			}
 			return boot(spec, o.scratch())
 		case "args":
 			args, err := qemuArgs(spec, o.scratch())
@@ -185,6 +200,8 @@ type machineFlags struct {
 
 	memoryMB     int
 	maxMemMB     int
+	memoryFD     int
+	prefaultRAM  bool
 	cpuModel     string
 	accel        string
 	cpus         int
@@ -219,6 +236,9 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 
 	fs.IntVar(&o.memoryMB, "memory", 2048, "guest memory in MiB")
 	fs.IntVar(&o.maxMemMB, "max-memory", 0, "ceiling this VM may grow to and shrink back from, in MiB, through virtio-mem (0: fixed memory)")
+	fs.IntVar(&o.memoryFD, "memory-fd", 0, "the boot memory is this inherited memfd of --memory MiB (0: QEMU allocates it)")
+	fs.BoolVar(&o.prefaultRAM, "prefault-ram", false,
+		"boot only: allocate the boot memory in huge pages before QEMU starts, and hand it over as a memfd")
 	fs.StringVar(&o.cpuModel, "cpu", "", "CPU model shown to the guest (default: host; name one, e.g. Skylake-Server-v4, to let VMs move between machines)")
 	fs.StringVar(&o.accel, "accel", "", "kvm (default) or tcg; tcg runs the release's TCG build unless --qemu names another")
 	fs.IntVar(&o.cpus, "cpus", 2, "boot vCPUs")
@@ -281,6 +301,7 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 	s.Memory = machine.Memory{
 		SizeMB: o.memoryMB,
 		MaxMB:  o.maxMemMB,
+		FD:     o.memoryFD,
 	}
 	s.HotplugDisks = o.hotplugDisks
 	s.VsockCID = o.vsockCID

@@ -174,10 +174,12 @@ func TestArgs(t *testing.T) {
 			s.NICs = []NIC{nic()}
 			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 4}}}}
 			s.KVMFDSet, s.VsockFD, s.NICs[0].VhostFD = 1, 5, 6
+			s.Memory.FD = 7
 		},
 		want: []string{
 			"-machine pc-q35-11.1,kernel-irqchip=on,", "-accel kvm,device=/dev/fdset/1 ",
 			"addr=0x2,vhostfd=5 ", "tap,id=net0,fd=3,vhost=on,vhostfd=6 ",
+			"-machine memory-backend=pc.ram ", "memory-backend-file,id=pc.ram,size=", ",mem-path=/proc/self/fd/7,share=on ",
 		},
 		absent: []string{"accel=kvm"},
 	}, {
@@ -530,6 +532,7 @@ func TestFingerprint(t *testing.T) {
 				s.Serial, s.SerialFDSet = "", 2
 				s.Monitors = []Monitor{{FD: 12}}
 				s.KVMFDSet, s.VsockFD = 3, 14
+				s.Memory.FD = 16
 			}},
 
 		// Naming a model is how a fleet gets VMs that move: every host shows the guest
@@ -789,6 +792,7 @@ func TestValidateRefuses(t *testing.T) {
 		}},
 		{"/dev/vhost-vsock with no vsock", func(s *Spec) { s.VsockCID, s.VsockFD = 0, 3 }},
 		{"/dev/vhost-vsock on stdout", func(s *Spec) { s.VsockCID, s.VsockFD = 3, 1 }},
+		{"boot memory on stdout", func(s *Spec) { s.Memory.FD = 1 }},
 		{"/dev/vhost-net on stderr", func(s *Spec) {
 			n := nic()
 			n.VhostFD = 2

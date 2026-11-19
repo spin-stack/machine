@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/spin-stack/spin-machine/machine"
 )
 
 // Where the time before the kernel goes: QEMU's own start, and the firmware's steps, on the
@@ -37,6 +39,8 @@ import (
 //	SPIN_PROBE_INITRD=<cpio> as for boot:firmware
 //	SPIN_MACHINE_OUTPUT_B=<dir> the release with another QEMU and firmware (the lab's qemu_run),
 //	                         booted interleaved with it
+//	SPIN_PREFAULT_RAM=1      and the last of those again, its boot memory a memfd prefaulted
+//	                         before the exec (machine.PrefaultRAM), as a launcher would
 func TestFirmwareStages(t *testing.T) {
 	if os.Getenv("SPIN_FIRMWARE_STAGES") == "" {
 		t.Skip("set SPIN_FIRMWARE_STAGES=1: this boots VMs under QEMU's tracing")
@@ -49,20 +53,38 @@ func TestFirmwareStages(t *testing.T) {
 	flags = append([]string{"--disk", "-", "--initrd", initrd, "--console", "file:/dev/stdout"}, flags...)
 	cli := filepath.Join(out, "bin", "spin-machine")
 	type variant struct {
-		name   string
-		args   []string
-		runs   []map[string]stage
-		spent  []map[string]float64
-		starts []map[string]float64
+		name     string
+		args     []string
+		prefault int // MiB of boot memory to prefault before each boot, or none
+		runs     []map[string]stage
+		spent    []map[string]float64
+		starts   []map[string]float64
 	}
 	vs := []*variant{{name: "release", args: machineArgs(t, cli, out, flags)}}
 	if b := os.Getenv("SPIN_MACHINE_OUTPUT_B"); b != "" {
 		vs = append(vs, &variant{name: "B", args: machineArgs(t, cli, b, flags)})
 	}
+	if os.Getenv("SPIN_PREFAULT_RAM") != "" {
+		last := vs[len(vs)-1]
+		rel := cmp.Or(os.Getenv("SPIN_MACHINE_OUTPUT_B"), out)
+		// The memfd is the child's first inherited descriptor: ExtraFiles[0] is 3.
+		vs = append(vs, &variant{name: last.name + "+prefault", prefault: flagInt(flags, "--memory", 2048),
+			args: machineArgs(t, cli, rel, append(slices.Clone(flags), "--memory-fd", "3"))})
+	}
 	// Interleaved, so the runner's drift lands on both alike.
 	for range reps {
 		for _, v := range vs {
-			st, w, qs := traceOneBoot(t, v.args)
+			var ram *os.File
+			if v.prefault > 0 {
+				var err error
+				if ram, err = machine.PrefaultRAM(v.prefault); err != nil {
+					t.Fatal(err)
+				}
+			}
+			st, w, qs := traceOneBoot(t, v.args, ram)
+			if ram != nil {
+				_ = ram.Close()
+			}
 			v.runs, v.spent, v.starts = append(v.runs, st), append(v.spent, w), append(v.starts, qs)
 		}
 	}
@@ -72,6 +94,18 @@ func TestFirmwareStages(t *testing.T) {
 		t.Log(waitTable("the firmware's largest waits", v.spent, 15))
 		t.Log(waitTable("QEMU's start, exec to the firmware's first instruction", v.starts, 15))
 	}
+}
+
+// flagInt is the value of an integer flag in a spin-machine command line, or def.
+func flagInt(flags []string, name string, def int) int {
+	for i, f := range flags {
+		if f == name && i+1 < len(flags) {
+			if n, err := strconv.Atoi(flags[i+1]); err == nil {
+				return n
+			}
+		}
+	}
+	return def
 }
 
 // stage is one step's wall time and the exits to QEMU inside it.
@@ -98,7 +132,9 @@ func machineArgs(t *testing.T, cli, release string, flags []string) []string {
 // traceOneBoot boots once with QEMU tracing the firmware's selects, its PCI walk and every exit
 // to QEMU, waits for the diagnostic init, and returns each step's time, the firmware's waits and
 // QEMU's start.
-func traceOneBoot(t *testing.T, args []string) (map[string]stage, map[string]float64, map[string]float64) {
+//
+// ram, when not nil, is the boot memory the command line names as descriptor 3.
+func traceOneBoot(t *testing.T, args []string, ram *os.File) (map[string]stage, map[string]float64, map[string]float64) {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "trace")
@@ -113,6 +149,9 @@ func traceOneBoot(t *testing.T, args []string) (map[string]stage, map[string]flo
 	}
 	cmd := exec.Command(args[0], full...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if ram != nil {
+		cmd.ExtraFiles = []*os.File{ram}
+	}
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)

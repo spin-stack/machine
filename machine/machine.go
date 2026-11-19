@@ -398,6 +398,30 @@ type Memory struct {
 	// Nothing is plugged at start-up. The caller sets requested-size over QMP when
 	// it wants more.
 	MaxMB int
+
+	// FD, when non-zero, is the boot memory: a memfd of SizeMB the caller made and
+	// QEMU inherits, mapped shared as the RAM block pc.ram - PrefaultRAM's, with its
+	// pages already allocated. Zero has QEMU allocate anonymous memory itself.
+	//
+	// Where the memory came from is the host's business: the RAM block keeps the id the
+	// default one has, so a checkpoint carries the same blocks either way and resumes into
+	// either, and it is in neither Shape nor the fingerprint.
+	FD int
+}
+
+// bootMemoryArgs is the boot memory as a backend QEMU maps from Memory.FD, under the id
+// q35 gives its own (pc.ram), which is the RAM block's name in a checkpoint. share=on,
+// because a private mapping of a file copies each page on its first write: the pages
+// prefaulted into the file would be read once and replaced by fresh anonymous ones.
+func (m Memory) bootMemoryArgs() []string {
+	if m.FD == 0 {
+		return nil
+	}
+	return []string{
+		"-machine", "memory-backend=pc.ram",
+		"-object", fmt.Sprintf("memory-backend-file,id=pc.ram,size=%dM,mem-path=/proc/self/fd/%d,share=on",
+			m.SizeMB, m.FD),
+	}
 }
 
 // Monitor is one QMP monitor: a Unix socket QEMU creates and listens on, or one the
@@ -855,6 +879,8 @@ func (s Spec) validate() error {
 		return errors.New("a /dev/vhost-vsock descriptor for a machine with no vsock")
 	case s.VsockFD != 0 && s.VsockFD < 3:
 		return errors.New("a /dev/vhost-vsock descriptor below 3 is stdin, stdout or stderr")
+	case s.Memory.FD != 0 && s.Memory.FD < 3:
+		return errors.New("a boot memory descriptor below 3 is stdin, stdout or stderr")
 	}
 	for i, n := range s.NICs {
 		if err := n.validate(); err != nil {
@@ -965,6 +991,7 @@ func (s Spec) Args() ([]string, error) {
 		"-smp", shape.SMP,
 		"-m", shape.Memory,
 	)
+	args = append(args, s.Memory.bootMemoryArgs()...)
 	args = appendChipset(args)
 	args = s.appendBoot(args)
 	args = s.appendDevices(args)
