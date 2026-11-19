@@ -89,13 +89,13 @@ func TestFirstSSH(t *testing.T) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nms from the moment before QEMU is exec'd, p50/p95 over %d boots of each, interleaved, %s vCPUs\n\n", reps, rows[0].cpus)
-	fmt.Fprintf(&b, "  %-22s %15s %15s %15s %15s %15s %9s %14s\n", "", "SSHD ACCEPTS", "FIRST LOGIN", "ACCEPT TO LOGIN", "A SECOND TOOK", "CONSOLE PROMPT", "NO LOGIN", "CURVE25519 IN")
+	fmt.Fprintf(&b, "  %-30s %15s %15s %15s %15s %15s %9s %14s\n", "", "SSHD ACCEPTS", "FIRST LOGIN", "ACCEPT TO LOGIN", "A SECOND TOOK", "CONSOLE PROMPT", "NO LOGIN", "CURVE25519 IN")
 	for _, v := range rows {
 		g := got[v.label]
 		if g == nil {
 			g = &samples{}
 		}
-		fmt.Fprintf(&b, "  %-22s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %9d %14d\n", v.label,
+		fmt.Fprintf(&b, "  %-30s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %9d %14d\n", v.label,
 			ms(g.listen, .5), ms(g.listen, .95), ms(g.login, .5), ms(g.login, .95), ms(g.accepted, .5), ms(g.accepted, .95),
 			ms(g.again, .5), ms(g.again, .95),
 			ms(g.prompt, .5), ms(g.prompt, .95), failed[v.label], classical[v.label])
@@ -177,14 +177,16 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 `
 	rows := []variant{row("as released", ""), asBuilt}
-	// Each systemd variant is a row, and stage1 a second time without
+	// Each systemd variant is a row, and stage1-static a second time without
 	// systemd-udev-load-credentials: a oneshot on the critical path before udevd in 8 of 10
 	// boots (boot:waits, 7.8 ms its own and 4.6 waiting), which imports credentials nobody here
-	// passes. A mask, not a build: it is the image's to say.
+	// passes. A mask, not a build: it is the image's to say. Over stage1 alone it moved the first
+	// login -8 ms p50 and nothing at p95 (lab run 44537549305), so it is asked again with the
+	// static build, the one that would ship.
 	for _, b := range systemdDebs(t) {
 		rows = append(rows, withPackages(asBuilt, b.name, b.dir))
-		if b.name == "stage1" {
-			r := withPackages(asBuilt, "stage1, no udev creds", b.dir)
+		if b.name == "stage1-static" {
+			r := withPackages(asBuilt, "stage1-static, no udev creds", b.dir)
 			r.mask = []string{"systemd-udev-load-credentials.service"}
 			rows = append(rows, r)
 		}
