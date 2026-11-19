@@ -1,0 +1,123 @@
+diff -ruN a/src/core/main.c b/src/core/main.c
+--- a/src/core/main.c	2026-11-19 12:53:06.697308531 -0300
++++ b/src/core/main.c	2026-11-19 12:53:27.097674529 -0300
+@@ -105,6 +105,7 @@
+ #include "version.h"
+ #include "virt.h"
+ #include "watchdog.h"
++#include "spin-mark.h"
+ 
+ #if HAS_FEATURE_ADDRESS_SANITIZER
+ #include <sanitizer/lsan_interface.h>
+@@ -2609,7 +2610,9 @@
+ 
+         log_debug("Activating default unit: %s", unit);
+ 
++        spin_mark("default-unit-start");
+         r = manager_load_startable_unit_or_warn(m, unit, NULL, &target);
++        spin_mark("default-unit-loaded");
+         if (r < 0 && in_initrd() && !arg_default_unit) {
+                 /* Fall back to default.target, which we used to always use by default. Only do this if no
+                  * explicit configuration was given. */
+@@ -2632,6 +2635,7 @@
+         assert(target->load_state == UNIT_LOADED);
+ 
+         r = manager_add_job(m, JOB_START, target, JOB_ISOLATE, &error, &job);
++        spin_mark("transaction-built");
+         if (r == -EPERM) {
+                 log_debug_errno(r, "Default target could not be isolated, starting instead: %s", bus_error_message(&error, r));
+ 
+diff -ruN a/src/core/manager.c b/src/core/manager.c
+--- a/src/core/manager.c	2026-11-19 12:53:06.697237252 -0300
++++ b/src/core/manager.c	2026-11-19 12:53:27.097245995 -0300
+@@ -96,6 +96,7 @@
+ #include "varlink.h"
+ #include "virt.h"
+ #include "watchdog.h"
++#include "spin-mark.h"
+ 
+ /* Make sure clients notifying us don't block */
+ #define MANAGER_SOCKET_RCVBUF_SIZE (8*U64_MB)
+@@ -2049,6 +2050,7 @@
+                 manager_enumerate_perpetual(m);
+                 manager_enumerate(m);
+                 dual_timestamp_now(m->timestamps + manager_timestamp_initrd_mangle(MANAGER_TIMESTAMP_UNITS_LOAD_FINISH));
++                spin_mark("units-loaded");
+ 
+                 /* Second, deserialize if there is something to deserialize */
+                 if (serialization) {
+@@ -2097,18 +2099,23 @@
+                         /* This shouldn't fail, except if things are really broken. */
+                         return r;
+ 
++                spin_mark("fds-and-notify");
+                 /* Connect to the bus if we are good for it */
+                 manager_setup_bus(m);
++                spin_mark("bus");
+ 
+                 r = manager_varlink_init(m);
+                 if (r < 0)
+                         log_warning_errno(r, "Failed to set up Varlink, ignoring: %m");
+ 
++                spin_mark("varlink");
+                 /* Third, fire things up! */
+                 manager_coldplug(m);
++                spin_mark("coldplug");
+ 
+                 /* Clean up runtime objects */
+                 manager_vacuum(m);
++                spin_mark("vacuum");
+ 
+                 if (serialization)
+                         /* Let's wait for the UnitNew/JobNew messages being sent, before we notify that the
+@@ -2117,6 +2124,7 @@
+         }
+ 
+         manager_ready(m);
++        spin_mark("ready");
+ 
+         manager_set_switching_root(m, false);
+ 
+@@ -2543,6 +2551,12 @@
+ 
+         assert(source);
+ 
++        static bool spin_first = true;
++        if (spin_first && prioq_peek(m->run_queue)) {
++                spin_first = false;
++                spin_mark("first-dispatch");
++        }
++
+         while ((j = prioq_peek(m->run_queue))) {
+                 assert(j->installed);
+                 assert(j->in_run_queue);
+diff -ruN a/src/core/spin-mark.h b/src/core/spin-mark.h
+--- a/src/core/spin-mark.h	1969-12-31 21:00:00.000000000 -0300
++++ b/src/core/spin-mark.h	2026-11-19 12:53:27.084515904 -0300
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++#pragma once
++
++/* spin-machine experiment: PID 1's steps between the unit load and the first job, appended to
++ * /run/spin-pid1-marks as "<CLOCK_MONOTONIC usec> <step>", which boot:waits reads after the boot.
++ * A file and not /dev/kmsg, whose user writes the kernel rate-limits. Not for a release. */
++
++#include <fcntl.h>
++#include <stdio.h>
++#include <time.h>
++#include <unistd.h>
++
++static inline void spin_mark(const char *what) {
++        struct timespec ts;
++        int fd;
++
++        if (getpid() != 1)
++                return;
++        fd = open("/run/spin-pid1-marks", O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOCTTY, 0644);
++        if (fd < 0)
++                return;
++        (void) clock_gettime(CLOCK_MONOTONIC, &ts);
++        (void) dprintf(fd, "%llu %s\n",
++                       (unsigned long long) ts.tv_sec * 1000000ULL + (unsigned long long) ts.tv_nsec / 1000ULL, what);
++        (void) close(fd);
++}

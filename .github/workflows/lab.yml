@@ -57,6 +57,10 @@ on:
         description: "A QEMU workflow run id whose QEMU and firmware are compared against the release's (SPIN_MACHINE_OUTPUT_B)"
         required: false
         type: string
+      systemd_experiment:
+        description: "EXPERIMENT: an image/systemd/experiments patch to build systemd with, on this runner, into each boot's overlay (SPIN_SYSTEMD_DEBS)"
+        required: false
+        type: string
       variant:
         description: "With a build to compare: boot it beside the release's, interleaved, or instead of it on every boot"
         required: false
@@ -105,6 +109,7 @@ jobs:
       KERNEL_RUN: ${{ inputs.kernel_run }}
       KERNEL_RUN_C: ${{ inputs.kernel_run_c }}
       QEMU_RUN: ${{ inputs.qemu_run }}
+      SYSTEMD_EXPERIMENT: ${{ inputs.systemd_experiment }}
       VARS: ${{ inputs.vars }}
       # GitHub reads a workflow command (::error::) only at the start of a line, where Task's
       # prefixed output puts the task's name.
@@ -141,7 +146,7 @@ jobs:
       # change breaks rather than what it costs: the tree the experiment boots is the release
       # with the build in it.
       - name: Put the build where the experiment boots it
-        if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != ''
+        if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != '' || inputs.systemd_experiment != ''
         env:
           VARIANT: ${{ inputs.variant }}
         run: go tool task lab:place
