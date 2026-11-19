@@ -389,10 +389,12 @@ stat_in_image /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.
 # The first SSH login's lane (configure-system.sh and the units' 10-lane.conf), read back from
 # the finished filesystem: each piece alone gains little and leaves the login waiting on the
 # next, so a missing one costs the lane without failing anything.
-for u in sshd-vsock.socket sshd@.service systemd-logind.service user-runtime-dir@.service user@.service; do
-    "$bin/debugfs" -R "cat /etc/systemd/system/$u.d/10-lane.conf" /work/base.raw 2>/dev/null |
+for f in sshd-vsock.socket.d/10-lane.conf sshd@.service.d/10-lane.conf systemd-logind.service.d/10-lane.conf \
+         systemd-logind-varlink.socket.d/20-lane.conf user-runtime-dir@.service.d/10-lane.conf \
+         user@.service.d/10-lane.conf; do
+    "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
             grep -qx 'DefaultDependencies=no' || {
-        echo "ERROR: $u is not in the first login's lane (10-lane.conf)" >&2
+        echo "ERROR: ${f%%.d/*} is not in the first login's lane ($f)" >&2
         exit 1; }
 done
 dbus=$("$bin/debugfs" -R "cat /etc/systemd/system/dbus.socket" /work/base.raw 2>/dev/null)
