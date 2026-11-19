@@ -80,6 +80,11 @@ func TestArgs(t *testing.T) {
 	}, {
 		// The slot map is the reason the kernel can be told pci=lastbus=0. A device
 		// that moved off its slot is a device the guest may not find, with no error.
+		// One place is enough for the group its node is in.
+		name: "one place",
+		set:  func(s *Spec) { s.Disks = []DiskSlot{{Serial: "root"}} },
+		want: []string{"-object throttle-group,id=places "},
+	}, {
 		name: "fixed slots",
 		set: func(s *Spec) {
 			s.VsockCID = 7
