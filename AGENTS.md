@@ -169,7 +169,10 @@ something, ends up in `boot/` as a Task target, so the next person measures the 
   file as given, so point it at an overlay and never at `rootfs.qcow2`.
 - **Driving a guest.** `--init /bin/sh` gives a shell with nothing mounted; its console is
   on stdin/stdout, or on a socket with `--console unix:PATH,server=on,wait=off`. `--qmp
-  PATH` opens the socket that `attach`, `detach` and `save` talk to.
+  PATH` opens the socket that `attach`, `detach`, `save` and the others talk to.
+- **Every machine starts held.** QEMU runs `-S` (or `-incoming defer` with `--restore`) until a
+  monitor binds its disk and lets it go: `boot` starts itself beside QEMU to do that, and
+  `boot --held` leaves it for `start`, as a machine started ahead of its workspace is.
 - **A socket's path fits in 108 bytes.** `sun_path` is that long, and a QMP or console socket
   under `t.TempDir()`, a scratch directory or `_output/` passes it easily. QEMU then does not
   start, and what the probe reports is the guest never answering, not the path. Put sockets in a
@@ -178,8 +181,8 @@ something, ends up in `boot/` as a Task target, so the next person measures the 
 
 ```sh
 spin-machine boot --hotplug-disks 2 --qmp /tmp/q.sock --init /bin/sh &
-spin-machine attach --qmp /tmp/q.sock --target 0 --disk disk.raw   # sda, in the guest
-spin-machine detach --qmp /tmp/q.sock --target 0
+spin-machine attach --qmp /tmp/q.sock --disk disk.raw --disk-format raw --disk-serial ext   # sda, in the guest
+spin-machine detach --qmp /tmp/q.sock --disk-serial ext
 ```
 
 `detach` returns when QEMU reports the device free, but the guest notices the
