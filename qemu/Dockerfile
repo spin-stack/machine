@@ -77,7 +77,7 @@ ARG JOBS=8
 # configured under the old base, skipped configure, relinked, and produced a dynamically
 # linked binary from a Dockerfile that says --static on every other line. The assertion
 # below is what caught it.
-ARG QEMU_CONFIG_REV=7
+ARG QEMU_CONFIG_REV=8
 
 SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
@@ -107,6 +107,12 @@ COPY qemu/devices.mak /build/spin-devices.mak
 
 ENV QEMU_FLAGS="\
     --static \
+    --enable-pie \
+    --enable-stack-protector \
+    --extra-cflags=-fstack-clash-protection \
+    --extra-cflags=-U_FORTIFY_SOURCE \
+    --extra-cflags=-D_FORTIFY_SOURCE=3 \
+    --extra-ldflags=-Wl,-z,relro,-z,now,-z,noexecstack \
     --target-list=x86_64-softmmu \
     --with-devices-x86_64=spin \
     --enable-system \
@@ -201,6 +207,27 @@ ENV QEMU_FLAGS="\
 # packet through QEMU — a performance regression with no error anywhere. Named here, a base
 # image that stops providing the headers fails the build instead.
 #
+# The hardening is asked for for the same reason, issue #264. Left alone, QEMU's meson and
+# Alpine's gcc gave all of it but stack-clash protection, and each part could leave silently:
+# meson keeps the stack protector and RELRO only when its probes pass, and FORTIFY=2 was a
+# default of Alpine's gcc (15.2), not ours. Named, a toolchain that cannot give one fails
+# here:
+#   --enable-pie, --enable-stack-protector   QEMU's own switches, which turn a probe that
+#                        failed into a configure error (`-static-pie not available`) instead
+#                        of a binary without. The protector is -strong, the first one tried.
+#   -fstack-clash-protection   the one property nothing gave us: a stack that grows past its
+#                        guard page into another mapping now touches each page on the way.
+#   _FORTIFY_SOURCE=3    musl has no _chk functions; fortify-headers (qemu/apk.lock) wraps
+#                        libc's calls in checks that trap. 3 sizes buffers that are known
+#                        only at run time, which 2 skips. -U first: gcc defines 2, and the
+#                        warning a redefinition prints is an error in meson's -Werror probes.
+#   -z relro,-z now,-z noexecstack   full RELRO and a stack that cannot run code.
+#
+# -fcf-protection is not here: it would cost an endbr64 a function for nothing. musl's libc.a
+# carries no IBT or SHSTK marking, so linking it drops the property from the whole binary, and
+# Linux enforces neither in user space without it (checked 2026-11-19 with readelf -n on a
+# static-pie built by this gcc).
+#
 # qom_cast_debug defaults to *true* in meson_options.txt. It checks the type of every QOM
 # object cast at run time, which is a debugging aid this repository has no use for on a
 # host running tenants' VMs.
@@ -265,7 +292,8 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
         echo "$cc_now" > spin-cc-version; \
     fi && \
     make -j${JOBS} && \
-    make install
+    make install && \
+    cp compile_commands.json /build/compile_commands-kvm.json
 
 RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/cache/qemu \
     --mount=type=cache,sharing=locked,id=qemu-build-tcg-${QEMU_VERSION}-${QEMU_CONFIG_REV},target=/build/qemu-build-tcg \
@@ -288,7 +316,8 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
         echo "$cc_now" > spin-cc-version; \
     fi && \
     make -j${JOBS} && \
-    make install
+    make install && \
+    cp compile_commands.json /build/compile_commands-tcg.json
 
 # The firmware this machine boots with, and not `pc-bios/*`: that directory is 331 MB, of
 # which 317 MB is edk2 for aarch64, arm, riscv and loongarch, in a build whose target list
@@ -380,15 +409,20 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
     done && \
     echo "OK: every binary is statically linked"
 
-# Hardened, asserted for the same reason. No flag above asks for any of this: static-pie, full
-# RELRO, a non-executable stack and stack canaries come from QEMU's meson defaults and Alpine's
-# gcc (15.2 on 2026-11-13), so a bump of either could drop one without a line here changing.
+# Hardened, asserted for the same reason: QEMU_FLAGS asks for it, and this is what came out.
 # QEMU runs a guest's device emulation on the host, which is where these earn their place.
 #
 # PIE is the ELF type (DYN for a static-pie, EXEC without); RELRO is full only with BIND_NOW,
 # since a lazily bound GOT stays writable; the canaries are counted as reads of the TLS guard
 # (%fs:0x28) in the code, because the binaries are stripped and __stack_chk_fail is no longer
 # a symbol to look for. 7111 of them in qemu-system-x86_64 as built 2026-11-13.
+#
+# Stack-clash protection and FORTIFY leave nothing in a stripped ELF to read, so the build is
+# asked instead: every compile command meson ran carries the flag. FORTIFY is a macro, and
+# under musl one nobody reads unless fortify-headers does: the last check is that string.h,
+# with it at 3, sizes its buffers with __builtin_dynamic_object_size, which only level 3 uses
+# (none at 2 or unset, 16 at 3, fortify-headers 3.0.1, 2026-11-19). Counted, not grep -q:
+# under pipefail, grep -q leaving at the first match kills cc with SIGPIPE and fails the check.
 RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
              /opt/qemu-tcg/bin/qemu-system-x86_64; do \
         readelf -hW "$b" | grep -q 'Type:.*DYN' || { echo "ERROR: $b is not position-independent"; exit 1; }; \
@@ -400,6 +434,18 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
         [ "${canaries:-0}" -gt 0 ] || { echo "ERROR: $b has no stack canaries"; exit 1; }; \
         echo "$b: static-pie, full RELRO, NX stack, $canaries canary reads"; \
     done && \
+    for v in kvm tcg; do \
+        f=/build/compile_commands-$v.json; \
+        all=$(grep -c '"command"' "$f"); \
+        [ "$all" -gt 0 ] || { echo "ERROR: $f lists no compile commands"; exit 1; }; \
+        for flag in -fstack-clash-protection -D_FORTIFY_SOURCE=3; do \
+            n=$(grep '"command"' "$f" | grep -c -- "$flag") || true; \
+            [ "$n" -eq "$all" ] || { echo "ERROR: $flag is on $n of the $all compile commands of the $v build"; exit 1; }; \
+        done; \
+        echo "$v: stack-clash protection and FORTIFY=3 on all $all compile commands"; \
+    done && \
+    sized=$(printf '#include <string.h>\n' | cc -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 -E - | grep -c __builtin_dynamic_object_size) || true && \
+    [ "${sized:-0}" -gt 0 ] || { echo "ERROR: _FORTIFY_SOURCE=3 selects no checks in string.h, so it checks nothing under musl"; exit 1; } && \
     echo "OK: every binary is hardened"
 
 # qboot, the BIOS this machine boots with. QEMU's SeaBIOS is built for every guest a PC can run; this machine boots one Linux kernel
