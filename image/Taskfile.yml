@@ -51,6 +51,7 @@ tasks:
           {{.SYSTEMD_CACHE_TO}} \
           $({{.VERSIONS}} args ubuntu systemd-source) \
           --build-arg JOBS={{.QEMU_JOBS}} \
+          --build-arg SYSTEMD_EXPERIMENT={{.SYSTEMD_EXPERIMENT}} \
           --output type=local,dest={{.OUTPUT_ABS}}/systemd \
           .
 

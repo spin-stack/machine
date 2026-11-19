@@ -67,7 +67,14 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
 # $(CONFFLAGS_UPSTREAM) last and never sets it. meson-took.py then asks the configured build
 # whether it took each, so a misspelt option is a failed build and not stage1 under another name.
 COPY image/systemd/meson-took.py /build/meson-took.py
+# An experiment's patch, applied only when SYSTEMD_EXPERIMENT names one: a build for the lab
+# (task lab:place), never the image's. Each says what it measures and is removed with its answer.
+ARG SYSTEMD_EXPERIMENT=""
+COPY image/systemd/experiments/ /build/experiments/
 WORKDIR /build/src
+RUN if [ -n "${SYSTEMD_EXPERIMENT}" ]; then \
+        patch -p1 --fuzz=0 < "/build/experiments/${SYSTEMD_EXPERIMENT}.patch"; \
+    fi
 RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false -Dlink-systemctl-shared=false -Dlink-journalctl-shared=false" && \
     grep -q -- '-Dselinux=enabled' debian/rules && \
     sed -i 's/-Dselinux=enabled/-Dselinux=disabled/' debian/rules && \

@@ -724,6 +724,12 @@ tasks:
           cp -r "$(dirname "$(dirname "$q")")/qemu" "$b/qemu"
           [ "$VARIANT" = instead ] || echo "SPIN_MACHINE_OUTPUT_B=$b" >> "$env"
         fi
+        # EXPERIMENT: systemd built here, on this runner and before anything is measured, with
+        # image/systemd/experiments/$SYSTEMD_EXPERIMENT.patch; the probes put it in each overlay.
+        if [ -n "${SYSTEMD_EXPERIMENT:-}" ]; then
+          go tool task image:systemd SYSTEMD_EXPERIMENT="$SYSTEMD_EXPERIMENT" CACHE_EXPORT=false QEMU_JOBS="$(nproc)"
+          echo "SPIN_SYSTEMD_DEBS=$PWD/_output/systemd" >> "$env"
+        fi
         if [ "$VARIANT" = instead ]; then echo "SPIN_MACHINE_OUTPUT=$b" >> "$env"; fi
 
   lab:vars:
@@ -742,7 +748,7 @@ tasks:
           [[ "$pair" == *=* && "$key" =~ ^(REPS|N|SETTLE|TOP|GAP|ONLY|FLAGS|CPUS|TARGET|BUCKET|LINGER|MEMORY_MIB|DEBUG|FILE_MB|CACHE_TIMEOUT_S|GRAPH_[A-Z_]+|SHARE_[A-Z_]+|SPIN_[A-Z0-9_]+)$ ]] ||
             { echo "::error::not a variable this workflow passes on: $pair"; exit 1; }
           case "$key" in
-            SPIN_MACHINE_OUTPUT|SPIN_MACHINE_OUTPUT_B|SPIN_KERNEL_B|SPIN_KERNEL_C) echo "::error::$key is set by this workflow"; exit 1 ;;
+            SPIN_MACHINE_OUTPUT|SPIN_MACHINE_OUTPUT_B|SPIN_KERNEL_B|SPIN_KERNEL_C|SPIN_SYSTEMD_DEBS) echo "::error::$key is set by this workflow"; exit 1 ;;
           esac
           echo "$pair" >> "${GITHUB_ENV:-/dev/stdout}"
         done
@@ -759,6 +765,7 @@ tasks:
           echo "- kernel B: ${KERNEL_RUN:+run }${KERNEL_RUN:-none}"
           echo "- kernel C: ${KERNEL_RUN_C:+run }${KERNEL_RUN_C:-none}"
           echo "- QEMU B: ${QEMU_RUN:+run }${QEMU_RUN:-none}"
+          echo "- systemd experiment: ${SYSTEMD_EXPERIMENT:-none}"
           if [ -n "$KERNEL_RUN$KERNEL_RUN_C$QEMU_RUN" ]; then echo "- booted: $VARIANT the release"; fi
           echo "- vars: ${VARS:-none}"
           echo "- CPU: $(sed -n 's/^model name\s*: //p' /proc/cpuinfo | head -1), $(nproc) CPUs"

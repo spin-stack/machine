@@ -60,6 +60,11 @@ func TestBootWaits(t *testing.T) {
 	raw := os.Getenv("RAW")
 
 	v := waitsVariant(cmp.Or(os.Getenv("CPUS"), "2"))
+	// EXPERIMENT (branch pid1-marks): a systemd image/systemd built with SYSTEMD_EXPERIMENT, put
+	// into each boot's overlay; with experiments/pid1-marks, PID 1 marks its own steps.
+	if debs := os.Getenv("SPIN_SYSTEMD_DEBS"); debs != "" {
+		v = withPackages(v, "waits, systemd "+filepath.Base(debs), debs)
+	}
 
 	var boots []waitsBoot
 	for rep := range reps {
@@ -73,6 +78,9 @@ func TestBootWaits(t *testing.T) {
 		boots = append(boots, b)
 	}
 	t.Log(waitsReport(boots, target, top, minGap))
+	if r := pid1Report(boots); r != "" {
+		t.Log(r)
+	}
 }
 
 // waitsVariant is the boot both probes take: the getty an echo, and spin-waits.service printing
@@ -97,7 +105,7 @@ After=multi-user.target
 [Service]
 Type=simple
 StandardOutput=null
-ExecStart=/bin/sh -c "echo SPIN-WAITS-ANCHOR > /dev/ttyS0; i=0; while [ \"$$(systemctl show -p FinishTimestampMonotonic --value)\" = 0 ] && [ $$i -lt 100 ]; do i=$$((i+1)); sleep 0.05; done; { echo SPIN-WAITS-BEGIN; systemctl show -p ` + manager + `; echo SPIN-WAITS-UNITS; systemctl show -p ` + props + ` -- $$(systemctl list-units --all --plain --no-legend --no-pager | awk '{print $$1}'); echo SPIN-WAITS-END; } > /dev/ttyS0 2>&1"
+ExecStart=/bin/sh -c "echo SPIN-WAITS-ANCHOR > /dev/ttyS0; i=0; while [ \"$$(systemctl show -p FinishTimestampMonotonic --value)\" = 0 ] && [ $$i -lt 100 ]; do i=$$((i+1)); sleep 0.05; done; { echo SPIN-PID1-MARKS; cat /run/spin-pid1-marks 2>/dev/null; echo SPIN-WAITS-BEGIN; systemctl show -p ` + manager + `; echo SPIN-WAITS-UNITS; systemctl show -p ` + props + ` -- $$(systemctl list-units --all --plain --no-legend --no-pager | awk '{print $$1}'); echo SPIN-WAITS-END; } > /dev/ttyS0 2>&1"
 [Install]
 WantedBy=multi-user.target
 `
@@ -117,6 +125,7 @@ type waitsBoot struct {
 	w              boot.Waits
 	dump           string
 	console        string
+	pid1           []pid1Mark // PID 1's own marks, when its systemd was built with experiments/pid1-marks
 	kernel, usable time.Duration
 	login          string    // the unit whose start is the login
 	start          time.Time // the moment before the machine was launched
@@ -251,7 +260,11 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 		t.Fatalf("%s was not started in this boot: TARGET names a unit this image does not start", target)
 	}
 	kernel := stamps["SPIN-WAITS-ANCHOR"] - probe.Start
-	return waitsBoot{w: wt, dump: dump, console: s, start: t0, ram: ram, kernel: kernel, usable: stamps["login:"] - kernel, login: target}
+	var pid1 []pid1Mark
+	if i := strings.Index(s, "SPIN-PID1-MARKS"); i >= 0 && i < begin {
+		pid1 = parsePID1Marks(s[i+len("SPIN-PID1-MARKS") : begin])
+	}
+	return waitsBoot{w: wt, dump: dump, console: s, pid1: pid1, start: t0, ram: ram, kernel: kernel, usable: stamps["login:"] - kernel, login: target}
 }
 
 // waitsReport prints the boots as p50s, then the median boot verbatim: a critical path or a
@@ -439,4 +452,85 @@ func clipUnit(s string) string {
 		return s[:41] + "..."
 	}
 	return s
+}
+
+// pid1Mark is one line of /run/spin-pid1-marks: PID 1's monotonic clock and the step it had done.
+type pid1Mark struct {
+	at   time.Duration
+	step string
+}
+
+func parsePID1Marks(text string) []pid1Mark {
+	var marks []pid1Mark
+	for _, line := range strings.Split(text, "\n") {
+		us, step, ok := strings.Cut(strings.TrimSpace(line), " ")
+		n, err := strconv.ParseInt(us, 10, 64)
+		if !ok || err != nil {
+			continue
+		}
+		marks = append(marks, pid1Mark{time.Duration(n) * time.Microsecond, step})
+	}
+	return marks
+}
+
+// pid1Report is the p50 of each of PID 1's steps, from the one before it, over the boots that
+// carry marks; "" when none does.
+func pid1Report(boots []waitsBoot) string {
+	var order []string
+	took := map[string][]time.Duration{}
+	for _, b := range boots {
+		for i, m := range b.pid1 {
+			if i == 0 {
+				continue
+			}
+			if _, seen := took[m.step]; !seen {
+				order = append(order, m.step)
+			}
+			took[m.step] = append(took[m.step], m.at-b.pid1[i-1].at)
+		}
+	}
+	if len(order) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "\nPID 1's steps from the unit load to the first job (experiments/pid1-marks), ms from the step before, p50/p95 over %d boots\n\n", len(took[order[0]]))
+	for _, step := range order {
+		p50, _ := boot.Percentile(took[step], 0.5)
+		p95, _ := boot.Percentile(took[step], 0.95)
+		fmt.Fprintf(&b, "  %-22s %7.2f/%-7.2f\n", step, float64(p50)/float64(time.Millisecond), float64(p95)/float64(time.Millisecond))
+	}
+	return b.String()
+}
+
+// withPackages is base with the packages in debs put into the overlay the way dpkg would
+// upgrade them, for each one the image has installed: the files the installed version listed
+// and the new one does not ship are removed, and the new files written over the old. /etc is
+// left alone, because the image's own edits there are part of base and a package's defaults
+// would undo them; maintainer scripts are not run, which for an upgrade between two builds of
+// one source version leaves nothing out that a boot reads.
+func withPackages(base variant, label, debs string) variant {
+	v := base
+	v.label = label
+	v.files = maps.Clone(base.files)
+	v.links = maps.Clone(base.links)
+	v.setup = base.setup + `debs=` + debs + `
+replaced=0
+for deb in "$debs"/*.deb; do
+	pkg=$(dpkg-deb -f "$deb" Package)
+	list="$MNT/var/lib/dpkg/info/$pkg.list"
+	[ -f "$list" ] || list="$MNT/var/lib/dpkg/info/$pkg:amd64.list"
+	[ -f "$list" ] || continue
+	new=$(mktemp)
+	dpkg-deb --fsys-tarfile "$deb" | tar -t | sed -e 's|^\./|/|' -e 's|/$||' | sort > "$new"
+	sort "$list" | comm -23 - "$new" | grep -v '^/etc/' | while read -r f; do
+		if [ -L "$MNT$f" ] || [ -f "$MNT$f" ]; then rm -f "$MNT$f"; fi
+	done
+	rm -f "$new"
+	dpkg-deb --fsys-tarfile "$deb" | tar -x -C "$MNT" --exclude=./etc
+	replaced=$((replaced + 1))
+done
+test "$replaced" -gt 0
+grep -q 'spin1' "$MNT/usr/lib/systemd/libsystemd-shared-"*.so 2>/dev/null || strings "$MNT/usr/lib/systemd/systemd" | grep -q '+spin1' || { echo "the overlay's systemd is not the rebuilt one" >&2; exit 1; }
+`
+	return v
 }
