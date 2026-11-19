@@ -7,13 +7,11 @@ import (
 	"cmp"
 	"crypto/ed25519"
 	"fmt"
-	"maps"
 	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -161,7 +159,8 @@ install -d "$MNT/var/lib/systemd/linger" && touch "$MNT/var/lib/systemd/linger/s
 	// edits done the same way. Measured against the release as it was published, interleaved.
 	rootfs := filepath.Join("..", "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs")
 	for _, d := range []string{"sshd-vsock.socket.d/10-lane.conf", "sshd@.service.d/10-lane.conf",
-		"systemd-logind.service.d/10-lane.conf", "user-runtime-dir@.service.d/10-lane.conf",
+		"systemd-logind.service.d/10-lane.conf", "systemd-logind-varlink.socket.d/20-lane.conf",
+		"user-runtime-dir@.service.d/10-lane.conf",
 		"user@.service.d/10-lane.conf", "systemd-udev-trigger.service.d/10-coldplug.conf"} {
 		b, err := os.ReadFile(filepath.Join(rootfs, "etc", "systemd", "system", d))
 		if err != nil {
@@ -177,24 +176,6 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 `
 	rows := []variant{row("as released", ""), asBuilt}
-	// EXPERIMENT (branch lane-diag): logind before sysinit. The lane's drop-in took logind's
-	// default dependencies away, not its varlink socket's, and the service waits for its socket:
-	// on the bench logind was ready ~230 ms into the boot, behind sysinit.target and udevd
-	// (boot:waits TARGET=systemd-logind.service, lab 44557605832), and the first login's
-	// pam_systemd waited ~32 ms for it (login-lane, lab 44557162195). logind is also ordered after
-	// modprobe@drm, which finds no module on a kernel that has none.
-	if os.Getenv("SPIN_LOGIND_EARLY") != "" {
-		early := asBuilt
-		early.label = "logind early"
-		early.files = maps.Clone(asBuilt.files)
-		early.links = maps.Clone(asBuilt.links)
-		early.files["/etc/systemd/system/systemd-logind-varlink.socket.d/10-lane.conf"] =
-			"[Unit]\nDefaultDependencies=no\nConflicts=shutdown.target\nBefore=shutdown.target\n"
-		noDRM := early
-		noDRM.label = "logind early, no drm"
-		noDRM.mask = append(slices.Clone(asBuilt.mask), "modprobe@drm.service")
-		rows = append(rows, early, noDRM)
-	}
 	return rows, signer
 }
 
