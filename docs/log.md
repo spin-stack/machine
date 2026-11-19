@@ -4,25 +4,26 @@ Built from `git log origin/main` (327 commits, to `3e8075f`), all 150 pull reque
 
 ---
 
-## 1. Where we stand (2026-11-13)
+## 1. Where we stand (2026-11-19)
 
-**The machine.** Latest release `v20261113.02` (source `43de41e`): QEMU 11.1.3 with 2 local patches, kernel 7.3.4 with 5 local patches, qboot (patched) as the BIOS, e2fsprogs 1.47.4, an Ubuntu 26.04 base image built with mkosi. `fingerprint_sha256=2bd7da6b…`, unchanged since `v20261013.02`: checkpoints have resumed across every release since then (release notes). Merged to main after that release and not yet released: #245 (sshd accepts only `mlkem768x25519-sha256`) and #248 (SSH host keys made from the boot's first dispatch).
+**The machine.** Latest release `v20261119.01` (source `89a3c30`): QEMU 11.1.3 with 2 local patches and its hardening asked for (#264), kernel 7.3.5 with 5 local patches, qboot (patched) as the BIOS, e2fsprogs 1.47.4, an Ubuntu 26.04 base image built with mkosi whose systemd is Ubuntu's rebuilt here with the stage1 profile (#271). `fingerprint_sha256=2bd7da6b…`, unchanged since `v20261013.02`.
 
-**Current numbers.** All from the bench fleet (spin-stack/ci, AWS c8i.4xlarge, Xeon 6975P-C, KVM nested), 2 vCPU / 2 GiB, boots interleaved, p50/p95 in ms from QEMU's exec:
+**Current numbers.** All from the bench fleet (spin-stack/ci, AWS **c8id.4xlarge** since 11-19, Xeon 6975P-C, KVM nested, the lab's scratch on local NVMe), 2 vCPU / 2 GiB, boots interleaved, p50/p95 in ms from QEMU's exec, v20261119.01:
 
 | Metric | Value | Source |
 |---|---|---|
-| Cold boot to the first SSH login over vsock, v20261113.02 as built | 489/506 | lab 43483372488 (#248, `boot/ssh_first_test.go`) |
-| The same, with the host keys made early (main, unreleased) | 468/494 | lab 43483372488 |
-| sshd accepts (cold boot) | 309/334 | lab 43483372488 |
-| From accept to login | 177/194, then 154/168 with keys early | lab 43483372488 |
-| A second SSH login, x/crypto ML-KEM | 40 (curve25519 39; OpenSSH 9.6 sntrup761 104) | lab 43479854381 (#245) |
-| Restore a checkpoint (stream format, state evicted from page cache) to the first login | 386/399; VM running at 277/290 | lab 43483852339 (#246, closed, not in tree) |
-| Save a checkpoint (stream) | 1017/1861 | lab 43483852339 (#246) |
-| Serial console login prompt (`usable`) | 346/358 | lab 43362067503 (#241, `type.conf`) |
-| Release report `baseline` row, v20261113.02 | 353.4/366.9 | release notes v20261113.02 |
-| Kernel start to "Freeing unused kernel image" | 89.1 (v20261113.01) / 88.9 (patch 0005 measurement) | lab 43361415117 (#241); lab 43327612594 (`kernel/Dockerfile:293-295`) |
-| PID 1 idle gap between unit load and first job | ~32 ms p50 | lab 43361486792 (`boot/waits_probe_test.go:391`) |
+| Cold boot to the first SSH login over vsock | **333/342** | lab 44555888278 (`boot/ssh_first_test.go`) |
+| sshd accepts (cold boot) | 202/213 | lab 44555888278 |
+| From accept to login | 130/134 | lab 44555888278 |
+| … of it, on the guest's clock: accept → authenticated / PAM session → logind's new session / → scope active / → command | 55.5 / 29.0 / 4.3 / 8.4 | lab 44555905383 (`boot/login_lane_test.go`) |
+| A second SSH login | 43/48 | lab 44555888278 |
+| Restore a checkpoint (stream, state evicted, read from local NVMe) to the first login | **174/185**; running at 125/134; the state 155 MiB | lab 44555369589 (`boot/restore_first_test.go`) |
+| The same restore with the state in the page cache | 154/161 | lab 44555369589 |
+| Save a checkpoint (stream) | 1041/1045 | lab 44555369589 |
+| One idle workspace's host memory, kernel included | ~125 MiB, of which ~1-2.5 the host's kernel | lab 44546329726 (`boot/density_test.go`) |
+| The same cold first login on bare metal (c8i.metal-48xl, the same CPU) | 332/355 on v20261114.02, against 378-392 nested then | lab 44537498507 |
+
+Before 11-19 the bench was a c8i.4xlarge with its scratch on gp3, and a restore read its state at ~300 MB/s: 840/900 ms to the first login (lab 44533227886), a number of the volume and not of the machine. 11-13's 386/399 (#246) is not comparable with either.
 
 Older numbers, taken elsewhere, that no bench-fleet number has replaced: QEMU exec to the guest's first instruction is ~27 ms (laptop, `c049a21`, 2026-09-10). Kernel to `Run /sbin/init` was 59-65 ms on the laptop (`b5f361f`, `c03ed89`). Neither compares with a fleet number (§5).
 
