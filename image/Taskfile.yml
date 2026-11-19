@@ -21,6 +21,7 @@ tasks:
           --cap-add SYS_ADMIN \
           -v {{.OUTPUT_ABS}}:/out \
           -v {{.MKOSI_CACHE_DIR}}:/cache \
+          {{if .SYSTEMD_DEBS}}-v {{.SYSTEMD_DEBS}}:/debs:ro{{end}} \
           {{.IMAGE_BUILDER_TAG}}
 
   summary:
@@ -30,6 +31,27 @@ tasks:
         set -e
         ls -la {{.OUTPUT_ABS}}/image/rootfs.qcow2
         echo "sha256: $(sha256sum {{.OUTPUT_ABS}}/image/rootfs.qcow2 | cut -d' ' -f1)"
+
+  systemd:
+    desc: >-
+      EXPERIMENT (branch systemd-stage1): Ubuntu's systemd rebuilt from its deb-src with the stage1
+      profile and SELinux off, into _output/exp-systemd/debs. boot:ssh-first takes them as a row
+      with SPIN_SYSTEMD_DEBS.
+    vars:
+      SYSTEMD_SOURCE_VERSION: 259.9-0ubuntu0.1
+    cmds:
+      - rm -rf {{.OUTPUT_ABS}}/exp-systemd/debs
+      - mkdir -p {{.OUTPUT_ABS}}/exp-systemd/debs
+      - |
+        docker buildx build \
+          --file image/systemd/Dockerfile \
+          --target debs \
+          --platform linux/amd64 \
+          $({{.VERSIONS}} args ubuntu) \
+          --build-arg SYSTEMD_SOURCE_VERSION={{.SYSTEMD_SOURCE_VERSION}} \
+          --build-arg JOBS={{.QEMU_JOBS}} \
+          --output type=local,dest={{.OUTPUT_ABS}}/exp-systemd/debs \
+          .
 
   builder:
     desc: Build the container that builds the base image (mkosi, qemu-utils).
