@@ -313,6 +313,9 @@ RUN <<EOT
     # patches/0007 builds ORC's lookup table in one merge pass instead of a binary search per
     # 256-byte block of text: 3.5 ms of CPU on the bench fleet, nested and on metal alike (lab
     # runs 44563496308, 44563512999), 4.5 -> 0.8 ms on a laptop (2026-11-19).
+    # patches/0008 takes init's 1,989 ftrace records out with one memmove, not one each: 2.6
+    # ms before "Freeing unused kernel image" on the bench fleet, nested and on metal alike;
+    # ftrace_free_mem() is 59 us after it.
 
     # Boot performance: the RAID6 PQ benchmark probes all SIMD implementations at boot to
     # pick the fastest. It must stay disabled. (RAID6_PQ itself is not selected today, so

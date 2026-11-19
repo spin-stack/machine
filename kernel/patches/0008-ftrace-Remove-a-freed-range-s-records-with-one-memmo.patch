@@ -1,0 +1,100 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Thu, 19 Nov 2026 14:00:00 -0300
+Subject: [PATCH 8/11] ftrace: Remove a freed range's records with one memmove
+
+ftrace_free_mem() takes the records in the freed range out of their
+page one at a time: a bsearch() for the next one, then a memmove() of
+everything after it in the page. Freeing init memory removes the record
+of every traced __init function, 1,989 on this kernel, and they sit
+together in the last page group, so its tail is moved once for each.
+
+The records in a page are sorted, so those in a range are contiguous:
+find the first and the last around the one bsearch() returns, and take
+them all out with one memmove(). What each record is handed to - the
+list of hash entries to clear, the module map - is unchanged.
+
+Checked on this kernel with a walk of every record after
+ftrace_free_init_mem() (an experiment build, not part of this patch):
+40,118 records left, none in init memory, none out of order, and
+ftrace_free_mem() took 59 us.
+
+Measured in a KVM guest on a laptop, not nested (QEMU q35, two vCPUs,
+10 boots each, interleaved; a lead, not the bench fleet): the time from
+"VFS: Pivoted into new rootfs" to "Freeing unused kernel image" 2.7 ms
+p50 before, and under 1.1 ms after, below what the probe lists. On the
+bench fleet the gap was 2.6 ms nested and on bare metal alike (lab runs
+44563496308, 44563512999).
+
+Assisted-by: LLM
+---
+ kernel/trace/ftrace.c | 39 ++++++++++++++++++++++++++++-----------
+ 1 file changed, 28 insertions(+), 11 deletions(-)
+
+--- a/kernel/trace/ftrace.c
++++ b/kernel/trace/ftrace.c
+@@ -8367,24 +8367,43 @@ void ftrace_free_mem(struct module *mod,
+ 		mod_map = allocate_ftrace_mod_map(mod, start, end);
+ 
+ 	for (pg = ftrace_pages_start; pg; last_pg = &pg->next, pg = *last_pg) {
++		struct dyn_ftrace *first, *stop;
++		unsigned long index = pg->index;
++
+ 		if (end < pg->records[0].ip ||
+ 		    start >= (pg->records[pg->index - 1].ip + MCOUNT_INSN_SIZE))
+ 			continue;
+- again:
++
+ 		rec = bsearch(&key, pg->records, pg->index,
+ 			      sizeof(struct dyn_ftrace),
+ 			      ftrace_cmp_recs);
+ 		if (!rec)
+ 			continue;
+ 
+-		/* rec will be cleared from hashes after ftrace_lock unlock */
+-		add_to_clear_hash_list(&clear_hash, rec);
++		/*
++		 * The records are sorted, so those in the range are the ones
++		 * either side of the one found. Take them out with a single
++		 * memmove(), not one each: freeing init memory moved the rest
++		 * of the page once for every __init function in it.
++		 */
++		first = rec;
++		while (first > pg->records &&
++		       (first - 1)->ip + MCOUNT_INSN_SIZE > start)
++			first--;
++		stop = rec + 1;
++		while (stop < pg->records + index && stop->ip <= end)
++			stop++;
+ 
+-		if (mod_map)
+-			save_ftrace_mod_rec(mod_map, rec);
++		for (rec = first; rec < stop; rec++) {
++			/* rec will be cleared from hashes after ftrace_lock unlock */
++			add_to_clear_hash_list(&clear_hash, rec);
++
++			if (mod_map)
++				save_ftrace_mod_rec(mod_map, rec);
++		}
+ 
+-		pg->index--;
+-		ftrace_update_tot_cnt--;
++		pg->index -= stop - first;
++		ftrace_update_tot_cnt -= stop - first;
+ 		if (!pg->index) {
+ 			*last_pg = pg->next;
+ 			pg->next = tmp_page;
+@@ -8394,10 +8413,8 @@ void ftrace_free_mem(struct module *mod,
+ 				ftrace_pages = pg;
+ 			continue;
+ 		}
+-		memmove(rec, rec + 1,
+-			(pg->index - (rec - pg->records)) * sizeof(*rec));
+-		/* More than one function may be in this block */
+-		goto again;
++		memmove(first, stop,
++			(pg->records + index - stop) * sizeof(*rec));
+ 	}
+ 	mutex_unlock(&ftrace_lock);
+ 
+-- 
+2.53.0
