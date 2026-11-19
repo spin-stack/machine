@@ -24,6 +24,7 @@ func TestEveryUploadIsAttested(t *testing.T) {
 		NotPublished: map[string]string{
 			"ci.yml/gate/Upload Go coverage HTML":                  "a coverage page for a person, kept seven days",
 			"kernel.yml/build/Upload the kernel":                   "a lane's kernel for a person to fetch; a release builds its own",
+			"image.yml/systemd/Upload the systemd packages":        "an experiment's packages for the lab to boot (lab.yml systemd_run); no release takes them",
 			"lab.yml/lab/Keep the log":                             "a measurement's log, for a person",
 			"qemu.yml/build/Upload the extracted binaries":         "a lane's QEMU for a person to fetch; a release builds its own",
 			"qemu.yml/build/Publish the runtime image":             "what ci.yml's argument check pulls (task qemu:fetch); a release compiles QEMU, it never takes this",

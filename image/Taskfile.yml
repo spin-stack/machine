@@ -37,8 +37,6 @@ tasks:
       EXPERIMENT (branch systemd-stage1): Ubuntu's systemd rebuilt from its deb-src with the stage1
       profile and SELinux off, into _output/exp-systemd/debs. boot:ssh-first takes them as a row
       with SPIN_SYSTEMD_DEBS.
-    vars:
-      SYSTEMD_SOURCE_VERSION: 259.9-0ubuntu0.1
     cmds:
       - rm -rf {{.OUTPUT_ABS}}/exp-systemd/debs
       - mkdir -p {{.OUTPUT_ABS}}/exp-systemd/debs
@@ -47,8 +45,7 @@ tasks:
           --file image/systemd/Dockerfile \
           --target debs \
           --platform linux/amd64 \
-          $({{.VERSIONS}} args ubuntu) \
-          --build-arg SYSTEMD_SOURCE_VERSION={{.SYSTEMD_SOURCE_VERSION}} \
+          $({{.VERSIONS}} args ubuntu systemd-source) \
           --build-arg JOBS={{.QEMU_JOBS}} \
           --output type=local,dest={{.OUTPUT_ABS}}/exp-systemd/debs \
           .

@@ -60,6 +60,9 @@ func TestBootWaits(t *testing.T) {
 	raw := os.Getenv("RAW")
 
 	v := waitsVariant(cmp.Or(os.Getenv("CPUS"), "2"))
+	if debs := systemdDebs(t); debs != "" {
+		v = withPackages(v, "waits, systemd stage1", debs)
+	}
 
 	var boots []waitsBoot
 	for rep := range reps {
