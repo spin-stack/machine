@@ -238,7 +238,7 @@ func TestTheTableIsEachTreesP50AndP95AndItsDistanceFromTheFirst(t *testing.T) {
 	if err := r.Write(filepath.Join(t.TempDir(), "no/such/dir/result.json")); err == nil {
 		t.Error("wrote into a directory that is not there")
 	}
-	for v, want := range map[float64]string{7: "7", 7.25: "7.2", 123.4: "123", 0.06: "0.1"} {
+	for v, want := range map[float64]string{7: "7", 7.25: "7.2", 123.4: "123", 100.4: "100", 99.4: "99.4", 0.06: "0.1"} {
 		if got := num(v); got != want {
 			t.Errorf("num(%v) = %q, want %q", v, got, want)
 		}
@@ -267,7 +267,7 @@ func TestTheRingBufferIsItsInitcallsItsGapsAndWhenTheKernelWasDone(t *testing.T)
 		gaps[g.before] = g
 	}
 	journald := gaps["systemd-journald[]: Collecting audit messages is disabled."]
-	if len(p.gaps) != 5 || journald.after != "Freeing unused kernel image (initmem) memory: 2628K" || journald.ms < 9.99 || journald.ms > 10.01 {
+	if len(p.gaps) != 5 || journald.after != "Freeing unused kernel image (initmem) memory: 2628K" || journald.ms < 9.995 || journald.ms > 10.005 {
 		t.Errorf("gaps %+v", p.gaps)
 	}
 	if _, err := parseRingBuffer("[    0.1] [    0.2] twice"); err == nil {
@@ -442,8 +442,12 @@ func TestTheScratchIsTMPDIROnADiskOrTheLabsOwn(t *testing.T) {
 	if got, err := Scratch(lab); err != nil || got != filepath.Join(lab, "scratch") || !fileExists(got) {
 		t.Errorf("Scratch with no TMPDIR = %s, %v", got, err)
 	}
-	if !isTmpfs("/dev/shm") {
-		t.Log("no tmpfs at /dev/shm")
+	if isTmpfs("/proc") || isTmpfs("/nonexistent") {
+		t.Error("procfs, or nothing, taken for a tmpfs")
+	}
+	mounts, _ := os.ReadFile("/proc/mounts")
+	if strings.Contains(string(mounts), " /dev/shm tmpfs ") && !isTmpfs("/dev/shm") {
+		t.Error("/dev/shm is a tmpfs and was not taken for one")
 	}
 }
 

@@ -418,6 +418,8 @@ Bench, nested, workspace shape (2026-11-19, lab 44587603255, 20 boots each): ker
 - initcalls' extra passes, not ported: `SPIN_GRAPH` (function_graph under chosen functions, `boot/graph_test.go`), `SPIN_CPU_SHARE` (who had the CPU during one initcall, `boot/cpushare_test.go`), `SPIN_EARLY` (the lines before the first initcall) and `SPIN_FORMAT_CHECK` (an event's format after patch 0003). Each served one question, answered above; when another asks for one, it comes back from git (`boot/initcalls_test.go` and those two files before this change) as an option of the `initcalls` probe.
 - `boot:ssh-first`, `boot:restore-first`, `boot:prestart`, `boot:initcalls` are now lab runs over `OUTPUT_DIR`, the same targets.
 
+Checked against the probe it replaced on the bench fleet, `lab dispatch ssh-first`, the release and the release with the lane, 20 each (lab 44596983249): sshd accepts 215/228 and 216/229, first login 349/366 and 339/353 - the old probe's rows read 215/223 and 216/223, 348/360 and 335/345 (lab 44585268429). A release ships no spin-machine; the old targets' `:tools` built this checkout's into the release tree, and a tree does the same, named in its manifest (the first dispatch, 44596065601, failed on it).
+
 ---
 
 ## 3. Rework cycles
