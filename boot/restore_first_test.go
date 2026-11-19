@@ -145,7 +145,14 @@ func (r *checkpointRun) state() string   { return filepath.Join(r.dir, "state") 
 // has.
 func (r *checkpointRun) launch(t *testing.T, qmp string, extra ...string) (exited <-chan struct{}, stop func()) {
 	t.Helper()
-	args := append([]string{"boot", "--release", r.out, "--disk", r.overlay(), "--memory", r.v.memory,
+	return r.launchWith(t, qmp, append([]string{"--disk", r.overlay()}, extra...)...)
+}
+
+// launchWith is launch with no disk unless extra names one: boot:prestart's machine is given its
+// disk after it has started.
+func (r *checkpointRun) launchWith(t *testing.T, qmp string, extra ...string) (exited <-chan struct{}, stop func()) {
+	t.Helper()
+	args := append([]string{"boot", "--release", r.out, "--memory", r.v.memory,
 		"--cpus", r.v.cpus, "--vsock-cid", fmt.Sprint(r.cid), "--qmp", qmp, "--console", "file:" + qmp + ".console",
 		"--append", "init=/sbin/init"}, extra...)
 	cmd := exec.Command(filepath.Join(r.out, "bin", "spin-machine"), args...)
