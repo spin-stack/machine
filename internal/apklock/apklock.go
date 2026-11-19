@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command apklock writes the lock of an Alpine builder: every package an apk database says is
+// Package apklock writes the lock of an Alpine builder: every package an apk database says is
 // installed, as name=version, sorted - what the builder's `apk add` is then held to, so the static
 // libraries QEMU and e2fsprogs link are the versions a commit names, not whatever the mirror held
 // that day. task apk:lock runs it over a fresh install of the part's apk.list.
 //
 //	go run ./hack/apklock <installed db> > <part>/apk.lock
-package main
+package apklock
 
 import (
 	"fmt"
@@ -16,12 +16,8 @@ import (
 	"strings"
 )
 
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) // mutate-exempt: the process's own arguments, past its name; run is what the tests drive
-}
-
-// run answers the exit status: 0 the lock written, 2 no database to read.
-func run(args []string, stdout, stderr io.Writer) int {
+// Run answers the exit status: 0 the lock written, 2 no database to read.
+func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
 		_, _ = fmt.Fprintln(stderr, "apklock: <installed db>")
 		return 2

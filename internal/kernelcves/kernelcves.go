@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command kernelcves says what the Linux kernel CNA's published CVEs mean for one built kernel:
+// Package kernelcves says what the Linux kernel CNA's published CVEs mean for one built kernel:
 // for each, whether the kernel's version is past its fix, whether the kernel compiled none of the
 // files the fix touched, or whether it applies - and for those that apply, where the fix is.
 //
@@ -14,7 +14,7 @@
 // release tarball, so its version is all there is to compare.
 //
 //	go run ./hack/kernelcves -published vulns/cve/published -version 7.3.3 -sources _output/kernel/sources
-package main
+package kernelcves
 
 import (
 	"bufio"
@@ -32,13 +32,9 @@ import (
 	"strings"
 )
 
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) // mutate-exempt: os.Args[0] is the program; only a process run by hand sees which of the rest run is given
-}
-
-// run writes the summary to stdout: 0 when it could, 2 for a command line it cannot use, 1 when
+// Run writes the summary to stdout: 0 when it could, 2 for a command line it cannot use, 1 when
 // reading failed.
-func run(args []string, stdout, stderr io.Writer) int {
+func Run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("kernelcves", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	published := fs.String("published", "", "the vulns repository's cve/published directory")

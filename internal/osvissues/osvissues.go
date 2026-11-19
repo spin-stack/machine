@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command osvissues keeps one issue per package of the base image for what OSV knows against the
+// Package osvissues keeps one issue per package of the base image for what OSV knows against the
 // newest release (task osv): it opens one for a package that has findings, rewrites its list as
 // the findings change, and closes it once the release has none in that package.
 //
@@ -13,7 +13,7 @@
 // package has only the findings it listed. A finding it did not list reopens it.
 //
 //	go run ./hack/osvissues -release v20261014.01 -findings _output/osv.tsv
-package main
+package osvissues
 
 import (
 	"bufio"
@@ -28,13 +28,9 @@ import (
 	"strings"
 )
 
-func main() {
-	os.Exit(run(os.Args[1:], gh, os.Stdout, os.Stderr)) // mutate-exempt: os.Args[0] is the program; only a process run by hand sees which of the rest run is given
-}
-
-// run plans against the repository's issues and applies the plan through cli: 0 when every
+// Run plans against the repository's issues and applies the plan through cli: 0 when every
 // action was taken, 2 for a command line it cannot use, 1 when reading or acting failed.
-func run(args []string, cli func(args ...string) ([]byte, error), stdout, stderr io.Writer) int {
+func Run(args []string, cli func(args ...string) ([]byte, error), stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("osvissues", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	release := fs.String("release", "", "the release the findings are of")
@@ -83,8 +79,8 @@ func run(args []string, cli func(args ...string) ([]byte, error), stdout, stderr
 	return 0
 }
 
-// gh runs the GitHub CLI, which reads its token and repository from the environment.
-func gh(args ...string) ([]byte, error) {
+// GH runs the GitHub CLI, which reads its token and repository from the environment.
+func GH(args ...string) ([]byte, error) {
 	cmd := exec.Command("gh", args...)
 	cmd.Stderr = os.Stderr // mutate-exempt: gh's own words go to the job's log for a person; run reads only its exit status and output
 	return cmd.Output()

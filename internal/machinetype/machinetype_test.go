@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package machinetype
 
 import (
 	"bytes"
@@ -94,10 +94,10 @@ func TestCompatIsThePinnedTypesArrays(t *testing.T) {
 	if err != nil || !strings.HasSuffix(empty, "GlobalProperty pc_compat_11_1[] = {};") {
 		t.Errorf("an empty array: %q, %v", empty, err)
 	}
-	if _, err := Compat(source, "pc-q35-11.1"); !errors.Is(err, errNoArray) {
+	if _, err := Compat(source, "pc-q35-11.1"); !errors.Is(err, ErrNoArray) {
 		t.Errorf("no pc_compat_11_1: %v", err)
 	}
-	if _, err := Compat("GlobalProperty hw_compat_11_1[] = { { ", "pc-q35-11.1"); err == nil || errors.Is(err, errNoArray) {
+	if _, err := Compat("GlobalProperty hw_compat_11_1[] = { { ", "pc-q35-11.1"); err == nil || errors.Is(err, ErrNoArray) {
 		t.Errorf("an array with no end: %v", err)
 	}
 	if _, err := Compat(source, "q35"); err == nil {
@@ -153,7 +153,7 @@ func TestTheCommand(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out, errs bytes.Buffer
-			if code := run(tc.args, &out, &errs, tc.help); code != tc.code {
+			if code := Run(tc.args, &out, &errs, tc.help); code != tc.code {
 				t.Fatalf("exit %d, want %d: %s", code, tc.code, errs.String())
 			}
 			if !strings.Contains(out.String(), tc.out) {
@@ -166,9 +166,9 @@ func TestTheCommand(t *testing.T) {
 	}
 }
 
-// help asks a real binary: one that is not there is an error, not an empty answer.
+// Help asks a real binary: one that is not there is an error, not an empty answer.
 func TestHelpAsksTheBinary(t *testing.T) {
-	if _, err := help(filepath.Join(t.TempDir(), "no-qemu")); err == nil {
+	if _, err := Help(filepath.Join(t.TempDir(), "no-qemu")); err == nil {
 		t.Error("no binary answered")
 	}
 }

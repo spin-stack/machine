@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package kernelcves
 
 import (
 	"bytes"
@@ -148,7 +148,7 @@ func TestTheSummaryCountsEachVerdictAndListsWhatALaterSeriesFixes(t *testing.T) 
 		t.Fatal(err)
 	}
 	var out, errs bytes.Buffer
-	if code := run([]string{"-published", filepath.Join(dir, "published"), "-version", "7.3.3", "-sources", sources}, &out, &errs); code != 0 {
+	if code := Run([]string{"-published", filepath.Join(dir, "published"), "-version", "7.3.3", "-sources", sources}, &out, &errs); code != 0 {
 		t.Fatalf("exit %d: %s", code, errs.String())
 	}
 	for _, want := range []string{
@@ -214,7 +214,7 @@ func TestInputsThatWouldUndercountAreRefused(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out, errs bytes.Buffer
-			if code := run(tc.args, &out, &errs); code != tc.code {
+			if code := Run(tc.args, &out, &errs); code != tc.code {
 				t.Errorf("exit %d, want %d (%s)", code, tc.code, errs.String())
 			}
 		})

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command machinetype watches the versioned q35 the machine is pinned to (machine.MachineType)
+// Package machinetype watches the versioned q35 the machine is pinned to (machine.MachineType)
 // against the QEMU it runs on.
 //
 // check asks a built QEMU for its machine types: it fails when the pinned one is missing or
@@ -15,7 +15,7 @@
 //
 //	go run ./hack/machinetype check -qemu _output/bin/qemu-system-x86_64
 //	go run ./hack/machinetype compat <qemu>/hw/core/machine.c <qemu>/hw/i386/pc.c
-package main
+package machinetype
 
 import (
 	"errors"
@@ -30,12 +30,8 @@ import (
 	"github.com/spin-stack/spin-machine/machine"
 )
 
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, help)) // mutate-exempt: os.Args[0] is the program; run is what the tests drive
-}
-
-// help is a QEMU binary's `-machine help`.
-func help(qemu string) (string, error) {
+// Help is a QEMU binary's `-machine help`.
+func Help(qemu string) (string, error) {
 	out, err := exec.Command(qemu, "-machine", "help").CombinedOutput() //nolint:gosec // the QEMU this build made
 	if err != nil {
 		return "", fmt.Errorf("%s -machine help: %w: %s", qemu, err, out)
@@ -43,8 +39,8 @@ func help(qemu string) (string, error) {
 	return string(out), nil
 }
 
-// run answers the exit status: 0 the pin stands, 1 it does not, 2 the arguments are not a check.
-func run(args []string, stdout, stderr io.Writer, help func(string) (string, error)) int {
+// Run answers the exit status: 0 the pin stands, 1 it does not, 2 the arguments are not a check.
+func Run(args []string, stdout, stderr io.Writer, help func(string) (string, error)) int {
 	if len(args) == 0 {
 		say(stderr, "machinetype: check -qemu <binary> | compat <machine.c> <pc.c>")
 		return 2
@@ -84,7 +80,7 @@ func run(args []string, stdout, stderr io.Writer, help func(string) (string, err
 			src = append(src, string(b))
 		}
 		out, err := Compat(strings.Join(src, "\n"), machine.MachineType)
-		if errors.Is(err, errNoArray) {
+		if errors.Is(err, ErrNoArray) {
 			say(stdout, "machinetype:", machine.MachineType, "is the newest type in this QEMU: nothing newer to differ from it")
 			return 0
 		}
@@ -175,15 +171,15 @@ func Compat(src, pinned string) (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-// errNoArray is a source in which QEMU has not yet given pinned's type a compat array: no newer
+// ErrNoArray is a source in which QEMU has not yet given pinned's type a compat array: no newer
 // type exists there to differ from it.
-var errNoArray = errors.New("no such array: this QEMU has no machine type newer than the pinned one")
+var ErrNoArray = errors.New("no such array: this QEMU has no machine type newer than the pinned one")
 
 // array is the declaration `GlobalProperty <name>[] = { ... };` in src, whole.
 func array(src, name string) (string, error) {
 	start := regexp.MustCompile(`GlobalProperty\s+` + regexp.QuoteMeta(name) + `\[\]\s*=\s*\{`).FindStringIndex(src)
 	if start == nil {
-		return "", fmt.Errorf("%s: %w", name, errNoArray)
+		return "", fmt.Errorf("%s: %w", name, ErrNoArray)
 	}
 	end := strings.Index(src[start[0]:], "};")
 	if end < 0 { // mutate-exempt: the match starts with "GlobalProperty", so "};" is never at its offset 0

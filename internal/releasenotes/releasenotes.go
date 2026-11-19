@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command releasenotes says what a release changed against the one before it, in Markdown for
+// Package releasenotes says what a release changed against the one before it, in Markdown for
 // the release's notes: the commits that reached the machine, grouped by the part they changed;
 // the pins that moved; the kernel options that were turned on, off or changed; and the patches
 // added, removed or changed. Everything is read from git at the two refs, so it says what is
@@ -10,14 +10,13 @@
 // notes' other two parts; this is the one that says why they moved.
 //
 //	go run ./hack/releasenotes -from v20260930.02 [-to HEAD]
-package main
+package releasenotes
 
 import (
 	"cmp"
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path"
 	"slices"
@@ -26,13 +25,9 @@ import (
 	"github.com/spin-stack/go-tools/versions"
 )
 
-func main() {
-	os.Exit(run(os.Args[1:], ".", os.Stdout, os.Stderr)) // mutate-exempt: os.Args[0] is the program; only a process run by hand sees which of the rest run is given
-}
-
-// run is the command against the repository at dir: 0 with the notes on stdout, 2 for a
+// Run is the command against the repository at dir: 0 with the notes on stdout, 2 for a
 // command line it cannot use, 1 when git could not answer.
-func run(args []string, dir string, stdout, stderr io.Writer) int {
+func Run(args []string, dir string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("releasenotes", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	from := fs.String("from", "", "the previous release's tag")
@@ -383,4 +378,3 @@ func sortedKeys[V any](maps ...map[string]V) []string {
 	slices.Sort(keys)
 	return keys
 }
-
