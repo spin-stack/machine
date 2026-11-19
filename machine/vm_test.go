@@ -276,8 +276,8 @@ func TestBootBindsEachDiskToItsPlaceThenRuns(t *testing.T) {
 	}
 	reopens := f.sent("blockdev-reopen")
 	wantReopens := []map[string]any{
-		{"options": []any{map[string]any{"driver": "raw", "node-name": "slot0", "file": "d-root-0", "read-only": false, "discard": "unmap"}}},
-		{"options": []any{map[string]any{"driver": "raw", "node-name": "slot1", "file": "d-home-0", "read-only": true, "discard": "unmap"}}},
+		{"options": []any{map[string]any{"driver": "throttle", "node-name": "slot0", "file": "d-root-0", "throttle-group": "places", "read-only": false, "discard": "unmap"}}},
+		{"options": []any{map[string]any{"driver": "throttle", "node-name": "slot1", "file": "d-home-0", "throttle-group": "places", "read-only": true, "discard": "unmap"}}},
 	}
 	if !reflect.DeepEqual(reopens, wantReopens) {
 		t.Errorf("reopens\n%v\nwant\n%v", reopens, wantReopens)

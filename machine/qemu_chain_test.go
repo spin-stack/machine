@@ -104,6 +104,14 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 	if err := m.Boot(ctx, disk); err != nil {
 		vm.fail(t, "booting", err)
 	}
+	// A bound image's backing file is rewritten through its place's node, as spin's storage
+	// compacts a chain: QEMU takes change-backing-file only on a root whose chain, followed by
+	// backing and filter links, contains the image - which a raw place's did not.
+	if err := m.q.run(ctx, "change-backing-file", map[string]any{
+		"device": slotNodePrefix + "0", "image-node-name": diskNode("root", 0), "backing-file": base,
+	}, nil); err != nil {
+		t.Errorf("rewriting the top's backing file through its place: %v", err)
+	}
 	// Sealed through the same monitor: a socket chardev serves one client at a time.
 	set, err := m.q.addFD(ctx, nextFile, next)
 	if err != nil {

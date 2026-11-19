@@ -182,8 +182,8 @@ func (m *QEMU) bind(ctx context.Context, s slot, d Disk) error {
 	if err != nil {
 		return err
 	}
-	raw := slotNode(s.index, top, s.readonly)
-	if err := m.q.run(ctx, "blockdev-reopen", map[string]any{"options": []formatNode{raw}}, nil); err != nil {
+	place := placeNode(s.index, top, s.readonly)
+	if err := m.q.run(ctx, "blockdev-reopen", map[string]any{"options": []placeNodeOptions{place}}, nil); err != nil {
 		return fmt.Errorf("disk %q: putting it in its place: %w", d.Serial, err)
 	}
 	if err := m.q.run(ctx, "blockdev-del", map[string]any{"node-name": emptyNode(s.index)}, nil); err != nil {
