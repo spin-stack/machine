@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,7 +58,12 @@ func TestPrestart(t *testing.T) {
 	reps := envInt(t, "REPS", 10)
 	rows, signer := firstLoginRows(t)
 	v := rows[len(rows)-1]
-	spinMachine := filepath.Join(out, "bin", "spin-machine")
+	// This tree's spin-machine, built here: --prestart and start are this branch's, and the lab
+	// boots a published release whose own spin-machine has neither.
+	spinMachine := filepath.Join(t.TempDir(), "spin-machine")
+	if b, err := exec.Command("go", "build", "-o", spinMachine, "../cmd/spin-machine").CombinedOutput(); err != nil {
+		t.Fatalf("building this tree's spin-machine: %v\n%s", err, b)
+	}
 
 	newRun := func(label string) *checkpointRun {
 		socks, err := os.MkdirTemp("/tmp", "ps")
@@ -65,7 +71,7 @@ func TestPrestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.RemoveAll(socks) })
-		return &checkpointRun{v: v, label: label, out: out, signer: signer, dir: t.TempDir(), socks: socks}
+		return &checkpointRun{cli: spinMachine, v: v, label: label, out: out, signer: signer, dir: t.TempDir(), socks: socks}
 	}
 	type sample struct {
 		label          string

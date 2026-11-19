@@ -124,6 +124,7 @@ func TestRestoreFirstSSH(t *testing.T) {
 }
 
 type checkpointRun struct {
+	cli    string // the spin-machine every step runs; the release's when empty
 	v      variant
 	label  string // the row's, and ", cached" when its state is restored from the page cache
 	cached bool
@@ -135,6 +136,14 @@ type checkpointRun struct {
 
 	size                                      int64 // the state's bytes
 	coldLogin, save, read, up, running, login time.Duration
+}
+
+// spinMachine is the spin-machine a run's steps execute: the one given, or the release's.
+func (r *checkpointRun) spinMachine() string {
+	if r.cli != "" {
+		return r.cli
+	}
+	return filepath.Join(r.out, "bin", "spin-machine")
 }
 
 func (r *checkpointRun) overlay() string { return filepath.Join(r.dir, "overlay.qcow2") }
@@ -155,7 +164,7 @@ func (r *checkpointRun) launchWith(t *testing.T, qmp string, extra ...string) (e
 	args := append([]string{"boot", "--release", r.out, "--memory", r.v.memory,
 		"--cpus", r.v.cpus, "--vsock-cid", fmt.Sprint(r.cid), "--qmp", qmp, "--console", "file:" + qmp + ".console",
 		"--append", "init=/sbin/init"}, extra...)
-	cmd := exec.Command(filepath.Join(r.out, "bin", "spin-machine"), args...)
+	cmd := exec.Command(r.spinMachine(), args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("%s: launching the machine: %v", r.v.label, err)
@@ -210,7 +219,7 @@ func (r *checkpointRun) cold(t *testing.T) {
 	r.coldLogin = r.loggedIn(t, t0, "cold")
 
 	t0 = time.Now()
-	mustRun(t, filepath.Join(r.out, "bin", "spin-machine"), "save", "--qmp", qmp, "--to", r.state())
+	mustRun(t, r.spinMachine(), "save", "--qmp", qmp, "--to", r.state())
 	r.save = time.Since(t0)
 	select { // save quits QEMU, and the restore opens the same overlay
 	case <-exited:
@@ -247,7 +256,7 @@ func (r *checkpointRun) restore(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	r.up = time.Since(t0)
-	mustRun(t, filepath.Join(r.out, "bin", "spin-machine"), "restore", "--qmp", qmp, "--from", r.state())
+	mustRun(t, r.spinMachine(), "restore", "--qmp", qmp, "--from", r.state())
 	r.running = time.Since(t0)
 	r.login = r.loggedIn(t, t0, "restored")
 	stop()
