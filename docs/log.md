@@ -374,6 +374,14 @@ The socket without default dependencies (`systemd-logind-varlink.socket.d/20-lan
 - the first login: 332/355 → 328/337. The p50 moves little because logind starting sooner takes the CPU sshd was starting on.
 
 Masking `modprobe@drm`, which logind is ordered after, added nothing (327/345). What is left of the login is CPU contention on 2 vCPUs, `user@1000` (38 ms) and the host key generation (21 ms) starting in the same window, rather than waits.
+
+**11-19 · systemd/boot · where PID 1's gap between the unit load and the first job goes (experiment, tooling kept).** `image/systemd/experiments/pid1-marks.patch` makes PID 1 append its monotonic clock, its own CPU time, the units loaded and the time in `unit_load` after each step of `manager_startup` and `do_queue_default_job` to `/run/spin-pid1-marks`. `boot:waits` reads the file. `lab.yml`'s `systemd_experiment` builds the patched systemd on the runner and puts it into each overlay. Bench fleet, 10 boots (lab 44561762624), p50 ms:
+- bus, varlink, coldplug, vacuum, ready: < 0.2 together;
+- **loading what `default.target` reaches: 28.4 wall, 20.9 of it PID 1's CPU, 192 units** (~0.11 ms of CPU each; the rest is likely cold reads);
+- building the transaction: 0.30;
+- the first dispatch: 0.87.
+
+The gap is unit loading, not the transaction that 11-13's single debug-logged boot named. 96 of the units a boot lists are inactive, loaded because another unit names them in `After=`/`Wants=`: `initrd-*`, `plymouth-*`, `modprobe@*`, hibernate, cryptsetup's targets, `firewalld` and `auditd` named by docker. Masking does not spare a load (a masked unit is still looked up and loaded as masked), which is why masking 11 units moved nothing (§4).
 ---
 
 ## 3. Rework cycles
@@ -617,7 +625,7 @@ Also the reusable builder, added and reverted on 10-13.
   These are #242's checklist.
 - **Is `10-seats.conf` still needed?** The control that should fail passes on systemd 259 (#240, "Not settled here").
 - **virtio-rng removal.** -13.6 ms to the prompt (lab 43321809471), a fingerprint change, not taken (#240).
-- **PID 1 time.** The ~25 ms in the BPF verifier for systemd's socket-bind program (#240) is gone with the systemd image/systemd builds (11-19). The ~32 ms transaction-build gap is "explained, not removable" (`boot/waits_probe_test.go:391-399`); with systemd built here, it can now be instrumented.
+- **PID 1 time.** The ~25 ms in the BPF verifier for systemd's socket-bind program (#240) is gone with the systemd image/systemd builds (11-19). The ~32 ms gap after the unit load is loading 192 units, ~21 ms of CPU (11-19, experiments/pid1-marks), not building the transaction (0.3 ms). It shrinks only with fewer units reached at boot.
 - **musl under long-running load.** Never measured (`31a57e7`).
 - **`page_reporting_order`.** Revisit "only if memory per host becomes the limit" (docs/memory-and-disk.md).
 - **Moving `MachineType` off pc-q35-11.1.** "its own change" (CLAUDE.md rule 1, `hack/machinetype`).

@@ -401,7 +401,10 @@ func waitsReport(boots []waitsBoot, target string, top int, minGap time.Duration
 		}
 	}
 	// The first gap, from the end of the unit load to the first job (32 ms p50 on the bench
-	// fleet, lab run 43361486792), is PID 1 and nothing else. systemd stamps UnitsLoadFinish
+	// fleet, lab run 43361486792), is PID 1 and nothing else. Measured inside PID 1 (11-19, lab run
+	// 44561762624, experiments/pid1-marks): 28.4 ms loading the 192 units default.target reaches,
+	// 20.9 of it PID 1's own CPU, and 0.3 ms building the transaction - so what follows, from one
+	// debug-logged boot, named the wrong step. systemd stamps UnitsLoadFinish
 	// after enumerating mounts, devices and slices, and only then loads the units the boot
 	// starts: coldplug, then "Activating default unit: default.target" parses every unit file
 	// default.target reaches, and a stub for each name an After= or RequiresMountsFor= gives,
