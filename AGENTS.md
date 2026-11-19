@@ -170,6 +170,11 @@ something, ends up in `boot/` as a Task target, so the next person measures the 
 - **Driving a guest.** `--init /bin/sh` gives a shell with nothing mounted; its console is
   on stdin/stdout, or on a socket with `--console unix:PATH,server=on,wait=off`. `--qmp
   PATH` opens the socket that `attach`, `detach` and `save` talk to.
+- **A socket's path fits in 108 bytes.** `sun_path` is that long, and a QMP or console socket
+  under `t.TempDir()`, a scratch directory or `_output/` passes it easily. QEMU then does not
+  start, and what the probe reports is the guest never answering, not the path. Put sockets in a
+  short directory of their own (`os.MkdirTemp("/tmp", …)`) and keep overlays and states where
+  they belong; it has been hit more than once, again in boot:restore-first (2026-11-19).
 
 ```sh
 spin-machine boot --hotplug-disks 2 --qmp /tmp/q.sock --init /bin/sh &

@@ -56,6 +56,58 @@ func TestFirstSSH(t *testing.T) {
 		t.Skip("no /dev/vhost-vsock: run task vsock")
 	}
 	reps := envInt(t, "REPS", 10)
+	rows, signer := firstLoginRows(t)
+
+	type samples struct{ listen, login, accepted, again, prompt []time.Duration }
+	got := map[string]*samples{}
+	failed, classical := map[string]int{}, map[string]int{}
+	for range reps {
+		for _, v := range rows {
+			r := firstSSH(t, out, v, signer)
+			if got[v.label] == nil {
+				got[v.label] = &samples{}
+			}
+			if r.listen == 0 || r.login == 0 {
+				failed[v.label]++
+				t.Logf("%s: a boot with no login: listen %v, login %v; %s", v.label, r.listen, r.login, r.why)
+				continue
+			}
+			if r.classical {
+				classical[v.label]++
+			}
+			g := got[v.label]
+			g.listen, g.login, g.again, g.prompt = append(g.listen, r.listen), append(g.login, r.login), append(g.again, r.again), append(g.prompt, r.prompt)
+			g.accepted = append(g.accepted, r.login-r.listen)
+		}
+	}
+	ms := func(ds []time.Duration, q float64) string {
+		d, ok := boot.Percentile(ds, q)
+		if !ok {
+			return "—"
+		}
+		return fmt.Sprintf("%.0f", float64(d)/float64(time.Millisecond))
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "\nms from the moment before QEMU is exec'd, p50/p95 over %d boots of each, interleaved, %s vCPUs\n\n", reps, rows[0].cpus)
+	fmt.Fprintf(&b, "  %-16s %15s %15s %15s %15s %15s %9s %14s\n", "", "SSHD ACCEPTS", "FIRST LOGIN", "ACCEPT TO LOGIN", "A SECOND TOOK", "CONSOLE PROMPT", "NO LOGIN", "CURVE25519 IN")
+	for _, v := range rows {
+		g := got[v.label]
+		if g == nil {
+			g = &samples{}
+		}
+		fmt.Fprintf(&b, "  %-16s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %9d %14d\n", v.label,
+			ms(g.listen, .5), ms(g.listen, .95), ms(g.login, .5), ms(g.login, .95), ms(g.accepted, .5), ms(g.accepted, .95),
+			ms(g.again, .5), ms(g.again, .95),
+			ms(g.prompt, .5), ms(g.prompt, .95), failed[v.label], classical[v.label])
+	}
+	t.Log(b.String())
+}
+
+// firstLoginRows are the rows boot:ssh-first and boot:restore-first measure, and the key both log
+// in with: the release as published, the release with this branch's image put into it, and that
+// with the systemd SPIN_SYSTEMD_DEBS names.
+func firstLoginRows(t *testing.T) ([]variant, xssh.Signer) {
+	t.Helper()
 	row, signer := sshRow(t)
 	// Rows measured against "as built" and dropped once they had answered, on the bench fleet,
 	// 10 boots of each interleaved, lab run 43308825692 (2026-11-12), p50/p95 ms of the first
@@ -128,50 +180,7 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 	if debs := systemdDebs(t); debs != "" {
 		rows = append(rows, withPackages(asBuilt, "systemd stage1", debs))
 	}
-
-	type samples struct{ listen, login, accepted, again, prompt []time.Duration }
-	got := map[string]*samples{}
-	failed, classical := map[string]int{}, map[string]int{}
-	for range reps {
-		for _, v := range rows {
-			r := firstSSH(t, out, v, signer)
-			if got[v.label] == nil {
-				got[v.label] = &samples{}
-			}
-			if r.listen == 0 || r.login == 0 {
-				failed[v.label]++
-				t.Logf("%s: a boot with no login: listen %v, login %v; %s", v.label, r.listen, r.login, r.why)
-				continue
-			}
-			if r.classical {
-				classical[v.label]++
-			}
-			g := got[v.label]
-			g.listen, g.login, g.again, g.prompt = append(g.listen, r.listen), append(g.login, r.login), append(g.again, r.again), append(g.prompt, r.prompt)
-			g.accepted = append(g.accepted, r.login-r.listen)
-		}
-	}
-	ms := func(ds []time.Duration, q float64) string {
-		d, ok := boot.Percentile(ds, q)
-		if !ok {
-			return "—"
-		}
-		return fmt.Sprintf("%.0f", float64(d)/float64(time.Millisecond))
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "\nms from the moment before QEMU is exec'd, p50/p95 over %d boots of each, interleaved, %s vCPUs\n\n", reps, rows[0].cpus)
-	fmt.Fprintf(&b, "  %-16s %15s %15s %15s %15s %15s %9s %14s\n", "", "SSHD ACCEPTS", "FIRST LOGIN", "ACCEPT TO LOGIN", "A SECOND TOOK", "CONSOLE PROMPT", "NO LOGIN", "CURVE25519 IN")
-	for _, v := range rows {
-		g := got[v.label]
-		if g == nil {
-			g = &samples{}
-		}
-		fmt.Fprintf(&b, "  %-16s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %7s/%-7s %9d %14d\n", v.label,
-			ms(g.listen, .5), ms(g.listen, .95), ms(g.login, .5), ms(g.login, .95), ms(g.accepted, .5), ms(g.accepted, .95),
-			ms(g.again, .5), ms(g.again, .95),
-			ms(g.prompt, .5), ms(g.prompt, .95), failed[v.label], classical[v.label])
-	}
-	t.Log(b.String())
+	return rows, signer
 }
 
 // sshRow makes a key to log in with and returns it with a function that makes a row of the

@@ -34,6 +34,7 @@ on:
           - boot:initcalls
           - boot:waits
           - boot:ssh-first
+          - boot:restore-first
           - boot:page-cache
           - boot:firmware
           - boot:firmware-stages
