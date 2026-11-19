@@ -1,0 +1,169 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Thu, 19 Nov 2026 14:00:00 -0300
+Subject: [PATCH 11/11] virtio_pci: Write queue_select only when the queue changes
+
+Every vp_modern_*() accessor of a queue field writes queue_select
+first, and setting up a virtqueue calls seven of them for the same
+queue: its size and enable state read, its size, addresses and MSI-X
+vector written, its notify offset read, and it is enabled. Under a
+hypervisor each write to the common configuration is a trap to the
+device model, so six of the seven are exits that change nothing.
+
+Remember the queue last selected in struct virtio_pci_modern_device and
+write queue_select only when it changes. A reset leaves the device to
+choose, so writing 0 to device_status forgets it. The MSI-X vector is
+still read back after it is written: that is how a device reports that
+it could not take the vector.
+
+Counted in a guest of this machine with its rng, balloon, blk, scsi and
+virtio-mem devices (an experiment build that counted the writes): 84
+writes to queue_select during boot, 22 with this patch. In a guest on a
+laptop, not nested, where an exit is cheap, virtio_pci_driver_init does
+not move outside the noise; on the bench fleet each exit to QEMU costs
+~16 us more nested than on bare metal, which puts this at about 1 ms
+there, not yet measured.
+
+Assisted-by: LLM
+---
+ drivers/virtio/virtio_pci_modern_dev.c | 42 +++++++++++++++++++++++++++++++++---------
+ include/linux/virtio_pci_modern.h      |  2 ++
+ 2 files changed, 35 insertions(+), 9 deletions(-)
+
+--- a/drivers/virtio/virtio_pci_modern_dev.c
++++ b/drivers/virtio/virtio_pci_modern_dev.c
+@@ -251,6 +251,7 @@ int vp_modern_probe(struct virtio_pci_mo
+ 		}
+ 	}
+ 	mdev->id.vendor = pci_dev->subsystem_vendor;
++	mdev->selected_queue = -1;
+ 
+ 	/* check for a common config: if not, use legacy mode (bar 0). */
+ 	common = virtio_pci_find_capability(pci_dev, VIRTIO_PCI_CAP_COMMON_CFG,
+@@ -501,10 +502,33 @@ void vp_modern_set_status(struct virtio_
+ 	 * before writing to the MMIO region.
+ 	 */
+ 	vp_iowrite8(status, &cfg->device_status);
++
++	/* A reset selects a queue of the device's choosing. */
++	if (!status)
++		mdev->selected_queue = -1;
+ }
+ EXPORT_SYMBOL_GPL(vp_modern_set_status);
+ 
+ /*
++ * vp_modern_select_queue - select the queue the queue fields refer to
++ * @mdev: the modern virtio-pci device
++ * @index: queue index
++ *
++ * Setting up a virtqueue reads or writes its fields seven times, each
++ * selecting the queue first. Under a hypervisor every write to
++ * queue_select is a trap to the device; write it only when it changes.
++ */
++static void vp_modern_select_queue(struct virtio_pci_modern_device *mdev,
++				   u16 index)
++{
++	if (mdev->selected_queue == index)
++		return;
++
++	vp_iowrite16(index, &mdev->common->queue_select);
++	mdev->selected_queue = index;
++}
++
++/*
+  * vp_modern_get_queue_reset - get the queue reset status
+  * @mdev: the modern virtio-pci device
+  * @index: queue index
+@@ -515,7 +539,7 @@ int vp_modern_get_queue_reset(struct vir
+ 
+ 	cfg = (struct virtio_pci_modern_common_cfg __iomem *)mdev->common;
+ 
+-	vp_iowrite16(index, &cfg->cfg.queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	return vp_ioread16(&cfg->queue_reset);
+ }
+ EXPORT_SYMBOL_GPL(vp_modern_get_queue_reset);
+@@ -531,7 +555,7 @@ void vp_modern_set_queue_reset(struct vi
+ 
+ 	cfg = (struct virtio_pci_modern_common_cfg __iomem *)mdev->common;
+ 
+-	vp_iowrite16(index, &cfg->cfg.queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	vp_iowrite16(1, &cfg->queue_reset);
+ 
+ 	while (vp_ioread16(&cfg->queue_reset))
+@@ -555,7 +579,7 @@ u16 vp_modern_queue_vector(struct virtio
+ {
+ 	struct virtio_pci_common_cfg __iomem *cfg = mdev->common;
+ 
+-	vp_iowrite16(index, &cfg->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	vp_iowrite16(vector, &cfg->queue_msix_vector);
+ 	/* Flush the write out to device */
+ 	return vp_ioread16(&cfg->queue_msix_vector);
+@@ -596,7 +620,7 @@ void vp_modern_queue_address(struct virt
+ {
+ 	struct virtio_pci_common_cfg __iomem *cfg = mdev->common;
+ 
+-	vp_iowrite16(index, &cfg->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 
+ 	vp_iowrite64_twopart(desc_addr, &cfg->queue_desc_lo,
+ 			     &cfg->queue_desc_hi);
+@@ -616,7 +640,7 @@ EXPORT_SYMBOL_GPL(vp_modern_queue_addres
+ void vp_modern_set_queue_enable(struct virtio_pci_modern_device *mdev,
+ 				u16 index, bool enable)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	vp_iowrite16(enable, &mdev->common->queue_enable);
+ }
+ EXPORT_SYMBOL_GPL(vp_modern_set_queue_enable);
+@@ -631,7 +655,7 @@ EXPORT_SYMBOL_GPL(vp_modern_set_queue_en
+ bool vp_modern_get_queue_enable(struct virtio_pci_modern_device *mdev,
+ 				u16 index)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 
+ 	return vp_ioread16(&mdev->common->queue_enable);
+ }
+@@ -646,7 +670,7 @@ EXPORT_SYMBOL_GPL(vp_modern_get_queue_en
+ void vp_modern_set_queue_size(struct virtio_pci_modern_device *mdev,
+ 			      u16 index, u16 size)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	vp_iowrite16(size, &mdev->common->queue_size);
+ 
+ }
+@@ -662,7 +686,7 @@ EXPORT_SYMBOL_GPL(vp_modern_set_queue_si
+ u16 vp_modern_get_queue_size(struct virtio_pci_modern_device *mdev,
+ 			     u16 index)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 
+ 	return vp_ioread16(&mdev->common->queue_size);
+ 
+@@ -691,7 +715,7 @@ EXPORT_SYMBOL_GPL(vp_modern_get_num_queu
+ static u16 vp_modern_get_queue_notify_off(struct virtio_pci_modern_device *mdev,
+ 					  u16 index)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 
+ 	return vp_ioread16(&mdev->common->queue_notify_off);
+ }
+--- a/include/linux/virtio_pci_modern.h
++++ b/include/linux/virtio_pci_modern.h
+@@ -44,6 +44,8 @@ struct virtio_pci_modern_device {
+ 	int notify_map_cap;
+ 
+ 	u32 notify_offset_multiplier;
++	/* The queue last written to queue_select, or -1 if not known */
++	int selected_queue;
+ 	int modern_bars;
+ 	struct virtio_device_id id;
+ 
+-- 
+2.53.0
