@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package osvissues
 
 import (
 	"bytes"
@@ -145,7 +145,7 @@ func TestRunTakesThePlanThroughGH(t *testing.T) {
 				return nil, nil
 			}
 			var stdout, stderr bytes.Buffer
-			if code := run(tc.args, cli, &stdout, &stderr); code != 0 {
+			if code := Run(tc.args, cli, &stdout, &stderr); code != 0 {
 				t.Fatalf("run = %d: %s", code, stderr.String())
 			}
 			if len(calls) != len(tc.want) {
@@ -192,7 +192,7 @@ func TestRunFailsWhenItCannotReadOrAct(t *testing.T) {
 				return nil, tc.actErr
 			}
 			var stderr bytes.Buffer
-			if code := run([]string{"-release", rel, "-findings", tc.findings}, cli, &bytes.Buffer{}, &stderr); code != 1 {
+			if code := Run([]string{"-release", rel, "-findings", tc.findings}, cli, &bytes.Buffer{}, &stderr); code != 1 {
 				t.Errorf("run = %d, want 1: %s", code, stderr.String())
 			}
 		})
@@ -202,7 +202,7 @@ func TestRunFailsWhenItCannotReadOrAct(t *testing.T) {
 func TestRunRefusesACommandLineWithoutItsInputs(t *testing.T) {
 	for _, args := range [][]string{{"-release", rel}, {"-findings", "x"}, {"-bogus"}} {
 		var stderr bytes.Buffer
-		if code := run(args, func(...string) ([]byte, error) { t.Fatal("gh called"); return nil, nil }, &bytes.Buffer{}, &stderr); code != 2 {
+		if code := Run(args, func(...string) ([]byte, error) { t.Fatal("gh called"); return nil, nil }, &bytes.Buffer{}, &stderr); code != 2 {
 			t.Errorf("run %q = %d, want 2", args, code)
 		}
 	}

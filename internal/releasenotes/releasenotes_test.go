@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package releasenotes
 
 import (
 	"fmt"
@@ -118,7 +118,7 @@ func TestTheNotesSayWhatChangedInTheMachine(t *testing.T) {
 	})
 
 	var b, stderr strings.Builder
-	if code := run([]string{"-from", "v1"}, r.dir, &b, &stderr); code != 0 {
+	if code := Run([]string{"-from", "v1"}, r.dir, &b, &stderr); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
 	notes := b.String()
@@ -185,7 +185,7 @@ func TestTheCommandSaysWhyItWroteNothing(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr strings.Builder
-			if code := run(tc.args, r.dir, &stdout, &stderr); code != tc.code {
+			if code := Run(tc.args, r.dir, &stdout, &stderr); code != tc.code {
 				t.Errorf("exit %d, want %d; stderr: %s", code, tc.code, stderr.String())
 			}
 			if !strings.Contains(stdout.String(), tc.stdout) || (tc.stdout == "" && stdout.Len() > 0) {

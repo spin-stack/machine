@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package apklock
 
 import (
 	"bytes"
@@ -37,7 +37,7 @@ func TestTheCommandWritesTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errs bytes.Buffer
-	if run([]string{path}, &out, &errs) != 0 || out.String() != "musl=1.2.5-r10\n" {
+	if Run([]string{path}, &out, &errs) != 0 || out.String() != "musl=1.2.5-r10\n" {
 		t.Fatalf("wrote %q: %s", out.String(), errs.String())
 	}
 	broken := filepath.Join(t.TempDir(), "broken")
@@ -45,7 +45,7 @@ func TestTheCommandWritesTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{nil, {filepath.Join(t.TempDir(), "none")}, {broken}} {
-		if run(args, &out, &errs) != 2 {
+		if Run(args, &out, &errs) != 2 {
 			t.Errorf("%v: no refusal", args)
 		}
 	}
