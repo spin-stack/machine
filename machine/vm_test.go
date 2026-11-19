@@ -884,6 +884,7 @@ func TestCanResume(t *testing.T) {
 		{"written by a newer QEMU", func(s *Saved) { s.VMM = "qemu 11.2.1" }, "newer than this machine's qemu 11.2.0"},
 		{"written by another program", func(s *Saved) { s.VMM = "cloud-hypervisor 48.0" }, "written by cloud-hypervisor"},
 		{"a VMM that is not a version", func(s *Saved) { s.VMM = "qemu" }, "not a program and a version"},
+		{"a version with no program", func(s *Saved) { s.VMM = " 11.2.0" }, "not a program and a version"},
 		{"another machine", func(s *Saved) { s.Fingerprint = "def" }, "machine def, and this is machine abc"},
 		{"a format this machine does not read", func(s *Saved) { s.Format = "firecracker" }, `format "firecracker"`},
 		{"a CPU feature this machine cannot show", func(s *Saved) { s.CPU.Features = []string{"amx-tile"} }, "cannot show: amx-tile"},
