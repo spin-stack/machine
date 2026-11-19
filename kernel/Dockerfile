@@ -322,6 +322,8 @@ RUN <<EOT
     # patches/0010 skips early_quirks()' port I/O scan of bus 0 in a KVM guest: none of its
     # quirks matches this machine's devices, and the scan was 2.1 ms of exits nested (lab run
     # 44563496308). Only the scan: pci=noearly, which also defers MMCONFIG, does not boot.
+    # patches/0011 writes virtio-pci's queue_select only when the queue changes: 84 -> 22
+    # writes, each a trap to QEMU, in a boot of a workspace-shaped guest (2026-11-19).
 
     # Boot performance: the RAID6 PQ benchmark probes all SIMD implementations at boot to
     # pick the fastest. It must stay disabled. (RAID6_PQ itself is not selected today, so
