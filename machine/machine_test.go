@@ -97,11 +97,13 @@ func TestArgs(t *testing.T) {
 			"virtio-net-pci,netdev=net0,mac=52:54:00:00:00:01,romfile=,disable-legacy=on,addr=0x10 ",
 			// Without this QEMU copies every packet through userspace, and nothing reports it.
 			"tap,id=net0,fd=3,vhost=on ",
-			// A place for a disk is a raw node over an empty placeholder until one is bound,
-			// read-only when the place is: the device takes its permissions at exec.
+			// A place for a disk is a filter node over an empty placeholder until one is bound,
+			// read-only when the place is: the device takes its permissions at exec. A throttle
+			// node in a group with no limits, so that it is a filter (placeNode).
+			"-object throttle-group,id=places ",
 			`{"driver":"null-co","node-name":"slot0-empty","read-zeroes":true,"size":0} `,
-			`{"driver":"raw","node-name":"slot0","file":"slot0-empty","read-only":false,"discard":"unmap"} `,
-			`{"driver":"raw","node-name":"slot1","file":"slot1-empty","read-only":true,"discard":"unmap"} `,
+			`{"driver":"throttle","node-name":"slot0","file":"slot0-empty","throttle-group":"places","read-only":false,"discard":"unmap"} `,
+			`{"driver":"throttle","node-name":"slot1","file":"slot1-empty","throttle-group":"places","read-only":true,"discard":"unmap"} `,
 		},
 	}, {
 		// host_mtu is how the guest is told what it may send, and the only way of

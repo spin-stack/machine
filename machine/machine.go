@@ -923,9 +923,14 @@ func (s Spec) appendDevices(args []string) []string {
 	return args
 }
 
-// appendDisks is each place for a disk, on its fixed slot: the device, over a raw node named
-// slot<i> whose file is an empty placeholder until a disk is bound (DiskSlot).
+// appendDisks is each place for a disk, on its fixed slot: the device, over a throttle node
+// named slot<i> whose file is an empty placeholder until a disk is bound (DiskSlot).
 func (s Spec) appendDisks(args []string) ([]string, error) {
+	if len(s.Disks) > 0 {
+		// The group the places' nodes are in, with no limits: a throttle node is only how a
+		// place is a filter (placeNode).
+		args = append(args, "-object", "throttle-group,id="+placeGroup)
+	}
 	for i, d := range s.Disks {
 		empty, err := json.Marshal(map[string]any{
 			"driver": "null-co", "node-name": emptyNode(i), "size": 0, "read-zeroes": true,
@@ -933,7 +938,7 @@ func (s Spec) appendDisks(args []string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("encoding disk %d's placeholder: %w", i, err)
 		}
-		raw, err := json.Marshal(slotNode(i, emptyNode(i), d.Readonly))
+		raw, err := json.Marshal(placeNode(i, emptyNode(i), d.Readonly))
 		if err != nil {
 			return nil, fmt.Errorf("encoding disk %d's node: %w", i, err)
 		}
@@ -944,17 +949,38 @@ func (s Spec) appendDisks(args []string) ([]string, error) {
 	return args, nil
 }
 
-// slotNodePrefix names a place's raw node, slot<i>: the node the device's drive is, which a bind
+// slotNodePrefix names a place's node, slot<i>: the node the device's drive is, which a bind
 // moves onto the disk.
 const slotNodePrefix = "slot"
 
 func slotDevice(i int) string { return fmt.Sprintf("disk%d", i) }
 func emptyNode(i int) string  { return fmt.Sprintf("slot%d-empty", i) }
 
-// slotNode is place i's raw node over file: the placeholder at exec, the disk's top image once
-// bound.
-func slotNode(i int, file string, readonly bool) formatNode {
-	return formatNode{Driver: "raw", NodeName: slotNodePrefix + fmt.Sprint(i), File: file, ReadOnly: readonly, Discard: "unmap"}
+// placeGroup is the throttle group every place's node is in. It has no limits.
+const placeGroup = "places"
+
+// placeNode is the node a place's device reads through: a pass-through over file, the
+// placeholder at exec and the disk's top image once bound.
+//
+// It is a throttle node with no limits, not raw, because the node has to be a filter. spin's
+// storage rewrites a bound image's backing file (change-backing-file, its compaction), which QEMU
+// takes only on a root node whose chain contains the image, and it walks that chain through
+// backing and filter links alone: under raw, which reaches the image through a plain file
+// child, QEMU answered "'slot0' and image file are not in the same chain" (QEMU 11.2.0-rc0,
+// 2026-11-19). copy-on-read, compress and preallocate are filters too, and each changes what
+// is written; throttle with no limits changes nothing.
+type placeNodeOptions struct {
+	Driver        string `json:"driver"`
+	NodeName      string `json:"node-name"`
+	File          string `json:"file"`
+	ThrottleGroup string `json:"throttle-group"`
+	ReadOnly      bool   `json:"read-only"`
+	Discard       string `json:"discard"`
+}
+
+func placeNode(i int, file string, readonly bool) placeNodeOptions {
+	return placeNodeOptions{Driver: "throttle", NodeName: slotNodePrefix + fmt.Sprint(i), File: file,
+		ThrottleGroup: placeGroup, ReadOnly: readonly, Discard: "unmap"}
 }
 
 // appendNICs is each NIC and its TAP backend, on its fixed slot.
