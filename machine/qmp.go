@@ -181,3 +181,11 @@ func (q *qmpClient) addFD(ctx context.Context, f *os.File, opaque string) (int, 
 	}
 	return r.Set, nil
 }
+
+// addFDTo adds f to the descriptor set set, under the same opaque as the rest of it.
+func (q *qmpClient) addFDTo(ctx context.Context, set int, f *os.File, opaque string) error {
+	if err := q.send(ctx, "add-fd", map[string]any{"fdset-id": set, "opaque": opaque}, f, nil); err != nil {
+		return fmt.Errorf("handing a read-only copy of %s to QEMU: %w", opaque, err)
+	}
+	return nil
+}
