@@ -107,6 +107,8 @@ vars:
   KERNEL_CACHE_TO: '{{if ne .CACHE_EXPORT "false"}}--cache-to {{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:kernel,mode=max,image-manifest=true,oci-mediatypes=true{{else}}type=local,dest={{.BUILDKIT_CACHE_DIR}}/kernel,mode=max,compression=zstd{{end}}{{end}}'
   E2FSPROGS_CACHE_FROM: '{{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:e2fsprogs{{else}}type=local,src={{.BUILDKIT_CACHE_DIR}}/e2fsprogs{{end}}'
   E2FSPROGS_CACHE_TO: '{{if ne .CACHE_EXPORT "false"}}--cache-to {{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:e2fsprogs,mode=max,image-manifest=true,oci-mediatypes=true{{else}}type=local,dest={{.BUILDKIT_CACHE_DIR}}/e2fsprogs,mode=max,compression=zstd{{end}}{{end}}'
+  SYSTEMD_CACHE_FROM: '{{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:systemd{{else}}type=local,src={{.BUILDKIT_CACHE_DIR}}/systemd{{end}}'
+  SYSTEMD_CACHE_TO: '{{if ne .CACHE_EXPORT "false"}}--cache-to {{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:systemd,mode=max,image-manifest=true,oci-mediatypes=true{{else}}type=local,dest={{.BUILDKIT_CACHE_DIR}}/systemd,mode=max,compression=zstd{{end}}{{end}}'
   # The container that builds the base image. Small — mkosi, qemu-utils — and cached like
   # the rest: uncached, every CI run reinstalls it from the archive before any image work
   # starts.
@@ -651,7 +653,6 @@ tasks:
         if [ -n "$KERNEL_RUN" ]; then fetch "$KERNEL_RUN" 'vmlinux-*' _output/lab/kernel-b; fi
         if [ -n "$KERNEL_RUN_C" ]; then fetch "$KERNEL_RUN_C" 'vmlinux-*' _output/lab/kernel-c; fi
         if [ -n "$QEMU_RUN" ]; then fetch "$QEMU_RUN" 'qemu-*-linux-amd64' _output/lab/qemu-b; fi
-        if [ -n "${SYSTEMD_RUN:-}" ]; then fetch "$SYSTEMD_RUN" 'systemd-debs-*' _output/lab/systemd-debs; fi
 
   lab:place:
     desc: >-
@@ -687,11 +688,6 @@ tasks:
           cp -r "$(dirname "$(dirname "$q")")/qemu" "$b/qemu"
           [ "$VARIANT" = instead ] || echo "SPIN_MACHINE_OUTPUT_B=$b" >> "$env"
         fi
-        if [ -n "${SYSTEMD_RUN:-}" ]; then
-          # <artifact>/<variant>/*.deb: the probes take the directory of variants.
-          d=$(dirname "$(dirname "$(one _output/lab/systemd-debs '*/systemd_*.deb')")")
-          echo "SPIN_SYSTEMD_DEBS=$d" >> "$env"
-        fi
         if [ "$VARIANT" = instead ]; then echo "SPIN_MACHINE_OUTPUT=$b" >> "$env"; fi
 
   lab:vars:
@@ -710,7 +706,7 @@ tasks:
           [[ "$pair" == *=* && "$key" =~ ^(REPS|TOP|GAP|ONLY|FLAGS|CPUS|TARGET|BUCKET|LINGER|MEMORY_MIB|DEBUG|FILE_MB|CACHE_TIMEOUT_S|GRAPH_[A-Z_]+|SHARE_[A-Z_]+|SPIN_[A-Z0-9_]+)$ ]] ||
             { echo "::error::not a variable this workflow passes on: $pair"; exit 1; }
           case "$key" in
-            SPIN_MACHINE_OUTPUT|SPIN_MACHINE_OUTPUT_B|SPIN_KERNEL_B|SPIN_KERNEL_C|SPIN_SYSTEMD_DEBS) echo "::error::$key is set by this workflow"; exit 1 ;;
+            SPIN_MACHINE_OUTPUT|SPIN_MACHINE_OUTPUT_B|SPIN_KERNEL_B|SPIN_KERNEL_C) echo "::error::$key is set by this workflow"; exit 1 ;;
           esac
           echo "$pair" >> "${GITHUB_ENV:-/dev/stdout}"
         done
@@ -727,7 +723,6 @@ tasks:
           echo "- kernel B: ${KERNEL_RUN:+run }${KERNEL_RUN:-none}"
           echo "- kernel C: ${KERNEL_RUN_C:+run }${KERNEL_RUN_C:-none}"
           echo "- QEMU B: ${QEMU_RUN:+run }${QEMU_RUN:-none}"
-          echo "- systemd stage1: ${SYSTEMD_RUN:+run }${SYSTEMD_RUN:-none}"
           if [ -n "$KERNEL_RUN$KERNEL_RUN_C$QEMU_RUN" ]; then echo "- booted: $VARIANT the release"; fi
           echo "- vars: ${VARS:-none}"
           echo "- CPU: $(sed -n 's/^model name\s*: //p' /proc/cpuinfo | head -1), $(nproc) CPUs"
@@ -883,6 +878,11 @@ tasks:
     desc: Propose the newest release of the kernel's series as a pull request (refresh/kernel-<sum>), closing the one it supersedes; nothing when the pin is current or that version was proposed already.
     cmds:
       - '{{.VERSIONS}} refresh -propose -label kernel kernel'
+
+  refresh:systemd:
+    desc: Propose the systemd source package resolute now publishes as a pull request (refresh/systemd-source-<sum>); nothing when the pin is current or that version was proposed already.
+    cmds:
+      - '{{.VERSIONS}} refresh -propose -label systemd systemd-source'
 
   # The apk locks go stale without anyone touching them: the pinned Alpine's mirror serves only the
   # newest build of each package, so a lock that resolved yesterday fails a build today (`unable to

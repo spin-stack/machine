@@ -27,7 +27,9 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
 
 # What mkosi itself runs: apt and dpkg to assemble the tree, ubuntu-keyring for the archive
 # it comes from (gpgv, which checks the signatures, arrives with apt). curl fetches mkosi
-# itself, below. qemu-utils wraps the filesystem in a qcow2.
+# itself, below. qemu-utils wraps the filesystem in a qcow2. apt-utils for apt-ftparchive, with
+# which mkosi makes the systemd packages image/systemd builds into a local repository
+# (--package-directory, image/build.sh): without it mkosi stops at "apt-ftparchive not found".
 #
 # No e2fsprogs. The filesystem is made and checked with the static e2fsprogs this repository
 # builds (e2fsprogs/Dockerfile), which image/build.sh takes from the mounted _output: an ext4's
@@ -45,6 +47,7 @@ RUN --mount=type=cache,sharing=locked,id=image-aptlib,target=/var/lib/apt \
         ubuntu-keyring \
         curl \
         apt \
+        apt-utils \
         dpkg \
         ca-certificates \
         qemu-utils \

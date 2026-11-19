@@ -34,8 +34,7 @@ lib=/usr/local/lib/spin-base
     done
 } > /var/lib/spin-machine-licenses.txt
 
-# EXPERIMENT (branch systemd-stage1): a package this repository built (+spinN, image/systemd) is
-# held, so an `apt upgrade` in a workspace cannot replace it with the archive's build of the same
+# A package this repository built (+spinN, image/systemd) is held, so an `apt upgrade` in a workspace cannot replace it with the archive's build of the same
 # source - which would bring back what was built out, the BPF framework among it - nor half of
 # it: libsystemd-shared and systemd come from one build or the boot fails. build.sh checks it.
 dpkg-query -W -f='${Package} ${Version}\n' | awk '$2 ~ /\+spin[0-9]+$/ {print $1}' | xargs -r apt-mark hold

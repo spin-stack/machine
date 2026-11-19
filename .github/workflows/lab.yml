@@ -55,10 +55,6 @@ on:
         description: "A QEMU workflow run id whose QEMU and firmware are compared against the release's (SPIN_MACHINE_OUTPUT_B)"
         required: false
         type: string
-      systemd_run:
-        description: "EXPERIMENT: a Base image workflow run id whose systemd-debs artifact is a row of boot:ssh-first (SPIN_SYSTEMD_DEBS)"
-        required: false
-        type: string
       variant:
         description: "With a build to compare: boot it beside the release's, interleaved, or instead of it on every boot"
         required: false
@@ -107,7 +103,6 @@ jobs:
       KERNEL_RUN: ${{ inputs.kernel_run }}
       KERNEL_RUN_C: ${{ inputs.kernel_run_c }}
       QEMU_RUN: ${{ inputs.qemu_run }}
-      SYSTEMD_RUN: ${{ inputs.systemd_run }}
       VARS: ${{ inputs.vars }}
       # GitHub reads a workflow command (::error::) only at the start of a line, where Task's
       # prefixed output puts the task's name.
@@ -134,7 +129,7 @@ jobs:
       # Another build to compare: a Kernel run's vmlinux (B, and C beside it) or a QEMU run's
       # QEMU and firmware. qemu.yml and kernel.yml build any branch on dispatch.
       - name: Fetch the builds to compare
-        if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != '' || inputs.systemd_run != ''
+        if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != ''
         run: go tool task lab:fetch
 
       # beside: the build is booted interleaved with the release's own - SPIN_KERNEL_B and
@@ -144,7 +139,7 @@ jobs:
       # change breaks rather than what it costs: the tree the experiment boots is the release
       # with the build in it.
       - name: Put the build where the experiment boots it
-        if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != '' || inputs.systemd_run != ''
+        if: inputs.kernel_run != '' || inputs.kernel_run_c != '' || inputs.qemu_run != ''
         env:
           VARIANT: ${{ inputs.variant }}
         run: go tool task lab:place
