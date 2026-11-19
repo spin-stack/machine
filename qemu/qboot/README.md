@@ -34,12 +34,22 @@ write-back by default, and the 32-bit PCI hole, from the top of low RAM to 4 GiB
 naturally aligned power-of-two ranges. Fixed-range MTRRs stay off. If the hole does not fit the
 variable ranges the CPU has, they are left disabled rather than caching MMIO.
 
+## No walk of the PCI bus
+
+Stock qboot walks the bus at every boot: it reads each function's interrupt pin and class,
+writes an INTx line into its `PCI_INTERRUPT_LINE`, and numbers bridges. It does not assign BARs;
+Linux does. Nothing on this machine reads what the walk leaves: Linux routes interrupts from
+ACPI's `_PRT`, every device it drives uses MSI-X, and bus 0 carries no bridge. The walk was 173
+configuration-space exits, 5.0 ms on nested KVM against 2.2 on bare metal (boot:firmware-stages,
+lab runs 44535161371 and 44535156851, 2026-11-19). `no-pci-walk.patch` keeps the chipset check,
+MMCONFIG and the BIOS32 entry, and drops the walk.
+
 ## Build
 
 `task qemu:build` builds it, in the `qboot` stage of `qemu/Dockerfile`, and it lands beside
 the SeaBIOS blobs as `_output/qemu/qboot.bin`, where a release, `task qemu:fetch` and CI all
 find it. The stage clones the pinned commit, verifies the SHA-256 of the tar `git archive`
-writes for it, applies `write-pointer.patch`, `pam.patch` and `mtrr.patch` with no fuzz, and compiles with upstream's
+writes for it, applies `write-pointer.patch`, `pam.patch`, `mtrr.patch` and `no-pci-walk.patch` with no fuzz, and compiles with upstream's
 meson.build flags plus `-Os`. It asserts on what came out: 65536 bytes, the ROM window it is
 linked for, and the patch's code in the tree that was compiled.
 
