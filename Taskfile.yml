@@ -634,11 +634,27 @@ tasks:
         mkdir -p _output/lab/tmp
         gh release download "$RELEASE" -R "$GITHUB_REPOSITORY" -p '*.tar.gz' -D _output/lab
         tar -xzf _output/lab/*.tar.gz -C _output/lab
+        # On disk: the overlays and memory files go here, gigabytes a tmpfs /tmp holds in RAM. On
+        # the host's local NVMe when it has one, which is where spin's hosts keep checkpoints: a
+        # restore read its state from gp3 at ~300 MB/s on a c8i, ~680 of its ~840 ms (lab
+        # 44542990433). An instance store nothing has mounted is formatted and mounted here; the
+        # summary says which disk it was, so no restore number is read without it.
+        tmp=$PWD/_output/lab/tmp
+        store=$(lsblk -dnpo NAME,MODEL | awk '/Instance Storage/ {print $1; exit}')
+        if [ -n "$store" ]; then
+          mnt=$(findmnt -nro TARGET -S "$store" | head -1)
+          if [ -z "$mnt" ]; then
+            mnt=/mnt/instance-store
+            sudo mkfs.ext4 -q -F "$store"
+            sudo mkdir -p "$mnt" && sudo mount "$store" "$mnt"
+          fi
+          sudo install -d -o "$(id -u)" -g "$(id -g)" "$mnt/spin-lab-tmp"
+          tmp=$mnt/spin-lab-tmp
+        fi
         {
           echo "RELEASE=$RELEASE"
           echo "SPIN_MACHINE_OUTPUT=$PWD/_output/lab/spin-machine-${RELEASE}-linux-x86_64/usr/share/spin-stack"
-          # On disk: the overlays and memory files go here, gigabytes a tmpfs /tmp holds in RAM.
-          echo "TMPDIR=$PWD/_output/lab/tmp"
+          echo "TMPDIR=$tmp"
         } >> "${GITHUB_ENV:-/dev/stdout}"
 
   lab:fetch:
@@ -726,6 +742,7 @@ tasks:
           if [ -n "$KERNEL_RUN$KERNEL_RUN_C$QEMU_RUN" ]; then echo "- booted: $VARIANT the release"; fi
           echo "- vars: ${VARS:-none}"
           echo "- CPU: $(sed -n 's/^model name\s*: //p' /proc/cpuinfo | head -1), $(nproc) CPUs"
+          echo "- TMPDIR: ${TMPDIR:-/tmp} on $(df --output=source "${TMPDIR:-/tmp}" | tail -1) ($(lsblk -dno MODEL "$(df --output=source "${TMPDIR:-/tmp}" | tail -1)" 2>/dev/null | sed 's/ *$//' || echo unknown))"
           echo "- load: $(cut -d' ' -f1-3 /proc/loadavg)"
           if sudo -n true 2>/dev/null; then echo "- sudo -n: yes"; else echo "- sudo -n: **no** (targets that edit an overlay skip)"; fi
         } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
@@ -781,6 +798,7 @@ tasks:
           fi
           echo "- gh: $(command -v gh || echo '**missing**')"
           echo "- CPU: $(sed -n 's/^model name\s*: //p' /proc/cpuinfo | head -1), $(nproc) CPUs"
+          echo "- TMPDIR: ${TMPDIR:-/tmp} on $(df --output=source "${TMPDIR:-/tmp}" | tail -1) ($(lsblk -dno MODEL "$(df --output=source "${TMPDIR:-/tmp}" | tail -1)" 2>/dev/null | sed 's/ *$//' || echo unknown))"
         } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
         [ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo "::error::no usable /dev/kvm: nothing here can be measured"; exit 1; }
 
