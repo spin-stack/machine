@@ -91,7 +91,10 @@ jobs:
   lab:
     # A number compares only with one taken on the same kind of host, so the host is named.
     runs-on: runs-on/fleet=${{ inputs.host }}/env=production
-    timeout-minutes: 360
+    # bench-metal is a c8i.metal-48xl, on-demand when spot has none (spin-stack/ci#20): its bound
+    # is what one run may cost. A lab run there takes 1-10 minutes; boot:report, the longest, has
+    # not run on it. 360 elsewhere, where an hour of a c8i.4xlarge's spot is cents.
+    timeout-minutes: ${{ inputs.host == 'bench-metal' && 60 || 360 }}
     env:
       GH_TOKEN: ${{ github.token }}
       EXPERIMENT: ${{ inputs.experiment }}
