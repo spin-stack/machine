@@ -4,6 +4,7 @@ package boot_test
 
 import (
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -33,6 +34,12 @@ import (
 // Each state is evicted from the host's page cache before its restore, and the cache is asked
 // whether it was: a checkpoint kept for later is read from the disk.
 //
+// Each row is also restored a second way, interleaved with the first: its state evicted, read
+// back whole in one sequential pass - which times what the disk gives, READ - and restored from
+// the page cache. Evicted against cached is what the disk costs a restore; READ against that
+// difference says whether QEMU reads the file as fast as the disk can (2026-11-19: a restore took
+// ~790 ms to running on nested and on metal alike, and nothing said which part was the disk).
+//
 //	SPIN_RESTORE_FIRST=1  run at all
 //	REPS=<n>              repetitions of each row (default 10)
 //	CPUS=<n>              vCPUs (default 2)
@@ -50,31 +57,39 @@ func TestRestoreFirstSSH(t *testing.T) {
 	reps := envInt(t, "REPS", 10)
 	rows, signer := firstLoginRows(t)
 
+	type mode struct {
+		label  string
+		cached bool
+	}
+	var modes []mode
+	for _, v := range rows {
+		modes = append(modes, mode{v.label, false}, mode{v.label + ", cached", true})
+	}
 	var runs []*checkpointRun
 	for i := range reps {
-		for _, v := range rows {
+		for j, m := range modes {
 			socks, err := os.MkdirTemp("/tmp", "rf")
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = os.RemoveAll(socks) })
-			r := &checkpointRun{v: v, out: out, signer: signer, dir: t.TempDir(), socks: socks}
+			r := &checkpointRun{v: rows[j/2], label: m.label, cached: m.cached, out: out, signer: signer, dir: t.TempDir(), socks: socks}
 			r.cold(t)
-			t.Logf("%s, repetition %d: cold login %v, saved in %v", v.label, i+1,
-				r.coldLogin.Round(time.Millisecond), r.save.Round(time.Millisecond))
+			t.Logf("%s, repetition %d: cold login %v, saved %d MiB in %v", m.label, i+1,
+				r.coldLogin.Round(time.Millisecond), r.size>>20, r.save.Round(time.Millisecond))
 			runs = append(runs, r)
 		}
 	}
 	for i, r := range runs {
 		r.restore(t)
-		t.Logf("%s, repetition %d: restored up %v, running %v, login %v", r.v.label, i/len(rows)+1,
-			r.up.Round(time.Millisecond), r.running.Round(time.Millisecond), r.login.Round(time.Millisecond))
+		t.Logf("%s, repetition %d: read %v, restored up %v, running %v, login %v", r.label, i/len(modes)+1,
+			r.read.Round(time.Millisecond), r.up.Round(time.Millisecond), r.running.Round(time.Millisecond), r.login.Round(time.Millisecond))
 	}
 
 	ms := func(label string, f func(*checkpointRun) time.Duration) string {
 		var ds []time.Duration
 		for _, r := range runs {
-			if r.v.label == label {
+			if r.label == label {
 				ds = append(ds, f(r))
 			}
 		}
@@ -85,27 +100,41 @@ func TestRestoreFirstSSH(t *testing.T) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nms from the moment before QEMU is exec'd, p50/p95 over %d of each, %s vCPUs; every cold boot before every restore\n\n",
 		reps, rows[0].cpus)
-	fmt.Fprintf(&b, "  %-30s %13s %13s   %13s %13s %13s\n", "", "COLD LOGIN", "SAVE", "RESTORE: UP", "RUNNING", "LOGIN")
-	for _, v := range rows {
-		fmt.Fprintf(&b, "  %-30s %s %s   %s %s %s\n", v.label,
-			ms(v.label, func(r *checkpointRun) time.Duration { return r.coldLogin }),
-			ms(v.label, func(r *checkpointRun) time.Duration { return r.save }),
-			ms(v.label, func(r *checkpointRun) time.Duration { return r.up }),
-			ms(v.label, func(r *checkpointRun) time.Duration { return r.running }),
-			ms(v.label, func(r *checkpointRun) time.Duration { return r.login }))
+	fmt.Fprintf(&b, "  %-30s %9s %13s %13s   %13s %13s %13s %13s\n", "", "STATE MiB", "COLD LOGIN", "SAVE", "READ", "RESTORE: UP", "RUNNING", "LOGIN")
+	for _, m := range modes {
+		var size int64
+		for _, r := range runs {
+			if r.label == m.label {
+				size = max(size, r.size)
+			}
+		}
+		read := "      -      "
+		if m.cached {
+			read = ms(m.label, func(r *checkpointRun) time.Duration { return r.read })
+		}
+		fmt.Fprintf(&b, "  %-30s %9d %s %s   %s %s %s %s\n", m.label, size>>20,
+			ms(m.label, func(r *checkpointRun) time.Duration { return r.coldLogin }),
+			ms(m.label, func(r *checkpointRun) time.Duration { return r.save }),
+			read,
+			ms(m.label, func(r *checkpointRun) time.Duration { return r.up }),
+			ms(m.label, func(r *checkpointRun) time.Duration { return r.running }),
+			ms(m.label, func(r *checkpointRun) time.Duration { return r.login }))
 	}
 	t.Log(b.String())
 }
 
 type checkpointRun struct {
 	v      variant
+	label  string // the row's, and ", cached" when its state is restored from the page cache
+	cached bool
 	out    string
 	signer xssh.Signer
 	dir    string // the overlay and the state, on the disk TMPDIR names
 	socks  string // the QMP sockets: a Unix socket's path has to fit in 108 bytes, and dir's need not
 	cid    uint32
 
-	coldLogin, save, up, running, login time.Duration
+	size                                      int64 // the state's bytes
+	coldLogin, save, read, up, running, login time.Duration
 }
 
 func (r *checkpointRun) overlay() string { return filepath.Join(r.dir, "overlay.qcow2") }
@@ -182,6 +211,11 @@ func (r *checkpointRun) cold(t *testing.T) {
 		t.Fatalf("%s: QEMU was still running 30s after its state was saved", r.v.label)
 	}
 	evict(t, r.state())
+	st, err := os.Stat(r.state())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.size = st.Size()
 }
 
 // restore resumes the saved state read from the disk, logs in, and kills the machine: a restored
@@ -189,6 +223,9 @@ func (r *checkpointRun) cold(t *testing.T) {
 func (r *checkpointRun) restore(t *testing.T) {
 	t.Helper()
 	evict(t, r.state())
+	if r.cached {
+		r.read = readWhole(t, r.state())
+	}
 	qmp := filepath.Join(r.socks, "restored.qmp")
 	t0 := time.Now()
 	_, stop := r.launch(t, qmp, "--incoming", "defer")
@@ -207,6 +244,28 @@ func (r *checkpointRun) restore(t *testing.T) {
 	r.running = time.Since(t0)
 	r.login = r.loggedIn(t, t0, "restored")
 	stop()
+}
+
+// readWhole reads path once, start to end, in 1 MiB reads, and says how long that took: what the
+// disk gives a sequential reader, and the state in the page cache after it.
+func readWhole(t *testing.T, path string) time.Duration {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, 1<<20)
+	t0 := time.Now()
+	for {
+		_, err := f.Read(buf)
+		if err == io.EOF {
+			return time.Since(t0)
+		}
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+	}
 }
 
 // evict drops path from the host's page cache, and asks the cache whether it did: a restore of a

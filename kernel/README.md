@@ -86,13 +86,6 @@ image built with it (#261). What that costs is the directives the framework impl
 and nothing here uses them. Confidentiality is kept on purpose: integrity would give the helper
 back by letting root read the kernel's memory again. Logins are unaffected (`task boot:logind`).
 
-The fix belongs in systemd, not here (#261): systemd 259 tries to load the program at every boot,
-whether or not a unit sets `RestrictFileSystems=`, so no unit can silence it. The program can
-read `s_magic` by walking its `file` argument through BTF instead of through the helper; that
-version loaded under this kernel's lockdown where the shipped one fails (2026-11-19). When a
-systemd with it reaches Ubuntu 26.04, both lines go and the boot test that they stay gone
-belongs beside `TestTheGuestKernelIsLockedDown`.
-
 Measured 2026-10-01, `task boot:initcalls` with `SPIN_KERNEL_B` set to the kernel without these
 options: no cost that can be told from noise. Over 20 interleaved boots each, kernel start to
 `Freeing unused kernel image` had a p50 of 196.3 ms with them and 208.3 ms without, on a host at
