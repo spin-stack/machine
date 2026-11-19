@@ -1,17 +1,14 @@
 # spin-machine — a virtual machine: QEMU, the guest kernel, the base image, and the
 # definition of the machine they make.
 #
-# The four are one thing. `machine.Spec.Fingerprint` is the machine's contract - its versioned
-# machine type, shape, devices and BIOS size - and the binaries, the kernel and the firmware are
-# what make that contract run: built together, checked together (boot:compat, boot:roms), and
-# shipped as one tarball with one version, because shipped separately they could drift apart
-# and leave the last one to notice.
+# The command is spin-machine-dev (cmd/spin-machine-dev; spin-machine-dev --help): a person builds,
+# verifies, boots, releases and keeps the pins with its verbs, and a workflow composes the same
+# verbs, a step each (docs/cli.md). `go tool task bin` puts it in _output/bin.
 #
-# This file holds the vars every part reads and the targets that cross all of them, in the
-# order a change travels: build, verify, release, then trying the machine and keeping the
-# pins. Each part's own targets live beside what they build — qemu/, kernel/, e2fsprogs/,
-# image/ — and the probes that measure a boot in boot/, each namespaced, so `task qemu:build`
-# is next to qemu/Dockerfile. `task --list` is the catalogue.
+# This file is go-tools' gates and CI's plumbing: test, lint, lint:workflows, mutate and coverage;
+# bin, the release app's git (git:app), and the probes' (boot/, the lab's and the report's
+# targets), which boot what the verbs built. `go tool task <name>` is the Task CI runs: go-tools'
+# task command, which runs the Task versions.yaml pins with go-tools' commands on its PATH.
 #
 # What is deliberately NOT here: the software that runs inside a guest. This repository
 # builds a machine and knows nothing about what boots on it, and there is no exception to
@@ -25,21 +22,6 @@ silent: true
 output: prefixed
 
 includes:
-  qemu:
-    taskfile: qemu/Taskfile.yml
-    # The build context is the repository root: the Dockerfiles COPY qemu/devices.mak and
-    # image/mkosi.extra by their path from here, so every part sees the same tree and no
-    # `..` appears in a COPY.
-    dir: '{{.ROOT_DIR}}'
-  kernel:
-    taskfile: kernel/Taskfile.yml
-    dir: '{{.ROOT_DIR}}'
-  e2fsprogs:
-    taskfile: e2fsprogs/Taskfile.yml
-    dir: '{{.ROOT_DIR}}'
-  image:
-    taskfile: image/Taskfile.yml
-    dir: '{{.ROOT_DIR}}'
   boot:
     taskfile: boot/Taskfile.yml
     dir: '{{.ROOT_DIR}}'
@@ -59,66 +41,9 @@ vars:
   # -m so an output directory that does not exist yet still resolves.
   OUTPUT_ABS:
     sh: realpath -m "{{.OUTPUT_DIR}}"
-
-  # The version pins are NOT here. They are in versions.yaml, and each part's Taskfile hands
-  # the Dockerfile the entries it builds from (`{{.VERSIONS}} args <name>...`): a pin in this
-  # file would put it in every workflow's path filter, and a comment fixed here would rebuild
-  # QEMU, the kernel and the base image. What is here does not change an artefact.
-  #
-  # go-tools' command, at the version go.mod pins (its tool directive): the tool is only ever
-  # run from a checkout, and Go's build cache makes the second run of it as fast as a binary
-  # would be.
+  SPIN_MACHINE_DEV: '{{.ROOT_DIR}}/_output/bin/spin-machine-dev'
+  # go-tools' command, on Task's PATH (go tool task).
   VERSIONS: versions
-  # How many jobs to compile with. CI sets them to its runner's cores.
-  QEMU_JOBS: '{{.QEMU_JOBS | default 8}}'
-  KERNEL_NPROC: '{{.KERNEL_NPROC | default 8}}'
-  # The one architecture this machine is built for; every build is --platform linux/amd64.
-  KERNEL_ARCH: x86_64
-
-  # Where BuildKit reads and writes its cache: a directory under the repository for a
-  # developer, a cache image in GitHub's registry in CI. One name to switch -
-  # `CACHE_BACKEND=registry` - and every cache below is decided here, next to the builds they
-  # belong to, rather than as cache strings pasted into workflow files. They have to be the
-  # *same* names in the per-artefact workflows, in compat and in the release, or a release warms
-  # nothing that the lane on main already paid for.
-  #
-  # The registry and not GitHub's Actions cache (`type=gha`), which this was until 2026-11-12,
-  # for two reasons. The fleet's runners (compat) are not GitHub's: runs-on points
-  # ACTIONS_CACHE_URL and ACTIONS_RESULTS_URL at a cache of its own, so `type=gha` there read a
-  # store nobody wrote, and compat compiled QEMU and the kernel cold on every run - six runs
-  # read, not one cached QEMU layer - and a cold QEMU build fails outright once Alpine's mirror
-  # stops serving what qemu/apk.lock pins. And the Actions cache is 10 GB a repository, evicted
-  # least recently used: it stood at 10.36 GB that day, so a lane's layers could go between a
-  # merge and the release that needed them. The registry is read the same way from both kinds
-  # of runner, with a `docker login` and the job's token, and is not evicted.
-  CACHE_REGISTRY: ghcr.io/spin-stack/spin-machine/cache
-  CACHE_BACKEND: '{{.CACHE_BACKEND | default "local"}}'
-  # Whether a build writes its cache back, and only CI's main needs it to: a pull request's
-  # build, a release and compat read main's caches, and what they compiled nobody reads after.
-  # Exporting cost 88 s of "preparing build cache for export" on a kernel build (2026-09-30),
-  # on every PR and dispatch that warmed nothing a release reads. So the lanes export on a push
-  # to main, and nothing else does.
-  CACHE_EXPORT: '{{.CACHE_EXPORT | default "true"}}'
-  BUILDKIT_CACHE_DIR: '{{.ROOT_DIR}}/.cache/buildkit'
-
-  QEMU_CACHE_FROM: '{{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:qemu{{else}}type=local,src={{.BUILDKIT_CACHE_DIR}}/qemu{{end}}'
-  QEMU_CACHE_TO: '{{if ne .CACHE_EXPORT "false"}}--cache-to {{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:qemu,mode=max,image-manifest=true,oci-mediatypes=true{{else}}type=local,dest={{.BUILDKIT_CACHE_DIR}}/qemu,mode=max,compression=zstd{{end}}{{end}}'
-  KERNEL_CACHE_FROM: '{{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:kernel{{else}}type=local,src={{.BUILDKIT_CACHE_DIR}}/kernel{{end}}'
-  KERNEL_CACHE_TO: '{{if ne .CACHE_EXPORT "false"}}--cache-to {{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:kernel,mode=max,image-manifest=true,oci-mediatypes=true{{else}}type=local,dest={{.BUILDKIT_CACHE_DIR}}/kernel,mode=max,compression=zstd{{end}}{{end}}'
-  E2FSPROGS_CACHE_FROM: '{{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:e2fsprogs{{else}}type=local,src={{.BUILDKIT_CACHE_DIR}}/e2fsprogs{{end}}'
-  E2FSPROGS_CACHE_TO: '{{if ne .CACHE_EXPORT "false"}}--cache-to {{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:e2fsprogs,mode=max,image-manifest=true,oci-mediatypes=true{{else}}type=local,dest={{.BUILDKIT_CACHE_DIR}}/e2fsprogs,mode=max,compression=zstd{{end}}{{end}}'
-  SYSTEMD_CACHE_FROM: '{{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:systemd{{else}}type=local,src={{.BUILDKIT_CACHE_DIR}}/systemd{{end}}'
-  SYSTEMD_CACHE_TO: '{{if ne .CACHE_EXPORT "false"}}--cache-to {{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:systemd,mode=max,image-manifest=true,oci-mediatypes=true{{else}}type=local,dest={{.BUILDKIT_CACHE_DIR}}/systemd,mode=max,compression=zstd{{end}}{{end}}'
-  # The container that builds the base image. Small — mkosi, qemu-utils — and cached like
-  # the rest: uncached, every CI run reinstalls it from the archive before any image work
-  # starts.
-  IMAGE_CACHE_FROM: '{{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:image{{else}}type=local,src={{.BUILDKIT_CACHE_DIR}}/image{{end}}'
-  IMAGE_CACHE_TO: '{{if ne .CACHE_EXPORT "false"}}--cache-to {{if eq .CACHE_BACKEND "registry"}}type=registry,ref={{.CACHE_REGISTRY}}:image,mode=max,image-manifest=true,oci-mediatypes=true{{else}}type=local,dest={{.BUILDKIT_CACHE_DIR}}/image,mode=max,compression=zstd{{end}}{{end}}'
-
-  # mkosi's package cache, which is not a BuildKit cache because mkosi does not run under
-  # BuildKit (see image/Dockerfile). A rebuild of the base image is ~1.5 GB of apt.
-  MKOSI_CACHE_DIR: '{{.ROOT_DIR}}/.cache/mkosi'
-  IMAGE_BUILDER_TAG: spin-machine/image-builder:dev
 
 tasks:
 
@@ -126,47 +51,31 @@ tasks:
     cmds:
       - '{{.TASK_EXE}} --list'
 
-  apk:lock:
-    desc: Pin every package QEMU's and e2fsprogs' builders install (each part's apk.list) at what the pinned Alpine's mirror has today, into its apk.lock.
-    # A fresh install of the list on the pinned Alpine, its database read back: the versions the
-    # mirror serves now, which is what a bump means. A new lock is a new QEMU or e2fsprogs build:
-    # the release notes say what moved, and boot:compat that checkpoints still resume on it.
+  bin:
+    desc: Build spin-machine-dev into _output/bin/.
+    # Once per run: several steps depend on it in parallel, and one rebuilding it while another
+    # runs it is "text file busy". No sources: an up-to-date task runs no command, and the PATH
+    # line below has to run in every job; go build relinks nothing that is current.
+    run: once
     cmds:
-      - for: [qemu, e2fsprogs]
-        cmd: |
-          set -euo pipefail
-          db=$(mktemp)
-          docker run --rm -v {{.ROOT_DIR}}/{{.ITEM}}/apk.list:/apk.list:ro $({{.VERSIONS}} ref alpine) \
-            sh -c 'apk add --no-cache $(grep -v "^#" /apk.list) > /dev/null && cat /lib/apk/db/installed' > "$db"
-          go run ./hack/apklock "$db" > {{.ITEM}}/apk.lock
-          rm -f "$db"
-          echo "{{.ITEM}}/apk.lock: $(wc -l < {{.ITEM}}/apk.lock) packages"
+      - go build -o {{.SPIN_MACHINE_DEV}} ./cmd/spin-machine-dev
+      # A workflow's later steps run spin-machine-dev by name: go run would flatten its exit
+      # status to 1, and a step branches on 0, 1 and 2 (docs/cli.md).
+      - if [ -n "${GITHUB_PATH:-}" ]; then dirname {{.SPIN_MACHINE_DEV}} >> "$GITHUB_PATH"; fi
 
-  build:
-    desc: Build QEMU, the guest kernel, e2fsprogs, the base image and the tools into _output/
-    cmds:
-      - task: qemu:build
-      - task: kernel:build
-      # Before the image, which is made with them.
-      - task: e2fsprogs:build
-      - task: image:build
-      - task: tools
-      - cmd: echo "✓ build complete — {{.OUTPUT_ABS}}/"
-
+  # The probes' (boot/) spin-machine, which every one of them boots with: the verb, under the
+  # name their targets depend on.
   tools:
-    desc: >-
-      Build spin-machine: boots a VM of this machine, prints its fingerprint, and gives a
-      running one a disk or saves it (`spin-machine -h`).
-    sources:
-      - machine/**/*.go
-      - boot/*.go
-      - cmd/**/*.go
-      - go.mod
-    generates:
-      - '{{.OUTPUT_ABS}}/bin/spin-machine'
+    internal: true
+    deps: [bin]
     cmds:
-      - mkdir -p {{.OUTPUT_ABS}}/bin
-      - CGO_ENABLED=0 go build -ldflags '-s -w' -o {{.OUTPUT_ABS}}/bin/spin-machine ./cmd/spin-machine
+      - '{{.SPIN_MACHINE_DEV}} --out {{.OUTPUT_ABS}} build spin-machine'
+
+  vsock:
+    desc: spin-machine-dev vsock, for the probes and the lab (lab.yml and report.yml run it by this name).
+    deps: [bin]
+    cmds:
+      - '{{.SPIN_MACHINE_DEV}} vsock'
 
   test:
     desc: Test the machine definition, under the race detector, with its coverage in coverage.out and held to a floor.
@@ -193,7 +102,7 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        unformatted=$(gofmt -l machine cmd boot versions workflows)
+        unformatted=$(gofmt -l machine cmd boot internal versions workflows)
         if [ -n "$unformatted" ]; then
           echo "not gofmt'd:"; echo "$unformatted"; exit 1
         fi
@@ -206,21 +115,22 @@ tasks:
       - cmd: 'echo "OK: the Taskfiles parse"'
       - |
         set -euo pipefail
-        for f in hack/release hack/fingerprint-diff hack/touches image/build.sh image/mkosi.postinst.chroot \
+        for f in image/build.sh image/mkosi.postinst.chroot \
                  image/mkosi.extra/usr/local/lib/spin-base/*.sh boot/testdata/*.sh; do
           bash -n "$f" || { echo "$f does not parse" >&2; exit 1; }
         done
         echo "OK: the shell scripts parse"
       # go-tools' gates, at the version go.mod pins: every goroutine held to a context, no test
       # that cannot fail, every path and task AGENTS.md and CLAUDE.md name resolves, every
-      # mutate-exempt reason covers an edit mutate makes, every workflow step is one task, and
-      # pnpm is the one package manager, installing through Socket Firewall.
+      # mutate-exempt reason covers an edit mutate makes, every workflow step is one task or one
+      # invocation of spin-machine-dev - the verbs a person types, on a job's PATH by the bin task
+      # (docs/cli.md) - and pnpm is the one package manager, installing through Socket Firewall.
       - ctxlife
       - testquality ./...
       - refs
       - mutate -stale-exempts
       # The Task running this one, which taskgate asks for the task names a workflow step runs.
-      - taskgate -allow .github/taskgate-allow.txt -task {{.TASK_EXE}}
+      - taskgate -allow .github/taskgate-allow.txt -task {{.TASK_EXE}} -command spin-machine-dev
       - sfw check
       - task: lint:workflows
 
@@ -285,323 +195,6 @@ tasks:
           echo '</details>'
         } >> "$summary"
         go tool cover -html=coverage.out -o coverage.html
-
-  touches:
-    desc: >-
-      Whether the commits since BASE can change what one part builds, as build=true or
-      build=false, on the step's outputs in CI (task touches BASE=<commit> -- <entry>... --
-      <path>...; hack/touches says how it decides).
-    cmds:
-      - |
-        set -e
-        build=$(hack/touches "${BASE:-}" {{.CLI_ARGS}})
-        echo "build=${build}" | tee -a "${GITHUB_OUTPUT:-/dev/null}"
-
-  vsock:
-    desc: >-
-      Make /dev/vhost-vsock usable by this user, so verify:args can create the machine's vsock
-      device. Without it, says so rather than failing: verify:args names the device unchecked.
-    cmds:
-      # The module before the node is looked at: GitHub's runner has the static node before the
-      # module is loaded, the first open loads it, and udev then sets the node back to root's -
-      # QEMU got "Permission denied" after a chmod that saw the node and skipped the modprobe
-      # (2026-10-24). A kernel that builds it in - Spin OS's, which has no modules - has the
-      # device from boot, and modprobe there has nothing to find.
-      - |
-        sudo modprobe vhost_vsock 2>/dev/null || true
-        sudo udevadm settle 2>/dev/null || true
-        { [ -c /dev/vhost-vsock ] && sudo chmod 0666 /dev/vhost-vsock; } ||
-          echo "no vhost_vsock here; the check will name vhost-vsock-pci as unchecked"
-
-  verify:args:
-    desc: >-
-      Ask the QEMU in _output/ whether it accepts the command line the machine package
-      builds. Every interesting Spec is started under the TCG binary, stopped before its
-      first instruction, and required to answer on QMP.
-    cmds:
-      # It crosses two parts — the machine definition and the binary — so it is here rather
-      # than in qemu/Taskfile.yml, and it refuses rather than skipping: the test itself
-      # skips when there is no binary, which is right for `go test ./...` in a source
-      # checkout and would be a gate that passes for the wrong reason here.
-      - |
-        set -euo pipefail
-        test -x {{.OUTPUT_ABS}}/bin/qemu-system-x86_64-tcg || {
-          echo "no {{.OUTPUT_ABS}}/bin/qemu-system-x86_64-tcg to ask." >&2
-          echo "  task qemu:fetch   the published build of the pinned version, seconds" >&2
-          echo "  task qemu:build   from source, tens of minutes" >&2
-          exit 1; }
-      # -count=1 because the answer depends on a file the test cache does not know about:
-      # a rebuilt QEMU with a device removed would otherwise be met with a cached pass.
-      # -v because what was rewritten for the TCG binary, and what a host without
-      # /dev/vhost-vsock left unchecked, is the part a reader has to see.
-      # And the chain over descriptors: what QEMU does with it, not only whether it parses.
-      - SPIN_MACHINE_OUTPUT={{.OUTPUT_ABS}} go test ./machine -run 'TestQEMUAcceptsEveryArgument|TestAChainOverDescriptors' -count=1 -v
-
-  fingerprint:
-    desc: >-
-      Print this machine's identity (machine.Spec.Fingerprint): its machine type, shape,
-      devices and the BIOS's size.
-    deps: [tools]
-    cmds:
-      - '{{.OUTPUT_ABS}}/bin/spin-machine fingerprint --release {{.OUTPUT_ABS}} {{.CLI_ARGS}}'
-
-  osv:
-    desc: >-
-      What OSV knows against the newest release's SBOM, once its signature is the release's: one
-      line a finding, id, package@version and summary, in _output/osv.tsv. Needs gh, cosign and
-      the network; osv.yml runs it daily and keeps an issue for each package with findings
-      (hack/osvissues).
-    # The newest release, because it is what anything takes next; an older one still pinned is
-    # its consumer's to scan, which spin's control plane does for what it was installed with.
-    cmds:
-      - |
-        set -euo pipefail
-        tag=$(gh release view --json tagName -q .tagName)
-        dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
-        sbom="spin-machine-${tag}-linux-x86_64.cdx.json"
-        gh release download "$tag" -p "$sbom" -p "$sbom.sigstore.json" -D "$dir"
-        cosign verify-blob --bundle "$dir/$sbom.sigstore.json" \
-          --certificate-identity https://github.com/spin-stack/spin-machine/.github/workflows/release.yml@refs/heads/main \
-          --certificate-oidc-issuer https://token.actions.githubusercontent.com "$dir/$sbom"
-        # osv-scanner exits 1 when it found something, which is the answer; above 1 it failed.
-        status=0
-        go run "github.com/google/osv-scanner/v2/cmd/osv-scanner@$(versions version osv-scanner)" \
-          scan source -L "$dir/$sbom" --format json > "$dir/osv.json" || status=$?
-        [ "$status" -le 1 ] || exit "$status"
-        mkdir -p _output
-        jq -r '.results[]?.packages[]? | .package as $p | .vulnerabilities[]? | [.id, ($p.name + "@" + $p.version), (.summary // "")] | @tsv' \
-          "$dir/osv.json" | sort -u > _output/osv.tsv
-        echo "$tag: $(wc -l < _output/osv.tsv) finding(s), in _output/osv.tsv"
-
-  osv:issues:
-    desc: >-
-      Bring the issues to what task osv found: one open for each package with findings, closed
-      once the newest release has none (hack/osvissues says why a package and not a finding).
-      Needs gh.
-    cmds:
-      - go run ./hack/osvissues -release "$(gh release view --json tagName -q .tagName)" -findings _output/osv.tsv
-
-  release:
-    desc: Build everything and pack one versioned tarball.
-    cmds:
-      - task: build
-      # hack/release decides the version (VERSION, or `git describe --tags --always --dirty`)
-      # and reads the pins and their checksums from versions.yaml itself: nothing is passed in
-      # that could disagree with what was built.
-      - OUTPUT_DIR="{{.OUTPUT_ABS}}" hack/release
-
-  # What release.yml does around `task release`, in its order. The version and the identity a file
-  # is signed as are the workflow's to know, and come in its environment.
-
-  release:version:
-    desc: >-
-      The version a release is: INPUT_VERSION, or a new one for today, counted from the tags
-      today already has. On the step's outputs in CI.
-    cmds:
-      - |
-        set -euo pipefail
-        if [ -n "${INPUT_VERSION:-}" ]; then
-          version="$INPUT_VERSION"
-          origin="given by the caller"
-        else
-          day=$(date -u +%Y%m%d)
-          # Count what today already has. `git tag -l` on a fetch-depth:0 checkout sees
-          # every tag; the sequence is two digits so that v20260909.02 sorts after .01
-          # and both sort before v20260910.01, as strings, everywhere.
-          taken=$(git tag -l "v${day}.*" | wc -l)
-          version=$(printf 'v%s.%02d' "$day" "$((taken + 1))")
-          origin="generated for today (${taken} already taken)"
-        fi
-
-        case "$version" in
-          v[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[0-9][0-9]) ;;
-          *) echo "::error::'$version' is not vYYYYMMDD.NN" >&2; exit 1 ;;
-        esac
-
-        echo "version=$version" >> "${GITHUB_OUTPUT:-/dev/stdout}"
-        echo "Releasing $version — $origin"
-
-  release:notes:
-    desc: >-
-      The notes of the release VERSION built in _output/release: what changed since the release
-      before it, whether its machine is that one's (hack/fingerprint-diff), and its machine.env.
-      On the step's outputs in CI. Needs gh.
-    cmds:
-      - |
-        set -euo pipefail
-        name="spin-machine-${VERSION}-linux-x86_64"
-        manifest="_output/release/${name}/usr/share/spin-stack/machine.env"
-        cat "$manifest"
-
-        # The release before this one, for both the verdict and the notes: the newest published
-        # one that is not this version, so a re-run of a version that already published compares
-        # against its predecessor rather than against itself. A listing that fails fails the
-        # step - read as "no releases", it would announce a first release that is not one.
-        releases=$(gh release list -R "$GITHUB_REPOSITORY" --limit 30 --json tagName -q '.[].tagName')
-        previous=$(printf '%s\n' "$releases" | grep -vFx -- "$VERSION" | head -1 || true)
-
-        if [ -n "$previous" ]; then
-          # machine.env's lines are the script's key=value arguments, as they are.
-          # shellcheck disable=SC2046
-          REFERENCE="$previous" hack/fingerprint-diff $(grep '_sha256=' "$manifest") > /tmp/verdict.md
-          # What reached the machine since: the commits by the part they changed, the pins
-          # that moved, the kernel options and the patches, read from git.
-          go run ./hack/releasenotes -from "$previous" -to HEAD > /tmp/changes.md
-        else
-          echo "Nothing to compare against: this is the first published release." > /tmp/verdict.md
-          echo "The first release: nothing before it to say what changed against." > /tmp/changes.md
-        fi
-        # Whether the QEMU shipped offers a machine type newer than the one every checkpoint is
-        # saved on: said, never acted on (machine.MachineType).
-        offer=$(go run ./hack/machinetype check -qemu "_output/release/${name}/usr/share/spin-stack/bin/qemu-system-x86_64")
-        if [ -n "$offer" ]; then printf '\n%s\n' "$offer" >> /tmp/verdict.md; fi
-        cat /tmp/verdict.md
-        cat /tmp/changes.md
-
-        {
-          echo 'notes<<RELEASE_NOTES_EOF'
-          cat /tmp/changes.md
-          echo
-          cat /tmp/verdict.md
-          echo
-          echo 'The machine as it stood on this date.'
-          echo
-          echo '```'
-          cat "$manifest"
-          echo '```'
-          echo RELEASE_NOTES_EOF
-        } >> "${GITHUB_OUTPUT:-/dev/stdout}"
-
-  release:provenance:
-    desc: >-
-      Who built the release VERSION and from what - this commit, every pin in versions.yaml - as
-      SLSA provenance, in _output/provenance.json.
-    cmds:
-      - provenance -version "${VERSION}" -out _output/provenance.json
-
-  release:sign:
-    desc: >-
-      Sign and attest every file of _output/release as IDENTITY, the workflow at its ref, and
-      check each bundle against it. Needs cosign and an OIDC token, so it is release.yml's.
-    # An attestation is checked by the file's digest, not the file: verify-blob-attestation reads
-    # a blob whole and refuses one over COSIGN_MAX_ATTACHMENT_SIZE (128 MiB), and the tarball is
-    # 338 MB (v20261013.01's run failed there). The digest is what the in-toto subject names.
-    cmds:
-      - |
-        set -euo pipefail
-        attested() {
-          cosign verify-blob-attestation --type "$1" --bundle "$2" \
-            --digest "$(sha256sum "$3" | cut -d' ' -f1)" --digestAlg sha256 \
-            --certificate-identity "${IDENTITY}" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com
-        }
-        for f in _output/release/*.tar.gz _output/release/*.tar.gz.sha256 _output/release/machine.env _output/release/*.cdx.json; do
-          cosign sign-blob --yes --bundle "${f}.sigstore.json" "${f}" > /dev/null
-          cosign attest-blob --yes --type slsaprovenance1 --predicate _output/provenance.json \
-            --bundle "${f}.provenance.sigstore.json" "${f}" > /dev/null
-          cosign verify-blob --bundle "${f}.sigstore.json" --certificate-identity "${IDENTITY}" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com "${f}"
-          attested slsaprovenance1 "${f}.provenance.sigstore.json" "${f}"
-        done
-        # The tarball's SBOM (hack/release), attested over it: what it is made of, by the
-        # workflow that built it. The same SBOM is inside it, at usr/share/spin-stack/sbom.
-        for f in _output/release/*.tar.gz; do
-          cosign attest-blob --yes --type cyclonedx --predicate "${f%.tar.gz}.cdx.json" \
-            --bundle "${f}.cdx.sigstore.json" "${f}" > /dev/null
-          attested cyclonedx "${f}.cdx.sigstore.json" "${f}"
-        done
-        attestgate files -require provenance _output/release
-        attestgate files -require cdx -except '*.sha256,machine.env,*.cdx.json' _output/release
-
-  release:tag:
-    desc: Tag this commit VERSION on GitHub. A version tagged already is refused, since creating a ref that exists fails.
-    cmds:
-      # Through the API and not `git push`: GitHub refuses a pushed ref from GITHUB_TOKEN when the
-      # commits under it change .github/workflows/, a permission that token cannot hold ("refusing
-      # to allow a GitHub App to create or update workflow ... without `workflows` permission",
-      # v20261119.01, the first release with a workflow change since the one before it). Creating
-      # the ref is contents: write, which the release has. A lightweight tag, as the pushed one was.
-      - |
-        set -euo pipefail
-        gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
-          -f ref="refs/tags/${VERSION}" -f sha="$(git rev-parse HEAD)" --jq '.ref'
-        git fetch --quiet origin "refs/tags/${VERSION}:refs/tags/${VERSION}"
-
-  shell:
-    desc: >-
-      Boot this machine and get a shell inside the base image, to see how it feels and what it
-      is missing: systemd, with the console logged in as root. INIT=/bin/bash boots a bare
-      shell instead; MEMORY and CPUS override the defaults.
-    aliases: [vm]
-    interactive: true
-    deps: [tools]
-    vars:
-      # systemd, because that is what this image is: a userland whose first process is
-      # /sbin/init. Booting a bare shell instead answers a different question than the one
-      # `task shell` is for — `systemd-analyze` in it replies "System has not been booted
-      # with systemd as init system (PID 1)", which is true and useless. INIT=/bin/bash is
-      # still there for when systemd is the thing that is broken.
-      INIT: '{{.INIT | default "/sbin/init"}}'
-      MEMORY: '{{.MEMORY | default "2048"}}'
-      CPUS: '{{.CPUS | default "2"}}'
-    cmds:
-      # Booted through _output/bin/spin-machine, which builds its command line from the
-      # machine package next door. That is the point of running it this way rather than
-      # writing the QEMU line here: the definition of the machine is executed by this
-      # repository, so a slot map or a kernel argument that stopped working stops working
-      # here first.
-      - |
-        set -euo pipefail
-        out={{.OUTPUT_ABS}}
-        for f in "$out/bin/spin-machine" "$out/bin/qemu-system-x86_64" "$out/kernel/bzImage" \
-                 "$out/image/rootfs.qcow2"; do
-          test -f "$f" || { echo "missing $f — run: task build" >&2; exit 1; }
-        done
-
-        # No --disk: spin-machine boots the base under a throwaway overlay (QEMU's
-        # -snapshot), so everything typed in this shell is written where a container's
-        # writes would go, and the base — which every VM maps read-only, many at once —
-        # cannot be touched. The hash around the session checks that rather than trusts it.
-        before=$(sha256sum "$out/image/rootfs.qcow2" | cut -d' ' -f1)
-
-        echo "booting {{.INIT}} in the base image — {{.MEMORY}} MiB, {{.CPUS}} vCPU"
-        echo "  writes go to a throwaway overlay; the base is read-only and checked after"
-        case "{{.INIT}}" in
-          */init) echo "  systemd; the console autologins as root (the image carries no password)" ;;
-        esac
-        echo "  leave with: 'poweroff -f', or Ctrl-A then X"
-        echo
-
-        # Root is /dev/vda straight into the image (the CLI's default), with no initrd at
-        # all. The kernel has virtio-blk and ext4 built in and build.sh writes a
-        # partitionless filesystem, so there is nothing for one to do: mounting root is the kernel's job here and
-        # systemd mounts the rest.
-        #
-        # Booting a debug initramfs here is a second init, and the two reasons for one are
-        # both gone. It mounted /proc, /sys, devtmpfs and devpts, which systemd does itself
-        # and only a bare `init=/bin/sh` ever needed. And it wrote a symlink enabling a
-        # serial login, which was needed while this image masked systemd-udevd: no
-        # dev-ttyS0.device unit existed and serial-getty@ttyS0's BindsTo could never be
-        # satisfied. udev runs; the getty starts on its own. Measured 2026-09-10: 207ms to a login
-        # prompt this way, against 163ms through the initramfs — 44ms for a second init
-        # doing what the first one does.
-        #
-        # accel=kvm with no fallback, from the machine package: the binary in _output/bin
-        # cannot emulate, on purpose. A host with no /dev/kvm gets an error here rather
-        # than a guest at a tenth of the speed.
-        "$out/bin/spin-machine" boot \
-          --release "$out" \
-          --memory {{.MEMORY}} --cpus {{.CPUS}} \
-          --init {{.INIT}} || true
-
-        echo
-        after=$(sha256sum "$out/image/rootfs.qcow2" | cut -d' ' -f1)
-        if [ "$before" != "$after" ]; then
-          echo "👹 the base image changed during that session: $before -> $after" >&2
-          echo "   every overlay in existence is now built on a file that moved." >&2
-          exit 1
-        fi
-        echo "rootfs.qcow2 unchanged; the overlay's writes are gone"
 
   report:
     desc: >-
@@ -731,7 +324,7 @@ tasks:
         # EXPERIMENT: systemd built here, on this runner and before anything is measured, with
         # image/systemd/experiments/$SYSTEMD_EXPERIMENT.patch; the probes put it in each overlay.
         if [ -n "${SYSTEMD_EXPERIMENT:-}" ]; then
-          go tool task image:systemd SYSTEMD_EXPERIMENT="$SYSTEMD_EXPERIMENT" CACHE_EXPORT=false QEMU_JOBS="$(nproc)"
+          go run ./cmd/spin-machine-dev build systemd --systemd-experiment "$SYSTEMD_EXPERIMENT" --cache-export=false --jobs "$(nproc)"
           echo "SPIN_SYSTEMD_DEBS=$PWD/_output/systemd" >> "$env"
         fi
         if [ "$VARIANT" = instead ]; then echo "SPIN_MACHINE_OUTPUT=$b" >> "$env"; fi
@@ -880,27 +473,6 @@ tasks:
         { echo; cat compare.md; } >> notes.md
         gh release edit "$VERSION" -R "$GITHUB_REPOSITORY" --notes-file notes.md
 
-  versions:
-    desc: Say which of versions.yaml's pins are behind their upstream (exits 1 when any is).
-    cmds:
-      - '{{.VERSIONS}} check'
-
-  bump:
-    desc: >-
-      Pin one entry of versions.yaml at a version, the newest by default
-      (task bump NAME=qemu [TO=11.2.0]). Nothing is built: the entry's note says what the
-      bump is checked with.
-    requires:
-      vars: [NAME]
-    # TO and not VERSION: VERSION is the release's version, set in a release run's environment.
-    # Named VERSION, a bump with no version asked for mkosi v20260927.01-2-g30b717b.
-    cmds:
-      - '{{.VERSIONS}} bump {{.NAME}} {{.TO}}'
-      # A QEMU bump keeps the machine type (machine.MachineType), and the bump's pull request
-      # shows what the newer types change against it, from the source just pinned.
-      - cmd: '{{.TASK_EXE}} qemu:compat'
-        if: '[ "{{.NAME}}" = qemu ]'
-
   # A pull request opened with a workflow run's own token starts no checks; one the release app
   # (spin-stack-release) opens does, and kernel.yml is the check a kernel bump needs.
   git:app:
@@ -917,57 +489,3 @@ tasks:
         id=$(gh api "/users/{{.APP_SLUG}}[bot]" --jq .id)
         git config --global user.name "{{.APP_SLUG}}[bot]"
         git config --global user.email "${id}+{{.APP_SLUG}}[bot]@users.noreply.github.com"
-
-  # Most of what a stable release fixes is fixed before it is called a CVE, so the kernel is only
-  # as current as the last time somebody looked: refresh.yml asks every day. Within the pinned
-  # series and never past it (versions.yaml's kernel note, which is also the pull request's
-  # "check before merging"). The branch is named for versions.yaml's sum, so a set proposed once
-  # is not proposed again, closed or not: a person who closed it said no to that release.
-  refresh:kernel:
-    desc: Propose the newest release of the kernel's series as a pull request (refresh/kernel-<sum>), closing the one it supersedes; nothing when the pin is current or that version was proposed already.
-    cmds:
-      - '{{.VERSIONS}} refresh -propose -label kernel kernel'
-
-  refresh:systemd:
-    desc: Propose the systemd source package resolute now publishes as a pull request (refresh/systemd-source-<sum>); nothing when the pin is current or that version was proposed already.
-    cmds:
-      - '{{.VERSIONS}} refresh -propose -label systemd systemd-source'
-
-  # The apk locks go stale without anyone touching them: the pinned Alpine's mirror serves only the
-  # newest build of each package, so a lock that resolved yesterday fails a build today (`unable to
-  # select packages`), and a release found it three times (6e7ba47, 8d495c5, release run
-  # 43157106109). refresh.yml asks every day, so the lock moves on a pull request that qemu.yml and
-  # image.yml build, not in the release that needed it. The branch is named for what the locks
-  # hold, so a set already proposed is not proposed again, closed or not.
-  refresh:apk:
-    desc: Propose the apk locks at what the pinned Alpine's mirror has today as a pull request (refresh/apk-<hash>), closing the one it supersedes; nothing when the locks are current or that set was proposed already.
-    env:
-      BODY: >-
-        The apk locks at what the pinned Alpine's mirror serves today, proposed by refresh.yml: the
-        mirror drops the builds a lock names, and a build from a stale lock fails. qemu.yml and
-        image.yml build it on this pull request; boot:compat after merge says checkpoints resume
-        on the new QEMU.
-    cmds:
-      - task: apk:lock
-      - |
-        set -euo pipefail
-        if git diff --quiet -- qemu/apk.lock e2fsprogs/apk.lock; then echo "the apk locks are current" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"; exit 0; fi
-        h=$(cat qemu/apk.lock e2fsprogs/apk.lock | sha256sum | cut -c1-12); branch="refresh/apk-$h"
-        if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then echo "$branch was proposed already"; exit 0; fi
-        git switch -c "$branch"
-        git commit -q -m "apk: the locks at what the mirror has today" -- qemu/apk.lock e2fsprogs/apk.lock
-        git push origin "$branch"
-        url=$(gh pr create --base main --head "$branch" --title "apk: the locks at what the mirror has today" --body "$BODY")
-        echo "$url" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-        gh pr list --state open --json number,headRefName --jq ".[] | select((.headRefName | startswith(\"refresh/apk-\")) and .headRefName != \"$branch\") | .number" |
-          while read -r n; do gh pr close "$n" --delete-branch --comment "Superseded by $url."; done
-
-  clean:
-    desc: Remove build output. Leaves the caches; use clean:cache for those.
-    cmds:
-      - rm -rf {{.OUTPUT_ABS}}
-
-  clean:cache:
-    desc: Remove the BuildKit and mkosi caches. A full rebuild after this is hours.
-    cmds:
-      - rm -rf {{.BUILDKIT_CACHE_DIR}} {{.MKOSI_CACHE_DIR}}
