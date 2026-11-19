@@ -454,50 +454,73 @@ func clipUnit(s string) string {
 	return s
 }
 
-// pid1Mark is one line of /run/spin-pid1-marks: PID 1's monotonic clock and the step it had done.
+// pid1Mark is one line of /run/spin-pid1-marks: PID 1's monotonic clock and its own CPU time,
+// the units it had loaded and the time spent in unit_load so far, and the step it had done.
 type pid1Mark struct {
-	at   time.Duration
-	step string
+	at, cpu, inLoad time.Duration
+	units           int
+	step            string
 }
 
 func parsePID1Marks(text string) []pid1Mark {
 	var marks []pid1Mark
 	for _, line := range strings.Split(text, "\n") {
-		us, step, ok := strings.Cut(strings.TrimSpace(line), " ")
-		n, err := strconv.ParseInt(us, 10, 64)
-		if !ok || err != nil {
+		f := strings.Fields(line)
+		if len(f) != 5 {
 			continue
 		}
-		marks = append(marks, pid1Mark{time.Duration(n) * time.Microsecond, step})
+		at, err1 := strconv.ParseInt(f[0], 10, 64)
+		cpu, err2 := strconv.ParseInt(f[1], 10, 64)
+		units, err3 := strconv.Atoi(f[2])
+		inLoad, err4 := strconv.ParseInt(f[3], 10, 64)
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+			continue
+		}
+		marks = append(marks, pid1Mark{time.Duration(at) * time.Microsecond, time.Duration(cpu) * time.Microsecond,
+			time.Duration(inLoad) * time.Microsecond, units, f[4]})
 	}
 	return marks
 }
 
-// pid1Report is the p50 of each of PID 1's steps, from the one before it, over the boots that
-// carry marks; "" when none does.
+// pid1Report is, for each of PID 1's steps from the one before it, the p50 of the wall time, of
+// PID 1's own CPU time, of the time in unit_load and of the units loaded, over the boots that carry
+// marks; "" when none does. Wall time well above CPU time is waiting, not parsing.
 func pid1Report(boots []waitsBoot) string {
+	type step struct{ wall, cpu, load, units []time.Duration }
 	var order []string
-	took := map[string][]time.Duration{}
+	steps := map[string]*step{}
 	for _, b := range boots {
 		for i, m := range b.pid1 {
 			if i == 0 {
 				continue
 			}
-			if _, seen := took[m.step]; !seen {
+			p := b.pid1[i-1]
+			st := steps[m.step]
+			if st == nil {
+				st = &step{}
+				steps[m.step] = st
 				order = append(order, m.step)
 			}
-			took[m.step] = append(took[m.step], m.at-b.pid1[i-1].at)
+			st.wall = append(st.wall, m.at-p.at)
+			st.cpu = append(st.cpu, m.cpu-p.cpu)
+			st.load = append(st.load, m.inLoad-p.inLoad)
+			st.units = append(st.units, time.Duration(m.units-p.units))
 		}
 	}
 	if len(order) == 0 {
 		return ""
 	}
+	ms := func(ds []time.Duration) string {
+		p50, _ := boot.Percentile(ds, 0.5)
+		return fmt.Sprintf("%.2f", float64(p50)/float64(time.Millisecond))
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "\nPID 1's steps from the unit load to the first job (experiments/pid1-marks), ms from the step before, p50/p95 over %d boots\n\n", len(took[order[0]]))
-	for _, step := range order {
-		p50, _ := boot.Percentile(took[step], 0.5)
-		p95, _ := boot.Percentile(took[step], 0.95)
-		fmt.Fprintf(&b, "  %-22s %7.2f/%-7.2f\n", step, float64(p50)/float64(time.Millisecond), float64(p95)/float64(time.Millisecond))
+	fmt.Fprintf(&b, "\nPID 1's steps from the unit load to the first job (experiments/pid1-marks), from the step before, p50 over %d boots\n\n", len(steps[order[0]].wall))
+	fmt.Fprintf(&b, "  %-22s %9s %9s %12s %7s\n", "", "WALL ms", "CPU ms", "UNIT_LOAD ms", "UNITS")
+	for _, name := range order {
+		st := steps[name]
+		units, _ := boot.Percentile(st.units, 0.5)
+		fmt.Fprintf(&b, "  %-22s %9s %9s %12s %7d\n", name, ms(st.wall), ms(st.cpu), ms(st.load), int(units))
 	}
 	return b.String()
 }

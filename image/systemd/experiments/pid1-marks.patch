@@ -93,22 +93,32 @@ diff -ruN a/src/core/manager.c b/src/core/manager.c
                  assert(j->in_run_queue);
 diff -ruN a/src/core/spin-mark.h b/src/core/spin-mark.h
 --- a/src/core/spin-mark.h	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/core/spin-mark.h	2026-11-19 12:53:27.084515904 -0300
-@@ -0,0 +1,26 @@
++++ b/src/core/spin-mark.h	2026-11-19 13:01:04.896028361 -0300
+@@ -0,0 +1,35 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
 +#pragma once
 +
 +/* spin-machine experiment: PID 1's steps between the unit load and the first job, appended to
-+ * /run/spin-pid1-marks as "<CLOCK_MONOTONIC usec> <step>", which boot:waits reads after the boot.
-+ * A file and not /dev/kmsg, whose user writes the kernel rate-limits. Not for a release. */
++ * /run/spin-pid1-marks as "<CLOCK_MONOTONIC usec> <its own CPU usec> <units loaded> <usec in
++ * unit_load> <step>", which boot:waits reads after the boot. Wall time far above CPU time is PID 1
++ * waiting - on the disk or for a CPU - rather than parsing. A file and not /dev/kmsg, whose user
++ * writes the kernel rate-limits. Not for a release. */
 +
 +#include <fcntl.h>
 +#include <stdio.h>
 +#include <time.h>
 +#include <unistd.h>
 +
-+static inline void spin_mark(const char *what) {
++extern unsigned spin_units_loaded;
++extern unsigned long long spin_unit_load_usec;
++
++static inline unsigned long long spin_usec(clockid_t clock) {
 +        struct timespec ts;
++        (void) clock_gettime(clock, &ts);
++        return (unsigned long long) ts.tv_sec * 1000000ULL + (unsigned long long) ts.tv_nsec / 1000ULL;
++}
++
++static inline void spin_mark(const char *what) {
 +        int fd;
 +
 +        if (getpid() != 1)
@@ -116,8 +126,32 @@ diff -ruN a/src/core/spin-mark.h b/src/core/spin-mark.h
 +        fd = open("/run/spin-pid1-marks", O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOCTTY, 0644);
 +        if (fd < 0)
 +                return;
-+        (void) clock_gettime(CLOCK_MONOTONIC, &ts);
-+        (void) dprintf(fd, "%llu %s\n",
-+                       (unsigned long long) ts.tv_sec * 1000000ULL + (unsigned long long) ts.tv_nsec / 1000ULL, what);
++        (void) dprintf(fd, "%llu %llu %u %llu %s\n", spin_usec(CLOCK_MONOTONIC), spin_usec(CLOCK_THREAD_CPUTIME_ID),
++                       spin_units_loaded, spin_unit_load_usec, what);
 +        (void) close(fd);
 +}
+diff -ruN a/src/core/unit.c b/src/core/unit.c
+--- a/src/core/unit.c	2026-11-19 13:01:04.885596937 -0300
++++ b/src/core/unit.c	2026-11-19 13:01:04.897713974 -0300
+@@ -61,6 +61,10 @@
+ #include "tmpfile-util.h"
+ #include "umask-util.h"
+ #include "unit.h"
++#include "spin-mark.h"
++
++unsigned spin_units_loaded = 0;
++unsigned long long spin_unit_load_usec = 0;
+ #include "unit-name.h"
+ #include "user-util.h"
+ #include "varlink.h"
+@@ -1696,7 +1700,10 @@
+                 u->fragment_mtime = now(CLOCK_REALTIME);
+         }
+ 
++        unsigned long long spin_t0 = spin_usec(CLOCK_MONOTONIC);
+         r = UNIT_VTABLE(u)->load(u);
++        spin_unit_load_usec += spin_usec(CLOCK_MONOTONIC) - spin_t0;
++        spin_units_loaded++;
+         if (r < 0)
+                 goto fail;
+ 
