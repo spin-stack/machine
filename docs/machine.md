@@ -53,8 +53,8 @@ rather than an error. It hashes:
   refuses at another length. Every other read-only block is the machine type's or the chipset's
   (`machine.MachineBlocks`), and `task boot:roms` fails when a booted machine maps one that is
   neither;
-- the host's CPU model, but only when the guest is shown the host's CPU (`host` under KVM,
-  `max` under TCG). See [migration.md](migration.md).
+- not the host's CPU: a checkpoint records the CPU its guest was shown and is resumed only
+  where it can be shown again (`machine.CanResume`). See [migration.md](migration.md).
 
 It leaves out what a resume is allowed to differ in — paths, descriptors, ids, the backends
 devices are bound to, the vsock context id, MAC addresses — and the disks, which are the VM's
