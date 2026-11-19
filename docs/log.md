@@ -563,6 +563,7 @@ Also the reusable builder, added and reverted on 10-13.
 | Mask 11 always-failing units | 484 (no change) | lab 43483372488 | 11-13 |
 | Vsock socket + sshd@ without default deps | No sooner; dropped 7 of 22 first connections (laptop) | `boot/ssh_first_test.go:124-128` | 11-13 |
 | mapped-ram checkpoints (multifd ×4) | Restore login 385/400 vs 386/399 | #246, lab 43483852339 | 11-13 |
+| QEMU copies the kernel's ELF segments on threads (patch `hw/core/loader`, #290). Laptop: QEMU start 30.9 → 21.6 ms | Bench `boot:ssh-first`, 20 each, against the release: 11.2 + copy 331 → 316 (sshd accepts 200 → 199), 11.2 alone 332 → 317 (201 → 200). The copy adds nothing nested; the 15 ms is 11.2 and main | labs 44580080420, 44581350077 | 11-19 |
 | sntrup761 (OpenSSH default) | 104 vs 40 ms per login | #245, lab 43479854381 | 11-13 |
 | Configuration-space snapshot over fw_cfg (QEMU + kernel) | 209 vs 211 with 0005 | lab 43514884598 | 11-13 |
 | CPUWeight/IOWeight/Nice on the first login's lane | −2 ms over coldplug filtered; second login 63 vs 45 | lab 43518915618 | 11-13 |
