@@ -28,7 +28,7 @@ permissions:
   # Keyless signing: cosign asks Sigstore for a short-lived certificate bound to this workflow at
   # this ref, which is what a machine that takes the release holds its files to.
   id-token: write
-  # The BuildKit cache main's lanes write (Taskfile.yml, CACHE_REGISTRY), read here and by compat,
+  # The BuildKit cache main's lanes write (internal/build.CacheRegistry), read here and by compat,
   # which a called workflow can be granted no more than its caller holds.
   packages: read
 
@@ -56,10 +56,6 @@ jobs:
     timeout-minutes: 180
     outputs:
       version: ${{ steps.version.outputs.version }}
-    env:
-      # GitHub reads a workflow command (::error::) only at the start of a line, where Task's
-      # prefixed output puts the task's name.
-      TASK_OUTPUT: interleaved
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,13 +70,18 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       # What main's lanes already compiled is read, not compiled again: the BuildKit caches are the
-      # lanes' (CACHE_BACKEND in Taskfile.yml); a cold release compiles QEMU and the kernel, each
-      # tens of minutes, which the ceiling above is for.
+      # lanes' (--cache-registry); a cold release compiles QEMU and the kernel, each tens of
+      # minutes, which the ceiling above is for.
       #
       # A builder of its own (the docker-container driver): Docker's default one cannot export its
-      # cache. What it reads and writes is the cache image in GitHub's registry that Taskfile.yml
-      # names (CACHE_BACKEND=registry), so the runner itself keeps nothing between runs.
+      # cache. What it reads and writes is the cache image in GitHub's registry that the build
+      # names (--cache-registry), so the runner itself keeps nothing between runs.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # The cache is one of this repository's packages, and reading it takes a login as much as
@@ -104,41 +105,34 @@ jobs:
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
-        run: go tool task release:version
+        run: spin-machine-dev release version --given "$INPUT_VERSION"
 
-      # `task release` builds all four artefacts and packs them, ending in hack/release,
-      # which refuses to produce a tarball with anything missing. A release that installs
-      # and then fails for want of an option ROM is worse than no release.
+      # Builds all four artefacts and packs them, refusing to produce a tarball with anything
+      # missing. A release that installs and then fails for want of an option ROM is worse than
+      # no release. The caches are the ones the per-artefact workflows write on main, named by
+      # the build itself: a release reads what the lane on main already paid to compile, and
+      # writes nothing back - it is built once, and the next one reads main's newer cache.
       - name: Build the release
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          # The same caches the per-artefact workflows write on main, decided in
-          # Taskfile.yml. That is the whole point of them being named there: a release
-          # reads what the lane on main already paid to compile, instead of starting cold
-          # because a workflow file spelled the scope differently.
-          CACHE_BACKEND: registry
-          # Reads what main's lanes exported and writes nothing back: a release is built once, and
-          # the next one reads main's newer cache, not this. See CACHE_EXPORT in Taskfile.yml.
-          CACHE_EXPORT: "false"
-        run: go tool task release QEMU_JOBS=4 KERNEL_NPROC=4
+        run: spin-machine-dev release --version "$VERSION" --jobs 4 --cache-registry --cache-export=false
 
       # The machine's identity, and what it costs whoever holds checkpoints.
       #
-      # The alternative to hack/fingerprint-diff is opening two release pages and comparing
-      # sixty-four hex digits by eye, which is a thing nobody does — so the answer to "why
-      # did every checkpoint in the fleet stop resuming?" is one nobody has. The script
-      # fetches the previous release's machine.env and states the consequence in a sentence,
-      # at the top of the notes, where a consumer deciding whether to take this release
-      # reads it.
+      # The alternative is opening two release pages and comparing sixty-four hex digits by eye,
+      # which is a thing nobody does — so the answer to "why did every checkpoint in the fleet
+      # stop resuming?" is one nobody has. The notes fetch the previous release's machine.env
+      # and state the consequence in a sentence, at the top, where a consumer deciding whether
+      # to take this release reads it.
       #
-      # It exits 0 on every verdict: a changed machine is a release this repository makes on
+      # The verdict never fails: a changed machine is a release this repository makes on
       # purpose. The point is not to prevent it but to keep it from being quiet.
       - name: What this release is, and what it breaks
         id: manifest
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: go tool task release:notes
+        run: spin-machine-dev release notes --version "$VERSION"
 
       # v4 is the one that installs cosign v3. Dependabot moves this pin like every other `uses:`.
       - name: Install cosign
@@ -150,14 +144,14 @@ jobs:
       - name: Write the provenance
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: go tool task release:provenance
+        run: spin-machine-dev release provenance --version "$VERSION"
 
       # Each file is signed and attested, then each bundle checked against the identity that made
       # it, file by file: a bundle nothing verifies is a step that can quietly stop working.
       - name: Sign and attest what the release offers
         env:
           IDENTITY: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
-        run: go tool task release:sign
+        run: spin-machine-dev release sign --identity "$IDENTITY"
 
       # Tagged here, after the files are signed and before they are published, so that the next
       # run's count of "tags already taken today" is right and the tarball has a commit behind it.
@@ -166,7 +160,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ github.token }}
-        run: go tool task release:tag
+        run: spin-machine-dev release tag --version "$VERSION"
 
       - name: Publish
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4

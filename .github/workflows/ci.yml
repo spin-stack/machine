@@ -88,10 +88,15 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: go tool task mutate
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1); the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       # The steps below run spin-machine, so it has to exist. `task test` exercises the
       # machine package; only a build catches what the command around it does with it.
-      - name: Build the tools
-        run: go tool task tools
+      - name: Build spin-machine
+        run: spin-machine-dev build spin-machine
 
       # `task test` proves the machine package agrees with itself. The steps below ask the
       # QEMU binary, which is the half that can disagree: the device set is decided in
@@ -123,7 +128,7 @@ jobs:
       - name: Fetch the pinned QEMU
         id: qemu
         continue-on-error: true
-        run: go tool task qemu:fetch
+        run: spin-machine-dev fetch qemu
 
       # vhost-vsock is a kernel module, and the machine's vsock device cannot be created
       # without /dev/vhost-vsock. The runner has the node and gives the user no access to
@@ -133,8 +138,8 @@ jobs:
       # told what went unchecked instead of being shown a pass.
       - name: Load vhost_vsock
         if: steps.qemu.outcome == 'success'
-        run: go tool task vsock
+        run: spin-machine-dev vsock
 
       - name: Check QEMU accepts the machine's arguments
         if: steps.qemu.outcome == 'success'
-        run: go tool task verify:args
+        run: spin-machine-dev verify args

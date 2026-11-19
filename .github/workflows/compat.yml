@@ -9,7 +9,7 @@ name: Compat
 # On the KVM fleet (spin-stack/ci), because it boots: the newest release is unpacked as the machine
 # before, and the machine here is that tree with this change's QEMU, firmware and kernel built over
 # it - the base image is the release's, since a checkpoint resumes with the disks it was saved
-# with. The builds read the BuildKit cache main's lanes export (CACHE_BACKEND=registry), so a
+# with. The builds read the BuildKit cache main's lanes export (--cache-registry), so a
 # change that leaves QEMU and the kernel alone compiles neither.
 #
 # The test holds the promise only where it is made: when the two fingerprints differ the contract
@@ -39,7 +39,7 @@ on:
 
 permissions:
   contents: read
-  # The BuildKit cache main's lanes write (Taskfile.yml, CACHE_REGISTRY).
+  # The BuildKit cache main's lanes write (internal/build.CacheRegistry).
   packages: read
 
 # Per ref and never cancelled: a run on main is a commit somebody needs the answer for, and a
@@ -82,14 +82,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       # The guests' vsock transport, loaded and made this user's: a module on the fleet's kernel
       # that nothing loads before the first QEMU opens /dev/vhost-vsock.
       - name: Load vhost_vsock
-        run: go tool task vsock
+        run: spin-machine-dev vsock
 
       # Reads the lanes' caches and writes none back: main's lanes keep them current.
       - name: Build this change's QEMU and kernel, and the tools
-        run: go tool task qemu:build kernel:build tools CACHE_BACKEND=registry CACHE_EXPORT=false
+        run: spin-machine-dev build qemu kernel spin-machine --cache-registry --cache-export=false
 
       # The newest release, checked against its sha256 and its signature, as the machine before;
       # this change's machine is the same tree with what was just built in place of its own. The
