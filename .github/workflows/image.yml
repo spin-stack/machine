@@ -130,3 +130,30 @@ jobs:
       # Not uploaded as an artifact: it is ~860 MB and the release workflow rebuilds it
       # from the same inputs. What this job is for is finding out that it still builds and
       # still passes its own checks.
+
+  # EXPERIMENT (branch systemd-stage1): Ubuntu's systemd rebuilt with the stage1 profile, as an
+  # artifact lab.yml's systemd_run puts into boot:ssh-first as a row of its own.
+  systemd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build systemd from Ubuntu's source package
+        run: go tool task image:systemd QEMU_JOBS="$(nproc)"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: systemd-debs-${{ github.run_id }}
+          path: _output/exp-systemd/debs/*.deb
+          if-no-files-found: error
+          retention-days: 14

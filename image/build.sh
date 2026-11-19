@@ -51,7 +51,14 @@ mkdir -p "$(dirname "$OUT")" "$SHARE" /work/out /cache
 cd /work
 
 echo "==> mkosi: assembling the userland"
-mkosi --force build
+# EXPERIMENT (branch systemd-stage1): packages built here (image/systemd), mounted at /debs by
+# `task image:build SYSTEMD_DEBS=<dir>`, are a local repository apt prefers by version.
+packages=()
+if compgen -G '/debs/*.deb' > /dev/null; then
+    echo "==> mkosi: with the packages in /debs: $(cd /debs && echo *.deb)"
+    packages=(--package-directory=/debs)
+fi
+mkosi --force "${packages[@]}" build
 tree=/work/out/rootfs
 test -d "$tree" || { echo "ERROR: mkosi produced no tree at $tree" >&2; exit 1; }
 

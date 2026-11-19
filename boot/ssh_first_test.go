@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"crypto/ed25519"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -124,6 +125,9 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 `
 	rows := []variant{row("as released", ""), asBuilt}
+	if debs := systemdDebs(t); debs != "" {
+		rows = append(rows, withPackages(asBuilt, "systemd stage1", debs))
+	}
 
 	type samples struct{ listen, login, accepted, again, prompt []time.Duration }
 	got := map[string]*samples{}
@@ -360,3 +364,56 @@ func (vsockAddr) String() string  { return "vsock" }
 
 func (vsockConn) LocalAddr() net.Addr  { return vsockAddr{} }
 func (vsockConn) RemoteAddr() net.Addr { return vsockAddr{} }
+
+// systemdDebs is the directory SPIN_SYSTEMD_DEBS names, resolved, or "" when it names none:
+// packages built by image/systemd (EXPERIMENT, branch systemd-stage1), put into a row of their
+// own beside the image as built, interleaved with it.
+func systemdDebs(t *testing.T) string {
+	t.Helper()
+	d := os.Getenv("SPIN_SYSTEMD_DEBS")
+	if d == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(d)
+	if err != nil {
+		t.Fatalf("resolving SPIN_SYSTEMD_DEBS=%q: %v", d, err)
+	}
+	debs, err := filepath.Glob(filepath.Join(abs, "*.deb"))
+	if err != nil || len(debs) == 0 {
+		t.Fatalf("SPIN_SYSTEMD_DEBS=%s holds no .deb", abs)
+	}
+	return abs
+}
+
+// withPackages is base with the packages in debs put into the overlay the way dpkg would
+// upgrade them, for each one the image has installed: the files the installed version listed
+// and the new one does not ship are removed, and the new files written over the old. /etc is
+// left alone, because the image's own edits there are part of base and a package's defaults
+// would undo them; maintainer scripts are not run, which for an upgrade between two builds of
+// one source version leaves nothing out that a boot reads.
+func withPackages(base variant, label, debs string) variant {
+	v := base
+	v.label = label
+	v.files = maps.Clone(base.files)
+	v.links = maps.Clone(base.links)
+	v.setup = base.setup + `debs=` + debs + `
+replaced=0
+for deb in "$debs"/*.deb; do
+	pkg=$(dpkg-deb -f "$deb" Package)
+	list="$MNT/var/lib/dpkg/info/$pkg.list"
+	[ -f "$list" ] || list="$MNT/var/lib/dpkg/info/$pkg:amd64.list"
+	[ -f "$list" ] || continue
+	new=$(mktemp)
+	dpkg-deb --fsys-tarfile "$deb" | tar -t | sed -e 's|^\./|/|' -e 's|/$||' | sort > "$new"
+	sort "$list" | comm -23 - "$new" | grep -v '^/etc/' | while read -r f; do
+		if [ -L "$MNT$f" ] || [ -f "$MNT$f" ]; then rm -f "$MNT$f"; fi
+	done
+	rm -f "$new"
+	dpkg-deb --fsys-tarfile "$deb" | tar -x -C "$MNT" --exclude=./etc
+	replaced=$((replaced + 1))
+done
+test "$replaced" -gt 0
+grep -q 'spin1' "$MNT/usr/lib/systemd/libsystemd-shared-"*.so 2>/dev/null || strings "$MNT/usr/lib/systemd/systemd" | grep -q '+spin1' || { echo "the overlay's systemd is not the rebuilt one" >&2; exit 1; }
+`
+	return v
+}
