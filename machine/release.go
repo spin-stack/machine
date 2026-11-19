@@ -28,9 +28,22 @@ const (
 	qemuTCGName = "bin/qemu-system-x86_64-tcg"
 	qemuImgName = "bin/qemu-img"
 	firmwareDir = "qemu"
-	kernelName  = "kernel/vmlinux"
 	rootfsName  = "image/rootfs.qcow2"
 	manifest    = "machine.env"
+
+	// kernelName is the kernel the machine boots: a bzImage, entered through its setup code
+	// and the decompressor that picks KASLR's random base, with linuxboot_dma.bin the option
+	// ROM QEMU adds for it. Until 2026-11-19 the machine entered vmlinux through its PVH notes,
+	// which skips that decompressor: _text was ffffffff81000000 at every boot.
+	kernelName = "kernel/bzImage"
+	kernelROM  = "linuxboot_dma.bin"
+
+	// elfKernelName is the same kernel as the ELF it was linked as, and pvh.bin the ROM QEMU
+	// enters it through. A release from before the bzImage carries only this, and a tree
+	// without a bzImage boots it: boot:compat boots the newest release with this tree's
+	// spin-machine, so this is read until a release carries a bzImage, and can go after.
+	elfKernelName = "kernel/vmlinux"
+	elfKernelROM  = "pvh.bin"
 )
 
 // Release is an unpacked spin-machine release: the tree the tarball holds under
@@ -41,15 +54,16 @@ const (
 // release arrives by whatever means its consumer already has, and by the time
 // this opens one the question is only whether it is whole.
 type Release struct {
-	dir string
-	env map[string]string
+	dir    string
+	kernel string
+	env    map[string]string
 }
 
 // OpenRelease reads the release tree at dir and reports what is missing, if anything.
 //
 // It checks rather than trusting, because a release with one file absent is
-// worse than no release: it installs, and the gap surfaces later as a QEMU that
-// exits for want of an option ROM or a kernel that is the previous version. The
+// worse than no release: it installs, and the gap surfaces later as a firmware that
+// cannot enter the kernel for want of an option ROM, or a kernel that is the previous version. The
 // cost of finding out here is five stats.
 //
 // The TCG binary and the root filesystem are not required. A host that only ever
@@ -62,8 +76,14 @@ func OpenRelease(dir string) (*Release, error) {
 		return nil, fmt.Errorf("resolving release directory %s: %w", dir, err)
 	}
 
-	r := &Release{dir: abs}
-	for _, want := range []string{qemuName, qemuImgName, kernelName, filepath.Join(firmwareDir, "pvh.bin"), filepath.Join(firmwareDir, DefaultBIOS)} {
+	r := &Release{dir: abs, kernel: kernelName}
+	rom := kernelROM
+	if _, err := os.Stat(filepath.Join(abs, kernelName)); errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(abs, elfKernelName)); err == nil {
+			r.kernel, rom = elfKernelName, elfKernelROM
+		}
+	}
+	for _, want := range []string{qemuName, qemuImgName, r.kernel, filepath.Join(firmwareDir, rom), filepath.Join(firmwareDir, DefaultBIOS)} {
 		p := filepath.Join(abs, want)
 		if _, err := os.Stat(p); err != nil {
 			return nil, fmt.Errorf("%s is not a whole machine: %w", abs, err)
@@ -84,12 +104,13 @@ func (r *Release) QEMU() string { return filepath.Join(r.dir, qemuName) }
 func (r *Release) QEMUImg() string { return filepath.Join(r.dir, qemuImgName) }
 
 // Firmware is the directory QEMU loads option ROMs and BIOS blobs from, which is
-// what Spec.Firmware wants. Without it the machine cannot find pvh.bin, and PVH
-// is the only way into this kernel.
+// what Spec.Firmware wants: the BIOS, and the option ROM QEMU adds for the kernel it is
+// given (linuxboot_dma.bin for a bzImage, pvh.bin for a vmlinux).
 func (r *Release) Firmware() string { return filepath.Join(r.dir, firmwareDir) }
 
-// Kernel is the guest kernel.
-func (r *Release) Kernel() string { return filepath.Join(r.dir, kernelName) }
+// Kernel is the guest kernel the machine boots: the bzImage, or the vmlinux of a release
+// from before it.
+func (r *Release) Kernel() string { return filepath.Join(r.dir, r.kernel) }
 
 // QEMUTCG is the emulating build, for a machine with no /dev/kvm — a CI runner,
 // a laptop outside the kvm group. It is a different binary and not a flag

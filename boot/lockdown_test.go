@@ -13,6 +13,8 @@ import (
 // LSM, and has no /dev/mem and no /proc/kcore. A consumer that enforces policy in the guest
 // with BPF LSM programs relies on root being unable to read or rewrite the kernel they live in;
 // kernel/Dockerfile fails a build whose config lost these, and this asks the kernel that boots.
+// It also asks where that kernel is: at a random address, which a config cannot promise, since
+// the way the machine enters the kernel decides whether KASLR runs (lockdown-check.sh).
 func TestTheGuestKernelIsLockedDown(t *testing.T) {
 	if os.Getenv("SPIN_LOCKDOWN_TEST") != "1" {
 		t.Skip("set SPIN_LOCKDOWN_TEST=1 to check the guest kernel's lockdown in a built image")

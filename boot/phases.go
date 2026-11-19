@@ -62,9 +62,9 @@ const (
 	// steps and the waits inside them. What follows is what this phase measured on SeaBIOS.
 	//
 	// There is firmware at all because on q35 the CPU resets into it, whatever QEMU was told
-	// to boot. The kernel here is an ELF carrying the PVH note (XEN_ELFNOTE_PHYS32_ENTRY,
-	// CONFIG_PVH=y), so QEMU direct-boots it — but that decides which option ROM SeaBIOS
-	// jumps through, not whether SeaBIOS runs. Only a machine type with no firmware skips it.
+	// to boot. The kernel here was then an ELF carrying the PVH note (XEN_ELFNOTE_PHYS32_ENTRY,
+	// CONFIG_PVH=y), and is a bzImage since 2026-11-19 — but that decides which option ROM
+	// SeaBIOS jumps through (pvh.bin, linuxboot_dma.bin), not whether SeaBIOS runs. Only a machine type with no firmware skips it.
 	//
 	// The name is a warning as much as a label: almost none of this phase is firmware.
 	// SeaBIOS prints that banner as the second statement of handle_post(), before any

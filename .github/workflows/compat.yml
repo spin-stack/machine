@@ -104,7 +104,8 @@ jobs:
         run: go tool task boot:compat
 
       # This change's kernel, booted: lockdown at confidentiality that root cannot lower, the BPF
-      # LSM, no /dev/mem or /proc/kcore. kernel/Dockerfile checks the config; this checks the
-      # kernel that came out of it.
+      # LSM, no /dev/mem or /proc/kcore, and _text at a random address. kernel/Dockerfile checks
+      # the config; this checks the kernel that came out of it. boot:here gives the tree this
+      # change's bzImage and spin-machine, so it is entered the way this change enters it.
       - name: The kernel is locked down
         run: go tool task boot:lockdown

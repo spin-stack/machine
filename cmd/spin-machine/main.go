@@ -205,7 +205,7 @@ type machineFlags struct {
 func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.release, "release", "_output", "an unpacked release tree; every path below defaults out of it")
 	fs.StringVar(&o.qemu, "qemu", "", "QEMU binary (default: <release>/bin/qemu-system-x86_64)")
-	fs.StringVar(&o.kernel, "kernel", "", "kernel image (default: <release>/kernel/vmlinux)")
+	fs.StringVar(&o.kernel, "kernel", "", "kernel image, a bzImage or a vmlinux with PVH notes (default: <release>/kernel/bzImage)")
 	fs.StringVar(&o.initrd, "initrd", "", "initrd (default: none)")
 	fs.StringVar(&o.firmware, "firmware", "", "firmware directory (default: <release>/qemu)")
 	fs.StringVar(&o.bios, "bios", "", "the BIOS, a file in the firmware directory (default: "+machine.DefaultBIOS+"; bios-256k.bin is SeaBIOS)")

@@ -96,9 +96,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Ends in `task kernel:verify`, which opens the ELF and checks the Xen PVH notes
-      # survived the strip. Without them QEMU has no entry point into this kernel and the
-      # failure is a VM that does not start, in whichever lane boots one next.
+      # Ends in `task kernel:verify`, which reads the bzImage's setup header (a relocatable
+      # bzImage, or KASLR is off) and checks vmlinux's Xen PVH notes survived the strip.
+      # Without either, the failure is a VM that does not start or a kernel at a fixed
+      # address, in whichever lane boots one next.
       - name: Build the kernel
         env:
           CACHE_BACKEND: registry
@@ -112,11 +113,13 @@ jobs:
       - name: What this kernel is
         run: go tool task kernel:summary
 
+      # Still named vmlinux-<sha>: lab:fetch finds a kernel run's artifact by that name.
       - name: Upload the kernel
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vmlinux-${{ github.sha }}
           path: |
+            _output/kernel/bzImage
             _output/kernel/vmlinux
             _output/kernel/kernel-config
           retention-days: 30

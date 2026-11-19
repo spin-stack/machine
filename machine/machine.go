@@ -426,7 +426,8 @@ type Spec struct {
 
 	// Firmware is the directory QEMU loads option ROMs and BIOS blobs from. It
 	// is the `qemu/` directory of a release; without it the machine cannot find
-	// pvh.bin, which is the only way into this kernel.
+	// the BIOS, nor the option ROM QEMU adds for the kernel (linuxboot_dma.bin for
+	// a bzImage, pvh.bin for a vmlinux).
 	Firmware string
 
 	// BIOS is the firmware the machine runs, a file in Firmware: DefaultBIOS when
@@ -724,8 +725,8 @@ func (s Spec) accel() string {
 //     Linux guest decides whether to talk to it from CPUID and this one
 //     finds KVM.
 //   - smm=off, 62.3 ms. The scepticism it deserves is what makes it a
-//     no-change: this machine enters a PVH ELF kernel directly, has no
-//     pflash and no OVMF, and the 0.6 ms is inside the noise, so the option
+//     no-change: this machine entered a PVH ELF kernel directly then (a bzImage
+//     through qboot since 2026-11-19), has no pflash and no OVMF, and the 0.6 ms is inside the noise, so the option
 //     would be carrying an interaction with firmware nobody here has for a
 //     number that cannot be told from zero.
 //   - i8042=off, 62.5 ms. It does remove the PS/2 controller, its two ports
@@ -795,10 +796,10 @@ func (s Spec) validate() error {
 	case s.Kernel == "":
 		return errors.New("no kernel")
 	case s.Firmware == "":
-		// The machine boots by entering a PVH ELF kernel through pvh.bin, which
-		// QEMU finds under this directory. Without it the failure is a rom-open
-		// error that reads like something else entirely.
-		return errors.New("no firmware directory: QEMU has no pvh.bin to enter the kernel through")
+		// The BIOS and the option ROM QEMU adds for the kernel are found under this
+		// directory. Without it the failure is a rom-open error that reads like
+		// something else entirely.
+		return errors.New("no firmware directory: QEMU has no BIOS and no option ROM to enter the kernel through")
 	case strings.ContainsRune(s.BIOS, '/'):
 		// A name QEMU looks up in Firmware, and the file the fingerprint hashes there:
 		// a path would be looked up elsewhere and hashed here.
@@ -1215,7 +1216,7 @@ func (s Spec) bios() string {
 // It hashes the versioned machine type and the shape (Shape), the chipset's globals and every
 // device as the command line gives it with what is one VM's taken out (Contract), the size of
 // the BIOS, and the host's CPU when the guest is shown it. Not the QEMU binary, the kernel, the
-// initrd or pvh.bin: QEMU's promise is per versioned machine type, so a newer QEMU of the same
+// initrd or the option ROM that entered it (linuxboot_dma.bin, pvh.bin): QEMU's promise is per versioned machine type, so a newer QEMU of the same
 // type is the same machine; a resumed guest runs the kernel in its saved memory, and the
 // kernel, the initrd and the option ROM that entered it are read again only by a boot.
 // boot:compat holds the promise: a checkpoint the newest release saved resumes on this tree's.
@@ -1352,7 +1353,8 @@ const BIOSBlock = "pc.bios"
 // MachineBlocks are the read-only RAM blocks besides the BIOS that this machine maps, each sized
 // by the machine type or by the chipset and not by a file: the option ROM area (a fixed 128 KiB),
 // and the ACPI tables, their loader and the RSDP, which QEMU builds and resizes on a resume.
-// pvh.bin and the kernel reach the guest through fw_cfg and are no block of their own, and a
+// The kernel and the option ROM QEMU adds for it (linuxboot_dma.bin for the bzImage, pvh.bin for
+// a vmlinux) reach the guest through fw_cfg and are no block of their own, and a
 // NIC loads no option ROM (romfile=). boot:roms holds a booted machine to this list, so a
 // QEMU or a device that maps another ROM fails there rather than in a resume.
 var MachineBlocks = []string{"pc.rom", "/rom@etc/acpi/tables", "/rom@etc/table-loader", "/rom@etc/acpi/rsdp"}

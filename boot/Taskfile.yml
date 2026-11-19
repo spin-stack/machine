@@ -80,7 +80,7 @@ tasks:
         mkdir -p "$here/kernel"
         cp {{.OUTPUT_ABS}}/bin/qemu-system-x86_64 {{.OUTPUT_ABS}}/bin/qemu-img {{.OUTPUT_ABS}}/bin/spin-machine "$here/bin/"
         cp -r {{.OUTPUT_ABS}}/qemu "$here/qemu"
-        cp {{.OUTPUT_ABS}}/kernel/vmlinux "$here/kernel/vmlinux"
+        cp {{.OUTPUT_ABS}}/kernel/bzImage {{.OUTPUT_ABS}}/kernel/vmlinux "$here/kernel/"
         {
           echo "SPIN_COMPAT_PREVIOUS=$previous"
           echo "SPIN_MACHINE_OUTPUT=$here"
@@ -125,8 +125,8 @@ tasks:
 
   lockdown:
     desc: >-
-      Check the guest kernel runs lockdown at confidentiality and the BPF LSM, and has no
-      /dev/mem or /proc/kcore, in a disposable guest. Needs a built release; uses KVM when
+      Check the guest kernel runs lockdown at confidentiality and the BPF LSM, has no
+      /dev/mem or /proc/kcore, and is at a random address (KASLR), in a disposable guest. Needs a built release; uses KVM when
       available, otherwise TCG.
     deps: [':tools']
     cmds:

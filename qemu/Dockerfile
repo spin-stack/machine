@@ -323,10 +323,17 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
 # which 317 MB is edk2 for aarch64, arm, riscv and loongarch, in a build whose target list
 # is x86_64-softmmu — and it was being copied into the image and out again on every build.
 #
-# Five files:
-#   pvh.bin        the guest kernel is an ELF with Xen PVH notes and QEMU enters it through
-#                  this ROM. No real mode, no bzImage protocol, no bootloader, no UEFI.
-#                  Missing, it fails as a rom-open error that reads like a backend bug.
+# Six files:
+#   linuxboot_dma.bin
+#                  the option ROM QEMU adds whenever -kernel is a bzImage (x86_load_linux),
+#                  which is what the machine boots since 2026-11-19: the bzImage's
+#                  decompressor is where KASLR happens. qboot does not run it - it reads the
+#                  setup and the kernel out of fw_cfg itself (boot_from_fwcfg) - but QEMU
+#                  publishes it in fw_cfg's genroms at every boot, and SeaBIOS runs it.
+#                  Missing, QEMU prints a rom-open error on every start.
+#   pvh.bin        the same for a vmlinux, which QEMU enters through its Xen PVH notes: kept
+#                  for `--kernel vmlinux`, the lab's comparisons of a kernel build, and
+#                  machine's QEMU tests.
 #   kvmvapic.bin   loaded by the KVM accelerator on a q35.
 #   bios.bin,
 #   bios-256k.bin  SeaBIOS, kept beside qboot to compare the two (`--bios bios-256k.bin`).
@@ -335,12 +342,11 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
 #                  romfile`, at realize, before any guest code runs.
 #
 # Not here: vgabios-stdvga.bin (no display adapter is created — every machine line is
-# -nodefaults -nographic) and linuxboot_dma.bin (the option ROM for a bzImage boot, which
-# nothing here does). A caller that adds a device back has to add its ROM back with it.
+# -nodefaults -nographic). A caller that adds a device back has to add its ROM back with it.
 RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/cache/qemu \
     tree="$(sh /build/qemu-source.sh)" && \
     mkdir -p /build/pc-bios && \
-    for f in bios.bin bios-256k.bin pvh.bin kvmvapic.bin efi-virtio.rom; do \
+    for f in bios.bin bios-256k.bin linuxboot_dma.bin pvh.bin kvmvapic.bin efi-virtio.rom; do \
         install -m 0644 "$tree/pc-bios/$f" "/build/pc-bios/$f"; \
     done
 

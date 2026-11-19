@@ -84,4 +84,6 @@ The BIOS's size is part of Spec.Fingerprint and its contents are not: it is the 
 block, which a checkpoint carries whole, so a resumed guest keeps running the qboot it booted
 with and only a block of another length is refused. qboot.bin is linked for its 64 KiB window
 (`qemu:verify` holds it there), so a rebuilt qboot is the same machine to a checkpoint and new
-firmware to the next boot. pvh.bin reaches the guest through fw_cfg at a boot and is not in it.
+firmware to the next boot. The kernel and the option ROM QEMU adds for it (linuxboot_dma.bin for
+the bzImage, which qboot does not run: it loads the bzImage from fw_cfg itself) reach the guest
+through fw_cfg at a boot and are not in it.

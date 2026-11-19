@@ -252,10 +252,24 @@ RUN <<EOT
     ! grep -q "CONFIG_VT=y" .config || (echo "ERROR: CONFIG_VT is back; there is no VGA and no virtual console here (see above)!" ; exit 1)
     grep -q "CONFIG_OVERLAY_FS=y" .config || (echo "ERROR: CONFIG_OVERLAY_FS not enabled!" ; exit 1)
 
-    # PVH is the only boot path: there is no bootloader and no UEFI, and QEMU enters this
-    # kernel through pvh.bin using the Xen notes CONFIG_PVH puts in the program headers.
-    # Without it -kernel has nothing to enter and the VM does not start.
-    grep -q "CONFIG_PVH=y" .config || (echo "ERROR: CONFIG_PVH not enabled (QEMU has no entry point into this kernel)!" ; exit 1)
+    # The machine boots the bzImage, through its setup code and the decompressor in
+    # arch/x86/boot/compressed, because that decompressor is where KASLR happens: it picks the
+    # random physical and virtual base and sets KASLR_FLAG, which RANDOMIZE_MEMORY reads in
+    # turn. The PVH entry into vmlinux, which this machine booted until 2026-11-19, skips it:
+    # three PVH boots all had _text at ffffffff81000000 with both options =y. boot:lockdown
+    # asks the booted kernel.
+    #
+    # LZ4 is the payload's compression, the fastest to decompress of the ones x86 offers: x86
+    # does not select HAVE_KERNEL_UNCOMPRESSED, so KERNEL_UNCOMPRESSED is not a choice here.
+    # It changes the bzImage only, not vmlinux.
+    for opt in RELOCATABLE RANDOMIZE_BASE RANDOMIZE_MEMORY KERNEL_LZ4; do
+        grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig (the kernel would not be randomized)!"; exit 1; }
+    done
+
+    # PVH stays: it is how a vmlinux passed as --kernel is entered (through pvh.bin, using the
+    # Xen notes CONFIG_PVH puts in the program headers), which is how the lab compares a kernel
+    # workflow's build and what machine's QEMU tests boot.
+    grep -q "CONFIG_PVH=y" .config || (echo "ERROR: CONFIG_PVH not enabled (QEMU has no entry point into vmlinux)!" ; exit 1)
 
     # BPF. Each of these is something whose absence looks like a broken program rather than
     # a missing kernel option, which is why they are checked rather than trusted.
@@ -459,14 +473,29 @@ RUN <<EOT
     # an empty string and then the offset.
     btf=$(readelf -SW /build/vmlinux | awk '{for (i=1;i<=NF;i++) if ($i==".BTF") print $(i+4)}')
     printf 'BTF: %d bytes\n' "0x$btf"
+
+    # The bzImage the machine boots. `make all` builds it on x86 from the vmlinux above, so it
+    # is reproducible when vmlinux is. Asserted from its setup header
+    # (Documentation/arch/x86/boot.rst) rather than its name: "HdrS" at 0x202, which QEMU and
+    # qboot look for before treating a file as a bzImage (without it QEMU tries PVH and
+    # multiboot instead); a boot protocol of 2.12 or later at 0x206; and relocatable_kernel at
+    # 0x234, without which the decompressor runs the kernel where it was linked and KASLR is
+    # off however it is configured.
+    cp arch/x86/boot/bzImage /build/bzImage
+    hdr() { od -An -j "$1" -N "$2" -t "$3" /build/bzImage | tr -d ' '; }
+    test "$(hdr 514 4 c)" = HdrS || { echo "ERROR: the bzImage has no HdrS setup header; QEMU cannot boot it as a bzImage"; exit 1; }
+    test "$(hdr 518 2 u2)" -ge 524 || { echo "ERROR: the bzImage's boot protocol is 0x$(hdr 518 2 x2), older than 2.12"; exit 1; }
+    test "$(hdr 564 1 u1)" = 1 || { echo "ERROR: the bzImage is not relocatable; KASLR cannot move it"; exit 1; }
+    file /build/bzImage
 EOT
 
-# The tree this stage writes is the release tree: kernel/vmlinux, at the path a release
-# carries it and the path machine.Release reads it from. Extracting to the root and letting
-# hack/release do the moving gives the same four files one layout here, a second in the
+# The tree this stage writes is the release tree: kernel/bzImage and kernel/vmlinux, at the
+# paths a release carries them and machine.Release reads them from. Extracting to the root and
+# letting hack/release do the moving gives the same files one layout here, a second in the
 # tarball and a third wherever a consumer rearranges them into — with a translation step
 # between each pair, and each of those a place to be wrong.
 FROM scratch AS kernel
+COPY --from=kernel-build /build/bzImage /kernel/bzImage
 COPY --from=kernel-build /build/vmlinux /kernel/vmlinux
 COPY --from=kernel-build /build/kernel-config /kernel/kernel-config
 COPY --from=kernel-build /build/sources /kernel/sources

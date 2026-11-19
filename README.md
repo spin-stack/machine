@@ -36,9 +36,9 @@ One tarball:
 | `bin/mkfs.ext4` | static e2fsprogs; read `e2fsprogs/mke2fs.conf` through `MKE2FS_CONFIG` |
 | `bin/debugfs`, `bin/e2fsck`, `bin/dumpe2fs` | the same e2fsprogs build; the `boot/` probes edit a copy of the base image with this `debugfs` |
 | `e2fsprogs/mke2fs.conf` | the defaults an ext4 made for this kernel is made with |
-| `qemu/{qboot.bin,bios.bin,bios-256k.bin,pvh.bin,kvmvapic.bin,efi-virtio.rom}` | qboot.bin is the BIOS a machine boots with |
+| `qemu/{qboot.bin,bios.bin,bios-256k.bin,linuxboot_dma.bin,pvh.bin,kvmvapic.bin,efi-virtio.rom}` | qboot.bin is the BIOS a machine boots with |
 | `qemu/patches/`, `qemu/qboot-*.patch`, `qemu/qboot-COPYING` | the changes this tree makes to QEMU and qboot, shipped with the binaries built from them |
-| `kernel/vmlinux` | plus `kernel-config` |
+| `kernel/bzImage` | the kernel a machine boots; `kernel/vmlinux` is the same kernel as an ELF, plus `kernel-config` |
 | `image/rootfs.qcow2` | read-only, 0444 |
 | `machine.env` | the version, the commit it was built from, each file's checksum, and `fingerprint_sha256`, the contract that decides whether a checkpoint resumes |
 | `SOURCES` | every upstream source by version, URL and SHA-256, and the written offer |
@@ -98,7 +98,7 @@ chatter share stdout: `| grep -a MARKER`. The exit status is QEMU's, so a script
 ends in `poweroff -f` returns 0.
 
 What the guest answers is a property of the machine, not of the host that ran it.
-`uname -r` reports `kernel/vmlinux`'s version, not the host kernel's. `grep -c -E 'vmx|svm'
+`uname -r` reports `kernel/bzImage`'s version, not the host kernel's. `grep -c -E 'vmx|svm'
 /proc/cpuinfo` is 0 because the machine removes both from the CPU it shows (`-cpu
 host,migratable=on,-vmx,-svm`: nothing inside a guest may nest, and exposing the flags
 would hand a guest's root the host's nested-virtualisation code), and there is no
