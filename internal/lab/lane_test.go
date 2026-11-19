@@ -93,7 +93,7 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 	// The release itself, unpacked: 385 MB, so only when asked for.
 	if os.Getenv("SPIN_LAB_RELEASE") != "" {
 		d, source, err := src.from("release")
-		if err != nil || source != "release "+tag || !fileExists(filepath.Join(d, partFiles["spin-machine"])) {
+		if err != nil || source != "release "+tag || !fileExists(filepath.Join(d, partFiles["qemu"])) {
 			t.Fatalf("from(release) = %s, %q, %v", d, source, err)
 		}
 	}

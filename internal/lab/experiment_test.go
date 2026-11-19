@@ -20,11 +20,12 @@ import (
 // recorder is a probe that boots nothing: it records which measurement it was asked for, in which
 // phase, and what the test tells it to.
 type recorder struct {
-	phases int
-	rows   []string
-	calls  []string
-	miss   string // tree/row/rep/phase whose measurement is lost
-	fail   string // tree/row/rep/phase whose measurement stops the experiment
+	phases  int
+	rows    []string
+	calls   []string
+	cleaned []string
+	miss    string // tree/row/rep/phase whose measurement is lost
+	fail    string // tree/row/rep/phase whose measurement stops the experiment
 }
 
 func (r *recorder) Name() string  { return "recorder" }
@@ -55,6 +56,8 @@ func (r *recorder) Measure(_ context.Context, m *Measurement) error {
 	}
 	if m.Phase == 0 {
 		m.State = at
+		m.Cleanup(func() { r.cleaned = append(r.cleaned, at+" first") })
+		m.Cleanup(func() { r.cleaned = append(r.cleaned, at+" second") })
 	} else if m.State != strings.TrimSuffix(at, "1")+"0" {
 		return fmt.Errorf("phase 1 got state %v", m.State)
 	}
@@ -109,6 +112,10 @@ func TestAnExperimentInterleavesAndFinishesEachPhaseBeforeTheNext(t *testing.T) 
 	}
 	if left, _ := os.ReadDir(scratch); len(left) != 0 {
 		t.Errorf("the measurements' directories outlived the experiment: %v", left)
+	}
+	// Last registered, first run: a machine is stopped before the directory under it goes.
+	if len(p.cleaned) != 16 || p.cleaned[0] != "A/x/0/0 second" || p.cleaned[1] != "A/x/0/0 first" {
+		t.Errorf("cleaned up in the order %v", p.cleaned)
 	}
 }
 
@@ -279,24 +286,39 @@ func TestTheRingBufferIsItsInitcallsItsGapsAndWhenTheKernelWasDone(t *testing.T)
 
 func TestInitcallsDetailRanksEachTreesInitcallsAndGaps(t *testing.T) {
 	r := &Result{Options: Options{"top": "2"}, Trees: []Manifest{{Name: "A"}, {Name: "B"}}}
-	for _, tr := range []string{"A", "B"} {
+	for i, tr := range []string{"A", "B"} {
 		r.Samples = append(r.Samples, Sample{Tree: tr, Detail: map[string]float64{
-			"initcall\x00acpi_init+0x0/0x420": 4, "initcall\x00slow_init+0x0/0x10": 9, "initcall\x00fast_init+0x0/0x10": 1,
+			"initcall\x00acpi_init+0x0/0x420": 4 + float64(i), "initcall\x00slow_init+0x0/0x10": 9, "initcall\x00fast_init+0x0/0x10": 1,
 			"gap\x00before it\x00after it": 30, "gap\x00x\x00y": 2,
 		}})
 	}
+	// B's own ranking: its acpi_init, 5, not A's 4 with it.
+	r.Samples = append(r.Samples, Sample{Tree: "B", Detail: map[string]float64{"initcall\x00b_only+0x0/0x10": 50}})
 	got := initcalls{}.Detail(r)
+	if !strings.Contains(got, "  B\n   GAP P50      P95  BETWEEN (ms)\n     30.00    30.00  after:  before it") ||
+		!strings.Contains(got, "     50.00    50.00  b_only+0x0/0x10\n      9.00     9.00  slow_init") {
+		t.Errorf("B's own ranking is not its own:\n%s", got)
+	}
+	if strings.Count(got, "b_only") != 1 {
+		t.Errorf("B's initcall was listed under A:\n%s", got)
+	}
+	// With no top, thirty: all three of A's are listed.
+	r.Options = Options{}
+	if all := (initcalls{}).Detail(r); !strings.Contains(all, "fast_init") {
+		t.Errorf("with no top, an initcall is missing:\n%s", all)
+	}
+	r.Options = Options{"top": "2"}
 	for _, want := range []string{
-		"  acpi_init                            4.00           4.00\n",
+		"  acpi_init                            4.00           5.00\n",
 		"  inet_init                               -              -\n",
-		"      9.00     9.00  slow_init+0x0/0x10\n      4.00     4.00  acpi_init+0x0/0x420\n",
+		"  A\n   GAP P50      P95  BETWEEN (ms)\n     30.00    30.00  after:  before it\n                     before: after it\n       P50      P95  INITCALL\n      9.00     9.00  slow_init+0x0/0x10\n      4.00     4.00  acpi_init+0x0/0x420\n",
 		"     30.00    30.00  after:  before it\n                     before: after it\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the detail has no %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "fast_init") || strings.Contains(got, "after:  x") {
+	if strings.Contains(got, "fast_init") || strings.Contains(got, "after:  x\n") {
 		t.Errorf("top=2 listed more than two initcalls or one gap:\n%s", got)
 	}
 }
@@ -403,13 +425,13 @@ func TestTheProbesAreTheGoalsAndTheKernels(t *testing.T) {
 }
 
 func TestTheScratchIsTMPDIROnADiskOrTheLabsOwn(t *testing.T) {
-	disk, err := filepath.Abs(".")
+	disk, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GITHUB_ACTIONS", "")
 	if isTmpfs(disk) {
-		t.Skip("this package's directory is on a tmpfs")
+		t.Skip("the home directory is on a tmpfs")
 	}
 	t.Setenv("TMPDIR", disk)
 	if got, err := Scratch(t.TempDir()); err != nil || got != disk {
