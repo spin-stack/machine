@@ -161,10 +161,11 @@ type TreeSpec struct {
 	// Kernel and QEMU replace those parts: "run:N" for a Kernel or QEMU workflow run, or a path
 	// (a bzImage; a directory holding bin/qemu-system-x86_64 and qemu/).
 	Kernel, QEMU string
-	// SpinMachine is "here" for this checkout's, built; left out, it is the From tree's own when it
-	// has one (_output after `task build`) and this checkout's otherwise. A release ships none -
-	// spin builds the Go package - so a release tree's is always a build, and the manifest says
-	// whose.
+	// SpinMachine is "here" for this checkout's, built; "release" for the one built from the
+	// commit the From tree's machine.env names, which is the machine that release defined: spin
+	// builds the machine package of the release it pins, and a release ships no spin-machine
+	// binary. Left out, it is the From tree's own when it has one (_output after a build) and this
+	// checkout's otherwise. The manifest says whose.
 	SpinMachine string
 	Append      string
 	Edits       []string
@@ -228,8 +229,14 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 			return nil, err
 		}
 		m.Parts["spin-machine"] = Part{Source: source}
+	case "release":
+		source, err := src.releaseSpinMachine(base, filepath.Join(dir, partFiles["spin-machine"]))
+		if err != nil {
+			return nil, err
+		}
+		m.Parts["spin-machine"] = Part{Source: source}
 	default:
-		return nil, fmt.Errorf("--spin-machine is here, or left out, not %q", spec.SpinMachine)
+		return nil, fmt.Errorf("--spin-machine is here, release, or left out, not %q", spec.SpinMachine)
 	}
 	for _, name := range spec.Edits {
 		e, err := namedEdit(name, src.Checkout)

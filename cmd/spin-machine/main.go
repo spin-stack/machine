@@ -30,7 +30,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	bootreport "github.com/spin-stack/spin-machine/boot"
 	"github.com/spin-stack/spin-machine/machine"
 )
 
@@ -58,7 +57,6 @@ Usage:
   spin-machine memory      [flags]   grow or shrink a running VM between its memory and its ceiling
   spin-machine cpus        [flags]   add or remove vCPUs, up to the ceiling
   spin-machine cpu         [flags]   print the CPU the guest is shown and the named models this host runs
-  spin-machine compare     [flags]   say what changed between two reports of the feature matrix
 
 spin-machine <command> -h lists a command's flags.
 `
@@ -98,12 +96,6 @@ func run(argv []string) error {
 		default:
 			return fingerprint(spec)
 		}
-	case "compare":
-		var o compareFlags
-		if err := parse(cmd, argv, o.register); err != nil {
-			return err
-		}
-		return compare(o, os.Stdout)
 	case bindCommand:
 		var o machineFlags
 		if err := parse(cmd, argv, o.register); err != nil {
@@ -350,38 +342,4 @@ func fingerprint(s machine.Spec) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
-}
-
-type compareFlags struct {
-	old, new  string
-	threshold float64
-}
-
-func (o *compareFlags) register(fs *flag.FlagSet) {
-	fs.StringVar(&o.old, "old", "", "the report to compare against, as `task report` writes it (required)")
-	fs.StringVar(&o.new, "new", "", "the report being judged (required)")
-	fs.Float64Var(&o.threshold, "threshold", 0.05, "a usable-time change smaller than this fraction is not reported")
-}
-
-// compare writes, as Markdown, what changed from one report of the feature matrix to the
-// next: a release against the one before it, or an experiment against the release it
-// started from.
-func compare(o compareFlags, w io.Writer) error {
-	if o.old == "" || o.new == "" {
-		return errors.New("compare: --old and --new are required")
-	}
-	var reports []bootreport.Report
-	for _, p := range []string{o.old, o.new} {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return fmt.Errorf("reading the report: %w", err)
-		}
-		var r bootreport.Report
-		if err := json.Unmarshal(b, &r); err != nil {
-			return fmt.Errorf("reading the report %s: %w", p, err)
-		}
-		reports = append(reports, r)
-	}
-	bootreport.Diff(w, reports[0], reports[1], o.threshold)
-	return nil
 }

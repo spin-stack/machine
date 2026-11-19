@@ -31,7 +31,7 @@ type variant struct {
 	kernel  string            // a kernel other than the release's, for comparing configs
 	profile bool              // boot with `--profile`: initcall profiling, console silent
 	setup   string            // shell run with the overlay mounted, $MNT its root
-	flags   []string          // spin-machine boot flags after the rest: the feature matrix's axes
+	flags   []string          // spin-machine boot flags after the rest
 	// -device entries taken out of the machine, by prefix ("virtio-rng-pci"): a diagnostic row
 	// of a machine with another fingerprint, which spin-machine deliberately has no flag for.
 	// Only bootWaits honours it; see machineCommand.

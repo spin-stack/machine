@@ -38,6 +38,11 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, t := range e.Trees {
+		if err := CanRun(e.Probe, opts, t); err != nil {
+			return nil, fmt.Errorf("tree %s cannot run %s: %w", t.Name(), e.Probe.Name(), err)
+		}
+	}
 	key, err := NewKey()
 	if err != nil {
 		return nil, err

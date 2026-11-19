@@ -65,6 +65,55 @@ func (g *GitHub) DownloadRelease(tag, pattern, dir string) error {
 	return err
 }
 
+// Releases are the tags of the newest n published releases, newest first.
+//
+// mutate-lane: TestTheLabTalksToGitHub
+func (g *GitHub) Releases(n int) ([]string, error) {
+	out, err := g.gh("release", "list", "-R", g.Repo, "--exclude-drafts", "--exclude-pre-releases",
+		"--limit", fmt.Sprint(n), "--json", "tagName", "-q", ".[].tagName")
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
+}
+
+// Publish uploads file to release tag, replacing one of its name, and ends the release's notes
+// with section, after marker: a section published before, from its marker on, is replaced, so
+// that publishing again leaves one.
+//
+// mutate-lane: TestTheLabTalksToGitHub
+func (g *GitHub) Publish(tag, file, marker, section string) error {
+	if _, err := g.gh("release", "upload", tag, "-R", g.Repo, file, "--clobber"); err != nil {
+		return err
+	}
+	notes, err := g.gh("release", "view", tag, "-R", g.Repo, "--json", "body", "-q", ".body")
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp("", "notes-*.md")
+	if err != nil {
+		return fmt.Errorf("writing release %s's notes: %w", tag, err)
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	_, err = f.WriteString(WithSection(string(notes), marker, section))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return fmt.Errorf("writing release %s's notes: %w", tag, err)
+	}
+	_, err = g.gh("release", "edit", tag, "-R", g.Repo, "--notes-file", f.Name())
+	return err
+}
+
+// WithSection is notes ending with marker and section in place of whatever followed marker.
+func WithSection(notes, marker, section string) string {
+	if i := strings.Index(notes, marker); i >= 0 {
+		notes = notes[:i]
+	}
+	return strings.TrimRight(notes, "\n") + "\n\n" + marker + "\n" + section
+}
+
 // DownloadRun puts the artifacts of run id whose names match pattern in dir.
 //
 // mutate-lane: TestTheLabTalksToGitHub

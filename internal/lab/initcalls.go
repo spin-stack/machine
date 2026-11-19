@@ -38,7 +38,11 @@ func (initcalls) Options() []Option {
 	return append(shape, Option{"top", "30", "how many initcalls, and half as many gaps, to list"})
 }
 func (initcalls) Rows(Options) []string { return []string{"boot"} }
-func (initcalls) Phases() int           { return 1 }
+
+func (initcalls) Needs(Options) []Need {
+	return append(bootNeeds, Need{"boot", "console"}, Need{"boot", "append"}, Need{"boot", "profile"})
+}
+func (initcalls) Phases() int { return 1 }
 
 func (initcalls) Metrics() []Metric {
 	return []Metric{

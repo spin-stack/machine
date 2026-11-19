@@ -43,6 +43,11 @@ func (prestart) Rows(Options) []string {
 }
 func (prestart) Phases() int { return 2 }
 
+func (prestart) Needs(Options) []Need {
+	return append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "qmp"}, Need{"boot", "held"}, Need{"boot", "restore"},
+		Need{"save", "to"}, Need{"start", "disk"}, Need{"restore", "disk"})
+}
+
 func (prestart) Metrics() []Metric {
 	return []Metric{
 		{"running", "ms", "`start` or `restore` returned; nothing for a cold boot"},

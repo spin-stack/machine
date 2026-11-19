@@ -88,15 +88,12 @@ tasks:
 
   compat:
     desc: >-
-      A checkpoint the newest published release saves resumes on this tree's build, when the two
-      have one fingerprint (machine.Spec.Fingerprint); PREVIOUS=<version> names another release
-      (boot:previous). Needs a built release and /dev/kvm.
-    deps:
-      - ':tools'
-      - task: previous
-        vars: {PREVIOUS: '{{.PREVIOUS}}'}
+      A checkpoint of every release since the fingerprint last moved (machine.Spec.Fingerprint)
+      resumes on this tree's build: spin-machine-dev lab compat over a built release. Needs /dev/kvm
+      and gh.
+    deps: [':tools']
     cmds:
-      - SPIN_COMPAT_PREVIOUS="$(cat {{.OUTPUT_ABS}}/compat/previous)" go test ./boot/ -run '^TestACheckpointOfTheReleaseBeforeResumesHere$' -count=1 -v -timeout 10m
+      - go run ./cmd/spin-machine-dev lab compat --here {{.OUTPUT_ABS}}
 
   logind:
     desc: >-

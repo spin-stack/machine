@@ -146,6 +146,8 @@ out as one (`--from _output`), and replaces what is asked for: `--kernel run:N` 
 run's bzImage; a run from before 2026-11-19 has none and is refused by name), `--qemu run:N`,
 `--spin-machine here` (built from this checkout; a release ships none, so a tree from one always
 gets this checkout's, as the `boot:` targets' `:tools` dependency gave the probes before),
+`--spin-machine release` (built, through the module proxy, from the commit the release's
+`machine.env` names: the machine that release defined, which the ladder boots each release with),
 `--append ARGS`, `--edit lane` (the first login's
 lane as this checkout builds it, put into a published release's overlays), `--systemd PATCH`
 (image/systemd/experiments). Nothing is written through the tree it starts from: parts are links,
@@ -159,7 +161,25 @@ spin-machine-dev lab run PROBE [TREE...] [--tree NAME=SPEC]... [--reps N] [--opt
 spin-machine-dev lab show RUN_ID|DIR                     a lab run's result.json, downloaded, as its table
 spin-machine-dev lab dispatch PROBE --tree NAME=SPEC... [--reps N] [--opt K=V]... [--host bench|bench-metal]
 spin-machine-dev lab check TARGET [--tree NAME=SPEC]     boot:TARGET on one tree
+spin-machine-dev lab ladder [--releases N] [--newest vX] the newest releases measured together: ladder.json
+spin-machine-dev lab publish DIR                         DIR/ladder.json up to its newest release, its table in the notes
+spin-machine-dev lab compat [--here DIR] [--releases N]  a checkpoint of every release since the contract moved, resumed
 ```
+
+A release is measured against the ones before it by `lab ladder`, not by comparing two reports
+taken apart: the newest releases (five unless told), each a tree with `--spin-machine release`, every
+goal probe over the releases whose spin-machine can run it (a probe says which commands and flags
+it needs; v20261119.01's has no `boot --restore`), interleaved on one host. Its table is the
+release notes': the two goal numbers release by release, each against the release above and the
+newest against 100 ms, the prestarted ones, and save, state, the kernel and QEMU's RSS as
+diagnostics. report.yml runs it after every release (`lab publish` puts it on the release) and
+weekly (its artifact, read by `lab show RUN_ID`).
+
+`lab compat` is boot:compat over every release since the fingerprint last moved, newest first: a
+host that skipped releases still resumes their checkpoints. A release is fetched checked against
+its sha256 and its signature, as every release a tree is made from is. It stops at the first
+release with another fingerprint, and holds `machine.CanResume` to QEMU's one-way promise against
+each release's QEMU on the way.
 
 The probes: `ssh-first` and `restore-first` are the goal's two numbers, `prestart` a QEMU started
 ahead against today's, `initcalls` the kernel's boot by initcall. Every probe takes `cpus`,
@@ -173,7 +193,7 @@ nested against metal. `lab run` exits 1 when a measurement was lost (a machine t
 answered, counted in the table's LOST) and 2 when the experiment could not run.
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
-`firmware`, `roms`, `compat`, `hotadd`, `logind`, `lockdown`, and two probes not yet ported,
+`firmware`, `roms`, `compat` (one release; `lab compat` runs it over many), `hotadd`, `logind`, `lockdown`, and two probes not yet ported,
 `firmware-stages` and `waits`. `lab check TARGET` runs one on any tree, here or as lab.yml's
 `check:TARGET`.
 

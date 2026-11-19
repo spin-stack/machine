@@ -37,7 +37,7 @@ Probes: ` + strings.Join(lab.ProbeNames(), ", ") + `.
 A number is only worth comparing on a quiet host of the kind the goal is measured on: the bench
 fleet, through lab dispatch. Here, lab run finds leads.`,
 	}
-	c.AddCommand(labTree(), labRun(), labShow(), labDispatch(), labCheck())
+	c.AddCommand(labTree(), labRun(), labShow(), labDispatch(), labCheck(), labLadder(), labPublish(), labCompat())
 	return c
 }
 
@@ -46,7 +46,7 @@ func treeFlags(fs *pflag.FlagSet, s *lab.TreeSpec) {
 	fs.StringVar(&s.From, "from", "release", "what the tree starts from: release, release:vYYYYMMDD.NN, or a directory laid out as one (_output)")
 	fs.StringVar(&s.Kernel, "kernel", "", "the kernel instead: run:N (a Kernel workflow run) or a bzImage")
 	fs.StringVar(&s.QEMU, "qemu", "", "QEMU and its firmware instead: run:N (a QEMU workflow run) or a directory with bin/ and qemu/")
-	fs.StringVar(&s.SpinMachine, "spin-machine", "", "here: built from this checkout; left out, the --from tree's own when it has one, else this checkout's (a release ships none)")
+	fs.StringVar(&s.SpinMachine, "spin-machine", "", "here: built from this checkout; release: built from the commit the --from release was made from, the machine it defined; left out, the --from tree's own when it has one, else this checkout's (a release ships none)")
 	fs.StringVar(&s.Append, "append", "", "added to the kernel command line of every boot")
 	fs.StringArrayVar(&s.Edits, "edit", nil, "an edit of every boot's overlay, by name: lane (the first login's lane as this checkout builds it)")
 	fs.StringVar(&s.Systemd, "systemd", "", "an image/systemd/experiments patch: systemd built with it here, in every overlay")
@@ -259,18 +259,185 @@ func report(w io.Writer, r *lab.Result) error {
 		text += d.Detail(r)
 	}
 	_, _ = fmt.Fprintln(w, text)
-	if f := os.Getenv("GITHUB_STEP_SUMMARY"); f != "" {
-		if s, err := os.OpenFile(f, os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
-			_, _ = fmt.Fprintf(s, "```\n%s\n```\n", text)
-			_ = s.Close()
-		}
-	}
+	summarise("```\n" + text + "\n```")
 	for _, s := range r.Samples {
 		if s.Missed != "" {
 			return exitError{code: 1}
 		}
 	}
 	return nil
+}
+
+// ladderMarker heads the ladder's section of a release's notes, so that publishing again replaces
+// it rather than adding a second.
+const ladderMarker = "<!-- spin-machine-dev lab ladder -->"
+
+// mutate-lane: TestLabLadderMeasuresReleases
+func labLadder() *cobra.Command {
+	var releases, reps int
+	var newest, out string
+	c := &cobra.Command{
+		Use:   "ladder",
+		Short: "Measure the newest releases together, each with its own spin-machine, and write ladder.json",
+		Long: `Measure the --releases newest published releases up to --newest, interleaved on this host:
+the two goal numbers (a cold boot and a restore, each to the first SSH login), both again into a
+QEMU started ahead, and beside them save, state, kernel and QEMU RSS as diagnostics. Each release
+is a tree booted by the spin-machine of the commit it was made from; a release whose spin-machine
+cannot run a probe is a cell that says why. Writes OUT/ladder.json and OUT/ladder.md, and prints
+the table. Exits 1 when a measurement was lost, 2 when the ladder could not run.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			root, err := repo()
+			if err != nil {
+				return couldNot(err)
+			}
+			all, err := github().Releases(max(releases, 30))
+			if err != nil {
+				return couldNot(err)
+			}
+			tags, err := lab.LadderReleases(all, newest, releases)
+			if err != nil {
+				return couldNot(err)
+			}
+			var specs []string
+			for _, tag := range tags {
+				specs = append(specs, tag+"=--from release:"+tag+" --spin-machine release")
+			}
+			ts, err := trees(root, nil, specs, c.ErrOrStderr())
+			if err != nil {
+				return couldNot(err)
+			}
+			scratch, err := lab.Scratch(filepath.Join(root, "_output", "lab"))
+			if err != nil {
+				return couldNot(err)
+			}
+			l, err := lab.RunLadder(c.Context(), ts, reps, scratch, c.ErrOrStderr())
+			if err != nil {
+				return couldNot(err)
+			}
+			if out == "" {
+				out = filepath.Join(root, "_output", "lab", "ladder")
+			}
+			return writeLadder(c.OutOrStdout(), l, out)
+		},
+	}
+	c.Flags().IntVar(&releases, "releases", 5, "how many releases, the newest up to --newest")
+	c.Flags().StringVar(&newest, "newest", "", "the newest release measured (default the newest published)")
+	c.Flags().IntVar(&reps, "reps", 20, "boots of each release for each probe")
+	c.Flags().StringVar(&out, "out", "", "where ladder.json and ladder.md go (default _output/lab/ladder)")
+	return c
+}
+
+// writeLadder writes l's JSON and Markdown under out, prints the Markdown, on the run's summary
+// too in a workflow, and says 1 when a measurement was lost.
+func writeLadder(w io.Writer, l *lab.Ladder, out string) error {
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return couldNot(fmt.Errorf("making %s: %w", out, err))
+	}
+	if err := l.Write(filepath.Join(out, "ladder.json")); err != nil {
+		return couldNot(err)
+	}
+	md := l.Markdown()
+	if err := os.WriteFile(filepath.Join(out, "ladder.md"), []byte(md), 0o644); err != nil {
+		return couldNot(fmt.Errorf("writing %s: %w", filepath.Join(out, "ladder.md"), err))
+	}
+	_, _ = fmt.Fprintln(w, md)
+	summarise(md)
+	for _, r := range l.Results {
+		for _, s := range r.Samples {
+			if s.Missed != "" {
+				return exitError{code: 1}
+			}
+		}
+	}
+	return nil
+}
+
+// summarise appends text to the run's summary in a workflow.
+func summarise(text string) {
+	if f := os.Getenv("GITHUB_STEP_SUMMARY"); f != "" {
+		if s, err := os.OpenFile(f, os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+			_, _ = fmt.Fprintln(s, text)
+			_ = s.Close()
+		}
+	}
+}
+
+// mutate-lane: TestLabCompatResumesEveryRelease
+func labCompat() *cobra.Command {
+	var here string
+	var releases int
+	c := &cobra.Command{
+		Use:   "compat",
+		Short: "Resume, on this machine, a checkpoint of every release since the fingerprint last moved",
+		Long: `boot:compat over the newest --releases published releases, newest first, each fetched and
+checked against its sha256 and its signature: a checkpoint each saves goes on running on the
+machine at --here (a built release: _output, or boot:here's tree in CI). It stops at the first
+release with another fingerprint, whose checkpoints - and every older one's - are not meant to
+resume. For each, a checkpoint of --here's QEMU is one CanResume refuses on an older QEMU.
+Exits 1 when one did not resume.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			root, err := repo()
+			if err != nil {
+				return couldNot(err)
+			}
+			tags, err := github().Releases(releases)
+			if err != nil {
+				return couldNot(err)
+			}
+			abs, err := filepath.Abs(here)
+			if err != nil {
+				return couldNot(err)
+			}
+			resume := func(previous string) error {
+				cmd := exec.CommandContext(c.Context(), "go", "test", "./boot/", "-run", "^TestACheckpointOfTheReleaseBeforeResumesHere$",
+					"-count=1", "-v", "-timeout", "10m")
+				cmd.Dir, cmd.Stdout, cmd.Stderr = root, c.ErrOrStderr(), c.ErrOrStderr()
+				cmd.Env = append(os.Environ(), "SPIN_COMPAT_PREVIOUS="+previous, "SPIN_MACHINE_OUTPUT="+abs)
+				return cmd.Run()
+			}
+			rows, err := lab.Compat(abs, tags, sources(root, c.ErrOrStderr()), resume, c.ErrOrStderr())
+			if err != nil {
+				return couldNot(err)
+			}
+			table := lab.CompatTable(rows)
+			_, _ = fmt.Fprintln(c.OutOrStdout(), table)
+			summarise(table)
+			for _, r := range rows {
+				if !r.Resumed && !r.Moved {
+					return exitError{code: 1}
+				}
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&here, "here", "_output", "the machine checkpoints resume on: a built release")
+	c.Flags().IntVar(&releases, "releases", 10, "how many of the newest releases at most")
+	return c
+}
+
+func labPublish() *cobra.Command {
+	return &cobra.Command{
+		Use:   "publish DIR",
+		Short: "Upload DIR/ladder.json to the newest release it measured and end that release's notes with its table",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			path := filepath.Join(args[0], "ladder.json")
+			l, err := lab.ReadLadder(path)
+			if err != nil {
+				return couldNot(err)
+			}
+			if len(l.Releases) == 0 {
+				return couldNot(fmt.Errorf("%s measured no release", path))
+			}
+			tag := l.Releases[len(l.Releases)-1]
+			if err := github().Publish(tag, path, ladderMarker, l.Markdown()); err != nil {
+				return couldNot(fmt.Errorf("publishing the ladder to %s: %w", tag, err))
+			}
+			return nil
+		},
+	}
 }
 
 func labShow() *cobra.Command {
@@ -282,6 +449,15 @@ func labShow() *cobra.Command {
 			path, err := resultOf(args[0])
 			if err != nil {
 				return couldNot(err)
+			}
+			// A ladder's run left ladder.json where a lab run leaves result.json.
+			if ladder := filepath.Join(filepath.Dir(path), "ladder.json"); exists(ladder) {
+				l, err := lab.ReadLadder(ladder)
+				if err != nil {
+					return couldNot(err)
+				}
+				_, _ = fmt.Fprintln(c.OutOrStdout(), l.Markdown())
+				return nil
 			}
 			r, err := lab.ReadResult(path)
 			if err != nil {
@@ -304,12 +480,18 @@ func resultOf(arg string) (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(root, "_output", "lab", "runs", arg, "result")
-	if _, err := os.Stat(filepath.Join(dir, "result.json")); err != nil {
+	if !exists(filepath.Join(dir, "result.json")) && !exists(filepath.Join(dir, "ladder.json")) {
 		if err := github().Artifact(arg, "lab-"+arg, dir); err != nil {
 			return "", err
 		}
 	}
 	return filepath.Join(dir, "result.json"), nil
+}
+
+// exists says whether there is a file at path.
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // mutate-lane: TestLabDispatchMeasuresOnTheBench

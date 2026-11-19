@@ -6,8 +6,8 @@
 # verbs, a step each (docs/cli.md). `go tool task bin` puts it in _output/bin.
 #
 # This file is go-tools' gates and CI's plumbing: test, lint, lint:workflows, mutate and coverage;
-# bin, the release app's git (git:app), and the probes' (boot/, the lab's and the report's
-# targets), which boot what the verbs built. `go tool task <name>` is the Task CI runs: go-tools'
+# bin, the release app's git (git:app), and the probes' (boot/ and the lab's targets), which boot
+# what the verbs built. `go tool task <name>` is the Task CI runs: go-tools'
 # task command, which runs the Task versions.yaml pins with go-tools' commands on its PATH.
 #
 # What is deliberately NOT here: the software that runs inside a guest. This repository
@@ -196,27 +196,6 @@ tasks:
         } >> "$summary"
         go tool cover -html=coverage.out -o coverage.html
 
-  report:
-    desc: >-
-      Every combination of the machine's features, and the image's boot variants, booted and
-      written as JSON to OUT: what each is, whether QEMU runs it, and what a boot of it costs.
-      `spin-machine compare --old A --new B` says what changed between two - two releases, or a
-      release and an experiment. Needs /dev/kvm and a built release (OUTPUT_DIR); sudo for the
-      variants that edit the image. REPS= boots per row, ONLY=<regexp> for some rows,
-      FLAGS="--kernel ... --append ..." for an experiment on every boot.
-    deps: [tools]
-    vars:
-      OUT: '{{.OUT | default (printf "%s/report.json" .OUTPUT_ABS)}}'
-      REPS: '{{.REPS | default "20"}}'
-    cmds:
-      # TMPDIR on disk, because the overlays and memory files go there: gigabytes a tmpfs
-      # /tmp holds in RAM.
-      - mkdir -p {{.OUTPUT_ABS}}/report-tmp
-      - >-
-        TMPDIR={{.OUTPUT_ABS}}/report-tmp SPIN_MACHINE_OUTPUT={{.OUTPUT_ABS}} SPIN_REPORT={{.OUT}}
-        SPIN_REPORT_ONLY='{{.ONLY}}' SPIN_REPORT_FLAGS='{{.FLAGS}}' REPS={{.REPS}}
-        go test ./boot/ -run '^TestReport$' -count=1 -v -timeout 6h
-
   # Measuring is spin-machine-dev lab (docs/cli.md); these build it and run it. Built rather than
   # go run, which flattens a verb's exit status to 1, and a lost measurement (1) is not a lab that
   # could not run (2).
@@ -237,79 +216,6 @@ tasks:
           check:*) {{.OUTPUT_ABS}}/bin/spin-machine-dev lab check "${PROBE#check:}" --tree "$TREES" ;;
           *) {{.OUTPUT_ABS}}/bin/spin-machine-dev lab run "$PROBE" --tree "$TREES" --reps "$REPS" --opt "$OPTIONS" --out _output/lab/result ;;
         esac
-
-  report:runner:
-    desc: What this host can measure, said before anything is, on the run's summary in CI; fails without a usable /dev/kvm.
-    # A row the report skips is one this host lacks the device for, and this says which first.
-    cmds:
-      - |
-        set -e
-        {
-          echo "### Runner ${RUNNER_NAME:-$(hostname)}"
-          echo
-          for dev in /dev/kvm /dev/vhost-vsock; do
-            if [ -r "$dev" ] && [ -w "$dev" ]; then echo "- $dev: usable"; else echo "- $dev: **not usable** ($(ls -l "$dev" 2>&1))"; fi
-          done
-          if sudo -n true 2>/dev/null; then
-            echo "- sudo -n: yes"
-            sudo -n modprobe nbd max_part=8 2>/dev/null || true
-            for _ in $(seq 50); do [ -e /dev/nbd0 ] && break; sleep 0.02; done
-            if [ -e /dev/nbd0 ]; then echo "- /dev/nbd0: present (image variants and the echo login run)"; else echo "- /dev/nbd0: **missing** (image variants are skipped, the login is agetty's)"; fi
-          else
-            echo "- sudo -n: **no** (image variants are skipped, the login is agetty's)"
-          fi
-          echo "- gh: $(command -v gh || echo '**missing**')"
-          echo "- CPU: $(sed -n 's/^model name\s*: //p' /proc/cpuinfo | head -1), $(nproc) CPUs"
-          echo "- TMPDIR: ${TMPDIR:-/tmp} on $(df --output=source "${TMPDIR:-/tmp}" | tail -1) ($(lsblk -dno MODEL "$(df --output=source "${TMPDIR:-/tmp}" | tail -1)" 2>/dev/null | sed 's/ *$//' || echo unknown))"
-        } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-        [ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo "::error::no usable /dev/kvm: nothing here can be measured"; exit 1; }
-
-  report:unpack:
-    desc: >-
-      The release VERSION's tarball, as a consumer gets it, unpacked into _output/report: what is
-      measured is what was published. Needs gh.
-    cmds:
-      - |
-        set -euo pipefail
-        rm -rf _output/report
-        mkdir -p _output/report
-        gh release download "$VERSION" -R "$GITHUB_REPOSITORY" -p '*.tar.gz' -D _output/report
-        tar -xzf _output/report/*.tar.gz -C _output/report
-        echo "RELEASE_TREE=$PWD/_output/report/spin-machine-${VERSION}-linux-x86_64/usr/share/spin-stack" >> "${GITHUB_ENV:-/dev/stdout}"
-
-  report:compare:
-    desc: >-
-      _output/report/report.json against the newest release before VERSION that published one,
-      in compare.md beside it and on the run's summary in CI. Needs gh.
-    cmds:
-      - |
-        set -euo pipefail
-        cd _output/report
-        previous=""
-        for tag in $(gh release list -R "$GITHUB_REPOSITORY" --limit 30 --json tagName -q '.[].tagName'); do
-          [ "$tag" = "$VERSION" ] && continue
-          if gh release download "$tag" -R "$GITHUB_REPOSITORY" -p report.json -O previous.json 2>/dev/null; then
-            previous="$tag"
-            break
-          fi
-        done
-        if [ -n "$previous" ]; then
-          "$RELEASE_TREE/bin/spin-machine" compare --old previous.json --new report.json > compare.md
-        else
-          echo "No earlier release published a report.json to compare the feature matrix with." > compare.md
-        fi
-        cat compare.md >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
-
-  report:publish:
-    desc: Upload _output/report/report.json to the release VERSION and append compare.md to its notes. Needs gh.
-    cmds:
-      - |
-        set -euo pipefail
-        cd _output/report
-        gh release upload "$VERSION" -R "$GITHUB_REPOSITORY" report.json --clobber
-        gh release view "$VERSION" -R "$GITHUB_REPOSITORY" --json body -q .body > notes.md
-        { echo; cat compare.md; } >> notes.md
-        gh release edit "$VERSION" -R "$GITHUB_REPOSITORY" --notes-file notes.md
 
   # A pull request opened with a workflow run's own token starts no checks; one the release app
   # (spin-stack-release) opens does, and kernel.yml is the check a kernel bump needs.
