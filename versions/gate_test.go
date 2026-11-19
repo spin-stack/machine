@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/spin-stack/go-tools/versions"
@@ -26,7 +27,13 @@ func TestVersionsYAMLIsTheOnlyPin(t *testing.T) {
 		// has to rebase the patch and restate both; versions.yaml's note says so.
 		"NOTICE",
 		"qemu/qboot/README.md",
-	}}
+	},
+		// And spin-machine-dev's Go, which reads versions.yaml with go-tools' package: a part's pins
+		// as one literal of names (internal/build), and one entry by its name.
+		Reads: append(slices.Clone(gate.DefaultReads),
+			regexp.MustCompile(`strings\.Fields\("([a-z0-9 -]+)"\)`),
+			regexp.MustCompile(`\.Get\("([a-z0-9-]+)"\)`)),
+	}
 	if err := g.Check(); err != nil {
 		t.Error(err)
 	}

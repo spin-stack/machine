@@ -1,0 +1,308 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/spin-stack/spin-machine/internal/build"
+)
+
+func init() {
+	verbs = append(verbs, buildCmd, fetchCmd, verifyCmd, publishCmd, changedCmd)
+}
+
+// buildFlags are the choices a build takes.
+type buildFlags struct {
+	jobs       int
+	registry   bool
+	export     bool
+	experiment string
+	rebuild    bool
+}
+
+func (f *buildFlags) register(c *cobra.Command) {
+	c.Flags().IntVar(&f.jobs, "jobs", min(runtime.NumCPU(), 8), "compile jobs each build runs")
+	c.Flags().BoolVar(&f.registry, "cache-registry", false, "read and write BuildKit's cache in "+build.CacheRegistry+" (CI) instead of under .cache/")
+	c.Flags().BoolVar(&f.export, "cache-export", true, "write the cache back; only main's lanes need to")
+	c.Flags().StringVar(&f.experiment, "systemd-experiment", "", "build systemd with image/systemd/experiments/<name>.patch")
+	c.Flags().BoolVar(&f.rebuild, "rebuild", false, "build what is named even when its manifest says it is current")
+}
+
+func (f buildFlags) options(c *cobra.Command, w workspace) build.Options {
+	return build.Options{Root: w.root, Out: w.out, Pins: w.pins, Jobs: f.jobs, Registry: f.registry, Export: f.export,
+		SystemdExperiment: f.experiment, Rebuild: f.rebuild, Stdout: c.ErrOrStderr(), Stderr: c.ErrOrStderr()}
+}
+
+// parts is what a verb was asked for, every part when nothing was, and whether spin-machine is in it.
+func parts(args []string) (names []string, tools bool) {
+	if len(args) == 0 {
+		return nil, true
+	}
+	for _, a := range args {
+		if a == "spin-machine" {
+			tools = true
+			continue
+		}
+		names = append(names, a)
+	}
+	return names, tools
+}
+
+func buildCmd() *cobra.Command {
+	var f buildFlags
+	c := &cobra.Command{
+		Use:   "build [part...]",
+		Short: "Build the machine's parts that are missing or stale into _output, and verify each",
+		Long: `Build the machine's parts into _output: ` + strings.Join(build.Names(), ", ") + ` and spin-machine,
+every one when none is named, with what a named part is made with.
+
+A part is built when it is missing or stale. Each one leaves a manifest in _output/manifest naming a
+digest of its inputs - the build arguments versions.yaml gives its Dockerfile and every file under
+its directory - and one whose inputs have not moved, and whose output still verifies, is left as it
+is. Every part is verified after it is built: the binaries run here, the kernel is a relocatable
+bzImage, the tools are the pinned version (verify says what each checks).
+
+In a workflow it writes what each part is to the run's summary, and qemu_version to the step's
+outputs.`,
+		ValidArgs: append(build.Names(), "spin-machine"),
+		Args:      cobra.OnlyValidArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			w, err := open()
+			if err != nil {
+				return err
+			}
+			o := f.options(c, w)
+			names, tools := parts(args)
+			var results []build.Result
+			if len(names) > 0 || len(args) == 0 {
+				plan, err := build.Plan(names)
+				if err != nil {
+					return couldNot(err)
+				}
+				if results, err = build.Make(c.Context(), o, plan); err != nil {
+					return couldNot(err)
+				}
+				if err := describe(o, results); err != nil {
+					return couldNot(err)
+				}
+			}
+			if tools {
+				if err := build.Tools(c.Context(), o); err != nil {
+					return couldNot(fmt.Errorf("building spin-machine: %w", err))
+				}
+				results = append(results, build.Result{Part: "spin-machine", From: "build", Built: true})
+			}
+			for _, r := range results {
+				if r.Built {
+					say(c, "✓ %s", r.Part)
+				}
+			}
+			return emit(c.OutOrStdout(), results)
+		},
+	}
+	f.register(c)
+	return c
+}
+
+// describe writes what the built parts are to the run's summary and the step's outputs.
+func describe(o build.Options, results []build.Result) error {
+	for _, r := range results {
+		lines, err := build.Summary(o, r.Part)
+		if err != nil {
+			return err
+		}
+		if len(lines) > 0 {
+			if err := summary(strings.Join(lines, "\n") + "\n"); err != nil {
+				return err
+			}
+		}
+		if r.Part == "qemu" {
+			v, err := build.QEMUVersion(o)
+			if err != nil {
+				return err
+			}
+			if err := output("qemu_version", v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func fetchCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "fetch qemu",
+		Short: "Put the published QEMU of the pinned version into _output instead of building it",
+		Long: `Put the QEMU main published for the version versions.yaml pins into _output: the same tree a
+build writes, verified the same way, in seconds against tens of minutes - the binaries are static,
+so the image around them carries nothing they need. Needs a docker login that can read packages.
+
+The manifest it leaves says it was fetched, so a build that wants this tree's QEMU builds it.`,
+		ValidArgs: []string{"qemu"},
+		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		RunE: func(c *cobra.Command, _ []string) error {
+			w, err := open()
+			if err != nil {
+				return err
+			}
+			if err := build.FetchQEMU(c.Context(), buildFlags{}.options(c, w)); err != nil {
+				return couldNot(err)
+			}
+			say(c, "✓ qemu, fetched")
+			return nil
+		},
+	}
+}
+
+func verifyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "verify [part|args...]",
+		Short: "Assert what is in _output is what each part has to be, and that QEMU accepts the machine's arguments",
+		Long: `Assert what is in _output, building nothing:
+
+  qemu       qemu-system-x86_64, its TCG twin and qemu-img run here, the seven firmware files are
+             there and qboot.bin is 64 KiB, only the TCG binary can emulate, and both still offer
+             the machine type every checkpoint is saved on (a newer one is said, not failed)
+  kernel     a bzImage whose setup header says relocatable, and a vmlinux with its PVH notes
+  e2fsprogs  the four tools and mke2fs.conf, and mkfs.ext4 answers the pinned version
+  systemd    the packages the image installs
+  image      rootfs.qcow2, packages.txt and licenses.txt (image/build.sh asserts what is inside)
+  args       the TCG QEMU accepts every interesting command line the machine package builds: each
+             is started, stopped before its first instruction, and asked to answer on QMP
+
+Every part when none is named, and args with them. args refuses rather than skipping when there is
+no QEMU to ask: spin-machine-dev fetch qemu (seconds) or build qemu (tens of minutes) puts one there.`,
+		ValidArgs: append(build.Names(), "args"),
+		Args:      cobra.OnlyValidArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			w, err := open()
+			if err != nil {
+				return err
+			}
+			names, withArgs := without(args, "args")
+			if len(args) == 0 {
+				names, withArgs = build.Names(), true
+			}
+			var plan []build.Part
+			for _, n := range names {
+				p, err := build.Lookup(n)
+				if err != nil {
+					return couldNot(err) // mutate-exempt: cobra.OnlyValidArgs refused any other name before this
+				}
+				plan = append(plan, p)
+			}
+			if err := build.Verify(buildFlags{}.options(c, w), plan); err != nil {
+				return exitError{code: 1, err: err}
+			}
+			if withArgs {
+				return verifyArgs(c, w)
+			}
+			return nil
+		},
+	}
+}
+
+// verifyArgs asks the TCG QEMU in _output whether it accepts what the machine package builds,
+// and what QEMU does with a chain handed over by descriptor. -count=1 because the answer depends on
+// a file the test cache does not know about; -v because what was rewritten for the TCG binary, and
+// what a host without /dev/vhost-vsock left unchecked, is the part a reader has to see.
+func verifyArgs(c *cobra.Command, w workspace) error {
+	tcg := filepath.Join(w.out, "bin", "qemu-system-x86_64-tcg")
+	if _, err := os.Stat(tcg); err != nil {
+		return couldNot(fmt.Errorf("no %s to ask: spin-machine-dev fetch qemu puts the published one there, in seconds", tcg))
+	}
+	cmd := []string{"test", "./machine", "-run", "TestQEMUAcceptsEveryArgument|TestAChainOverDescriptors", "-count=1", "-v"}
+	return withEnv("SPIN_MACHINE_OUTPUT", w.out, func() error { return command(c.Context(), c, w.root, "go", cmd...) })
+}
+
+// withEnv runs f with key set to value, as the program it starts sees it.
+func withEnv(key, value string, f func() error) error {
+	old, had := os.LookupEnv(key)
+	if err := os.Setenv(key, value); err != nil {
+		return couldNot(err) // mutate-exempt: Setenv fails only on a key with = or NUL, and this one is a literal
+	}
+	defer func() {
+		if had {
+			_ = os.Setenv(key, old)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	}()
+	return f()
+}
+
+// without is args less name, and whether name was there.
+func without(args []string, name string) ([]string, bool) {
+	i := slices.Index(args, name)
+	if i < 0 {
+		return args, false
+	}
+	return slices.Delete(slices.Clone(args), i, i+1), true
+}
+
+func publishCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "publish qemu",
+		Short:  "Build and push QEMU's runtime image, tagged with the pinned version, which fetch pulls",
+		Hidden: true,
+		Long: `Build and push the runtime image, tagged with the pinned QEMU version, under GITHUB_REPOSITORY:
+what fetch qemu pulls. main's qemu.yml runs it, with a docker login that can write packages.`,
+		ValidArgs: []string{"qemu"},
+		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		RunE: func(c *cobra.Command, _ []string) error {
+			w, err := open()
+			if err != nil {
+				return err
+			}
+			repo := os.Getenv("GITHUB_REPOSITORY")
+			if repo == "" {
+				repo = "spin-stack/spin-machine"
+			}
+			if err := build.PublishQEMU(c.Context(), buildFlags{}.options(c, w), repo); err != nil {
+				return couldNot(err)
+			}
+			return nil
+		},
+	}
+}
+
+func changedCmd() *cobra.Command {
+	var base string
+	var pins []string
+	c := &cobra.Command{
+		Use:    "changed --base <commit> --pins <entry,...> <path>...",
+		Short:  "Say whether the commits since a base can change what a part builds",
+		Hidden: true,
+		Long: `Say whether the commits since --base can change what is built from the pins and paths named:
+true when anything under the paths changed or versions.yaml hands those pins other build arguments
+than it did at the base. A workflow's path filter cannot say which lines of versions.yaml moved; this
+can, so a bump of e2fsprogs does not rebuild QEMU and the kernel.
+
+Prints build=true or build=false, and writes it to the step's outputs. It errs towards building: no
+base, a base this clone lacks, or a versions.yaml there it cannot read is true.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, paths []string) error {
+			w, err := open()
+			if err != nil {
+				return err
+			}
+			if len(pins) == 0 {
+				return couldNot(fmt.Errorf("--pins names none: say which versions.yaml entries the part is built from"))
+			}
+			touched := build.Touches(c.Context(), w.root, base, w.pins, pins, paths)
+			_, _ = fmt.Fprintf(c.OutOrStdout(), "build=%t\n", touched)
+			return output("build", fmt.Sprint(touched))
+		},
+	}
+	c.Flags().StringVar(&base, "base", "", "the commit the change is to; none builds")
+	c.Flags().StringSliceVar(&pins, "pins", nil, "the versions.yaml entries the part's Dockerfile is handed")
+	return c
+}

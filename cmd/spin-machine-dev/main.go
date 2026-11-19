@@ -80,11 +80,17 @@ func root() *cobra.Command {
 		Short:         "Build, measure and release spin-machine",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// A shell's completion is not a verb anybody here asked for.
+		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	}
-	c.AddCommand(verbs...)
+	addGlobals(c)
+	for _, v := range verbs {
+		c.AddCommand(v())
+	}
 	return c
 }
 
-// verbs is every verb, each file's init adding its own: two people adding verbs at once touch
-// nothing in common.
-var verbs []*cobra.Command
+// verbs makes every verb, each file's init adding its own: two people adding verbs at once touch
+// nothing in common. Constructors and not commands, so each root is made fresh, its flags at their
+// defaults.
+var verbs []func() *cobra.Command
