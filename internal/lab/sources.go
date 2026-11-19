@@ -191,11 +191,12 @@ func (s Sources) buildSpinMachine(to string) (string, error) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("building this checkout's spin-machine: %w: %s", err, out)
 	}
-	rev, err := exec.Command("git", "-C", s.Checkout, "describe", "--always", "--dirty").Output()
-	if err != nil {
-		return "", fmt.Errorf("naming this checkout's commit: %w", err)
+	// Named by its commit when the checkout is a git one; a copy of it (mutate's) is named by its
+	// directory, which is what there is to name.
+	if rev, err := exec.Command("git", "-C", s.Checkout, "describe", "--always", "--dirty").Output(); err == nil {
+		return "built from " + strings.TrimSpace(string(rev)), nil
 	}
-	return "built from " + strings.TrimSpace(string(rev)), nil
+	return "built from " + s.Checkout, nil
 }
 
 // systemd builds systemd with the experiment patch on this host, puts its packages under the

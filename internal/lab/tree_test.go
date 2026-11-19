@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -155,12 +156,15 @@ func TestATreeRefusesWhatIsNotWhole(t *testing.T) {
 	base := fakeRelease(t, "k")
 	elf := filepath.Join(t.TempDir(), "vmlinux")
 	write(t, elf, []byte("\x7fELF not a bzImage"))
+	longELF := filepath.Join(t.TempDir(), "vmlinux")
+	write(t, longELF, append([]byte("\x7fELF"), make([]byte, 4096)...))
 	for _, tc := range []struct {
 		name string
 		spec TreeSpec
 		want string
 	}{
 		{"a vmlinux for a kernel", TreeSpec{Kernel: elf}, "not a bzImage"},
+		{"a long file with no setup header", TreeSpec{Kernel: longELF}, "not a bzImage"},
 		{"a run id that is not one", TreeSpec{Kernel: "run:12x"}, "is a number"},
 		{"a missing kernel", TreeSpec{Kernel: "/nonexistent"}, "opening kernel"},
 		{"a QEMU directory without one", TreeSpec{QEMU: t.TempDir()}, "qemu-system-x86_64"},
@@ -264,8 +268,14 @@ func TestATreesSpinMachineCanBeThisCheckouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := tr.Manifest.Parts["spin-machine"].Source; !strings.HasPrefix(s, "built from ") {
-		t.Errorf("source %q", s)
+	// Named by its commit where git can say it, and by its directory in a copy where it cannot.
+	root := checkoutRoot(t)
+	want := "built from " + root
+	if rev, err := exec.Command("git", "-C", root, "describe", "--always", "--dirty").Output(); err == nil {
+		want = "built from " + strings.TrimSpace(string(rev))
+	}
+	if s := tr.Manifest.Parts["spin-machine"].Source; s != want {
+		t.Errorf("source %q, want %q", s, want)
 	}
 	if fi, err := os.Lstat(tr.SpinMachine()); err != nil || fi.Mode()&os.ModeSymlink != 0 || fi.Size() < 1<<20 {
 		t.Errorf("the built spin-machine: %v, %v", fi, err)
@@ -310,6 +320,17 @@ func TestOneIsTheOneFileWithThatName(t *testing.T) {
 	}
 	if _, err := one(filepath.Join(d, "missing"), "x"); err == nil {
 		t.Error("a missing directory has one of something")
+	}
+}
+
+// A release asked for by its tag is the one unpacked under the cache, when it is there.
+func TestAReleaseByItsTagIsTheOneInTheCache(t *testing.T) {
+	cache := t.TempDir()
+	dir := filepath.Join(cache, "releases", "v20260101.01", "spin-machine-v20260101.01-linux-x86_64", "usr", "share", "spin-stack")
+	write(t, filepath.Join(dir, partFiles["qemu"]), []byte("qemu"))
+	got, source, err := Sources{Cache: cache}.from("release:v20260101.01")
+	if err != nil || got != dir || source != "release v20260101.01" {
+		t.Errorf("from = %s, %q, %v", got, source, err)
 	}
 }
 

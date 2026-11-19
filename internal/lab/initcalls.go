@@ -103,7 +103,7 @@ func readUntil(r io.Reader, marker string, timeout time.Duration) (string, error
 	var b bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		buf := make([]byte, 1<<16)
+		buf := make([]byte, 1<<16) // mutate-exempt: the size of each read; the console is read whole either way
 		for {
 			n, err := r.Read(buf)
 			b.Write(buf[:n])
@@ -182,7 +182,7 @@ func parseRingBuffer(console string) (ringBuffer, error) {
 		}
 	}
 	if len(out.calls) == 0 {
-		return out, fmt.Errorf("no initcall lines in the ring buffer: was initcall_debug on the command line, and log_buf_len large enough? console tail: %s", tail(console, 2000))
+		return out, fmt.Errorf("no initcall lines in the ring buffer: was initcall_debug on the command line, and log_buf_len large enough? console tail: %s", tail(console, 2000)) // mutate-exempt: how much of the console the error quotes
 	}
 	for _, g := range byBefore {
 		out.gaps = append(out.gaps, g)

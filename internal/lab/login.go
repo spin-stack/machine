@@ -70,7 +70,9 @@ chmod 600 "$MNT/home/spin/.ssh/authorized_keys"
 
 // NewCID is a vsock context id for one machine. They are the host's: two machines with one fail
 // to start, so this is drawn from a range nothing else here uses.
-func NewCID() uint32 { return uint32(100000 + rand.IntN(1<<20)) }
+func NewCID() uint32 {
+	return uint32(100000 + rand.IntN(1<<20)) // mutate-exempt: where the range starts; any start clear of the host's own context ids (0-2) and its other machines' holds
+}
 
 // VsockAccepts says whether something accepts a connection on cid:port now. The connect timeout
 // is short because a machine not yet started is the common answer, and the default is two seconds

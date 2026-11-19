@@ -220,7 +220,7 @@ func readWhole(path string) (time.Duration, error) {
 	}
 	defer func() { _ = f.Close() }()
 	t0 := time.Now()
-	if _, err := io.CopyBuffer(io.Discard, f, make([]byte, 1<<20)); err != nil {
+	if _, err := io.CopyBuffer(io.Discard, f, make([]byte, 1<<20)); err != nil { // mutate-exempt: the size of each read; any size reads the whole file once
 		return 0, fmt.Errorf("reading %s: %w", path, err)
 	}
 	return time.Since(t0), nil
