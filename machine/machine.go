@@ -763,9 +763,20 @@ func (s Spec) Args() ([]string, error) {
 		return nil, err
 	}
 
+	fingerprint, err := s.Fingerprint()
+	if err != nil {
+		return nil, err
+	}
 	shape := s.Shape()
 	args := make([]string, 0, 64)
 	args = append(args,
+		// The machine's fingerprint, as its name: QMP answers it (query-name) to whoever
+		// attaches, which records it with a checkpoint and checks it before a resume
+		// (QEMU.Target), without a second copy of this Spec that could disagree with the
+		// command line. The name is the process's and QMP's; the guest does not see it, and
+		// it is not in Contract, which the fingerprint hashes.
+		"-name", "guest="+fingerprintName+fingerprint,
+
 		"-L", s.Firmware,
 		"-bios", s.bios(),
 
@@ -792,7 +803,7 @@ func (s Spec) Args() ([]string, error) {
 	args = appendChipset(args)
 	args = s.appendBoot(args)
 	args = s.appendDevices(args)
-	args, err := s.appendDisks(args)
+	args, err = s.appendDisks(args)
 	if err != nil {
 		return nil, err
 	}
@@ -1155,6 +1166,9 @@ func withoutTheVMs(dev string) string {
 	}
 	return strings.Join(kept, ",")
 }
+
+// fingerprintName is how Args names the machine: this, then its fingerprint.
+const fingerprintName = "spin-machine:"
 
 // BIOSBlock is the RAM block the BIOS is mapped as, the read-only block whose size is a file's
 // (Fingerprint).

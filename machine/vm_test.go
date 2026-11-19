@@ -45,6 +45,9 @@ func (f *fakeQEMU) recorded() []call {
 	return slices.Clone(f.calls)
 }
 
+// testFingerprint is the machine every fake QEMU says it is (query-name), at QEMU 11.2.0.
+const testFingerprint = "f00d"
+
 // ok is QEMU's reply to a command that returns nothing.
 const ok = `{"return": {}}`
 
@@ -134,7 +137,13 @@ func (f *fakeQEMU) serve(c *net.UnixConn) {
 			cl := call{Command: req.Execute, Args: req.Arguments, FD: fd}
 			fd = false
 			reply := ok
-			if cl.Command != "qmp_capabilities" {
+			switch cl.Command {
+			case "query-name":
+				reply = ret(`{"name": "` + fingerprintName + testFingerprint + `"}`)
+			case "query-version":
+				reply = ret(`{"qemu": {"major": 11, "minor": 2, "micro": 0}}`)
+			}
+			if cl.Command != "qmp_capabilities" && cl.Command != "query-name" && cl.Command != "query-version" {
 				f.mu.Lock()
 				f.calls = append(f.calls, cl)
 				f.mu.Unlock()
@@ -537,6 +546,9 @@ func TestResume(t *testing.T) {
 				if c.Command == "qom-list" {
 					return ret(`[]`)
 				}
+				if r, ok := cpuAnswers(c); ok {
+					return r
+				}
 				return places(c)
 			}, tc.statuses...)
 			m := f.attach(t)
@@ -828,7 +840,7 @@ func TestContinue(t *testing.T) {
 	}
 }
 
-func TestCanResume(t *testing.T) {
+func TestCanShowCPU(t *testing.T) {
 	host := func(vendor string, features ...string) CPU {
 		return CPU{Vendor: vendor, Model: "host", Features: features}
 	}
@@ -848,7 +860,40 @@ func TestCanResume(t *testing.T) {
 		{"a named model into host", CPU{Vendor: "GenuineIntel", Model: "Skylake-Server-v4"}, host("GenuineIntel"), "model Skylake-Server-v4"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := CanResume(tc.saved, tc.here)
+			err := canShowCPU(tc.saved, tc.here)
+			if (tc.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.want)) {
+				t.Errorf("canShowCPU = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// CanResume is the one rule a placement and a resume ask: format, machine, VMM version, CPU.
+func TestCanResume(t *testing.T) {
+	cpu := CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx2", "sse2"}}
+	here := Target{Formats: []string{FormatMappedRAM, FormatStream}, Fingerprint: "abc", VMM: "qemu 11.2.0", CPU: cpu}
+	saved := Saved{Format: FormatMappedRAM, Fingerprint: "abc", VMM: "qemu 11.2.0", CPU: cpu}
+	for _, tc := range []struct {
+		name string
+		edit func(*Saved)
+		want string // empty when it may
+	}{
+		{"the same everything", func(*Saved) {}, ""},
+		{"written by an older QEMU", func(s *Saved) { s.VMM = "qemu 11.1.3" }, ""},
+		{"an older micro, a newer major", func(s *Saved) { s.VMM = "qemu 10.9.9" }, ""},
+		{"written by a newer QEMU", func(s *Saved) { s.VMM = "qemu 11.2.1" }, "newer than this machine's qemu 11.2.0"},
+		{"written by another program", func(s *Saved) { s.VMM = "cloud-hypervisor 48.0" }, "written by cloud-hypervisor"},
+		{"a VMM that is not a version", func(s *Saved) { s.VMM = "qemu" }, "not a program and a version"},
+		{"another machine", func(s *Saved) { s.Fingerprint = "def" }, "machine def, and this is machine abc"},
+		{"a format this machine does not read", func(s *Saved) { s.Format = "firecracker" }, `format "firecracker"`},
+		{"a CPU feature this machine cannot show", func(s *Saved) { s.CPU.Features = []string{"amx-tile"} }, "cannot show: amx-tile"},
+		{"a record from before any of it was kept", func(s *Saved) { *s = Saved{Format: FormatStream} }, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := saved
+			s.CPU.Features = slices.Clone(cpu.Features)
+			tc.edit(&s)
+			err := CanResume(s, here)
 			if (tc.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.want)) {
 				t.Errorf("CanResume = %v, want %q", err, tc.want)
 			}
@@ -1024,6 +1069,9 @@ func TestResumeFailsWhereAHotDiskIsRefused(t *testing.T) {
 	f := &fakeQEMU{answer: func(c call) string {
 		if c.Command == "device_add" {
 			return refused("no")
+		}
+		if r, ok := cpuAnswers(c); ok {
+			return r
 		}
 		return machineAnswers("inmigrate", "root")(c)
 	}}

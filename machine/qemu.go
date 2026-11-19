@@ -588,7 +588,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, seal func(context.Co
 	if err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: recording the machine: %w", err)
 	}
-	cpu, err := m.CPU(ctx)
+	target, err := m.Target(ctx)
 	if err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
@@ -607,7 +607,43 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, seal func(context.Co
 		cancelErr := m.q.run(context.WithoutCancel(ctx), "migrate_cancel", nil, nil)
 		return Saved{}, errors.Join(fmt.Errorf("checkpointing: %w", err), cancelErr)
 	}
-	return Saved{Format: FormatMappedRAM, CPU: cpu, Machine: machine}, nil
+	return Saved{Format: FormatMappedRAM, CPU: target.CPU, Fingerprint: target.Fingerprint, VMM: target.VMM, Machine: machine}, nil
+}
+
+// Target is what this machine resumes: the formats it reads, the fingerprint Args gave QEMU as
+// its name, the QEMU it is and the CPU it shows.
+func (m *QEMU) Target(ctx context.Context) (Target, error) {
+	var name struct {
+		Name string `json:"name"`
+	}
+	if err := m.q.run(ctx, "query-name", nil, &name); err != nil {
+		return Target{}, fmt.Errorf("asking the machine's fingerprint: %w", err)
+	}
+	fingerprint, ok := strings.CutPrefix(name.Name, fingerprintName)
+	if !ok {
+		return Target{}, fmt.Errorf("the machine is named %q, not by a fingerprint: was it started from Spec.Args?", name.Name)
+	}
+	var version struct {
+		QEMU struct {
+			Major int `json:"major"`
+			Minor int `json:"minor"`
+			Micro int `json:"micro"`
+		} `json:"qemu"`
+	}
+	if err := m.q.run(ctx, "query-version", nil, &version); err != nil {
+		return Target{}, fmt.Errorf("asking the machine's QEMU version: %w", err)
+	}
+	cpu, err := m.CPU(ctx)
+	if err != nil {
+		return Target{}, err
+	}
+	v := version.QEMU
+	return Target{
+		Formats:     []string{FormatMappedRAM, FormatStream},
+		Fingerprint: fingerprint,
+		VMM:         fmt.Sprintf("qemu %d.%d.%d", v.Major, v.Minor, v.Micro),
+		CPU:         cpu,
+	}, nil
 }
 
 // switchover runs seal at pre-switchover and waits for the migration to complete.
@@ -727,14 +763,12 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	if st != "inmigrate" {
 		return fmt.Errorf("resuming into a machine that is %s: only one started with Spec.Restore takes a checkpoint", st)
 	}
-	if saved.CPU.Vendor != "" {
-		here, err := m.CPU(ctx)
-		if err != nil {
-			return fmt.Errorf("resuming: %w", err)
-		}
-		if err := CanResume(saved.CPU, here); err != nil {
-			return fmt.Errorf("resuming: %w", err)
-		}
+	here, err := m.Target(ctx)
+	if err != nil {
+		return fmt.Errorf("resuming: %w", err)
+	}
+	if err := CanResume(saved, here); err != nil {
+		return fmt.Errorf("resuming: %w", err)
 	}
 	if err := m.bindAll(ctx, disks, sm.Disks); err != nil {
 		return fmt.Errorf("resuming: %w", err)
