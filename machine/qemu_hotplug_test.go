@@ -101,8 +101,35 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 	}
 
 	// Detached, its target, its nodes and its descriptors are free for the next.
+	held := func() int {
+		t.Helper()
+		var sets []struct {
+			FDs []struct {
+				Opaque string `json:"opaque"`
+			} `json:"fds"`
+		}
+		if err := m.q.run(ctx, "query-fdsets", nil, &sets); err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, s := range sets {
+			for _, fd := range s.FDs {
+				if fd.Opaque == image {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	// Both disks are the one image: a set each.
+	before := held()
 	if err := m.DetachDisk(ctx, "vsc-a"); err != nil {
 		t.Fatalf("detaching: %v", err)
+	}
+	// A detached disk's image is no longer the machine's to read through it: its set is gone,
+	// and the other disk's stays.
+	if after := held(); after != before-1 {
+		t.Errorf("QEMU holds %s in %d sets after a detach, and held it in %d before", image, after, before)
 	}
 	if err := m.AttachDisk(ctx, disk("vsc-a")); err != nil {
 		t.Fatalf("attaching a disk again after it was detached: %v", err)
