@@ -319,6 +319,9 @@ RUN <<EOT
     # patches/0009 has the boot CPU poll for an AP by local_clock() while the system boots,
     # rather than sleep on the jiffies clocksource: "CPUs: #1" to "Brought up" was 4.1 ms
     # nested against under 1.4 on metal. Not yet measured nested; a laptop's AP never waits.
+    # patches/0010 skips early_quirks()' port I/O scan of bus 0 in a KVM guest: none of its
+    # quirks matches this machine's devices, and the scan was 2.1 ms of exits nested (lab run
+    # 44563496308). Only the scan: pci=noearly, which also defers MMCONFIG, does not boot.
 
     # Boot performance: the RAID6 PQ benchmark probes all SIMD implementations at boot to
     # pick the fastest. It must stay disabled. (RAID6_PQ itself is not selected today, so
