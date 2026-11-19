@@ -310,6 +310,9 @@ RUN <<EOT
     # patches/0006 parses vmlinux BTF in the background from a core_initcall instead of inside
     # inet_init on the boot CPU, where it was 11.2 of inet_init's 11.8 ms traced (lab run
     # 43498943572).
+    # patches/0007 builds ORC's lookup table in one merge pass instead of a binary search per
+    # 256-byte block of text: 3.5 ms of CPU on the bench fleet, nested and on metal alike (lab
+    # runs 44563496308, 44563512999), 4.5 -> 0.8 ms on a laptop (2026-11-19).
 
     # Boot performance: the RAID6 PQ benchmark probes all SIMD implementations at boot to
     # pick the fastest. It must stay disabled. (RAID6_PQ itself is not selected today, so
