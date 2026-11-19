@@ -105,8 +105,8 @@ true and useless.
 It is `spin-machine boot` with no `--disk`: this QEMU and this kernel over `rootfs.qcow2`
 under a throwaway overlay (QEMU's `-snapshot`), with the serial console on stdio.
 
-It boots with no initrd at all: `root=/dev/vda rw init=/sbin/init`, which the kernel can
-serve because virtio-blk and ext4 are built in and `build.sh` writes a partitionless
+It boots with no initrd at all: `root=/dev/vda rw rootfstype=ext4 init=/sbin/init`, which the
+kernel can serve because virtio-blk and ext4 are built in and `build.sh` writes a partitionless
 filesystem. There is no debug initramfs: one that mounted the API filesystems, found the
 root disk and exec'd would be a second init, doing what the init a consumer brings already
 does. What removes the need for one is `systemd-udevd` being on.
