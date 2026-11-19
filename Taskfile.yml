@@ -655,7 +655,10 @@ tasks:
         tmp=$PWD/_output/lab/tmp
         store=$(lsblk -dnpo NAME,MODEL | awk '/Instance Storage/ {print $1; exit}')
         if [ -n "$store" ]; then
-          mnt=$(lsblk -nro MOUNTPOINTS "$store" | awk 'NF && $1 != "[SWAP]" {print $1; exit}')
+          # Each device on the disk's mountpoints, one a line (lsblk -r joins a device's several
+          # with \x0a, which became TMPDIR once); a mount of its own over docker's or containerd's.
+          mnt=$(for dev in $(lsblk -nlpo NAME "$store"); do findmnt -nro TARGET -S "$dev" || true; done |
+            awk '!/^\/var\/lib\// && m == "" {m = $0} END {print m}')
           if [ -z "$mnt" ] && [ "$(lsblk -nro NAME "$store" | wc -l)" = 1 ] && [ -z "$(sudo blkid -p "$store" || true)" ]; then
             mnt=/mnt/instance-store
             sudo mkfs.ext4 -q "$store"
