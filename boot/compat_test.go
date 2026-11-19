@@ -52,7 +52,9 @@ func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {
 	disk := []string{"--disk", overlay, "--disk-format", "qcow2", "--init", "/bin/sh"}
 	state := filepath.Join(dir, "state")
 
-	a := startGuest(t, machineArgs(t, cli, previous, append([]string{"--qmp", filepath.Join(dir, "a.sock")}, disk...)))
+	args, start := machineArgs(t, cli, previous, append([]string{"--qmp", filepath.Join(dir, "a.sock")}, disk...))
+	a := startGuest(t, args)
+	start(t)
 	a.type_(t, "mount -t proc proc /proc; ( i=0; while :; do i=$((i+1)); echo TICK-$i; sleep 0.2; done ) &")
 	a.await(t, regexp.MustCompile(`TICK-5\b`), 60*time.Second)
 	qa := dial(t, filepath.Join(dir, "a.sock"), a.said)
@@ -67,7 +69,8 @@ func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {
 	// The state was written by migrate over a monitor, as a release before machine.Saved did,
 	// with no record beside it: restore reads it as the stream format, which is what shows
 	// that a checkpoint from before mapped-ram still loads.
-	b := startGuest(t, machineArgs(t, cli, out, append([]string{"--qmp", filepath.Join(dir, "b.sock"), "--restore"}, disk...)))
+	args, _ = machineArgs(t, cli, out, append([]string{"--qmp", filepath.Join(dir, "b.sock"), "--restore"}, disk...))
+	b := startGuest(t, args)
 	// #nosec G204 -- this tree's spin-machine
 	if o, err := exec.Command(cli, "restore", "--release", out, "--qmp", filepath.Join(dir, "b.sock"), "--from", state,
 		"--disk", overlay, "--disk-format", "qcow2").CombinedOutput(); err != nil {

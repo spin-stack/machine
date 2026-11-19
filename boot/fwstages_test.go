@@ -51,18 +51,21 @@ func TestFirmwareStages(t *testing.T) {
 	type variant struct {
 		name   string
 		args   []string
+		start  func(t *testing.T)
 		runs   []map[string]stage
 		spent  []map[string]float64
 		starts []map[string]float64
 	}
-	vs := []*variant{{name: "release", args: machineArgs(t, cli, out, flags)}}
+	args, start := machineArgs(t, cli, out, flags)
+	vs := []*variant{{name: "release", args: args, start: start}}
 	if b := os.Getenv("SPIN_MACHINE_OUTPUT_B"); b != "" {
-		vs = append(vs, &variant{name: "B", args: machineArgs(t, cli, b, flags)})
+		args, start := machineArgs(t, cli, b, flags)
+		vs = append(vs, &variant{name: "B", args: args, start: start})
 	}
 	// Interleaved, so the runner's drift lands on both alike.
 	for range reps {
 		for _, v := range vs {
-			st, w, qs := traceOneBoot(t, v.args)
+			st, w, qs := traceOneBoot(t, v.args, v.start)
 			v.runs, v.spent, v.starts = append(v.runs, st), append(v.spent, w), append(v.starts, qs)
 		}
 	}
@@ -82,23 +85,72 @@ type stage struct {
 
 // machineArgs is the command line `spin-machine args` prints, one argument per line: QEMU's
 // binary first. Split on lines and not on spaces, because -append's value has them.
-func machineArgs(t *testing.T, cli, release string, flags []string) []string {
+//
+// It is a held machine's (--held), on a monitor at a short socket of its own unless flags name
+// one: every machine starts held (machine.VM), and `spin-machine boot` boots it through a helper
+// it starts beside QEMU, which a probe running the line itself does not have. A probe that wants
+// the guest to run calls start once QEMU is up, which binds the disk and boots it as that helper
+// does; one that wants the machine held does not.
+func machineArgs(t *testing.T, cli, release string, flags []string) (args []string, start func(t *testing.T)) {
 	t.Helper()
-	b, err := exec.Command(cli, append([]string{"args", "--release", release}, flags...)...).Output()
+	sock, hasQMP := flagValue(flags, "--qmp")
+	if !hasQMP {
+		dir, err := os.MkdirTemp("/tmp", "ma")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		sock = filepath.Join(dir, "m")
+		flags = append([]string{"--qmp", sock}, flags...)
+	}
+	mode := []string{"args", "--release", release}
+	if !slices.Contains(flags, "--restore") {
+		mode = append(mode, "--held")
+	}
+	b, err := exec.Command(cli, append(mode, flags...)...).Output()
 	if err != nil {
 		t.Fatalf("spin-machine args: %v", err)
 	}
-	var args []string
 	for _, l := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
 		args = append(args, strings.TrimSuffix(strings.TrimPrefix(l, "  "), " \\"))
 	}
-	return args
+	startArgs := []string{"start", "--release", release, "--qmp", sock}
+	for _, f := range []string{"--disk", "--disk-format", "--disk-serial"} {
+		if v, ok := flagValue(flags, f); ok {
+			startArgs = append(startArgs, f, v)
+		}
+	}
+	for _, f := range []string{"--disk-readonly", "--disk-direct-over-backing"} {
+		if slices.Contains(flags, f) {
+			startArgs = append(startArgs, f)
+		}
+	}
+	return args, func(t *testing.T) {
+		t.Helper()
+		// #nosec G204 -- this tree's spin-machine
+		if o, err := exec.Command(cli, startArgs...).CombinedOutput(); err != nil {
+			t.Fatalf("spin-machine start: %v: %s", err, o)
+		}
+	}
+}
+
+// flagValue is the value flags give name, as "name value" or "name=value".
+func flagValue(flags []string, name string) (string, bool) {
+	for i, f := range flags {
+		if v, ok := strings.CutPrefix(f, name+"="); ok {
+			return v, true
+		}
+		if f == name && i+1 < len(flags) {
+			return flags[i+1], true
+		}
+	}
+	return "", false
 }
 
 // traceOneBoot boots once with QEMU tracing the firmware's selects, its PCI walk and every exit
 // to QEMU, waits for the diagnostic init, and returns each step's time, the firmware's waits and
 // QEMU's start.
-func traceOneBoot(t *testing.T, args []string) (map[string]stage, map[string]float64, map[string]float64) {
+func traceOneBoot(t *testing.T, args []string, start func(t *testing.T)) (map[string]stage, map[string]float64, map[string]float64) {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "trace")
@@ -123,6 +175,7 @@ func traceOneBoot(t *testing.T, args []string) (map[string]stage, map[string]flo
 		t.Fatalf("launching QEMU: %v", err)
 	}
 	_ = w.Close()
+	start(t)
 	defer func() {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		_ = cmd.Wait()

@@ -81,9 +81,10 @@ func readOnlyBlocks(t *testing.T, table string) map[string]int64 {
 func ramBlocks(t *testing.T, out string, flags ...string) string {
 	t.Helper()
 	socket := filepath.Join(t.TempDir(), "qmp.sock")
-	args := machineArgs(t, filepath.Join(out, "bin", "spin-machine"), out,
+	// Held, and never started: the blocks are mapped before the guest runs a byte.
+	args, _ := machineArgs(t, filepath.Join(out, "bin", "spin-machine"), out,
 		append([]string{"--qmp", socket, "--init", "/bin/sh", "--console", ""}, flags...))
-	cmd := exec.Command(args[0], append(args[1:], "-S")...) //nolint:gosec // the machine's own command line
+	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec // the machine's own command line
 	log, err := os.CreateTemp(t.TempDir(), "qemu-*.log")
 	if err != nil {
 		t.Fatal(err)
