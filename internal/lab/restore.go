@@ -57,6 +57,15 @@ func (restoreFirst) Rows(o Options) []string {
 
 func (restoreFirst) Phases() int { return 2 }
 
+func (restoreFirst) Needs(o Options) []Need {
+	needs := append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "qmp"}, Need{"boot", "restore"},
+		Need{"save", "to"}, Need{"restore", "disk"})
+	if o.Bool("fast") {
+		needs = append(needs, Need{"restore", "fast"})
+	}
+	return needs
+}
+
 func (restoreFirst) Metrics() []Metric {
 	return []Metric{
 		{"state", "MiB", "the saved state's blocks on the disk (a mapped-ram state's length is its RAM ceiling)"},

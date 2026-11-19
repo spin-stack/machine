@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,10 @@ func (sshFirst) Options() []Option     { return shape }
 func (sshFirst) Rows(Options) []string { return []string{"boot"} }
 func (sshFirst) Phases() int           { return 1 }
 
+func (sshFirst) Needs(Options) []Need {
+	return append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "console"}, Need{"boot", "append"})
+}
+
 func (sshFirst) Metrics() []Metric {
 	return []Metric{
 		{"sshd_accepts", "ms", "the first vsock connection accepted"},
@@ -44,6 +49,7 @@ func (sshFirst) Metrics() []Metric {
 		{"second_login", "ms", "a second login right after the first, from its connect: what any login costs"},
 		{"console_prompt", "ms", "the serial console's prompt, the getty an echo"},
 		{"curve25519_in", "count", "1 when a client offering only curve25519 got in, which the image refuses"},
+		{"qemu_rss", "MiB", "QEMU's resident memory after the second login: a diagnostic, not a target"},
 	}
 }
 
@@ -104,6 +110,12 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	m.RecordMs("accept_to_login", login-accepts)
 	if d, err := m.Key.Login(cid, xssh.KeyExchangeMLKEM768X25519); err == nil {
 		m.RecordMs("second_login", d)
+	}
+	// spin-machine boot execs QEMU in its own process, so the machine's pid is QEMU's.
+	if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", mc.PID())); err == nil {
+		if mib, ok := rssMiB(string(b)); ok {
+			m.Record("qemu_rss", mib)
+		}
 	}
 	// Whether sshd turns away a client with no ML-KEM, as the image's drop-in has it do. A release
 	// from before it lets one in, so this is counted rather than failed.

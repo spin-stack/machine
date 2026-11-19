@@ -79,6 +79,9 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 	if err != nil || tag == "" {
 		t.Fatalf("LatestRelease = %q, %v", tag, err)
 	}
+	if tags, err := gh.Releases(3); err != nil || len(tags) == 0 || tags[0] != tag {
+		t.Fatalf("Releases(3) = %v, %v; want the newest, %s, first", tags, err, tag)
+	}
 	runs, err := gh.LabRuns()
 	if err != nil || len(runs) == 0 {
 		t.Fatalf("LabRuns = %d runs, %v", len(runs), err)
@@ -90,12 +93,21 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(dir, "machine.env")); err != nil || len(b) == 0 {
 		t.Fatalf("release %s's machine.env: %d bytes, %v", tag, len(b), err)
 	}
-	src := Sources{Cache: t.TempDir(), GitHub: gh}
+	src := Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), GitHub: gh}
 	// The release itself, unpacked: 385 MB, so only when asked for.
 	if os.Getenv("SPIN_LAB_RELEASE") != "" {
 		d, source, err := src.from("release")
 		if err != nil || source != "release "+tag || !fileExists(filepath.Join(d, partFiles["qemu"])) {
 			t.Fatalf("from(release) = %s, %q, %v", d, source, err)
+		}
+		// Its spin-machine, built from the commit its machine.env names.
+		env, err := readEnv(filepath.Join(d, "machine.env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		to := filepath.Join(t.TempDir(), "spin-machine")
+		if source, err := src.releaseSpinMachine(d, to); err != nil || source != "built from "+env["source_commit"]+", "+tag+"'s" || !fileExists(to) {
+			t.Fatalf("releaseSpinMachine = %q, %v", source, err)
 		}
 	}
 	if id := os.Getenv("SPIN_LAB_RUN"); id != "" {

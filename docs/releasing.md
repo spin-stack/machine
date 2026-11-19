@@ -20,8 +20,8 @@ workflow that produced it.
 CI calls the same targets a developer calls. A second definition of what the gate is, kept
 in a workflow file, goes out of step with the first exactly when a check is added.
 
-`task report` is the end-to-end check, and `report.yml` runs it on every release: every
-combination of the machine's features, booted from the published tarball to a login.
+`spin-machine-dev lab ladder` is the end-to-end check, and `report.yml` runs it on every release:
+the newest releases, booted from their published tarballs to the first SSH login, side by side.
 
 ## Releases
 
@@ -77,41 +77,35 @@ fails a cold build at `apk add`; `spin-machine-dev lock` writes both locks again
 pinned Alpine, and the diff is the review.
 `workflows/workflows_test.go` holds every workflow to attesting before it publishes.
 
-## The feature matrix
+## The ladder
 
-A release also says what it costs. After it publishes, the `report` job boots the tarball it
-just published, on the bench fleet (spin-stack/ci: one instance type with `/dev/kvm`), through every combination of the
-machine's features under KVM (memory fixed or with a virtio-mem ceiling; vsock; a hotplug
-controller) and every boot variant of the image. It writes `report.json` beside the tarball: per row, the command
-line, the shape and fingerprint, whether QEMU ran it, and p50/p95 of each boot phase. It then
-appends `spin-machine compare` against the newest earlier release that has a report to the
-release notes. The axes are the `axes` table in `boot/report_test.go`; a new axis is measured
-against every other without anyone choosing which pairs matter.
+A release also says what it costs, against the releases before it. After it publishes, the
+`report` job measures the newest five releases on the bench fleet (spin-stack/ci: a c8id.4xlarge,
+nested, the host the goal is measured on), interleaved on that one host: the two goal numbers - a
+cold boot and a restore, each to the first SSH login - both again into a QEMU started ahead, and
+save, state, the kernel's time and QEMU's resident memory beside them as diagnostics
+(`spin-machine-dev lab ladder`, docs/cli.md). It writes `ladder.json` beside the tarball and ends
+the release's notes with the table: each release's p50/p95, its change against the release above,
+and the newest against the 100 ms goal.
 
-The same report is how an experiment is judged. Build the tree with the change, or keep the
-release and pass the change to every boot, and compare:
+Interleaved, because that is the only comparison the bench leaves honest. The report before this
+measured each release alone and compared two files taken on different days: it said
+v20261119.02 accepted SSH 7.3% later than v20261119.01, and the two interleaved said they did not
+(labs 44583379559, 44600043625). Twenty boots of each, because at three a comparison of
+v20261001.01 with v20260930.02 flagged every row 5-11% slower, and twenty alternated on one host
+put them within 5 ms (2026-10-01).
 
-```sh
-task report OUT=base.json
-task report OUT=exp.json FLAGS='--append mitigations=off'   # or --kernel /path/bzImage
-_output/bin/spin-machine compare --old base.json --new exp.json
-```
+Each release boots with the spin-machine of the commit it was made from (`--spin-machine release`):
+a release ships no spin-machine, and the machine it defined - devices, places, checkpoints - is
+that commit's `machine` package, which spin builds. A release whose spin-machine cannot run a
+probe (one from before `boot --restore`, v20261119.02) is a dash in the table with the reason, not
+a row left out.
 
-`ONLY=<regexp>` runs the rows whose id matches, and `REPS=` sets the boots per row (default 20,
-after one unmeasured boot that warms the page cache). Twenty, because at three the comparison
-of v20261001.01 with v20260930.02 flagged every KVM row 5-11% slower, and twenty boots of each,
-alternated on one host, put them within 5 ms of each other (2026-10-01). Times compare only
-between reports taken on the same kind of host; `compare` says so when they were not.
-
-`report.yml` is the job, and it runs by hand too: `gh workflow run report.yml -f
-version=<release>` measures any published release and keeps `report.json` and the comparison as
-an artifact without touching the release - how the runner is checked, and how two releases are
-compared after the fact (`-f publish=true` does what a release does).
-
-The runner needs `/dev/kvm` and `/dev/vhost-vsock` readable and writable by its user, `gh`, and
-`sudo -n` for `modprobe nbd` and `qemu-nbd`: the image variants write into a throwaway overlay.
-Without `/dev/vhost-vsock` the vsock rows are listed as skipped, and without sudo the variants
-that edit the image are skipped too, and the getty is agetty rather than an echo.
+`report.yml` runs by hand too - `gh workflow run report.yml -f version=<release> -f releases=N`
+measures the N releases up to that one and keeps `ladder.json` as the run's artifact, which
+`spin-machine-dev lab show RUN_ID` prints - and weekly, which watches the fleet and the releases
+between publishes. The runner needs `/dev/kvm` and `/dev/vhost-vsock` usable by its user, `gh`, and
+`sudo -n` for `qemu-nbd`.
 
 ## What a release owes
 

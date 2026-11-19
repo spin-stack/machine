@@ -178,9 +178,9 @@ jobs:
             _output/release/*.cdx.json
             _output/release/*.sigstore.json
 
-  # What every combination of the machine's features costs, booted from the tarball just
-  # published, as report.json beside it, and what moved against the release before it at the end
-  # of the notes. report.yml says why it is a job of its own, on its own runner.
+  # The release just published, booted beside the ones before it on one bench host: the goal's
+  # two numbers release by release, as ladder.json beside it and a table at the end of its notes.
+  # report.yml says why it is a job of its own, on its own runner.
   report:
     needs: release
     if: github.ref == 'refs/heads/main'

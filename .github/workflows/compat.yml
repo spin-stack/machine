@@ -105,8 +105,10 @@ jobs:
       - name: Every ROM the machine maps is the fingerprint's
         run: go tool task boot:roms
 
-      - name: A checkpoint of the release before resumes here
-        run: go tool task boot:compat
+      # Every release since the contract last moved, not only the one before: a host may skip
+      # releases, and its checkpoints still resume.
+      - name: A checkpoint of every release since the contract moved resumes here
+        run: spin-machine-dev lab compat --here "$SPIN_MACHINE_OUTPUT"
 
       # This change's kernel, booted: lockdown at confidentiality that root cannot lower, the BPF
       # LSM, no /dev/mem or /proc/kcore, and _text at a random address. kernel/Dockerfile checks

@@ -1,19 +1,19 @@
 name: Report
 
-# What every combination of the machine's features costs: a published release's tarball booted
-# through the feature matrix (boot/report_test.go), written as report.json, and compared with the
-# newest earlier release that has one.
+# The machine's evolution, measured: the newest releases booted together on one bench host, each
+# with the spin-machine of the commit it was made from, the two goal numbers (a cold boot and a
+# restore, each to the first SSH login) and both again into a QEMU started ahead, with save, state,
+# kernel and QEMU RSS beside them as diagnostics (spin-machine-dev lab ladder, docs/cli.md).
 #
-# A workflow of its own because it boots: GitHub's runners have no /dev/kvm for it, and a time
-# measured under emulation is not a time anybody's machine takes. The runner is one instance type,
-# on purpose - the bench fleet of spin-stack/ci, a c8i.4xlarge with nested virtualization - since
-# boot times compare only between reports taken on the same kind of host, and compare says so
-# when they were not. It needs /dev/kvm and /dev/vhost-vsock usable by its user, sudo -n for
-# modprobe nbd and qemu-nbd, and gh (docs/releasing.md).
+# Interleaved on one host because that is the only comparison the bench leaves honest: two
+# reports taken on different days said v20261119.02 accepted SSH 7.3% later than v20261119.01,
+# and the same two interleaved said it did not. A workflow of its own because it boots: GitHub's
+# runners have no /dev/kvm, and the goal is measured on the bench fleet's nested c8i.
 #
-# release.yml calls it with publish, which uploads report.json to the release and appends the
-# comparison to its notes. Run by hand it measures any release - to check the runner, or to see
-# a release against another - and keeps what it found as an artifact, touching no release.
+# release.yml calls it with publish once a release is out: ladder.json goes up as that release's
+# asset and the table ends its notes. Weekly, the same ladder of the newest releases, kept as the
+# run's artifact (lab show RUN_ID reads it): it watches the fleet and the releases between
+# publishes, and is not a release's record. By hand, any release as the newest.
 
 on:
   workflow_call:
@@ -24,16 +24,27 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The release to measure, e.g. v20260929.01"
-        required: true
+        description: "The newest release measured, e.g. v20261119.02 (default the newest published)"
         type: string
+        default: ""
+      releases:
+        description: "How many releases, the newest up to version"
+        type: number
+        default: 5
       publish:
-        description: "Upload report.json to that release and append the comparison to its notes"
+        description: "Upload ladder.json to that release and end its notes with the table"
         type: boolean
         default: false
+  schedule:
+    # Mondays, early: the bench is quiet, and a week of releases and fleet changes is behind it.
+    - cron: '17 3 * * 1'
 
 permissions:
   contents: write
+
+# As ci.yml: go-tools' downloads ask GitHub with it, which sheds anonymous ones first.
+env:
+  GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
   report:
@@ -42,12 +53,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ inputs.version }}
-      # GitHub reads a workflow command (::error::) only at the start of a line, where Task's
-      # prefixed output puts the task's name.
-      TASK_OUTPUT: interleaved
+      RELEASES: ${{ inputs.releases || 5 }}
     steps:
-      # The harness from the ref asked for - the release's own tag when release.yml calls - and,
-      # run by hand, from where the run was started: a release older than the report has none.
+      # The ladder from the ref asked for - the release's own tag when release.yml calls - and,
+      # by hand or on a schedule, from where the run started. The releases it measures each boot
+      # with their own spin-machine whatever this ref is.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,38 +70,25 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: spin-machine-dev
+        run: go tool task bin
+
       # The guests' vsock transport, loaded and made this user's: a module on the fleet's kernel
       # that nothing loads before the first QEMU opens /dev/vhost-vsock.
       - name: Load vhost_vsock
         run: go tool task vsock
 
-      # What this runner can do, said before anything is measured: a row the report skips is one
-      # this host lacks the device for, and the summary says which before the report does.
-      - name: What this runner has
-        run: go tool task report:runner
+      - name: Measure the ladder
+        run: spin-machine-dev lab ladder --newest "$VERSION" --releases "$RELEASES" --reps 20 --out _output/lab/result
 
-      # The tarball as a consumer gets it, and not a tree a build left: what is measured is what
-      # was published.
-      - name: Unpack the release
-        run: go tool task report:unpack
-
-      - name: Measure the feature matrix
-        run: go tool task report OUTPUT_DIR="$RELEASE_TREE" OUT="$PWD/_output/report/report.json"
-
-      # Against the newest release before this one that has a report. The first release with
-      # a report has nothing to compare with, and says so.
-      - name: Compare with the release before it
-        run: go tool task report:compare
-
-      - name: Keep the report
+      - name: Keep the ladder
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: report-${{ inputs.version }}
-          path: |
-            _output/report/report.json
-            _output/report/compare.md
-          if-no-files-found: error
+          name: lab-${{ github.run_id }}
+          path: _output/lab/result/ladder.json
+          if-no-files-found: ignore
 
-      - name: Publish the report, and what moved
+      - name: Publish the ladder
         if: inputs.publish
-        run: go tool task report:publish
+        run: spin-machine-dev lab publish _output/lab/result

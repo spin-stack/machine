@@ -219,6 +219,25 @@ func (m *Measurement) Launch(stdout io.Writer, args ...string) (*Machine, error)
 	return mc, nil
 }
 
+// PID is the machine's process: QEMU's, which spin-machine boot execs in its place.
+// mutate-lane: TestEveryProbeMeasuresATree
+func (mc *Machine) PID() int { return mc.cmd.Process.Pid }
+
+// rssMiB is VmRSS in a /proc/PID/status, in MiB.
+func rssMiB(status string) (float64, bool) {
+	for line := range strings.Lines(status) {
+		if v, ok := strings.CutPrefix(line, "VmRSS:"); ok {
+			f := strings.Fields(v)
+			if len(f) != 2 || f[1] != "kB" {
+				return 0, false
+			}
+			kb, err := strconv.Atoi(f[0])
+			return float64(kb) / 1024, err == nil
+		}
+	}
+	return 0, false
+}
+
 // Done is closed once the machine's process has exited.
 // mutate-lane: TestEveryProbeMeasuresATree
 func (mc *Machine) Done() <-chan struct{} { return mc.done }

@@ -54,20 +54,60 @@ func (s Sources) release(tag string) (string, error) {
 	if err := os.RemoveAll(cache); err != nil {
 		return "", fmt.Errorf("clearing %s: %w", cache, err)
 	}
-	if err := s.GitHub.DownloadRelease(tag, "*.tar.gz", cache); err != nil {
-		return "", err
+	name := "spin-machine-" + tag + "-linux-x86_64.tar.gz"
+	for _, f := range []string{name, name + ".sha256", name + ".sigstore.json"} {
+		if err := s.GitHub.DownloadRelease(tag, f, cache); err != nil {
+			return "", err
+		}
 	}
-	tarballs, err := filepath.Glob(filepath.Join(cache, "*.tar.gz"))
-	if err != nil || len(tarballs) != 1 {
-		return "", fmt.Errorf("release %s: want one tarball, found %v (%v)", tag, tarballs, err)
+	tarball := filepath.Join(cache, name)
+	if err := s.verify(tarball); err != nil {
+		return "", fmt.Errorf("release %s: %w", tag, err)
 	}
-	if out, err := exec.Command("tar", "-xzf", tarballs[0], "-C", cache).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("unpacking %s: %w: %s", tarballs[0], err, out)
+	if out, err := exec.Command("tar", "-xzf", tarball, "-C", cache).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("unpacking %s: %w: %s", tarball, err, out)
 	}
 	if _, err := os.Stat(dir); err != nil {
 		return "", fmt.Errorf("release %s's tarball has no %s: %w", tag, dir, err)
 	}
 	return dir, nil
+}
+
+// releaseIdentity is the workflow every release is signed by.
+const releaseIdentity = "https://github.com/" + "spin-stack/spin-machine/.github/workflows/release.yml@refs/heads/main"
+
+// verify checks tarball against the sha256 published beside it and its signature by the release
+// workflow, as boot:previous did, before it is unpacked: what a tree is made of is what was
+// released, and the cache holds only what passed.
+//
+// mutate-lane: TestTheLabTalksToGitHub, with SPIN_LAB_RELEASE set.
+func (s Sources) verify(tarball string) error {
+	sum, err := os.ReadFile(tarball + ".sha256")
+	if err != nil {
+		return fmt.Errorf("reading the published sha256: %w", err)
+	}
+	got, err := fileSHA256(tarball)
+	if err != nil {
+		return err
+	}
+	if want, _, _ := strings.Cut(strings.TrimSpace(string(sum)), " "); want != got {
+		return fmt.Errorf("%s is %s, and its published sha256 says %s", filepath.Base(tarball), got, want)
+	}
+	pin := exec.Command("go", "tool", "versions", "version", "cosign")
+	pin.Dir = s.Checkout
+	version, err := pin.Output()
+	if err != nil {
+		return fmt.Errorf("asking versions.yaml for cosign's pin: %w", err)
+	}
+	cmd := exec.Command("go", "run", "github.com/sigstore/cosign/v3/cmd/cosign@"+strings.TrimSpace(string(version)),
+		"verify-blob", "--bundle", tarball+".sigstore.json",
+		"--certificate-identity", releaseIdentity,
+		"--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", tarball)
+	cmd.Dir = s.Checkout
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("verifying %s's signature: %w: %s", filepath.Base(tarball), err, out)
+	}
+	return nil
 }
 
 // run is the artifacts of workflow run id that match pattern, downloaded the first time.
@@ -207,6 +247,58 @@ func (s Sources) buildSpinMachine(to string) (string, error) {
 		return "built from " + strings.TrimSpace(string(rev)), nil
 	}
 	return "built from " + s.Checkout, nil
+}
+
+// module is this repository's Go module, which a release's spin-machine is built from by commit.
+const module = "github.com/spin-stack/spin-machine"
+
+// mutate-lane: TestTheLabTalksToGitHub, with SPIN_LAB_RELEASE set: it builds through the proxy.
+//
+// releaseSpinMachine builds, at to, the spin-machine of the commit the release tree at base was
+// made from (machine.env's source_commit): the machine as that release defined it - its devices,
+// its places, its checkpoints - which this checkout's would not be. Through the module proxy, so
+// that no clone of the history is needed.
+func (s Sources) releaseSpinMachine(base, to string) (string, error) {
+	env, err := readEnv(filepath.Join(base, "machine.env"))
+	if err != nil {
+		return "", err
+	}
+	commit := env["source_commit"]
+	if commit == "" {
+		return "", fmt.Errorf("%s names no source_commit to build its spin-machine from", filepath.Join(base, "machine.env"))
+	}
+	bin, err := os.MkdirTemp(filepath.Dir(to), ".gobin")
+	if err != nil {
+		return "", fmt.Errorf("making a directory to build %s's spin-machine in: %w", env["version"], err)
+	}
+	defer func() { _ = os.RemoveAll(bin) }()
+	cmd := exec.Command("go", "install", module+"/cmd/spin-machine@"+commit)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOBIN="+bin)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("building %s's spin-machine at %s: %w: %s", env["version"], commit, err, out)
+	}
+	if err := os.Remove(to); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("removing %s: %w", to, err)
+	}
+	if err := os.Rename(filepath.Join(bin, "spin-machine"), to); err != nil {
+		return "", fmt.Errorf("placing %s's spin-machine: %w", env["version"], err)
+	}
+	return "built from " + commit + ", " + env["version"] + "'s", nil
+}
+
+// readEnv reads a KEY=VALUE file such as machine.env.
+func readEnv(path string) (map[string]string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	env := map[string]string{}
+	for line := range strings.Lines(string(b)) {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			env[k] = v
+		}
+	}
+	return env, nil
 }
 
 // systemd builds systemd with the experiment patch on this host, puts its packages under the
