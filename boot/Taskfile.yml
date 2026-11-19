@@ -184,6 +184,16 @@ tasks:
     cmds:
       - SPIN_LOGIN_LANE=1 go test ./boot/ -run '^TestLoginLane$' -count=1 -v -timeout 60m
 
+  density:
+    desc: >-
+      What one more idle workspace costs its host, kernel included: the host's meminfo and slabinfo
+      before and after N machines booted, logged into and left idle SETTLE seconds, per machine, and
+      each QEMU's share of what it maps. Needs KVM, /dev/vhost-vsock (task vsock), a built release
+      and sudo. N= machines (default 8), SETTLE= seconds (default 30).
+    deps: [':tools']
+    cmds:
+      - SPIN_DENSITY=1 go test ./boot/ -run '^TestDensity$' -count=1 -v -timeout 30m
+
   restore-first:
     desc: >-
       The goal's second number: a checkpoint restored to the first SSH login over vsock, beside
