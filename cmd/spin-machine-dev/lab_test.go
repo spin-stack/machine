@@ -128,6 +128,8 @@ func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
 	t.Cleanup(func() { delete(lab.Probes, "counter") })
 	base := fakeRelease(t)
 	t.Setenv("TMPDIR", "")
+	// Off a runner: a runner's scratch may be its instance store, which a unit test leaves alone.
+	t.Setenv("GITHUB_ACTIONS", "")
 	t.Setenv("GITHUB_STEP_SUMMARY", filepath.Join(t.TempDir(), "summary"))
 	if err := os.WriteFile(os.Getenv("GITHUB_STEP_SUMMARY"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -165,18 +167,19 @@ func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
 		t.Errorf("show: %v\n%s", err, stdout)
 	}
 
-	// With no --out, the result goes under _output/lab/results, named for when and what.
+	// With no --out, the result goes under _output/lab/results, named for when and what; with no
+	// --reps, ten of each.
 	results := filepath.Join("..", "..", "_output", "lab", "results")
 	before, _ := filepath.Glob(filepath.Join(results, "*-counter"))
-	if _, _, err := runLab(t, "run", "counter", "labtest-a", "--reps", "1"); err != nil {
+	if _, _, err := runLab(t, "run", "counter", "labtest-a"); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := filepath.Glob(filepath.Join(results, "*-counter"))
 	for _, d := range after {
 		if !slices.Contains(before, d) {
 			t.Cleanup(func() { _ = os.RemoveAll(d) })
-			if _, err := lab.ReadResult(filepath.Join(d, "result.json")); err != nil {
-				t.Error(err)
+			if r, err := lab.ReadResult(filepath.Join(d, "result.json")); err != nil || r.Reps != 10 || len(r.Samples) != 10 {
+				t.Errorf("the default run's result: %v reps, %v", r, err)
 			}
 		}
 	}

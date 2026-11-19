@@ -169,6 +169,9 @@ func TestAnOptionIsOneTheProbeTakesAndOfItsKind(t *testing.T) {
 			t.Errorf("settle(%v) = %v, want %q", tc.given, err, tc.want)
 		}
 	}
+	if o, err := settle(p, Options{"n": "0"}); err != nil || o.Int("n") != 0 {
+		t.Errorf("settle(n=0) = %v, %v", o, err)
+	}
 	o, err := settle(p, Options{"n": "4", "on": "true", "flags": "--a b"})
 	if err != nil || o.Int("n") != 4 || !o.Bool("on") || !slices.Equal(o.Fields("flags"), []string{"--a", "b"}) || o["memory"] != "2048" {
 		t.Errorf("settle = %v, %v", o, err)
@@ -279,7 +282,8 @@ func TestTheRingBufferIsItsInitcallsItsGapsAndWhenTheKernelWasDone(t *testing.T)
 	if _, err := parseRingBuffer("[    0.100000] no initcalls here"); err == nil || !strings.Contains(err.Error(), "no initcall lines") {
 		t.Errorf("no initcalls: %v", err)
 	}
-	if clip(strings.Repeat("x", 100)) != strings.Repeat("x", 88) || clip("short") != "short" || tail("abcdef", 2) != "ef" || tail("ab", 5) != "ab" {
+	if clip(strings.Repeat("x", 100)) != strings.Repeat("x", 88) || clip(strings.Repeat("x", 89)) != strings.Repeat("x", 88) ||
+		clip("short") != "short" || tail("abcdef", 2) != "ef" || tail("ab", 5) != "ab" {
 		t.Error("clip or tail")
 	}
 }
@@ -302,10 +306,14 @@ func TestInitcallsDetailRanksEachTreesInitcallsAndGaps(t *testing.T) {
 	if strings.Count(got, "b_only") != 1 {
 		t.Errorf("B's initcall was listed under A:\n%s", got)
 	}
-	// With no top, thirty: all three of A's are listed.
-	r.Options = Options{}
-	if all := (initcalls{}).Detail(r); !strings.Contains(all, "fast_init") {
-		t.Errorf("with no top, an initcall is missing:\n%s", all)
+	// With no top, thirty initcalls a tree: of 31, the fastest is left out.
+	many := map[string]float64{}
+	for i := range 31 {
+		many[fmt.Sprintf("initcall\x00f%02d_init+0x0/0x10", i)] = float64(100 - i)
+	}
+	all := (initcalls{}).Detail(&Result{Options: Options{}, Trees: []Manifest{{Name: "A"}}, Samples: []Sample{{Tree: "A", Detail: many}}})
+	if !strings.Contains(all, "f29_init") || strings.Contains(all, "f30_init") {
+		t.Errorf("with no top, not thirty initcalls:\n%s", all)
 	}
 	r.Options = Options{"top": "2"}
 	for _, want := range []string{
@@ -424,30 +432,58 @@ func TestTheProbesAreTheGoalsAndTheKernels(t *testing.T) {
 	}
 }
 
-func TestTheScratchIsTMPDIROnADiskOrTheLabsOwn(t *testing.T) {
-	disk, err := os.UserHomeDir()
+// mounts are this host's mount points of each filesystem type, from /proc/mounts.
+func mounts(t *testing.T) map[string][]string {
+	t.Helper()
+	b, err := os.ReadFile("/proc/mounts")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GITHUB_ACTIONS", "")
-	if isTmpfs(disk) {
-		t.Skip("the home directory is on a tmpfs")
+	out := map[string][]string{}
+	for line := range strings.Lines(string(b)) {
+		if f := strings.Fields(line); len(f) > 2 {
+			out[f[2]] = append(out[f[2]], f[1])
+		}
 	}
-	t.Setenv("TMPDIR", disk)
-	if got, err := Scratch(t.TempDir()); err != nil || got != disk {
-		t.Errorf("Scratch with TMPDIR on a disk = %s, %v", got, err)
+	return out
+}
+
+func TestATmpfsIsKnownByItsFilesystem(t *testing.T) {
+	m := mounts(t)
+	if len(m["tmpfs"]) == 0 {
+		t.Fatal("this host mounts no tmpfs to ask about")
 	}
-	t.Setenv("TMPDIR", "")
-	lab := filepath.Join(t.TempDir(), "lab")
-	if got, err := Scratch(lab); err != nil || got != filepath.Join(lab, "scratch") || !fileExists(got) {
-		t.Errorf("Scratch with no TMPDIR = %s, %v", got, err)
+	if !isTmpfs(m["tmpfs"][0]) {
+		t.Errorf("%s is a tmpfs and was not taken for one", m["tmpfs"][0])
 	}
 	if isTmpfs("/proc") || isTmpfs("/nonexistent") {
 		t.Error("procfs, or nothing, taken for a tmpfs")
 	}
-	mounts, _ := os.ReadFile("/proc/mounts")
-	if strings.Contains(string(mounts), " /dev/shm tmpfs ") && !isTmpfs("/dev/shm") {
-		t.Error("/dev/shm is a tmpfs and was not taken for one")
+}
+
+func TestTheScratchIsTMPDIROnADiskOrTheLabsOwn(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "")
+	m := mounts(t)
+	lab := filepath.Join(t.TempDir(), "lab") // before TMPDIR moves: TempDir is made under it
+	// A TMPDIR on a tmpfs is not taken: overlays and states there are held in RAM.
+	t.Setenv("TMPDIR", m["tmpfs"][0])
+	if got, err := Scratch(lab); err != nil || got != filepath.Join(lab, "scratch") || !fileExists(got) {
+		t.Errorf("Scratch with TMPDIR on a tmpfs = %s, %v", got, err)
+	}
+	t.Setenv("TMPDIR", "")
+	if got, err := Scratch(lab); err != nil || got != filepath.Join(lab, "scratch") {
+		t.Errorf("Scratch with no TMPDIR = %s, %v", got, err)
+	}
+	if _, err := Scratch("/proc/no/such/lab"); err == nil {
+		t.Error("a scratch directory was made where none can be")
+	}
+	// A TMPDIR on a disk is taken: the root filesystem is one on every host this runs on.
+	if isTmpfs("/") {
+		t.Skip("/ is a tmpfs here")
+	}
+	t.Setenv("TMPDIR", "/")
+	if got, err := Scratch(lab); err != nil || got != "/" {
+		t.Errorf("Scratch with TMPDIR on a disk = %s, %v", got, err)
 	}
 }
 
