@@ -15,12 +15,16 @@ on:
     branches: [main]
     paths:
       - kernel/**
+      - cmd/spin-machine-dev/**
+      - internal/build/**
       - versions.yaml
       - go.mod
       - .github/workflows/kernel.yml
   pull_request:
     paths:
       - kernel/**
+      - cmd/spin-machine-dev/**
+      - internal/build/**
       - versions.yaml
       - go.mod
       - .github/workflows/kernel.yml
@@ -28,7 +32,7 @@ on:
 
 permissions:
   contents: read
-  # The BuildKit cache: main writes it, everything else reads it (Taskfile.yml, CACHE_REGISTRY).
+  # The BuildKit cache: main writes it, everything else reads it (internal/build.CacheRegistry).
   packages: write
 
 concurrency:
@@ -59,11 +63,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       - name: Does the change reach the kernel
         id: touches
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: go tool task touches -- debian debian-snapshot kernel moby-check-config -- kernel go.mod .github/workflows/kernel.yml
+        run: spin-machine-dev changed --base "$BASE" --pins debian,debian-snapshot,kernel,moby-check-config kernel go.mod cmd/spin-machine-dev internal/build .github/workflows/kernel.yml
 
   build:
     needs: changed
@@ -74,16 +83,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The Taskfile hands the build its pins with go-tools' `versions`.
+      # spin-machine-dev is Go, and reads the build's pins from versions.yaml.
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       # A builder of its own (the docker-container driver): Docker's default one cannot export its
-      # cache. What it reads and writes is the cache image in GitHub's registry that Taskfile.yml
-      # names (CACHE_BACKEND=registry), so the runner itself keeps nothing between runs.
+      # cache. What it reads and writes is the cache image in GitHub's registry that the build
+      # names (--cache-registry, internal/build.CacheRegistry), so the runner itself keeps nothing between runs.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # The cache is one of this repository's packages, and reading it takes a login as much as
@@ -96,22 +110,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Ends in `task kernel:verify`, which reads the bzImage's setup header (a relocatable
+      # Ends in verifying it (spin-machine-dev verify kernel), which reads the bzImage's setup header (a relocatable
       # bzImage, or KASLR is off) and checks vmlinux's Xen PVH notes survived the strip.
       # Without either, the failure is a VM that does not start or a kernel at a fixed
       # address, in whichever lane boots one next.
+      #
+      # And what it produced, by sha256, on the run's summary: a pull request that changes the
+      # config, or bumps the Debian toolchain the kernel is compiled with, changes every guest's
+      # next boot, and the change that does it need not look like much. Checkpoints are not
+      # affected: the kernel is not in the fingerprint (machine.Spec.Fingerprint).
       - name: Build the kernel
         env:
-          CACHE_BACKEND: registry
+          # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: go tool task kernel:build KERNEL_NPROC=4
-
-      # What it produced, on the run's summary: a pull request that changes the config, or
-      # bumps the Debian toolchain the kernel is compiled with, changes every guest's next
-      # boot, and the change that does it need not look like much. Checkpoints are not
-      # affected: the kernel is not in the fingerprint (machine.Spec.Fingerprint).
-      - name: What this kernel is
-        run: go tool task kernel:summary
+        run: spin-machine-dev build kernel --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
 
       # Still named vmlinux-<sha>: lab:fetch finds a kernel run's artifact by that name.
       - name: Upload the kernel

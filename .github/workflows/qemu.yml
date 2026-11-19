@@ -22,12 +22,16 @@ on:
     branches: [main]
     paths:
       - qemu/**
+      - cmd/spin-machine-dev/**
+      - internal/build/**
       - versions.yaml
       - go.mod
       - .github/workflows/qemu.yml
   pull_request:
     paths:
       - qemu/**
+      - cmd/spin-machine-dev/**
+      - internal/build/**
       - versions.yaml
       - go.mod
       - .github/workflows/qemu.yml
@@ -63,11 +67,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       - name: Does the change reach QEMU
         id: touches
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: go tool task touches -- alpine qemu debian debian-snapshot qboot -- qemu go.mod .github/workflows/qemu.yml
+        run: spin-machine-dev changed --base "$BASE" --pins alpine,qemu,debian,debian-snapshot,qboot qemu go.mod cmd/spin-machine-dev internal/build .github/workflows/qemu.yml
 
   build:
     needs: changed
@@ -90,9 +99,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       # A builder of its own (the docker-container driver): Docker's default one cannot export its
-      # cache. What it reads and writes is the cache image in GitHub's registry that Taskfile.yml
-      # names (CACHE_BACKEND=registry), so the runner itself keeps nothing between runs.
+      # cache. What it reads and writes is the cache image in GitHub's registry that the build
+      # names (--cache-registry, internal/build.CacheRegistry), so the runner itself keeps nothing between runs.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # The cache is one of this repository's packages, and reading it takes a login as much as
@@ -105,17 +119,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The pinned version comes from versions.yaml, never from a literal here: two places
-      # to bump is how CI and production end up on different QEMUs.
-      - name: Read the pinned QEMU version
-        id: qemu
-        run: go tool task qemu:version
-
+      # It writes the pinned version to the step's outputs (qemu_version), which names the
+      # artifact below: from versions.yaml, never a literal here - two places to bump is how CI
+      # and production end up on different QEMUs. And what it built, on the run's summary.
       - name: Build QEMU and verify what came out
+        id: qemu
         env:
-          CACHE_BACKEND: registry
+          # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: go tool task qemu:build QEMU_JOBS=4
+        run: spin-machine-dev build qemu --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
 
       # vhost-vsock is a kernel module, and the machine's vsock device cannot be created
       # without /dev/vhost-vsock. The runner has the node and gives the user no access to
@@ -124,10 +136,10 @@ jobs:
       # keeps the device line and drops the requirement, and a runner without it is told
       # what went unchecked instead of being shown a pass.
       - name: Load vhost_vsock
-        run: go tool task vsock
+        run: spin-machine-dev vsock
 
-      # The other half of what a device allowlist decides. `task qemu:build` ends in
-      # qemu:verify, which asks this binary which accelerators and firmware files it has;
+      # The other half of what a device allowlist decides. The build ends in
+      # verify qemu, which asks this binary which accelerators and firmware files it has;
       # this asks whether it accepts the command line the machine package builds, which is
       # where a device removed from qemu/devices.mak actually surfaces — as a VM that does
       # not start, weeks later, reading like a fault in whatever launched it.
@@ -136,20 +148,17 @@ jobs:
       # lane that catches a change made on *this* side, before the binary it would break is
       # published at all.
       - name: Check the built QEMU accepts the machine's arguments
-        run: go tool task verify:args
+        run: spin-machine-dev verify args
 
-      # What it produced, and whether it still offers the machine type every checkpoint is
-      # saved on, on the run's summary. A changed QEMU binary is a new emulator of the same
-      # machine (machine.MachineType stays): it is not in the fingerprint, and whether a
+      # The build said what it produced, and whether it still offers the machine type every
+      # checkpoint is saved on, on the run's summary. A changed QEMU binary is a new emulator of
+      # the same machine (machine.MachineType stays): it is not in the fingerprint, and whether a
       # checkpoint the released QEMU saved resumes on it is boot:compat's to say, on the KVM
       # runner (compat.yml).
-      - name: What this QEMU is
-        run: go tool task qemu:summary
-
       - name: Upload the extracted binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: qemu-${{ steps.qemu.outputs.version }}-linux-amd64
+          name: qemu-${{ steps.qemu.outputs.qemu_version }}-linux-amd64
           path: |
             _output/bin/
             _output/qemu/
@@ -160,11 +169,11 @@ jobs:
       # branch - a pull request, or one dispatched to build a QEMU for the lab - has no
       # business claiming the version tag. The login is the one made for the cache.
       #
-      # The runtime image, tagged with the pinned QEMU version: what `task qemu:fetch` pulls,
+      # The runtime image, tagged with the pinned QEMU version: what `spin-machine-dev fetch qemu` pulls,
       # so CI's argument check runs main's QEMU in seconds instead of compiling it. The
       # binaries are static, so the image around them carries nothing they need. It reads the
       # builder stage the step above compiled from the `qemu` cache, and writes no cache: that
       # cache holds these layers already.
       - name: Publish the runtime image
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: go tool task qemu:publish
+        run: spin-machine-dev publish qemu

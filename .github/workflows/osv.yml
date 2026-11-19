@@ -1,6 +1,6 @@
 name: OSV
 
-# Every day, what OSV knows against the newest release's SBOM (task osv), and an issue for each
+# Every day, what OSV knows against the newest release's SBOM (spin-machine-dev osv), and an issue for each
 # package with findings, closed once a release has none. A release's libraries are a commit's, and a vulnerability is
 # published after the commit: nothing in a build can find it, only asking again later can.
 #
@@ -36,21 +36,21 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
-      - name: Scan the newest release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: go tool task osv
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
 
-      # One issue a package, which a release closes once it has no finding in it; hack/osvissues
-      # says why a package and not a finding.
-      - name: Bring the issues to the findings
+      # And the issues brought to the findings: one a package, which a release closes once it has
+      # no finding in it (internal/osvissues says why a package and not a finding).
+      - name: Scan the newest release, and bring the issues to the findings
         env:
           GH_TOKEN: ${{ github.token }}
-        run: go tool task osv:issues
+        run: spin-machine-dev osv --issues
 
   # The guest kernel is not in the SBOM's package graph the way the image's packages are, and OSV
   # knows a CVE against "Linux" without knowing which files this kernel compiled. So the kernel
-  # CNA's own records, judged against the newest release's kernel by task kernel:cves: how many it
+  # CNA's own records, judged against the newest release's kernel by spin-machine-dev cves: how many it
   # is past the fix of, how many are in code it does not compile, and which apply - those a later
   # release of the series fixes, which refresh.yml proposes, and those only a later series does,
   # which are a person's decision. On the run's summary.
@@ -72,7 +72,12 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       - name: Judge the newest release's kernel against the kernel CNA's CVEs
         env:
           GH_TOKEN: ${{ github.token }}
-        run: go tool task kernel:cves
+        run: spin-machine-dev cves

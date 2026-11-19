@@ -17,6 +17,8 @@ on:
     paths:
       - image/**
       - e2fsprogs/**
+      - cmd/spin-machine-dev/**
+      - internal/build/**
       - versions.yaml
       - go.mod
       - .github/workflows/image.yml
@@ -24,6 +26,8 @@ on:
     paths:
       - image/**
       - e2fsprogs/**
+      - cmd/spin-machine-dev/**
+      - internal/build/**
       - versions.yaml
       - go.mod
       - .github/workflows/image.yml
@@ -31,7 +35,7 @@ on:
 
 permissions:
   contents: read
-  # The BuildKit cache: main writes it, everything else reads it (Taskfile.yml, CACHE_REGISTRY).
+  # The BuildKit cache: main writes it, everything else reads it (internal/build.CacheRegistry).
   packages: write
 
 concurrency:
@@ -63,11 +67,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       - name: Does the change reach the image
         id: touches
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: go tool task touches -- alpine e2fsprogs ubuntu systemd-source mkosi task git-lfs buildkit -- image e2fsprogs go.mod .github/workflows/image.yml
+        run: spin-machine-dev changed --base "$BASE" --pins alpine,e2fsprogs,ubuntu,systemd-source,mkosi,task,git-lfs,buildkit image e2fsprogs go.mod cmd/spin-machine-dev internal/build .github/workflows/image.yml
 
   build:
     needs: changed
@@ -78,16 +87,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The Taskfiles hand the builds their pins with go-tools' `versions`.
+      # spin-machine-dev is Go, and reads the builds' pins from versions.yaml.
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       # A builder of its own (the docker-container driver): Docker's default one cannot export its
-      # cache. What it reads and writes is the cache image in GitHub's registry that Taskfile.yml
-      # names (CACHE_BACKEND=registry), so the runner itself keeps nothing between runs.
+      # cache. What it reads and writes is the cache image in GitHub's registry that the build
+      # names (--cache-registry, internal/build.CacheRegistry), so the runner itself keeps nothing between runs.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # The cache is one of this repository's packages, and reading it takes a login as much as
@@ -104,9 +118,9 @@ jobs:
       # the build container's, and image/build.sh stops when it is not there.
       - name: Build e2fsprogs
         env:
-          CACHE_BACKEND: registry
+          # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: go tool task e2fsprogs:build
+        run: spin-machine-dev build e2fsprogs --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
 
       # image/build.sh asserts what came out on the finished filesystem rather than
       # trusting the build that made it: that there is an /sbin/init and a /bin/sh, that
@@ -118,14 +132,14 @@ jobs:
       # of .debs, and saving and restoring that costs about what downloading it costs — so
       # it would buy minutes of cache traffic in exchange for minutes of archive traffic,
       # and a cache entry large enough to push others out of the repository's 10 GB.
+      #
+      # It builds the systemd the image installs first, and says what the image is, by sha256,
+      # on the run's summary.
       - name: Build the base image
         env:
-          CACHE_BACKEND: registry
+          # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: go tool task image:build
-
-      - name: What this image is
-        run: go tool task image:summary
+        run: spin-machine-dev build image --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
 
       # Not uploaded as an artifact: it is ~860 MB and the release workflow rebuilds it
       # from the same inputs. What this job is for is finding out that it still builds and

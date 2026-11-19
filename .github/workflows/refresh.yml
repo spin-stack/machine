@@ -1,14 +1,14 @@
 # Every day, the newest release of the guest kernel's series, proposed as a pull request
-# (task refresh:kernel). A stable release is mostly fixes that were never called CVEs, or were
+# (spin-machine-dev refresh kernel). A stable release is mostly fixes that were never called CVEs, or were
 # called one after the fix was out, so taking them is the cheapest security this machine has:
 # within the series the configuration does not change (kernel/config-<series>-x86_64) and
 # checkpoints keep resuming, so a stable release is one versions.yaml line. kernel.yml builds it
 # on the pull request; a person boots it and merges it. Nothing here publishes.
 #
-# And the systemd source package the image rebuilds (task refresh:systemd), which the archive
+# And the systemd source package the image rebuilds (spin-machine-dev refresh systemd), which the archive
 # stops serving the day Ubuntu replaces it.
 #
-# And the apk locks of QEMU's and e2fsprogs' builders (task refresh:apk), because the pinned
+# And the apk locks of QEMU's and e2fsprogs' builders (spin-machine-dev refresh apk), because the pinned
 # Alpine's mirror drops the builds they name and a stale lock fails the next build - a release
 # found that three times. qemu.yml and image.yml build the pull request.
 #
@@ -64,6 +64,11 @@ jobs:
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
         run: go tool task git:app
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       - name: Propose the kernel's newest release
         env:
           # versions refresh opens the pull request as GITHUB_TOKEN before GH_TOKEN, and the run's
@@ -71,7 +76,7 @@ jobs:
           # as GH_TOKEN.
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: go tool task refresh:kernel
+        run: spin-machine-dev refresh kernel
 
   # Its own job, as apk's: the refresh leaves the checkout on the branch it proposed. Ubuntu's
   # archive serves only the systemd source resolute publishes now, so image/systemd fails to build
@@ -108,6 +113,11 @@ jobs:
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
         run: go tool task git:app
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       - name: Propose the systemd resolute publishes now
         env:
           # versions refresh opens the pull request as GITHUB_TOKEN before GH_TOKEN, and the run's
@@ -115,7 +125,7 @@ jobs:
           # as GH_TOKEN.
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: go tool task refresh:systemd
+        run: spin-machine-dev refresh systemd
 
   # Its own job: each refresh above leaves the checkout on the branch it proposed.
   apk:
@@ -149,7 +159,12 @@ jobs:
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
         run: go tool task git:app
 
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
       - name: Propose the apk locks at what the mirror has today
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: go tool task refresh:apk
+        run: spin-machine-dev refresh apk

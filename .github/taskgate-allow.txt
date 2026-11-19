@@ -4,13 +4,9 @@
 # shell, or deciding anything by GITHUB_OUTPUT, GITHUB_ENV or jq - by its path. The list may shrink
 # and may not grow: a line that matches nothing fails too.
 #
-# Every line here was over the limit when go-tools set it, and is work owed: what decides goes to Go
-# with a test, what drives tools in order stays shell once it is short.
+# Every line here was over the limit when go-tools set it, and is work owed: what decides goes to a
+# spin-machine-dev verb with a test, what drives tools in order stays shell once it is short.
 Taskfile.yml:coverage  # formats the coverage profile for the run's summary: Go
-Taskfile.yml:release:version  # decides the next CalVer from the tags: Go
-Taskfile.yml:release:notes  # writes the release's notes from git and the pins: Go
-Taskfile.yml:release:sign  # drives cosign over the release's files: shell, once shorter
-Taskfile.yml:shell  # assembles a spin-machine boot with a shell for a person: spin-machine's own flags
 Taskfile.yml:lab:unpack  # fetches and unpacks a release for the lab: shell, once shorter
 Taskfile.yml:lab:place  # lays the lab's tree out from a release: Go, beside hack/machine place
 Taskfile.yml:lab:vars  # decides the lab's variables from its inputs: Go
@@ -19,7 +15,4 @@ Taskfile.yml:report:runner  # reports what the host can measure: Go
 Taskfile.yml:report:compare  # compares two runs' numbers: Go
 boot/Taskfile.yml:previous  # fetches the previous release for boot:compat: shell, once shorter
 boot/Taskfile.yml:here  # builds this tree's release for boot:compat: shell, once shorter
-qemu/Taskfile.yml:verify  # asserts the QEMU tree's devices and files: Go, with a test
-hack/release  # assembles and refuses a release tarball: Go, with a test
-hack/fingerprint-diff  # decides by jq which fingerprint inputs changed: Go, beside machine.Spec.Fingerprint
 image/build.sh  # builds the base image and asserts it carries no identity: shell that drives mkfs, its assertions Go
