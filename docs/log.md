@@ -639,6 +639,5 @@ Also the reusable builder, added and reverted on 10-13.
 - **`page_reporting_order`.** Revisit "only if memory per host becomes the limit" (docs/memory-and-disk.md).
 - **Moving `MachineType` off pc-q35-11.1.** "its own change" (CLAUDE.md rule 1, `hack/machinetype`).
 - **The kernel CVE judge.** 9 CVEs apply with a fix later in 7.3, and 1 has no fix (`0ce27ad`, against 7.3.1; the kernel is now 7.3.4).
-- **QEMU patch 0002.** To be deleted when a QEMU tag carries upstream 331ce936 (`aaf2d86`).
 - **Host keys in checkpoints.** A guest checkpointed after boot carries host keys, so the restorer must re-key (`image/README.md`, #248). This is a consumer contract to confirm in spin.
 - **min_ttl_ms evidence disagrees.** `47aa681` and `kernel/Dockerfile:192-194` (§2, 09-28).
