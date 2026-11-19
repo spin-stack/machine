@@ -200,9 +200,15 @@ tasks:
       the same machine booted cold, for each of boot:ssh-first's rows. Every cold boot runs and is
       saved before any restore, and each state is read from the disk, not the page cache. Needs
       KVM, /dev/vhost-vsock (task vsock), a built release, sudo and a TMPDIR on a disk. REPS=
-      repetitions.
+      repetitions. SPIN_RESTORE_FAST=1 adds the fast-load rows, which need userfaultfd for the
+      user QEMU runs as: the target turns on vm.unprivileged_userfaultfd for them, which is why
+      they belong on a throwaway host.
     deps: [':tools']
     cmds:
+      - |
+        if [ -n "${SPIN_RESTORE_FAST:-}" ] && [ "$(cat /proc/sys/vm/unprivileged_userfaultfd)" != 1 ]; then
+          sudo sysctl -q -w vm.unprivileged_userfaultfd=1
+        fi
       - SPIN_RESTORE_FIRST=1 go test ./boot/ -run '^TestRestoreFirstSSH$' -count=1 -v -timeout 60m
 
   prestart:
