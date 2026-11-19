@@ -165,6 +165,7 @@ jobs:
       - name: Tag the commit
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: go tool task release:tag
 
       - name: Publish
