@@ -239,11 +239,9 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 		m.Edits = append(m.Edits, NamedEdit{Name: name, Edit: e})
 	}
 	if spec.Systemd != "" {
-		e, err := src.systemd(spec.Systemd, dir)
-		if err != nil {
+		if err := src.addSystemd(&m, spec.Systemd, dir); err != nil {
 			return nil, err
 		}
-		m.Edits = append(m.Edits, NamedEdit{Name: "systemd " + spec.Systemd, Edit: e})
 	}
 	for _, name := range []string{"kernel", "qemu", "spin-machine"} {
 		p := m.Parts[name]
@@ -260,6 +258,18 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 		return nil, fmt.Errorf("writing tree %s's manifest: %w", spec.Name, err)
 	}
 	return OpenTree(dir)
+}
+
+// addSystemd builds systemd with the experiment patch and adds the edit that installs it to m.
+//
+// mutate-lane: TestEveryProbeMeasuresATree, with SPIN_LAB_SYSTEMD naming a patch.
+func (s Sources) addSystemd(m *Manifest, patch, dir string) error {
+	e, err := s.systemd(patch, dir)
+	if err != nil {
+		return err
+	}
+	m.Edits = append(m.Edits, e)
+	return nil
 }
 
 // linkTree makes dst the tree at src as directories of symbolic links, one a file, as `cp -as`

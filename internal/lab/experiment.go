@@ -109,11 +109,24 @@ func Scratch(dir string) (string, error) {
 	if t := os.Getenv("TMPDIR"); t != "" && !isTmpfs(t) {
 		return t, nil
 	}
-	if os.Getenv("GITHUB_ACTIONS") == "true" {
-		if d, err := instanceStore(); err != nil || d != "" {
-			return d, err
-		}
+	if os.Getenv("GITHUB_ACTIONS") == "true" { // mutate-exempt: off a runner with an instance store, runnerScratch is this same directory
+		return runnerScratch(dir)
 	}
+	return labScratch(dir)
+}
+
+// runnerScratch is a bench runner's instance store, or the lab's own directory where it has none.
+//
+// mutate-lane: TestTheScratchOnABenchRunnerIsItsInstanceStore
+func runnerScratch(dir string) (string, error) {
+	if d, err := instanceStore(); err != nil || d != "" {
+		return d, err
+	}
+	return labScratch(dir)
+}
+
+// labScratch is dir's scratch directory, made.
+func labScratch(dir string) (string, error) {
 	d := filepath.Join(dir, "scratch")
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return "", fmt.Errorf("making %s: %w", d, err)

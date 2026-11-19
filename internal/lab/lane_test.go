@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -117,6 +118,19 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 		if _, err := ReadResult(filepath.Join(dir, "result.json")); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestTheScratchOnABenchRunnerIsItsInstanceStore is the bench runner's lane (SPIN_LAB_RUNNER=1 on
+// one): the scratch is on the instance store, not the root volume. It may format an instance
+// store nothing has mounted, which is why it only runs where asked.
+func TestTheScratchOnABenchRunnerIsItsInstanceStore(t *testing.T) {
+	if os.Getenv("SPIN_LAB_RUNNER") == "" {
+		t.Skip("set SPIN_LAB_RUNNER=1 on a bench runner: may format its instance store")
+	}
+	d, err := runnerScratch(t.TempDir())
+	if err != nil || !strings.HasSuffix(d, "/spin-lab-tmp") {
+		t.Errorf("runnerScratch = %q, %v", d, err)
 	}
 }
 

@@ -3,6 +3,7 @@
 package lab
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,13 +15,12 @@ import (
 
 // from is the tree a spec starts from and how a manifest names it.
 func (s Sources) from(from string) (dir, source string, err error) {
+	from = cmp.Or(from, "release")
 	switch {
-	case from == "" || from == "release" || strings.HasPrefix(from, "release:"):
-		tag := strings.TrimPrefix(strings.TrimPrefix(from, "release"), ":")
-		if tag == "" {
-			if tag, err = s.GitHub.LatestRelease(); err != nil {
-				return "", "", err
-			}
+	case from == "release" || strings.HasPrefix(from, "release:"):
+		tag, err := s.releaseTag(from)
+		if err != nil {
+			return "", "", err
 		}
 		dir, err := s.release(tag)
 		return dir, "release " + tag, err
@@ -31,6 +31,16 @@ func (s Sources) from(from string) (dir, source string, err error) {
 		}
 		return abs, abs, nil
 	}
+}
+
+// releaseTag is the tag "release:TAG" names, or the newest release's for "release".
+//
+// mutate-lane: TestTheLabTalksToGitHub, with SPIN_LAB_RELEASE set.
+func (s Sources) releaseTag(from string) (string, error) {
+	if tag := strings.TrimPrefix(from, "release:"); tag != from {
+		return tag, nil
+	}
+	return s.GitHub.LatestRelease()
 }
 
 // release is the unpacked tree of the release tag, downloaded the first time it is asked for.
@@ -202,29 +212,29 @@ func (s Sources) buildSpinMachine(to string) (string, error) {
 // systemd builds systemd with the experiment patch on this host, puts its packages under the
 // tree at dir, and returns the edit that installs them into an overlay.
 // mutate-lane: TestEveryProbeMeasuresATree
-func (s Sources) systemd(patch, dir string) (Edit, error) {
+func (s Sources) systemd(patch, dir string) (NamedEdit, error) {
 	// --rebuild: the packages under _output/systemd are whatever was last built, and an
 	// experiment's are not the release's.
 	cmd := exec.Command("go", "run", "./cmd/spin-machine-dev", "build", "systemd",
 		"--systemd-experiment", patch, "--cache-export=false", "--rebuild")
 	cmd.Dir, cmd.Stdout, cmd.Stderr = s.Checkout, s.Log, s.Log
 	if err := cmd.Run(); err != nil {
-		return Edit{}, fmt.Errorf("building systemd with the experiment %s: %w", patch, err)
+		return NamedEdit{}, fmt.Errorf("building systemd with the experiment %s: %w", patch, err)
 	}
 	debs := filepath.Join(dir, "systemd")
 	if err := os.MkdirAll(debs, 0o755); err != nil {
-		return Edit{}, fmt.Errorf("making %s: %w", debs, err)
+		return NamedEdit{}, fmt.Errorf("making %s: %w", debs, err)
 	}
 	built, err := filepath.Glob(filepath.Join(s.Checkout, "_output", "systemd", "*.deb"))
 	if err != nil || len(built) == 0 {
-		return Edit{}, fmt.Errorf("the systemd build left no packages in _output/systemd (%v)", err)
+		return NamedEdit{}, fmt.Errorf("the systemd build left no packages in _output/systemd (%v)", err)
 	}
 	for _, d := range built {
 		if err := replace(d, filepath.Join(debs, filepath.Base(d)), 0o644); err != nil {
-			return Edit{}, err
+			return NamedEdit{}, err
 		}
 	}
-	return systemdPackages(debs), nil
+	return NamedEdit{Name: "systemd " + patch, Edit: systemdPackages(debs)}, nil
 }
 
 func fileExists(p string) bool {

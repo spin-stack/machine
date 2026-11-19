@@ -202,6 +202,13 @@ func TestATreeRefusesWhatIsNotWhole(t *testing.T) {
 			b, _ := json.Marshal(m)
 			write(t, filepath.Join(d, manifestName), b)
 		}, "where its image came from"},
+		{"a part with an empty source", func(d string) {
+			var m Manifest
+			_ = json.Unmarshal([]byte(read(t, filepath.Join(d, manifestName))), &m)
+			m.Parts["image"] = Part{}
+			b, _ := json.Marshal(m)
+			write(t, filepath.Join(d, manifestName), b)
+		}, "where its image came from"},
 		{"a part gone", func(d string) { _ = os.Remove(filepath.Join(d, "image/rootfs.qcow2")) }, "has no image"},
 		{"not a machine", func(d string) { _ = os.Remove(filepath.Join(d, "qemu/qboot.bin")) }, "not a whole machine"},
 	} {
@@ -323,6 +330,49 @@ func TestOneIsTheOneFileWithThatName(t *testing.T) {
 	}
 }
 
+// A run's kernel or QEMU is its artifact, downloaded once into the cache: a run with no bzImage is
+// one from before 2026-11-19, and is refused by name.
+func TestAKernelOrQEMUFromARunIsTheRunsBuild(t *testing.T) {
+	base := fakeRelease(t, "release kernel")
+	cache := t.TempDir()
+	s := Sources{Checkout: checkoutRoot(t), Cache: cache, Log: io.Discard}
+	write(t, filepath.Join(cache, "runs/11/vmlinux/vmlinux-abc/bzImage"), bzImage("run kernel"))
+	qemu := filepath.Join(cache, "runs/22/qemu-*-linux-amd64/qemu-11.2-linux-amd64")
+	write(t, filepath.Join(qemu, "bin/qemu-system-x86_64"), []byte("run qemu"))
+	write(t, filepath.Join(qemu, "qemu/qboot.bin"), []byte("run qboot"))
+	write(t, filepath.Join(qemu, "qemu/linuxboot_dma.bin"), []byte("run rom"))
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "r"), TreeSpec{Name: "r", From: base, Kernel: "run:11", QEMU: "run:22"}, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Manifest.Parts["kernel"].Source != "run 11" || tr.Manifest.Parts["qemu"].Source != "run 22" ||
+		!strings.HasSuffix(read(t, filepath.Join(tr.Dir, "kernel/bzImage")), "run kernel") ||
+		read(t, filepath.Join(tr.Dir, "qemu/qboot.bin")) != "run qboot" {
+		t.Errorf("the run's parts: %+v", tr.Manifest.Parts)
+	}
+	write(t, filepath.Join(cache, "runs/33/vmlinux/vmlinux-old/vmlinux"), []byte("elf"))
+	if err := os.MkdirAll(filepath.Join(cache, "runs/44/qemu-*-linux-amd64/empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	noFirmware := t.TempDir()
+	write(t, filepath.Join(noFirmware, "bin/qemu-system-x86_64"), []byte("q"))
+	for _, tc := range []struct {
+		spec TreeSpec
+		says string
+	}{
+		{TreeSpec{Kernel: "run:33"}, "kernel run 33: want one bzImage"},
+		{TreeSpec{QEMU: "run:44"}, "QEMU run 44: want one"},
+		{TreeSpec{QEMU: noFirmware}, "copying " + noFirmware + "'s firmware"},
+		{TreeSpec{QEMU: t.TempDir()}, "opening"},
+	} {
+		spec, says := tc.spec, tc.says
+		spec.Name, spec.From = "x", base
+		if _, err := MakeTree(filepath.Join(t.TempDir(), "x"), spec, s); err == nil || !strings.Contains(err.Error(), says) {
+			t.Errorf("%+v: %v, want an error saying %q", spec, err, says)
+		}
+	}
+}
+
 // A release asked for by its tag is the one unpacked under the cache, when it is there.
 func TestAReleaseByItsTagIsTheOneInTheCache(t *testing.T) {
 	cache := t.TempDir()
@@ -331,6 +381,11 @@ func TestAReleaseByItsTagIsTheOneInTheCache(t *testing.T) {
 	got, source, err := Sources{Cache: cache}.from("release:v20260101.01")
 	if err != nil || got != dir || source != "release v20260101.01" {
 		t.Errorf("from = %s, %q, %v", got, source, err)
+	}
+	// A directory named like one is a directory: only "release" and "release:TAG" are releases.
+	wd, _ := os.Getwd()
+	if got, _, err := (Sources{Cache: cache}).from("releases-of-mine"); err != nil || got != filepath.Join(wd, "releases-of-mine") {
+		t.Errorf("from(releases-of-mine) = %s, %v", got, err)
 	}
 }
 
@@ -358,5 +413,11 @@ func TestReplaceRefusesWhatItCannotRead(t *testing.T) {
 	}
 	if _, err := fileSHA256(filepath.Join(d, "missing")); err == nil {
 		t.Error("summed a file that is not there")
+	}
+	if err := run("true"); err != nil {
+		t.Errorf("run(true) = %v", err)
+	}
+	if err := run("sh", "-c", "echo nope >&2; exit 3"); err == nil || err.Error() != "sh -c echo nope >&2; exit 3: exit status 3: nope" {
+		t.Errorf("run of a failing command = %v", err)
 	}
 }
