@@ -259,9 +259,20 @@ func (m *QEMU) addImages(ctx context.Context, d Disk) (string, error) {
 		img := d.Images[j]
 		node := diskNode(d.Serial, j)
 		readOnly := d.Readonly || j > 0
-		set, err := m.q.addFD(ctx, img.File, node)
+		// The set's opaque is the image's path, and a writable top's set holds a read-only
+		// copy of it too. spin's storage relies on both (spin-stack/spin-machine#297): it finds
+		// which machine has an image open by query-fdsets' opaques, and after sealing a layer it
+		// drops the writable copy, leaving QEMU the read-only one to reopen the layer with -
+		// QEMU takes from a set only a descriptor of the access mode it asks for.
+		opaque := img.File.Name()
+		set, err := m.q.addFD(ctx, img.File, opaque)
 		if err != nil {
 			return "", fmt.Errorf("disk %q: %w", d.Serial, err)
+		}
+		if !readOnly {
+			if err := m.addReadOnlyCopy(ctx, set, img.File, opaque); err != nil {
+				return "", fmt.Errorf("disk %q: %w", d.Serial, err)
+			}
 		}
 		file := fileNode{
 			Driver: "file", NodeName: node + "-f",
@@ -288,6 +299,16 @@ func (m *QEMU) addImages(ctx context.Context, d Disk) (string, error) {
 		}
 	}
 	return diskNode(d.Serial, 0), nil
+}
+
+// addReadOnlyCopy reopens f read-only and adds it to set.
+func (m *QEMU) addReadOnlyCopy(ctx context.Context, set int, f *os.File, opaque string) error {
+	ro, err := os.Open(fmt.Sprintf("/proc/self/fd/%d", f.Fd()))
+	if err != nil {
+		return fmt.Errorf("reopening %s read-only: %w", opaque, err)
+	}
+	defer func() { _ = ro.Close() }() // QEMU holds its own copy
+	return m.q.addFDTo(ctx, set, ro, opaque)
 }
 
 // AttachDisk gives the running machine a disk on its hotplug controller, at the first target

@@ -230,11 +230,23 @@ func TestBootBindsEachDiskToItsPlaceThenRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"query-status", "query-block", "qom-get", "qom-get",
-		"add-fd", "blockdev-add", "blockdev-add", "add-fd", "blockdev-add", "blockdev-add", "blockdev-reopen", "blockdev-del",
+		"add-fd", "blockdev-add", "blockdev-add", "add-fd", "add-fd", "blockdev-add", "blockdev-add", "blockdev-reopen", "blockdev-del",
 		"add-fd", "blockdev-add", "blockdev-add", "blockdev-reopen", "blockdev-del",
 		"cont"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("commands\n%v\nwant\n%v", got, want)
+	}
+	// Each set is named by its image's path, and the writable top's has a read-only copy too
+	// (spin-machine#297): spin's storage finds an open image by its path, and keeps a sealed
+	// layer open through that copy.
+	wantSets := []map[string]any{
+		{"opaque": root.Images[1].File.Name()},
+		{"opaque": root.Images[0].File.Name()},
+		{"opaque": root.Images[0].File.Name(), "fdset-id": float64(7)},
+		{"opaque": home.Images[0].File.Name()},
+	}
+	if got := f.sent("add-fd"); !reflect.DeepEqual(got, wantSets) {
+		t.Errorf("add-fd\n%v\nwant\n%v", got, wantSets)
 	}
 	for _, c := range f.recorded() {
 		if c.FD != (c.Command == "add-fd") {
@@ -272,9 +284,6 @@ func TestBootBindsEachDiskToItsPlaceThenRuns(t *testing.T) {
 	}
 	if got := f.sent("blockdev-del"); !reflect.DeepEqual(got, []map[string]any{{"node-name": "slot0-empty"}, {"node-name": "slot1-empty"}}) {
 		t.Errorf("deleted %v, want the two placeholders", got)
-	}
-	if got := f.sent("add-fd"); got[0]["opaque"] != "d-root-1" || got[1]["opaque"] != "d-root-0" {
-		t.Errorf("descriptors handed over as %v, want each named for its node", got)
 	}
 }
 

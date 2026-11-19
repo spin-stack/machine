@@ -152,13 +152,22 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 		}
 	}
 	b, _ := json.Marshal(opaque)
-	for _, want := range []string{diskNode("root", 0), diskNode("root", 1), next, fifo} {
-		found := false
-		for _, o := range opaque {
-			found = found || o == want
-		}
-		if !found {
-			t.Errorf("no descriptor set says it is %q: %s", want, b)
+	// Each image's set says its path, as spin's storage finds an open image by it, and the
+	// writable top's holds a read-only copy too (spin-machine#297): two descriptors for top.
+	for want, n := range map[string]int{top: 2, base: 1, next: 1, fifo: 1} {
+		if got := countOf(opaque, want); got != n {
+			t.Errorf("%d descriptors say they are %q, want %d: %s", got, want, n, b)
 		}
 	}
+}
+
+// countOf is how many of xs are x.
+func countOf(xs []string, x string) int {
+	n := 0
+	for _, s := range xs {
+		if s == x {
+			n++
+		}
+	}
+	return n
 }
