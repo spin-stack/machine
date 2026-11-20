@@ -426,8 +426,12 @@ the pull request run.`,
 			}
 			body += "### " + filepath.Base(d) + ".md, as it reads now\n\n" + string(page)
 			title := "releases: " + strings.Join(releases, ", ") + ", measured"
+			// The branch is main with the records on it, not the commit measured: report.yml checks
+			// out the release's tag, and a branch cut there carries the workflows as they were, which
+			// GitHub refuses from the release app once main's have moved (v20261120.03's record).
 			for _, step := range [][]string{
-				{"git", "switch", "-c", branch},
+				{"git", "fetch", "-q", "--depth=1", "origin", "main"},
+				{"git", "switch", "-q", "--merge", "-c", branch, "FETCH_HEAD"},
 				{"git", "add", "--", d, d + ".md", d + ".svg"},
 				{"git", "commit", "-q", "-m", title},
 				{"git", "push", "origin", branch},

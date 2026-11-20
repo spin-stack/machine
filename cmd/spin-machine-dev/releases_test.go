@@ -241,6 +241,13 @@ func TestReleasesProposeCommitsWhatWasRecorded(t *testing.T) {
 		return string(out)
 	}
 	calls := fakes(t, map[string]string{"gh": `[ "$1 $2" = "pr create" ] && echo https://x/pull/9`})
+	// Measured at an older commit, as report.yml measures a release at its tag, while main moved on.
+	measured := strings.TrimSpace(git("rev-parse", "HEAD"))
+	put(t, filepath.Join(dir, ".github/workflows/release.yml"), "moved\n", 0o644)
+	git("add", ".github/workflows/release.yml")
+	git("commit", "-q", "-m", "main moves on")
+	git("push", "-q", "origin", "main")
+	git("switch", "-q", "--detach", measured)
 	if _, stderr, status := verb(t, "releases", "propose"); status != 0 || !strings.Contains(stderr, "nothing recorded") {
 		t.Errorf("nothing recorded: exit %d, %q", status, stderr)
 	}
@@ -254,6 +261,9 @@ func TestReleasesProposeCommitsWhatWasRecorded(t *testing.T) {
 	}
 	if got := git("show", "--name-only", "--format=%s", "origin/releases/v2"); got != "releases: v2, measured\n\ndocs/releases.md\ndocs/releases.svg\ndocs/releases/v2.json\n" {
 		t.Errorf("the branch proposed holds %q", got)
+	}
+	if parent, main := git("rev-parse", "origin/releases/v2^"), git("rev-parse", "origin/main"); parent != main {
+		t.Errorf("the proposal is on %s, not on main's %s", parent, main)
 	}
 	if got := read(t, os.Getenv("GITHUB_STEP_SUMMARY")); got != "https://x/pull/9\n" {
 		t.Errorf("the run's summary is %q", got)
