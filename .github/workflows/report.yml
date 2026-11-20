@@ -9,6 +9,11 @@ name: Report
 # releases, docs/cli.md). The records are proposed as a pull request as the release app, so the
 # checks on it run.
 #
+# Two commits: a release is measured with its tag's code, and recorded with main's. The page and
+# its chart are what main's code writes from the records, and main's test fails on any other: a
+# page written by the tag's code, proposed on main after main's chart had changed, failed it
+# (v20261120.04's record, #350).
+#
 # With the release before it, a ladder of two: a Δ between two runs is the bench's drift as much as
 # the release's (v20261120.01's restore to first login was 158.9 ms p50 in one run and 167.0 in
 # another, labs 44641240861 and 44727451080), so the page's Δ is only ever the pair's. It costs
@@ -52,8 +57,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VERSIONS: ${{ inputs.versions }}
     steps:
-      # The verbs from the ref asked for - the release's own tag when release.yml calls - and, by
-      # hand, from where the run started. The releases measured each boot with their own
+      # The measuring verbs from the ref asked for - the release's own tag when release.yml calls -
+      # and, by hand, from where the run started. The releases measured each boot with their own
       # spin-machine whatever this ref is.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,7 +84,7 @@ jobs:
 
       # Unquoted: one word a release.
       - name: Measure each release with the one before it
-        run: spin-machine-dev releases measure $VERSIONS --reps 20 --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        run: spin-machine-dev releases measure $VERSIONS --reps 20
 
       # Every sample, which a record keeps only the p50 and p95 of: lab show DIR reads one release's.
       # Only the ladders: a release's tarball, downloaded beside them, is 1.5 GB (run 44734233084).
@@ -92,9 +97,31 @@ jobs:
           retention-days: 90
           if-no-files-found: ignore
 
+      # The records, the page and the proposal are main's code, in a checkout of its own beside the
+      # measured one: the ladders above stay where they were measured.
+      - name: Checkout main
+        if: ${{ inputs.record && !cancelled() }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: main
+          persist-credentials: false
+
+      # Main's spin-machine-dev, first on PATH from here on: the runner puts the directory added
+      # last before the ones added earlier.
+      - name: Main's spin-machine-dev
+        if: ${{ inputs.record && !cancelled() }}
+        working-directory: main
+        run: go tool task bin
+
+      # What a lost measurement left recorded (measure's 1) is recorded too, its dash saying why.
+      - name: Record each release
+        if: ${{ inputs.record && !cancelled() }}
+        working-directory: main
+        run: spin-machine-dev releases record ../_output/lab/measured/*/ladder.json --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
       # The app's token is made here and not first: it lasts an hour, and measuring past releases
-      # takes longer. What a lost measurement left recorded (measure's 1) is proposed too, its dash
-      # saying why.
+      # takes longer.
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         if: ${{ inputs.record && !cancelled() }}
@@ -109,10 +136,12 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        working-directory: main
         run: go tool task git:app
 
       - name: Propose the records
         if: ${{ inputs.record && !cancelled() }}
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+        working-directory: main
         run: spin-machine-dev releases propose

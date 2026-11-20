@@ -113,7 +113,8 @@ compat.yml   task boot:buildkit ; spin-machine-dev vsock ;
 release.yml  spin-machine-dev release version ; release ; release notes ; release provenance ;
              release sign ; release tag ; then the publish action
 refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|builders
-report.yml   task bin ; task vsock ; spin-machine-dev releases measure TAG... ;
+report.yml   task bin ; task vsock ; spin-machine-dev releases measure TAG... ; then in main's
+             checkout: task bin ; spin-machine-dev releases record LADDER_JSON... ;
              task git:app ; spin-machine-dev releases propose
 osv.yml      spin-machine-dev osv --issues ; spin-machine-dev cves
 ```
@@ -218,8 +219,8 @@ and `docs/releases.md` is the page written from them, with its chart, `docs/rele
 https://spin-stack.github.io/spin-machine/:
 
 ```
-spin-machine-dev releases measure [TAG...] [--reps N] [--run URL]  each release with the one before it, here: its record and the page
-spin-machine-dev releases record LADDER_JSON [--run URL]          the record of a ladder's newest release, and the page
+spin-machine-dev releases measure [TAG...] [--reps N]            each release with the one before it, here: a ladder.json each
+spin-machine-dev releases record LADDER_JSON... [--run URL]       the record of each ladder's newest release, and the page
 spin-machine-dev releases missing                                 the published releases with no record, oldest first
 spin-machine-dev releases show RELEASE                            a record: its numbers, where, when, in what shape and against what
 spin-machine-dev releases compare A B                             two records side by side: B's Δ when it was measured against A
@@ -230,15 +231,17 @@ spin-machine-dev releases propose                                 the records th
 
 `measure` runs a ladder of two for each release, the published release before it and the release,
 as report.yml does when a release is published, and keeps each ladder.json in
-`_output/lab/measured/TAG` (`lab show` reads that directory). The record is the release's, with an
+`_output/lab/measured/TAG` (`lab show` reads that directory); `record` writes the record from it.
+Two verbs because report.yml runs them at two commits: it measures at the release's tag and records
+with main's code, whose page main's test holds the records to. The record is the release's, with an
 `against` block: the release before it, its numbers from the same run, and the Δ of each number
 with its interval. The page's Δ comes only from that block, and is blank for a record measured
-alone, as every record was before they were measured in pairs, until `measure` measures it again.
+alone, as every record was before they were measured in pairs, until it is measured again.
 `measure` over many tags, oldest first, backfills: each is measured with its own predecessor. `compare A B`
 prints the pair from B's run when B was measured against A, and otherwise both records, each its
-own run's, with no Δ and the `lab ladder` that measures them together. `record` takes a ladder
-measured some other way and keeps only its newest release, against the release before it in that
-ladder. `propose` commits what `git status`
+own run's, with no Δ and the `lab ladder` that measures them together. `record` keeps only each
+ladder's newest release, against the release before it in that ladder, so a ladder measured some
+other way records the same. `propose` commits what `git status`
 shows changed under `docs/releases`, with the page and its chart, on a branch named for those
 releases; a branch already on origin is a set proposed once, and is not proposed again. `site`
 writes one HTML file that fetches nothing, the chart inline so its points' tooltips show, from the

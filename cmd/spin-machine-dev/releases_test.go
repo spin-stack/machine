@@ -91,6 +91,20 @@ func TestReleasesRecordWritesTheNewestAndThePage(t *testing.T) {
 	}
 }
 
+// The ladders of a run that measured several releases are recorded together, as report.yml records
+// them, each its own newest release, and the page from all of them.
+func TestReleasesRecordTakesEachLadder(t *testing.T) {
+	dir := checkout(t)
+	records := filepath.Join(dir, "docs", "releases")
+	if _, stderr, status := verb(t, "releases", "record", ladderOf(t, 300, "v1", "v2"), ladderOf(t, 330, "v2", "v3"), "--run", "https://x/runs/9"); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	if page := read(t, records+".md"); !strings.Contains(page, "| v2 | 310 / 312 | +10.0 [+8.0, +12.0] |") ||
+		!strings.Contains(page, "| v3 | 340 / 342 | +10.0 [+8.0, +12.0] |") || exists(filepath.Join(records, "v1.json")) {
+		t.Errorf("the page:\n%s", page)
+	}
+}
+
 func TestReleasesShowAndCompareReadTheRecords(t *testing.T) {
 	checkout(t)
 	verb(t, "releases", "record", ladderOf(t, 300, "v1"))
@@ -312,16 +326,27 @@ func TestReleasesProposeNeedsAGitCheckout(t *testing.T) {
 	}
 }
 
-// TestReleasesMeasureRecordsEachAgainstTheOneBefore is measure's bench lane: the newest release,
+// TestReleasesMeasureLaddersEachWithTheOneBefore is measure's bench lane: the newest release,
 // measured interleaved with the one before it, two boots of each probe, the fewest an interval
-// is drawn from (SPIN_LAB_LADDER=1, on a host with KVM, vhost-vsock, sudo and gh). It downloads
-// two releases and builds their spin-machines.
-func TestReleasesMeasureRecordsEachAgainstTheOneBefore(t *testing.T) {
+// is drawn from (SPIN_LAB_LADDER=1, on a host with KVM, vhost-vsock, sudo and gh), and its ladder
+// recorded. It downloads two releases and builds their spin-machines.
+func TestReleasesMeasureLaddersEachWithTheOneBefore(t *testing.T) {
 	if os.Getenv("SPIN_LAB_LADDER") == "" {
 		t.Skip("set SPIN_LAB_LADDER=1: downloads two releases and boots them")
 	}
+	tag, err := github().LatestRelease()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := repo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, status := verb(t, "releases", "measure", tag, "--reps", "2"); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
 	dir := t.TempDir()
-	if _, stderr, status := verb(t, "releases", "measure", "--reps", "2", "--dir", dir); status != 0 {
+	if _, stderr, status := verb(t, "releases", "record", filepath.Join(root, "_output", "lab", "measured", tag, "ladder.json"), "--dir", dir); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
 	records, err := lab.ReadRecords(dir)
