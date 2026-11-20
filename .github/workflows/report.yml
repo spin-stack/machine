@@ -11,9 +11,12 @@ name: Report
 # runners have no /dev/kvm, and the goal is measured on the bench fleet's nested c8i.
 #
 # release.yml calls it with publish once a release is out: ladder.json goes up as that release's
-# asset and the table ends its notes. Weekly, the same ladder of the newest releases, kept as the
-# run's artifact (lab show RUN_ID reads it): it watches the fleet and the releases between
-# publishes, and is not a release's record. By hand, any release as the newest.
+# asset and the table ends its notes. By hand, any release as the newest, kept as the run's
+# artifact (lab show RUN_ID reads it).
+#
+# Not on a schedule: with no release between two runs it boots the same five releases again, and
+# a fleet that drifted shows in the next release's ladder anyway, which measures the four before
+# it interleaved on the same host (removed 2026-11-20).
 
 on:
   workflow_call:
@@ -35,9 +38,6 @@ on:
         description: "Upload ladder.json to that release and end its notes with the table"
         type: boolean
         default: false
-  schedule:
-    # Mondays, early: the bench is quiet, and a week of releases and fleet changes is behind it.
-    - cron: '17 3 * * 1'
 
 permissions:
   contents: write
@@ -56,7 +56,7 @@ jobs:
       RELEASES: ${{ inputs.releases || 5 }}
     steps:
       # The ladder from the ref asked for - the release's own tag when release.yml calls - and,
-      # by hand or on a schedule, from where the run started. The releases it measures each boot
+      # by hand, from where the run started. The releases it measures each boot
       # with their own spin-machine whatever this ref is.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

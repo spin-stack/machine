@@ -171,8 +171,8 @@ goal probe over the releases whose spin-machine can run it (a probe says which c
 it needs; v20261119.01's has no `boot --restore`), interleaved on one host. Its table is the
 release notes': the two goal numbers release by release, each against the release above and the
 newest against 100 ms, the prestarted ones, and save, state, the kernel and QEMU's RSS as
-diagnostics. report.yml runs it after every release (`lab publish` puts it on the release) and
-weekly (its artifact, read by `lab show RUN_ID`).
+diagnostics. report.yml runs it after every release (`lab publish` puts it on the release), and by hand (its
+artifact, read by `lab show RUN_ID`).
 
 `lab compat` is boot:compat over every release since the fingerprint last moved, newest first: a
 host that skipped releases still resumes their checkpoints. A release is fetched checked against

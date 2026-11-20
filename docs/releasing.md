@@ -105,8 +105,7 @@ a row left out.
 
 `report.yml` runs by hand too - `gh workflow run report.yml -f version=<release> -f releases=N`
 measures the N releases up to that one and keeps `ladder.json` as the run's artifact, which
-`spin-machine-dev lab show RUN_ID` prints - and weekly, which watches the fleet and the releases
-between publishes. The runner needs `/dev/kvm` and `/dev/vhost-vsock` usable by its user, `gh`, and
+`spin-machine-dev lab show RUN_ID` prints. The runner needs `/dev/kvm` and `/dev/vhost-vsock` usable by its user, `gh`, and
 `sudo -n` for `qemu-nbd`.
 
 ## What a release owes
