@@ -110,6 +110,8 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 
 // bootLoggedIn boots one more of the tree's workspaces and returns it, for the caller to end, and
 // its vsock CID once it has been logged into. A machine that started is returned with any error.
+// mutate-lane: TestEveryProbeMeasuresATree, whose density crowds boot real machines: an overlay a
+// test can make here is edited through NBD, which only the VM lane has.
 func (m *Measurement) bootLoggedIn(name string) (*Machine, uint32, error) {
 	overlay, err := m.Overlay(name, m.Key.Edit())
 	if err != nil {

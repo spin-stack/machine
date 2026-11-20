@@ -22,6 +22,11 @@ func TestADensityRowIsTheNumberOfWorkspacesAlreadyRunning(t *testing.T) {
 	if o["load"] != "idle" || o["settle"] != "10" {
 		t.Errorf("defaults: load %q, settle %q", o["load"], o["settle"])
 	}
+	// One pass: a measurement boots its crowd and ends it, so a second phase would boot every crowd
+	// again for nothing it measures.
+	if p := (density{}).Phases(); p != 1 {
+		t.Errorf("density makes %d passes, want 1", p)
+	}
 	// A crowd that cannot be made stops at its first workspace and says so, with nothing left
 	// running: this tree has no qemu-img to make the overlay with.
 	m := &Measurement{Tree: fakeSpinMachine(t, "sleep 30"), Row: "2", Options: o, Dir: t.TempDir(), Key: &Key{}}
