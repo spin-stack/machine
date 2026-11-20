@@ -52,7 +52,8 @@ func (restoreFirst) About() string {
 func (restoreFirst) Options() []Option {
 	return append(shape,
 		Option{"fast", "false", "also restore each tree with the fast snapshot load (--fast)"},
-		Option{"shared", "false", "also save and restore each tree with its base memory in a shared file (--memory-file)"})
+		Option{"shared", "false", "also save and restore each tree with its base memory in a shared file (--memory-file)"},
+		Option{"memory-dir", "", "where the shared rows' memory files go: the measurement's directory on the scratch disk, or e.g. /dev/shm"})
 }
 
 func (restoreFirst) Rows(o Options) []string {
@@ -160,9 +161,11 @@ type checkpoint struct {
 	cid    uint32
 }
 
-// files are what a restore reads: the state, and the memory file when there is one.
+// files are what a restore reads from the disk: the state, and the memory file when there is one
+// and it is on a disk. A memory file on tmpfs is the memory itself, which no eviction can drop, so
+// it is neither evicted nor read back.
 func (c *checkpoint) files() []string {
-	if c.memory == "" {
+	if c.memory == "" || isTmpfs(filepath.Dir(c.memory)) {
 		return []string{c.state}
 	}
 	return []string{c.state, c.memory}
@@ -190,7 +193,15 @@ func coldSave(m *Measurement) error {
 	}
 	c := &checkpoint{overlay: overlay, state: filepath.Join(m.Dir, "state"), cid: NewCID()}
 	if strings.HasPrefix(m.Row, "shared") {
-		c.memory = filepath.Join(m.Dir, "memory")
+		dir := m.Dir
+		if d := m.Options["memory-dir"]; d != "" {
+			// A directory of its own, so the experiment's cleanup removes what it filled.
+			if dir, err = os.MkdirTemp(d, "memory"); err != nil {
+				return fmt.Errorf("making a directory for the memory file under %s: %w", d, err)
+			}
+			m.Cleanup(removeAll(dir))
+		}
+		c.memory = filepath.Join(dir, "memory")
 	}
 	qmp := filepath.Join(m.Socks, "cold.qmp")
 	t0 := time.Now()

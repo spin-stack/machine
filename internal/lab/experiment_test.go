@@ -498,6 +498,23 @@ func mounts(t *testing.T) map[string][]string {
 	return out
 }
 
+// A memory file on tmpfs is the memory itself: a restore neither evicts nor reads it back, only
+// the state, while one on a disk is evicted and read like the state.
+func TestAMemoryFileOnTmpfsIsNotEvicted(t *testing.T) {
+	m := mounts(t)
+	if len(m["tmpfs"]) == 0 {
+		t.Fatal("this host mounts no tmpfs to ask about")
+	}
+	onTmpfs := &checkpoint{state: "/d/state", memory: filepath.Join(m["tmpfs"][0], "memory")}
+	if got := onTmpfs.files(); !slices.Equal(got, []string{"/d/state"}) {
+		t.Errorf("a memory file on tmpfs: files %v, want the state alone", got)
+	}
+	onDisk := &checkpoint{state: "/d/state", memory: "/proc/memory"}
+	if got := onDisk.files(); !slices.Equal(got, []string{"/d/state", "/proc/memory"}) {
+		t.Errorf("a memory file elsewhere: files %v, want both", got)
+	}
+}
+
 func TestATmpfsIsKnownByItsFilesystem(t *testing.T) {
 	m := mounts(t)
 	if len(m["tmpfs"]) == 0 {
