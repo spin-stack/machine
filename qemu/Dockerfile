@@ -372,6 +372,7 @@ RUN Q=/opt/qemu/bin/qemu-system-x86_64 && \
     $Q -device help 2>&1 | grep -q 'vhost-vsock-pci' && \
     $Q -device help 2>&1 | grep -q 'virtio-mem-pci' && \
     $Q -device help 2>&1 | grep -q 'virtio-scsi-pci' && \
+    $Q -device virtio-scsi-pci,help 2>&1 | grep -q '^ *max_target=' && \
     $Q -device help 2>&1 | grep -q 'scsi-hd' && \
     $Q -device help 2>&1 | grep -q 'vmgenid' && \
     ! $Q -device help 2>&1 | grep -qE '^name "(e1000e?|rtl8139|pcnet|vmxnet3|igb|ne2k_pci|tulip)"' && \
