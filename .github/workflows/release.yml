@@ -193,8 +193,7 @@ jobs:
 
   # Where the release's time went, the jobs of compat and report included: the critical path on
   # the run's summary, and trace.html, every job and step on one time axis, as an artifact. Run
-  # whatever the jobs above did, as a failed or slow release is the one worth reading. Last, it
-  # wakes ship-it, which reads the release (task ship-it:wake).
+  # whatever the jobs above did, as a failed or slow release is the one worth reading.
   trace:
     needs: [compat, release, report]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
@@ -229,6 +228,28 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  # ship-it reads the release and dispatches what follows one (spin's machine proposal): it wakes
+  # as soon as the release is published, not after report's bench measurement (~20 min), which
+  # nothing ship-it does reads (task ship-it:wake).
+  wake:
+    needs: release
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
       # A wake that fails is a hint lost, not a release lost: it never fails the run.
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         if: always()
@@ -246,5 +267,5 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.wake.outputs.token }}
-          CONCLUSION: ${{ contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || 'success' }}
+          CONCLUSION: ${{ needs.release.result == 'skipped' && 'failure' || needs.release.result }}
         run: go tool task ship-it:wake
