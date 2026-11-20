@@ -151,11 +151,12 @@ type Save struct {
 }
 
 // DefaultChannels is how many threads move a checkpoint's memory when a Save or a Load names
-// none. One restore into a QEMU started ahead reached the first login at 150 ms with 1 channel,
-// 103 with 8 and 93 with 16 (bench, spin's shape and login, lab 44789688221, 2026-11-20); each
-// channel is a thread of QEMU's, and the count stays the migration's own thread until restores
-// side by side say which holds up (lab restore-together, docs/lab.md "What is next").
-const DefaultChannels = 1
+// none. Eight, not sixteen, because restores share a host: one restore into a QEMU started ahead
+// reached the first login at 152 ms with 1 channel, 100 with 8 and 90 with 16, but four at once
+// read 184, 140 and 143, 16 losing to 8 by 3.2 ms [1.1, 5.8], and eight at once 400, 329 and 337
+// (bench, spin's shape and login, 30 bursts, lab 44792429636, 2026-11-20). Each channel is a
+// thread of QEMU's.
+const DefaultChannels = 8
 
 // channels is how many threads write s's state.
 func (s Save) channels() int {
