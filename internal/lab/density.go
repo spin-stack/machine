@@ -87,7 +87,7 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 		return err
 	}
 	m.Cleanup(mc.Stop)
-	login, err := m.Key.LoggedIn(cid, t0)
+	login, err := m.Key.LoggedIn(mc, cid, t0)
 	if err != nil {
 		return err
 	}
@@ -111,7 +111,7 @@ func (m *Measurement) bootLoggedIn(name string) (uint32, error) {
 		return 0, err
 	}
 	m.Cleanup(mc.Stop)
-	if _, err := m.Key.LoggedIn(cid, t0); err != nil {
+	if _, err := m.Key.LoggedIn(mc, cid, t0); err != nil {
 		return 0, err
 	}
 	return cid, nil
