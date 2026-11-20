@@ -22,6 +22,12 @@ func TestADensityRowIsTheNumberOfWorkspacesAlreadyRunning(t *testing.T) {
 	if o["load"] != "idle" || o["settle"] != "10" {
 		t.Errorf("defaults: load %q, settle %q", o["load"], o["settle"])
 	}
+	// A crowd that cannot be made stops at its first workspace and says so, with nothing left
+	// running: this tree has no qemu-img to make the overlay with.
+	m := &Measurement{Tree: fakeSpinMachine(t, "sleep 30"), Row: "2", Options: o, Dir: t.TempDir(), Key: &Key{}}
+	if err := (density{}).Measure(context.Background(), m); err == nil || !strings.Contains(err.Error(), "qemu-img") {
+		t.Errorf("Measure of a crowd whose overlays cannot be made = %v, want the overlay's error", err)
+	}
 	for _, row := range []string{"many", "-1"} {
 		err := (density{}).Measure(context.Background(), &Measurement{Row: row, Options: o})
 		if err == nil || !strings.Contains(err.Error(), "not a number") {
