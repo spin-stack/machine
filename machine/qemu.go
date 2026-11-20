@@ -817,7 +817,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	default:
 		return fmt.Errorf("resuming: a checkpoint in format %q, and this machine reads %s and %s", saved.Format, FormatMappedRAM, FormatStream)
 	}
-	if saved.Format == FormatMappedRAM && !load.Fast {
+	if prefetches(saved, load) {
 		prefetch(state)
 	}
 	var sm savedMachine
@@ -887,6 +887,13 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	return nil
 }
 
+// prefetches is whether a resume reads the state ahead: only a full load of a mapped-ram state.
+// A fast load reads a page when the guest touches it, which reading every page ahead would undo,
+// and a stream state is read once, in order, by the load itself.
+func prefetches(saved Saved, load Load) bool {
+	return saved.Format == FormatMappedRAM && !load.Fast
+}
+
 // prefetch asks the kernel to start reading the state's data into the page cache, extent by
 // extent, while the machine is still being told what to load: the load reads every page of data
 // anyway, and from a state out of the page cache it waits on the disk. QEMU's channels share one
@@ -896,7 +903,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 // It is best effort and returns at once: data the kernel does not read ahead is read by the load
 // as before.
 func prefetch(state *os.File) {
-	const prefetchChunk = 128 << 10
+	const prefetchChunk = 128 << 10 // mutate-exempt: the size of each request is speed, not what is read; the loop asks for every byte of each extent whatever it is
 	f, err := os.Open(fmt.Sprintf("/proc/self/fd/%d", state.Fd()))
 	if err != nil {
 		return
@@ -904,7 +911,7 @@ func prefetch(state *os.File) {
 	go func() {
 		defer func() { _ = f.Close() }()
 		fd := int(f.Fd())
-		for off := int64(0); ; {
+		for off := int64(0); ; { // mutate-exempt: SEEK_DATA from 1 finds the data the page at 0 starts, so a start of 1 reads the same pages
 			start, err := unix.Seek(fd, off, unix.SEEK_DATA)
 			if err != nil {
 				return
@@ -916,7 +923,7 @@ func prefetch(state *os.File) {
 			// The kernel reads at most the device's readahead window of one request (128 KiB
 			// unless the disk says more) and drops the rest, so the extent is asked for in pieces.
 			for off = start; off < end; off += prefetchChunk {
-				_ = unix.Fadvise(fd, off, min(prefetchChunk, end-off), unix.FADV_WILLNEED)
+				_ = unix.Fadvise(fd, off, min(prefetchChunk, end-off), unix.FADV_WILLNEED) // mutate-exempt: past the extent's end a request reads the hole after it, which holds nothing; what is read of the data is the same
 			}
 		}
 	}()

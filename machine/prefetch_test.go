@@ -78,3 +78,21 @@ func cached(t *testing.T, f *os.File, off, n int64) int64 {
 	}
 	return in
 }
+
+// A resume reads ahead only a full load of a mapped-ram state: a fast load fetches a page when the
+// guest touches it, which reading every page ahead would undo, and a stream is read in order once.
+func TestOnlyAFullLoadOfAMappedRAMStateIsReadAhead(t *testing.T) {
+	for _, c := range []struct {
+		format string
+		fast   bool
+		want   bool
+	}{
+		{FormatMappedRAM, false, true},
+		{FormatMappedRAM, true, false},
+		{FormatStream, false, false},
+	} {
+		if got := prefetches(Saved{Format: c.format}, Load{Fast: c.fast}); got != c.want {
+			t.Errorf("%s, fast %v: reads ahead %v", c.format, c.fast, got)
+		}
+	}
+}
