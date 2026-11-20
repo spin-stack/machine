@@ -142,6 +142,8 @@ behind, `spin-machine-dev bump <entry>` moves one.
 | [docs/migration.md](docs/migration.md) | one VM moved to another host, and why the CPU model decides it |
 | [docs/memory-and-disk.md](docs/memory-and-disk.md) | what a guest's page cache, freed memory and disk cost its host: the defaults, what was measured to choose them, and what was turned down |
 | [docs/releasing.md](docs/releasing.md) | CI, versions, and what a release owes its upstreams |
+| [docs/lab.md](docs/lab.md) | where the two goal numbers stand, what each phase of them costs, how a number is measured, and what was kept, rejected and is next |
+| [docs/log.md](docs/log.md) | what was tried, when, why, and what it measured |
 | [qemu/](qemu/README.md), [kernel/](kernel/README.md), [image/](image/README.md), [e2fsprogs/](e2fsprogs/README.md) | why each part is built the way it is |
 | [boot/](boot/phases.go) | what a boot costs, measured from the host |
 | [CLAUDE.md](CLAUDE.md) | how to work in here: the release invariants, and the rules for changing them |

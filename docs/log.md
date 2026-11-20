@@ -2,42 +2,11 @@
 
 Built from `git log origin/main` (327 commits, to `3e8075f`), all 150 pull requests (merged, closed and open), the 44 releases' notes, the tree at `origin/main` (comments, `docs/`, `boot/*_test.go` row comments), and spin-stack/spin#1206 and spin-stack/open-remote-ssh#8. Hashes are short commit ids on `origin/main`; `#N` is a pull request here; "lab N" is a `lab.yml` run id as the tree or a PR quotes it. Nothing here was re-measured. Written 2026-11-13; add an entry with every change that decides something.
 
----
-
-## 1. Where we stand (2026-11-19)
-
-**The machine.** Latest release `v20261119.01` (source `89a3c30`): QEMU 11.1.3 with 2 local patches and its hardening asked for (#264), kernel 7.3.5 with 5 local patches, qboot (patched) as the BIOS, e2fsprogs 1.47.4, an Ubuntu 26.04 base image built with mkosi whose systemd is Ubuntu's rebuilt here with the stage1 profile (#271). `fingerprint_sha256=2bd7da6b…`, unchanged since `v20261013.02`.
-
-**Current numbers.** All from the bench fleet (spin-stack/ci, AWS **c8id.4xlarge** since 11-19, Xeon 6975P-C, KVM nested, the lab's scratch on local NVMe), 2 vCPU / 2 GiB, boots interleaved, p50/p95 in ms from QEMU's exec, v20261119.01:
-
-| Metric | Value | Source |
-|---|---|---|
-| Cold boot to the first SSH login over vsock | **333/342** | lab 44555888278 (`boot/ssh_first_test.go`) |
-| sshd accepts (cold boot) | 202/213 | lab 44555888278 |
-| From accept to login | 130/134 | lab 44555888278 |
-| … of it, on the guest's clock: accept → authenticated / PAM session → logind's new session / → scope active / → command | 55.5 / 29.0 / 4.3 / 8.4 | lab 44555905383 (`boot/login_lane_test.go`) |
-| A second SSH login | 43/48 | lab 44555888278 |
-| Restore a checkpoint (stream, state evicted, read from local NVMe) to the first login | **174/185**; running at 125/134; the state 155 MiB | lab 44555369589 (`boot/restore_first_test.go`) |
-| The same restore with the state in the page cache | 154/161 | lab 44555369589 |
-| Save a checkpoint (stream) | 1041/1045 | lab 44555369589 |
-| One idle workspace's host memory, kernel included | ~125 MiB, of which ~1-2.5 the host's kernel | lab 44546329726 (`boot/density_test.go`) |
-| The same cold first login on bare metal (c8i.metal-48xl, the same CPU) | 332/355 on v20261114.02, against 378-392 nested then | lab 44537498507 |
-
-Before 11-19 the bench was a c8i.4xlarge with its scratch on gp3, and a restore read its state at ~300 MB/s: 840/900 ms to the first login (lab 44533227886), a number of the volume and not of the machine. 11-13's 386/399 (#246) is not comparable with either.
-
-Older numbers, taken elsewhere, that no bench-fleet number has replaced: QEMU exec to the guest's first instruction is ~27 ms (laptop, `c049a21`, 2026-09-10). Kernel to `Run /sbin/init` was 59-65 ms on the laptop (`b5f361f`, `c03ed89`). Neither compares with a fleet number (§5).
-
-**What the repository says the goal is.** No single target number is written anywhere. What is written:
-
-- CLAUDE.md, rule 1: "A checkpoint resumes on any release with its fingerprint, and the fingerprint is the machine's contract." Rule 2: "The base image is never written to." Rule 3: "No identity in the base image."
-- README: "One repository, one version per release, and checkpoints that resume across releases until the machine itself changes."
-- `optimize-systemd.sh` (main): the first SSH login "is what a workspace waits for". #250: keep "the metric a workspace waits for (ssh-first)".
-- #242 (closed): "Restoring a checkpoint is the path a workspace takes, since it is handed its identity after it is restored."
-- The goal has moved. On 2026-09-10 `c2c4c6a` said cold-boot time did not matter: a workspace was restored from a template, so "chasing it would be optimising the one path the product is designed never to take". Templates were removed on 2026-09-30 (#51, `a9d6083`), and after that the cold boot became the main target. Restore was not measured on the bench fleet until 2026-11-13 (#242, then #246).
+Where boot time stands, what each phase costs, how a number is measured, and the tables of what was kept, measured and rejected, and is next are `docs/lab.md`. This log is the chronology.
 
 ---
 
-## 2. Chronological log
+## 1. Chronological log
 
 Format: **date · area · refs**, then what was done, why, the result and its status.
 
@@ -52,11 +21,11 @@ Format: **date · area · refs**, then what was done, why, the result and its st
 - the encoding is made length-prefixed (`17d844f`);
 - an identity split is added for memoising (`02709d7`).
 
-*Status:* superseded. See the fingerprint cycle in §3.
+*Status:* superseded. See the fingerprint cycle in §2.
 
 **09-07 · machine · `656d55b` → `b882171`.** `spin-machine save` and `boot --incoming file:` are added, then reverted the same day as "lifecycle" that belongs to the consumer. Kept: `Spec.CPU` with `enforce=on`. Measured: a state saved with Broadwell-v4 resumes on Broadwell-v4 and Skylake-Client-v4, and Nehalem refuses (`656d55b`, now in `docs/migration.md`). *Status:* save/restore came back as checkpoint commands (`c202568`, 09-28; kept after #51).
 
-**09-07 · tooling · `5e7d60e`, `8aee03a`, `24c8a06`.** `cmd/spin-machine-init` is a debug initramfs, and `spin-machine-console.service` is shipped but not enabled. *Why:* systemd gave no serial login, because the image masked udev, so `dev-ttyS0.device` never appeared. *Status:* the init was deleted `8eeb01c` (09-10) and the console unit deleted `3a7864d` (11-12). See §3.
+**09-07 · tooling · `5e7d60e`, `8aee03a`, `24c8a06`.** `cmd/spin-machine-init` is a debug initramfs, and `spin-machine-console.service` is shipped but not enabled. *Why:* systemd gave no serial login, because the image masked udev, so `dev-ttyS0.device` never appeared. *Status:* the init was deleted `8eeb01c` (09-10) and the console unit deleted `3a7864d` (11-12). See §2.
 
 **09-07 · qemu · `31a57e7`.** QEMU is linked statically against musl. *Measured:* process start to QMP quit, 44 ms glibc vs 43 ms musl over 5 runs. Not measured: a long-running guest under load (musl allocator, thread stack). *Status:* in place; the load question is still open.
 
@@ -67,7 +36,7 @@ Format: **date · area · refs**, then what was done, why, the result and its st
 - BPF_JIT and BTF on, at +21.4 ms of kernel boot and 5.0 MB (5 runs each way; also `kernel/README.md`);
 - `-no-reboot`.
 
-BPF_LSM was left off. *Status:* BPF on and in place; chrony removed 09-10; BPF_LSM turned on 10-01 (`1400f6a`); the keys moved 3 more times (§3).
+BPF_LSM was left off. *Status:* BPF on and in place; chrony removed 09-10; BPF_LSM turned on 10-01 (`1400f6a`); the keys moved 3 more times (§2).
 
 **09-07 · qemu/machine · `8b7391a`.** aio=io_uring, discard=unmap, vhost=on requested, qom_cast_debug off. *Rejected:*
 - `cache=none`: the shared base must stay in the host page cache, and O_DIRECT fails on tmpfs;
@@ -116,7 +85,7 @@ BPF_LSM was left off. *Status:* BPF on and in place; chrony removed 09-10; BPF_L
 - `event_trace_enable_again`'s 6 ms is the profiler;
 - inet_init's 9 ms is BTF's first parse, not XFRM.
 
-*Status:* rejected (§4).
+*Status:* rejected (docs/lab.md, "Measured and rejected").
 
 **09-10 · image · `6aba37b`, `064c4f4`, `c7bab94`, `c7af4d3`, `08c56e1`.** Changes and measurements:
 - logind 63 ms on the chain, worth 24 ms; chrony worth 10 (15 boots, laptop);
@@ -137,7 +106,7 @@ BPF_LSM was left off. *Status:* BPF on and in place; chrony removed 09-10; BPF_L
 
 **09-12 · machine · `9177475`.** `Spec.Accel` (tcg). TCG guest to PID 1 in 6.5 s vs 33 ms under KVM. In place.
 
-**09-12 · image · `bb6bb89` (#5).** logind out of the boot transaction; it is started by the first login through the varlink socket and a `/run/systemd/seats` drop-in (`10-seats.conf`). *Measured:* 249/287 vs 273/297, 25 boots, two runs (laptop). `boot:logind` holds sessions. *Status:* **reversed 11-12** (#240). See §3.
+**09-12 · image · `bb6bb89` (#5).** logind out of the boot transaction; it is started by the first login through the varlink socket and a `/run/systemd/seats` drop-in (`10-seats.conf`). *Measured:* 249/287 vs 273/297, 25 boots, two runs (laptop). `boot:logind` holds sessions. *Status:* **reversed 11-12** (#240). See §2.
 
 ### Week 2: 2026-09-14 to 09-20
 
@@ -223,11 +192,11 @@ In place, with the lab on the bench fleet since 10-24.
 
 **09-30 · kernel · `98c3589` (#47).** 7.3-rc5, 1.2 ms slower than 7.2.8 (30 boots). Superseded by 7.3 (10-26) and then 7.3.x.
 
-**09-30 · boot probes · `f2c47f7` (#48).** Probes deleted with their conclusions kept: `boot:floor` and `kernel/minimal`, `boot:kernel-pages` (#44, added the same day), `boot:memory-unplug` (#46, same day), `cache_bench`, the report's disk axis (96 → 32 rows), the console-swap rows, and the SeaBIOS timing. See §3.
+**09-30 · boot probes · `f2c47f7` (#48).** Probes deleted with their conclusions kept: `boot:floor` and `kernel/minimal`, `boot:kernel-pages` (#44, added the same day), `boot:memory-unplug` (#46, same day), `cache_bench`, the report's disk axis (96 → 32 rows), the console-swap rows, and the SeaBIOS timing. See §2.
 
 **09-30 · machine · `a9d6083` (#51).** **Templates removed** (spin #194). `Memory.File`, `x-ignore-shared`, `save/restore --template`, `boot:restore` and `docs/templates.md` all go. The fingerprint now means "a checkpoint resumes only onto a machine with the same fingerprint". Fingerprint moved. In place.
 
-**09-30/10-01 · boot probes (memory/disk) · #57-#62, #64, #67-#74, #77, #78, #83, #84, #89.** The page-cache lab on construct (AMD Ryzen 9 5900X, Spin OS metal), recorded in `docs/memory-and-disk.md`. Kept as defaults: writeback overlay; hourly fstrim; discard accounting; qboot MTRRs; `page_reporting_order` stays 9. Rejected: §4. Sub-probes deleted in #89; `caches` and `reclaim` remain.
+**09-30/10-01 · boot probes (memory/disk) · #57-#62, #64, #67-#74, #77, #78, #83, #84, #89.** The page-cache lab on construct (AMD Ryzen 9 5900X, Spin OS metal), recorded in `docs/memory-and-disk.md`. Kept as defaults: writeback overlay; hourly fstrim; discard accounting; qboot MTRRs; `page_reporting_order` stays 9. Rejected: docs/lab.md, "Measured and rejected". Sub-probes deleted in #89; `caches` and `reclaim` remain.
 
 **10-01 · firmware · `4511798` (#75).** qboot programs the MTRRs. virtio-pmem read at 8.3 MB/s uncached-minus vs 1.1 GB/s with SeaBIOS (runs 36818224412, 36818721809). No boot cost: 103.5 vs 103.1 ms. Fingerprint moved. In place.
 
@@ -267,7 +236,7 @@ In place, apart from the reusable builder.
 
 **10-19 · CI · `7bf5429` (#197).** One OSV issue per package; there had been 77 open. In place.
 
-**10-24 · CI · `c75f144` (#214), `f29e59d` (#215), `d67afc4`, `97a6de1`.** Every workflow step is one task. Builds move to GitHub's runners. **Report and lab move to the bench fleet** (one instance type) and compat to the kvm fleet. A fix: vhost-vsock permissions were reset by udev after `modprobe` (`97a6de1`). In place. The first report on the fleet (v20261026.01) compared a Ryzen 9 5900X with a Xeon 6975P-C, and its notes say so (§5).
+**10-24 · CI · `c75f144` (#214), `f29e59d` (#215), `d67afc4`, `97a6de1`.** Every workflow step is one task. Builds move to GitHub's runners. **Report and lab move to the bench fleet** (one instance type) and compat to the kvm fleet. A fix: vhost-vsock permissions were reset by udev after `modprobe` (`97a6de1`). In place. The first report on the fleet (v20261026.01) compared a Ryzen 9 5900X with a Xeon 6975P-C, and its notes say so (docs/lab.md, "Measurement pitfalls").
 
 ### Week 8: 2026-10-26 to 11-01
 
@@ -354,7 +323,7 @@ Measured and not shipped:
 - `boot:waits` on a laptop: PID 1's setup before the generators goes from 25.8 to 5.6 ms.
 - `boot:restore-first` (new, below): unchanged. The guest's part, from running to login, is ~50 ms with either systemd (44533227886).
 
-*Left out:* masking `systemd-udev-load-credentials` (−8, −6 ms) and `-Db_lto=true` (Ubuntu already builds with `-flto=auto`); see §4. The patch that would make restrict-fs load under lockdown, reading `s_magic` through BTF, loaded in this guest. It is for systemd upstream and is not needed here. *Cost:* a rebuild whenever Ubuntu publishes a systemd. The archive serves only the current source, so the build fails the day it moves, and `refresh:systemd` proposes the move.
+*Left out:* masking `systemd-udev-load-credentials` (−8, −6 ms) and `-Db_lto=true` (Ubuntu already builds with `-flto=auto`); see docs/lab.md, "Measured and rejected". The patch that would make restrict-fs load under lockdown, reading `s_magic` through BTF, loaded in this guest. It is for systemd upstream and is not needed here. *Cost:* a rebuild whenever Ubuntu publishes a systemd. The archive serves only the current source, so the build fails the day it moves, and `refresh:systemd` proposes the move.
 
 **11-19 · boot · `boot:restore-first` (this change).** The goal's second number had had no probe in the tree since #246 closed. Every row of `boot:ssh-first` is booted cold, logged into and saved, then restored with its state evicted from the page cache (checked with mincore) and logged into again. Every cold boot runs before every restore. On the bench fleet a restore reaches the first login at 841/913 ms, ~790 of it before the guest runs, reading the state from the runner's gp3 volume (44533227886). #246 read 386 ms on 11-13; what moved is not known. On a c8i.metal-48xl it is 905/942 (44535167653), so the restore is the host's disk, not the virtualization.
 
@@ -362,7 +331,7 @@ Measured and not shipped:
 - first login: 378-392 ms nested (two runs) against 332 metal (44537498507), so **nesting costs ~50-60 ms**;
 - `boot:firmware-stages`: QEMU start 30.5 against 28.1, the PCI walk 5.00 against 2.22 (173 exits, ~29 against 13 µs each), kernel and init 108.7 against 69.5 (44535161371, 44535156851).
 
-An r7i.metal-24xl (Sapphire Rapids, slower per core) read 296 ms (44534028478), faster than the c8i.metal. Unexplained; repeat before quoting it. Every number in §1 is nested.
+An r7i.metal-24xl (Sapphire Rapids, slower per core) read 296 ms (44534028478), faster than the c8i.metal. Unexplained; repeat before quoting it. Every bench-fleet number in this log and in docs/lab.md is nested.
 
 **11-19 · boot/image · where the first login's own time goes, and logind's socket early (this change).** `boot:login-lane` marks the guest's journal through the first login: accept → authenticated 55.5, PAM's session → logind's new session 29.0, → scope 4.3, → command 8.4 ms (v20261119.01, lab 44555905383). Its diagnostic rows (`SPIN_LANE_DIAG`, sshd at DEBUG1 and logind at debug, lab 44557162195) say what they are:
 - **Before authentication.** PID 1 starting `sshd@` takes ~11 ms, and OpenSSH 10's three execs (`sshd` → `sshd-session` → `sshd-auth`) ~12. Loading PAM's modules cold takes 8.3 ms, against 0.9 at the second login. ML-KEM is 3.5.
@@ -381,7 +350,7 @@ Masking `modprobe@drm`, which logind is ordered after, added nothing (327/345). 
 - building the transaction: 0.30;
 - the first dispatch: 0.87.
 
-The gap is unit loading, not the transaction that 11-13's single debug-logged boot named. 96 of the units a boot lists are inactive, loaded because another unit names them in `After=`/`Wants=`: `initrd-*`, `plymouth-*`, `modprobe@*`, hibernate, cryptsetup's targets, `firewalld` and `auditd` named by docker. Masking does not spare a load (a masked unit is still looked up and loaded as masked), which is why masking 11 units moved nothing (§4).
+The gap is unit loading, not the transaction that 11-13's single debug-logged boot named. 96 of the units a boot lists are inactive, loaded because another unit names them in `After=`/`Wants=`: `initrd-*`, `plymouth-*`, `modprobe@*`, hibernate, cryptsetup's targets, `firewalld` and `auditd` named by docker. Masking does not spare a load (a masked unit is still looked up and loaded as masked), which is why masking 11 units moved nothing (docs/lab.md, "Measured and rejected").
 
 **11-19 · image/machine · the root mount's storage path (branch `ext4-mount`, not yet on the fleet).** The kernel gap `security_initcall_late_sync` → `EXT4-fs (vda): mounted` was 6.8 ms nested and 5.0 metal (`boot:initcalls`). Three changes, from reading Linux 7.3 and the image:
 - the image without `orphan_file`, a mke2fs.conf default since 1.47.0: every mount, read-only included, reads it one block at a time (`ext4_init_orphan_info`, ~73 single-block reads with no readahead). Crash correctness is the classic orphan list's;
@@ -416,9 +385,9 @@ Config: `X86_MSR`, `X86_CPUID` off (nothing in the image or spin opens `/dev/cpu
 Bench, nested, workspace shape (2026-11-19, lab 44587603255, 20 boots each): kernel start to "Freeing" 96.4 → 86.6 ms (−9.8), in initcalls 61.7 → 58.7, outside them 35.1 → 27.8, where ORC and ftrace are. `virtio_pci_driver_init` 8.57 → 8.59: 0011 does not show even nested.
 
 **11-19 · lab · the probes become `spin-machine-dev lab` (branch `dev-cli-lab`, this change).** Each probe was a Go test behind a `SPIN_*` switch of its own, and took a second kernel, a second QEMU, an edit of the image or a rebuilt systemd each through another environment variable (`SPIN_KERNEL_B`, `SPIN_KERNEL_C`, `SPIN_MACHINE_OUTPUT_B`, `SPIN_APPEND_B`, `SPIN_SYSTEMD_DEBS`), laid out by lab.yml's `variant=beside|instead`. Two failures in one day came from that shape: `boot:restore-first` read no `SPIN_MACHINE_OUTPUT_B` and measured the release's QEMU under the name of 11.2's (lab 44584214362), and a Kernel run from before the bzImage failed `lab:place` with no message (lab 44587254371). Now a tree is a whole machine with a manifest naming every part's source, refused when it is not whole, and a probe is handed trees (`internal/lab`, docs/cli.md). Ported: `ssh-first`, `restore-first` (its `fast` rows an option), `prestart`, `initcalls` (totals, the initcalls of interest per tree, each tree's slowest initcalls and largest gaps). The "as this branch" row is the tree edit `lane`. Not ported, and kept as `boot:` targets `lab check` runs on any tree: `firmware-stages`, `waits`. Deleted, each question answered and its answer in this log or beside it:
-- `boot:login-lane` (`boot/login_lane_test.go`): where the first login's own time goes, on the guest's clock - §1's row and the 11-19 entry above, lab 44555905383.
-- `boot:density` (`boot/density_test.go`): one idle workspace's host memory, ~125 MiB - §1, lab 44546329726.
-- `boot:page-cache` (`boot/pagecache_test.go`): the page caches a machine has - docs/memory-and-disk.md, and §4's page-cache sub-probes.
+- `boot:login-lane` (`boot/login_lane_test.go`): where the first login's own time goes, on the guest's clock - the 11-19 entry above and docs/lab.md's cold-boot budget, lab 44555905383.
+- `boot:density` (`boot/density_test.go`): one idle workspace's host memory, ~125 MiB - lab 44546329726.
+- `boot:page-cache` (`boot/pagecache_test.go`): the page caches a machine has - docs/memory-and-disk.md, and docs/lab.md's "Measured and rejected".
 - initcalls' extra passes, not ported: `SPIN_GRAPH` (function_graph under chosen functions, `boot/graph_test.go`), `SPIN_CPU_SHARE` (who had the CPU during one initcall, `boot/cpushare_test.go`), `SPIN_EARLY` (the lines before the first initcall) and `SPIN_FORMAT_CHECK` (an event's format after patch 0003). Each served one question, answered above; when another asks for one, it comes back from git (`boot/initcalls_test.go` and those two files before this change) as an option of the `initcalls` probe.
 - `boot:ssh-first`, `boot:restore-first`, `boot:prestart`, `boot:initcalls` are now lab runs over `OUTPUT_DIR`, the same targets.
 
@@ -436,11 +405,21 @@ Checked against the probe it replaced on the bench fleet, `lab dispatch ssh-firs
 
 **11-20 · lab · the records' chart is an SVG, and the records a web page (this change).** The page's two Mermaid `xychart-beta` blocks drew one p50 line each and could not draw a gap: a release without a number was left off that chart's axis, so the cold and the restore charts had different x axes, and neither showed the p95. `spin-machine-dev releases doc` now writes `docs/releases.svg` beside the page, from the same code (`lab.Chart`, hand-written, no dependency): both goal numbers on one axis, each a p50 line over a band to its p95, broken where a release has not the number, the 100 ms goal dashed, a tooltip on every point. One SVG is shown on GitHub's light page and its dark one, and an image cannot follow the theme, so its two colours were chosen to clear 3:1 on both (#2a78d6, #d95926; dataviz's palette checks against #ffffff and #0d1117) with text in a mid grey (3.9:1 and 4.8:1). `releases site` writes the same page as one HTML file with the chart inline, so its tooltips show, and each record beside it; `pages.yml` publishes it at https://spin-stack.github.io/spin-machine/ from every merge that changes a record. The tables are one list of rows that the Markdown and the HTML both write, so the two cannot say different things. Each release in "Where each was measured" now links its record.
 
-## 3. Rework cycles
+**11-20 · lab/docs · the methodology review, and docs/lab.md (this change).** Two adversarial reviews of how boot time is measured, each finding re-run on the ladders of runs 44641240861 and 44727451080 (five releases interleaved, 20 boots each). *Found:*
+- No per-phase budget existed, so nothing said whether 100 ms is reachable. Split by phase, the cold boot spends ~125-135 ms in QEMU, qboot and the kernel before PID 1 runs; the no-systemd floor (209 ms) was measured once, on 11-13, on an 87 ms kernel.
+- The goal probes boot a shape and a login path spin does not: no CPU or memory ceilings, where spin boots 1 CPU and 128 MiB with ceilings of 16 and 8 GiB (the kernel 86.6 ms against 62, lab 44587603255), and an `sshd-vsock.socket` that spin turns off.
+- Effects inside the noise were accepted. Two releases booting the same guest read Δp50 of the first login in [−8.7, +4.8] ms (bootstrap, n=20), yet the logind socket's −4 and `driver_async_probe`'s −5 were kept while −8 and −6 were rejected as noise.
+- `docs/releases.md`'s Δ is drift between runs: v20261120.01's restore login read 158.9 and 167.0 in the two runs.
+- The bzImage's cost was recorded as zero by a clock that starts after decompression: sshd accepted ~10-13 ms later from v20261119.01 to .02 while "Freeing" went 76 → 62.5.
+- `restore-first`'s `read` reads the mapped-ram file's holes (2 GiB for 155 MiB of data), and its `up` times the monitor socket.
+
+*Decided by the maintainer:* the kernel, systemd, QEMU and qboot may all be patched without limit; systemd is a must, so a no-systemd init is only ever a bound. *Done:* `docs/lab.md` holds where both numbers stand, the per-phase budget, the method with one acceptance rule (a gain when the 95% interval of Δp50 excludes 0), the kept and rejected tables, the measurement pitfalls, and what is next. This log's former "Where we stand", "Measured and rejected", "Measurement pitfalls found" and "Open questions" moved there. *Next:* the probes in spin's shape (branch `lab-measure`); multifd channels on the restore and the no-systemd floor on today's kernel, both on the bench.
+
+## 2. Rework cycles
 
 Each cycle: the sequence, what each step measured, and the lesson.
 
-### 3.1 udev: masked, unmasked, then argued over for weeks
+### 2.1 udev: masked, unmasked, then argued over for weeks
 1. Initial import: udev masked "to save boot time" (`8aee03a`). The serial getty could not start, so a debug init was written to work around it (`5e7d60e`, `8aee03a`, `24c8a06`).
 2. 09-10 `4cbd229`: masking buys nothing (826 vs 829). The first harness had left `systemd-udev-trigger` masked and read "udev changes nothing".
 3. 09-10 `722d468`: unmasked. `b5f361f`: the harness's udev row was itself a no-op.
@@ -450,7 +429,7 @@ Each cycle: the sequence, what each step measured, and the lesson.
 
 **Lesson:** an optimisation imported without its measurement survived 3 days and cost a debug init, a console unit and a harness. Measure before inheriting a mask, and make a variant fail when its edit matches nothing (`e2f6b8f` added that check).
 
-### 3.2 logind: out of the boot, then back in
+### 2.2 logind: out of the boot, then back in
 1. 09-10 `6aba37b`: logind 63 ms on the chain, worth 24 ms to the console prompt (laptop).
 2. 09-12 `bb6bb89` (#5): logind is started at the first login through the seats directory, worth 24 ms (249 vs 273). Two dead ends were recorded, and `boot:logind` was written to hold it.
 3. 11-12 #240: back in the boot, with spin lingering. First SSH login 570 → 510 (lab 43308825692). The comment says the 09-12 change "moved logind, dbus-broker and user@1000.service into the first login instead, which is what a workspace waits for."
@@ -459,7 +438,7 @@ Each cycle: the sequence, what each step measured, and the lesson.
 
 **Lesson:** the 09-12 decision optimised the console prompt, a metric nobody waits for, and paid for it in the first login, which was not measured until 11-12. Name the metric that matters before optimising; the first SSH login probe arrived two months after the change it would have rejected.
 
-### 3.3 Serial getty Type=idle / Type=simple
+### 2.3 Serial getty Type=idle / Type=simple
 1. 09-10 `80f984b`: removing Type=idle was within noise against agetty's `sleep(1)`.
 2. 09-10 `064c4f4`: Type=idle worth 25 ms (291/344 vs 266/283), read as "systemd's job queue draining".
 3. 09-26 `b9707e3`/`7b08e5a`: Type=idle was eliminated as the cause of the 340 ms console-swap cost.
@@ -468,7 +447,7 @@ Each cycle: the sequence, what each step measured, and the lesson.
 
 **Lesson:** the value of this setting depends on what else is in the boot transaction. It was re-measured each time something upstream changed (linger), and its worth turns on a metric (the console prompt) that does not matter (#249). Decide which metrics count before shipping fixes for the others.
 
-### 3.4 SSH host key generation (moved 5 times)
+### 2.4 SSH host key generation (moved 5 times)
 1. 09-07 `8aee03a`: ssh fails five times per boot; "SSH keys are identity and belong wherever the rest of a VM's identity comes from" (not fixed).
 2. 09-07 `2df3dbf`: generated per boot, hung off ssh.service. Hanging it off ssh.socket made an ordering cycle.
 3. 09-24 `a01c847`: RSA dropped (309 ms in blame).
@@ -478,7 +457,7 @@ Each cycle: the sequence, what each step measured, and the lesson.
 
 **Lesson:** the per-connection vsock path ran without host keys until a probe logged in over it. A functional probe of the real login path (`boot:ssh-first`) should come before timing work on it. Step 5 failed for a reason (`DefaultDependencies`) that reading the unit's ordering would have shown.
 
-### 3.5 Save/restore and templates in the CLI; restore measurement; mapped-ram (proposed twice)
+### 2.5 Save/restore and templates in the CLI; restore measurement; mapped-ram (proposed twice)
 1. 09-07 `656d55b`: save/resume added; reverted the same day as lifecycle (`b882171`).
 2. 09-26 `20e14d9`/`ab4844c`: TEMPLATES.md, template restore 24 ms, `drop-cache=off`.
 3. 09-28 `c202568`: `save --template`/`restore`, plus `boot:restore`.
@@ -488,7 +467,7 @@ Each cycle: the sequence, what each step measured, and the lesson.
 
 **Lesson:** the product's path (template restore, then checkpoint resume) changed outside this repository, and probes were built and deleted around it within days. Restore of a checkpoint was not measured at all between 09-30 and 11-13. The mapped-ram decision now has a fleet result; do not reopen it without a new reason, for example a multi-VM concurrent restore or larger RAM, which #242's checklist names as unmeasured.
 
-### 3.6 Fingerprint: what it hashes (rewritten ~8 times)
+### 2.6 Fingerprint: what it hashes (rewritten ~8 times)
 1. Binaries plus shape (09-07).
 2. Plus device topology, `b476f6d`.
 3. Topology corrected to exclude disks and NICs, `b882171`.
@@ -503,17 +482,17 @@ Each step moved every fingerprint. Comments that said "a QEMU or kernel bump str
 
 **Lesson:** rule 1's meaning changed on 10-13. Check claims about the fingerprint against `Spec.Contract` and `boot:compat`, not against older comments, and treat any proposal that touches `Spec.Contract` (virtio-rng removal, mapped-ram) as a fleet-wide event.
 
-### 3.7 Console unit (spin-machine-console.service)
+### 2.7 Console unit (spin-machine-console.service)
 Sequence: created 09-07 (`24c8a06`); made redundant by udev 09-10 (`064c4f4`); measured 340 ms worse as a swap; TERM=dumb fixed it, 09-26 (`7b08e5a`); "viable", but the exposure question was left open; deleted 11-12 (`3a7864d`).
 
 **Lesson:** two months of a unit nothing enabled. Delete as soon as nothing references a unit.
 
-### 3.8 Debug init and diagnostic initrds
+### 2.8 Debug init and diagnostic initrds
 `cmd/spin-machine-init` was created 09-07 and deleted 09-10 (`8eeb01c`). Diagnostic initrds came back as `boot/probeinit` (09-29, `a81b6b5`), now allowed by CLAUDE.md as isolated diagnostics.
 
 **Lesson:** the rule ("no init in a release") was clarified rather than broken. CLAUDE.md's "Diagnostic input is different" paragraph now records this.
 
-### 3.9 Probes added then deleted (short-lived)
+### 2.9 Probes added then deleted (short-lived)
 - `boot:matrix` (09-10 → 09-10)
 - `kernel/minimal` + `boot:floor` (09-26 → 09-30)
 - `boot:kernel-pages` (09-30 → 09-30)
@@ -530,9 +509,9 @@ Sequence: created 09-07 (`24c8a06`); made redundant by udev 09-10 (`064c4f4`); m
 
 This is the cycle CLAUDE.md asks for ("remove … once it no longer has an active question"). The cost is that the answers live only in commit messages and comments.
 
-**Lesson:** this log, or `docs/memory-and-disk.md`-style records, is where an answered probe's result should land. Before writing a probe, check §4 and the row comments in `boot/harness_test.go` and `boot/ssh_first_test.go`.
+**Lesson:** this log, or `docs/memory-and-disk.md`-style records, is where an answered probe's result should land. Before writing a probe, check docs/lab.md's "Measured and rejected" and the row comments in `boot/harness_test.go` and `boot/ssh_first_test.go`.
 
-### 3.10 /tmp and tmpfiles; erofs; BPF_LSM; chrony
+### 2.10 /tmp and tmpfiles; erofs; BPF_LSM; chrony
 - **/tmp:** masked by the imported optimizer; unmasked 09-26 (`f36ae13`, noise); capped at a quarter 09-28.
 - **erofs:** removed from the kernel 09-26 (`5a3d509`); the build assertion relaxed 09-30 (#66) for the pmem/DAX experiment, which was rejected (#63, #65).
 - **BPF_LSM:** off 09-07 ("a boundary inside the boundary"); on 10-01 (`1400f6a`), and the stale note was fixed 10-05 (`ebe2a6e`).
@@ -540,7 +519,7 @@ This is the cycle CLAUDE.md asks for ("remove … once it no longer has an activ
 
 **Lesson:** the imported scripts carried decisions without numbers. Each has been re-decided one at a time.
 
-### 3.11 CI cache and runners (rebuilt ~5 times)
+### 2.11 CI cache and runners (rebuilt ~5 times)
 - gha cache that stored nothing (`c767cd5`, 09-15);
 - Blacksmith (09-20);
 - the builder's silent fallback (`aa157cf`/`1ef95d1`, 09-26);
@@ -552,139 +531,7 @@ Also the reusable builder, added and reverted on 10-13.
 
 **Lesson:** each move was taken without checking that the cache was actually hit. A cache-hit assertion would have caught `c767cd5` and `1666cb5` on day one.
 
-### 3.12 apk locks broke three times
+### 2.12 apk locks broke three times
 `6e7ba47` (11-03), `8d495c5` (11-09), release run 43157106109 / `ec2c7fb` (11-12); fixed by a daily refresh (`c6c29b5`), which then compiled QEMU cold twice every move; fixed structurally on 11-20 by pinning builder images instead of packages.
 
 **Lesson:** a mirror that serves only the newest build cannot be pinned; pin something that keeps its contents - an image - and move it when the move is wanted.
-
----
-
-## 4. Measured and rejected
-
-| Idea | Result | Source | Date |
-|---|---|---|---|
-| `usb=off`, `vmport=off`, `smm=off`, `i8042=off` | 63.0/62.6/62.3/62.5 vs 62.9 ms | `fa1803f` | 09-08 |
-| Mask udev | Saves 0, and boots never reach a login (10 s ttyS0 timeout) | `4cbd229`, `80f984b` | 09-10 |
-| Trim the 8250 driver | 154 µs | `c03ed89`, kernel/Dockerfile | 09-10 |
-| Modular kernel | 0.57 ms; breaks "a release is one machine" | `1a8e25c` | 09-10 |
-| ACPI params (acpi=noirq, pnpacpi=off, …) | 69.9 vs 68.6 ms, slower | `64d2901` | 09-10 |
-| initcall_blacklist ksm/kcompactd | 0; event_trace's 6 ms is the profiler | `64d2901` | 09-10 |
-| CONFIG_XFRM=n | Moves BTF's 9 ms first-parse elsewhere | `e285dec` | 09-10 |
-| Generous vCPU ceiling | maxcpus=16 +5 ms, 64 +9 ms of kernel | `f32d527` | 09-10 |
-| MICROVM | No ACPI CPU hotplug | `b151186` | 09-10 |
-| agetty tweaks (TTYReset, --noissue, --delay 0, …) | Within noise of agetty's sleep(1) | `80f984b` | 09-10 |
-| Less guest RAM (512 MiB) | 1241 vs 1256 ms, nothing | `80f984b` | 09-10 |
-| chrony / time daemon | 10 ms; cannot know it was restored | `c7af4d3` | 09-10 |
-| systemd-timesyncd | SNTP only, no refclock | `c7af4d3` | 09-10 |
-| `cache=none` on disks | Breaks shared base caching, fails on tmpfs | `8b7391a` | 09-07 |
-| Overlay O_DIRECT | Small reads 1490 vs 530 ms | docs/memory-and-disk.md | 10-01 |
-| CONFIG_VT=n for speed | 0 to login; 0.31 ms kernel (2.09 withdrawn) | `e2f6b8f`, `9b5f0dd` | 09-26 |
-| 19 udev rules masked; loop/8250 count params | 0 | `e2f6b8f`, harness_test.go | 09-26 |
-| Console unit instead of serial-getty | +340 ms until TERM=dumb, then equal | `c6e48de`, `7b08e5a` | 09-26 |
-| Fewer unit files | 300 extra: 236 vs 246 | `9fab3f1` | 09-26 |
-| KSM + THP off | -0.50 ms | `cda04b1` | 09-26 |
-| COMPACTION off | Impossible: virtio-mem needs CONTIG_ALLOC | `cda04b1` | 09-26 |
-| erofs removal for speed | Noise (100.46 vs 102.22) | `5a3d509` | 09-26 |
-| Smaller TCP hash tables | Moved nothing | `dae6a14`, #48 | 09-26 |
-| ZRAM | Runaway killed later (20 vs 14 s), worst login 3.8 s | kernel/Dockerfile, `430d2b3` | 09-28 |
-| systemd-oomd | Kernel always beat it | `337c08d` | 09-28 |
-| CPUWeight/IOWeight/MemoryLow on ssh.service | No change | `f7cd1ab` | 09-28 |
-| Wrapping board init in a memory transaction | Guest prints nothing | `f10383b`, lab 36662499370 | 09-30 |
-| Lowering `memhp_default_state` (unplug policies) | Kept `online` | `2903d8c`, #48 | 09-30 |
-| Base on virtio-pmem + DAX | ~155 MB less per VM, but a side channel | #63, #65, docs | 10-01 |
-| DAMON_RECLAIM, MGLRU eviction | Slower / not selective | docs/memory-and-disk.md | 10-01 |
-| `page_reporting_order` 0/3 | ~100 MB transient vs ~180 MB huge pages lost | docs, #83 | 10-01 |
-| Prefetch the boot's files | 47 ms to win 24 | docs, run 36803912357 | 10-01 |
-| Second limit (`memory.high`) | `memory.max` suffices | docs | 10-01 |
-| KSM, free page hinting, virtio-fs DAX | Security / correctness / unsupported | docs | 10-01 |
-| Reusable release builder (SLSA L3 attempt) | Not L3, needed guards | #109-#111 | 10-13 |
-| Getty without BindsTo dev-ttyS0 | 342 vs 345 | lab 43303190733 | 11-12 |
-| Keygen wanted by multi-user.target | 518 vs 514 | lab 43312419007 | 11-12 |
-| `pci=noearly` | Guest does not boot | #240 | 11-12 |
-| Remove virtio-rng | -13.6 ms to prompt, but moves fingerprint; not done | lab 43321809471 | 11-12 |
-| Mask sshd-socket- and run-generators | Login 489 (no change) | lab 43483372488 | 11-13 |
-| Mask 11 always-failing units | 484 (no change) | lab 43483372488 | 11-13 |
-| Vsock socket + sshd@ without default deps | No sooner; dropped 7 of 22 first connections (laptop) | `boot/ssh_first_test.go:124-128` | 11-13 |
-| mapped-ram checkpoints (multifd ×4) | Restore login 385/400 vs 386/399 | #246, lab 43483852339 | 11-13 |
-| QEMU copies the kernel's ELF segments on threads (patch `hw/core/loader`, #290). Laptop: QEMU start 30.9 → 21.6 ms | Bench `boot:ssh-first`, 20 each, against the release: 11.2 + copy 331 → 316 (sshd accepts 200 → 199), 11.2 alone 332 → 317 (201 → 200). The copy adds nothing nested; the 15 ms is 11.2 and main | labs 44580080420, 44581350077 | 11-19 |
-| `scsi_mod.scan=manual` (no boot-time scan of 256 virtio-scsi targets) | Kernel −9.3 ms in spin's shape (95.0 → 85.7), but since Linux 5.10 (`beef6fd02b90`) a LUN-0 hotplug event goes through `scsi_scan_target(…, SCSI_SCAN_INITIAL)` and EVENTS_MISSED through `scsi_scan_host`, both no-ops under manual: every disk added at run time, present at boot, or added under `-S` / before `cont` never appears, silently. Removal still works. Keeping it needs a virtio_scsi patch (`SCSI_SCAN_MANUAL` in those two paths) plus a guest-side scan of known targets | lab 44570773103; source reading of 7.3.5 `drivers/scsi/virtio_scsi.c`, `scsi_scan.c` | 11-19 |
-| Fast snapshot load, QEMU 11.2 (mapped-ram + postcopy-ram on a `file:` URI) as the restore | Running at 38 ms instead of 102, but the first login at 293/325 instead of 152/161: every page the guest touches before a login is a fault served by one read from the file, and nested faults are expensive. The full mapped-ram load is the default; `Load.Fast` stays for large states | `boot:restore-first` with `SPIN_RESTORE_FAST=1`, lab 44585840498 (bench, 140 MiB state from disk, 20 each) | 11-19 |
-| The base memory in a shared file, left out of a checkpoint (`memory-backend-file,share=on` as `pc.ram`, `x-ignore-shared`): the restore maps the pages, QEMU copies none (#276) | The state is 0.3 MiB, the save 15 ms instead of 165 and the restore running at 45-50 ms instead of 112-122, but neither goal number improves. With the file on the scratch disk the cold boot's first login is 1089 ms instead of 335 (each first touch a fault into a file) and the restore's 182-238 instead of 171; on tmpfs the cold boot is 709-719 instead of 331 and the restore's login 177 p50, 741-768 p95. Code not kept (spin-stack/spin-machine#306, closed) | `restore-first` with `shared=true`, labs 44663272360 (disk) and 44664989139 (`memory-dir=/dev/shm`), bench, 20 each | 11-20 |
-| sntrup761 (OpenSSH default) | 104 vs 40 ms per login | #245, lab 43479854381 | 11-13 |
-| Configuration-space snapshot over fw_cfg (QEMU + kernel) | 209 vs 211 with 0005 | lab 43514884598 | 11-13 |
-| CPUWeight/IOWeight/Nice on the first login's lane | −2 ms over coldplug filtered; second login 63 vs 45 | lab 43518915618 | 11-13 |
-| One sshd for every connection (vsock Accept=no, `sshd -D` early) | First login 382 vs 381; second 40 vs 48 ms | lab 43524721490 | 11-13 |
-| Login without pam_systemd (diagnostic bound) | 380 vs 436, but no session, no XDG_RUNTIME_DIR | lab 43518044150 | 11-13 |
-| Mask `modprobe@drm` (logind is ordered after it) | First login 327/345 vs 328/337 with logind's socket early | lab 44558035927 | 11-19 |
-| Mask `systemd-udev-load-credentials` | First login −8 then −6 ms, p95 unchanged: not separable from noise at 20 boots | lab 44537549305, 44538877783 | 11-19 |
-| systemd with `-Db_lto=true` | Ubuntu's dpkg-buildflags already pass `-flto=auto`: the same packages to within a few hundred bytes | image/systemd/Dockerfile | 11-19 |
-| Lower the vCPU ceiling, drop the balloon or ACPI for boot time | Not tried: hotplug and dynamic memory are an invariant | AGENTS.md | 11-13 |
-
----
-
-## 5. Measurement pitfalls found
-
-- **The instrument measured itself.** Each case and where it is recorded:
-  - initcall_debug with a serial console (`c03ed89`);
-  - a function_graph wide filter, 26× inflation (`a31d7b2`);
-  - the `kvm:kvm_pio` tracepoint, 49.3 vs 27 ms (`c049a21`);
-  - `trace_event=initcall` (`64d2901`);
-  - systemd debug logging, 212 vs 26 ms (`ad05544`);
-  - the `boot:systemd` probe "3× slower" (`7b08e5a`);
-  - a shell harness throttling the console, 1424 vs 190 ms (`80f984b`);
-  - a log_buf_len of 8M costing 4.9 ms (`5221690`).
-
-  Now avoided by quiet consoles, `--profile`, and asserting the log is whole.
-- **Blame, critical chain and log gaps are not savings.** logind was 63 ms in blame and worth 24; chrony 43 and worth 10; udev 46 ms and worth 0 (`6aba37b`, `e2f6b8f`). Recorded in `boot/harness_test.go` comments.
-- **Misattribution.** BTF's first parse looked like XFRM (`e285dec`); ksm/kcompactd 2.00 ms is HZ resolution (`cda04b1`); vCPU descheduling was counted inside initcalls (`64d2901`).
-- **Checkpoints that lie.** The QMP greeting comes before the board is built (`8eef89d`); SeaBIOS's banner comes before hardware init (`6aba37b`, #45).
-- **Variants that did nothing:**
-  - `systemd.mask=` with the debug-generator masked (`80f984b`);
-  - `unmask_udev` that had become a no-op (`b5f361f`);
-  - `rm -f` on an `/etc` path that did not exist (`bb6bb89`);
-  - a mask that matched no file (`e2f6b8f` now refuses it);
-  - `debugfs -R` exiting 0 (CLAUDE.md);
-  - SPIN_GRAPH and SPIN_CPU_SHARE under lockdown (#240).
-- **Host noise:**
-  - a cold page cache right after `task build`: 98 ms read as a 35 ms regression (`f32d527`);
-  - a host building a kernel: CONFIG_VT's 2.09 ms (`9b5f0dd`);
-  - three runs of one kernel reading 59.5/96.8/167.7 ms (`5221690`);
-  - a laptop reading 61 vs 105 ms minutes apart, on an efficiency core (`de9b7db`);
-  - 3 boots a row is noise at 5-11% (#81).
-
-  Now avoided by 20 interleaved boots on the bench fleet, one lab run at a time (CLAUDE.md).
-- **Different hosts compared.** The v20261026.01 notes compare a Ryzen 9 5900X with a Xeon 6975P-C: "the times below compare two machines, not two releases". The report's per-row fingerprint also changes because the host CPU is in it. Numbers from construct (docs/memory-and-disk.md, kernel patches 0001-0004, qboot) do not compare with the bench fleet's.
-- **Release-to-release report noise.** v20261019.01 → v20261023.01, with only the image changed, shows +6.7% to +14.6% and p95 of 745-880 ms on some rows. Treat single-release deltas under ~10% with suspicion unless the lab repeats them.
-- **Nested KVM on the bench fleet.** A cold boot after a restored guest has run on the host is ~1.8× slower across all phases; a laptop shows nothing of the kind (#246). Restored VMs leaked between repetitions and contaminated lab 43364516874 (#242's numbers). Now avoided by running every cold boot before every restore, and checking the state is out of the page cache with mincore (#246, closed: this method is not in the tree).
-- **Page cache.** `POSIX_FADV_DONTNEED` declines recently touched pages, 4.8 vs 251 ms (`ab4844c`). `mincore` lies for files the caller does not own (`21a830c`). `drop_caches` was forbidden on the shared runner (#57). fstrim right after rm trims nothing (`251638d`). QEMU 11.1.1 never counted discards (`aaf2d86`).
-- **Lab plumbing:**
-  - green on a skip (`8d8e97b`);
-  - concurrency groups cancelling queued runs (`a3ba5a6`);
-  - two runners on nbd0 (`b21e100`);
-  - 108-byte socket paths (`299777b`, `f2c47f7`);
-  - `modprobe` on a module-less kernel (`5a70721`, `213cd07`);
-  - udev resetting vhost-vsock permissions (`97a6de1`);
-  - BuildKit comparing a file with itself (`b9d1985`).
-- **Guest clock.** `1d5e7f5` says the guest's wall clock "stepped back … chrony setting the time" on the lab runner on 09-30, yet chrony was removed from the image on 09-10 (`c7af4d3`). The cause named there is not supported by the tree. The fix (time by `/proc/uptime`) stands either way.
-- **Absolute numbers drift between runs and releases.** One baseline, "as built" first SSH login, reads 570/626 in lab 43308825692 (11-12, v20261112.01) and 489/506 in lab 43483372488 (11-13, v20261113.02). Compare deltas only within one interleaved run, never absolutes across runs.
-
----
-
-## 6. Open questions
-
-- **Release #245 only with its clients.** spin-stack/spin#1206 and open-remote-ssh#8 are merged; users need OpenSSH 9.9 or newer, or a spin and open-remote-ssh built from them, before a release carrying #245 reaches them.
-- **Restore as the north.** #242 calls restore "the path a workspace takes". On the fleet a restore reaches login at 386/399 vs a cold boot at 487/516 (#246). Not measured:
-  - concurrent restores on one host;
-  - RAM above 2 GiB;
-  - channel counts.
-
-  These are #242's checklist.
-- **Is `10-seats.conf` still needed?** The control that should fail passes on systemd 259 (#240, "Not settled here").
-- **virtio-rng removal.** -13.6 ms to the prompt (lab 43321809471), a fingerprint change, not taken (#240).
-- **PID 1 time.** The ~25 ms in the BPF verifier for systemd's socket-bind program (#240) is gone with the systemd image/systemd builds (11-19). The ~32 ms gap after the unit load is loading 192 units, ~21 ms of CPU (11-19, experiments/pid1-marks), not building the transaction (0.3 ms). It shrinks only with fewer units reached at boot.
-- **musl under long-running load.** Never measured (`31a57e7`).
-- **`page_reporting_order`.** Revisit "only if memory per host becomes the limit" (docs/memory-and-disk.md).
-- **Moving `MachineType` off pc-q35-11.1.** "its own change" (CLAUDE.md rule 1, `hack/machinetype`).
-- **The kernel CVE judge.** 9 CVEs apply with a fix later in 7.3, and 1 has no fix (`0ce27ad`, against 7.3.1; the kernel is now 7.3.4).
-- **Host keys in checkpoints.** A guest checkpointed after boot carries host keys, so the restorer must re-key (`image/README.md`, #248). This is a consumer contract to confirm in spin.
-- **min_ttl_ms evidence disagrees.** `47aa681` and `kernel/Dockerfile:192-194` (§2, 09-28).
