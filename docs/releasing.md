@@ -70,11 +70,13 @@ over the tarball as `<tarball>.cdx.sigstore.json` (`cosign verify-blob-attestati
 cyclonedx`, with the identity above). QEMU, the kernel and qboot carry their patches as pedigree:
 each patch file by name and hash, so the SBOM says the binary is upstream's source plus these.
 
-The builders' packages are a commit's, not the mirror's on the day: `qemu/apk.list` and
-`e2fsprogs/apk.list` say what each installs, and `qemu/apk.lock` and `e2fsprogs/apk.lock` pin every
-package installed, dependencies included, at a version. A pin Alpine has dropped from its mirror
-fails a cold build at `apk add`; `spin-machine-dev lock` writes both locks again from a fresh install on the
-pinned Alpine, and the diff is the review.
+The builders' packages are a commit's, not the mirror's on the day: QEMU and e2fsprogs are compiled
+on builder images - Alpine with `qemu/apk.list` or `e2fsprogs/apk.list` installed
+(`builder/Dockerfile`) - pinned by digest in `versions.yaml` (`qemu-builder`, `e2fsprogs-builder`).
+An image keeps its packages after Alpine's mirror drops them, so a release builds from the same
+libraries until a person takes new ones: `spin-machine-dev refresh builders` makes them again,
+publishes them and pins them, weekly from refresh.yml, with the packages that moved in the pull
+request. A part's build refuses a tree whose apk.list its pinned builder was not made with.
 `workflows/workflows_test.go` holds every workflow to attesting before it publishes.
 
 ## The ladder

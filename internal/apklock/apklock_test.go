@@ -2,13 +2,7 @@
 
 package apklock
 
-import (
-	"bytes"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-)
+import "testing"
 
 // A lock is every installed package, name=version, sorted; a package with half its record is no
 // lock, and neither is none.
@@ -27,53 +21,5 @@ func TestALockIsEveryInstalledPackage(t *testing.T) {
 		if _, err := Lock(db); err == nil {
 			t.Errorf("%s: locked", name)
 		}
-	}
-}
-
-// The command writes the lock of the database it is given, and nothing for none.
-func TestTheCommandWritesTheLock(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "installed")
-	if err := os.WriteFile(path, []byte("P:musl\nV:1.2.5-r10\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var out, errs bytes.Buffer
-	if Run([]string{path}, &out, &errs) != 0 || out.String() != "musl=1.2.5-r10\n" {
-		t.Fatalf("wrote %q: %s", out.String(), errs.String())
-	}
-	broken := filepath.Join(t.TempDir(), "broken")
-	if err := os.WriteFile(broken, []byte("P:musl\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{nil, {filepath.Join(t.TempDir(), "none")}, {broken}} {
-		if Run(args, &out, &errs) != 2 {
-			t.Errorf("%v: no refusal", args)
-		}
-	}
-}
-
-// Each builder's lock pins every package its list asks for: a name added to a list and not
-// locked would be installed at whatever version the mirror has.
-func TestEachListIsLocked(t *testing.T) {
-	for _, part := range []string{"qemu", "e2fsprogs"} {
-		list, err := os.ReadFile(filepath.Join("..", "..", part, "apk.list"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		lock, err := os.ReadFile(filepath.Join("..", "..", part, "apk.lock"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		names := Listed(string(list))
-		if len(names) == 0 {
-			t.Fatalf("%s's list names nothing", part)
-		}
-		for _, n := range names {
-			if !strings.Contains("\n"+string(lock), "\n"+n+"=") {
-				t.Errorf("%s/apk.list asks for %s, which %s/apk.lock does not pin: task apk:lock", part, n, part)
-			}
-		}
-	}
-	if got := Listed("# a comment\nglib-static pixman-static  # why\n\nzlib-static\n"); strings.Join(got, " ") != "glib-static pixman-static zlib-static" {
-		t.Errorf("listed %q", got)
 	}
 }

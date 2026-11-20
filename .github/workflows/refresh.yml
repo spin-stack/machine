@@ -8,9 +8,9 @@
 # And the systemd source package the image rebuilds (spin-machine-dev refresh systemd), which the archive
 # stops serving the day Ubuntu replaces it.
 #
-# And the apk locks of QEMU's and e2fsprogs' builders (spin-machine-dev refresh apk), because the pinned
-# Alpine's mirror drops the builds they name and a stale lock fails the next build - a release
-# found that three times. qemu.yml and image.yml build the pull request.
+# And, weekly, QEMU's and e2fsprogs' builder images (spin-machine-dev refresh builders): Alpine with
+# each part's apk.list installed, made again, published, and proposed when a package in them moved.
+# qemu.yml and image.yml build the pull request.
 #
 # The pull request is the release app's (spin-stack-release), so the checks on it run: one opened
 # with this run's own token would start none.
@@ -19,6 +19,8 @@ name: Refresh
 on:
   schedule:
     - cron: "41 6 * * *"
+    # The builders' (the job says why weekly).
+    - cron: "17 7 * * 1"
   workflow_dispatch:
 
 concurrency:
@@ -34,7 +36,7 @@ env:
 
 jobs:
   kernel:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event.schedule != '17 7 * * 1'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -83,7 +85,7 @@ jobs:
   # from the day it moves until the pin follows; this proposes the move that day. image.yml builds
   # the pull request.
   systemd:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event.schedule != '17 7 * * 1'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -127,11 +129,19 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: spin-machine-dev refresh systemd
 
-  # Its own job: each refresh above leaves the checkout on the branch it proposed.
-  apk:
-    if: github.ref == 'refs/heads/main'
+  # Its own job: each refresh above leaves the checkout on the branch it proposed. Weekly, and not
+  # daily as the apk locks it replaced were: a pinned builder keeps its packages after the mirror
+  # drops them, so nothing breaks while one waits, and each one taken is QEMU compiled cold.
+  # Dispatched on a branch, it makes that branch's builders and commits their pins to it: how an
+  # apk.list changed in a pull request gets the builder its build asks for.
+  builders:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 7 * * 1'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The builders are published under this repository: ghcr.io/spin-stack/spin-machine/builder-*.
+      packages: write
     steps:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
@@ -153,6 +163,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Commit as the app
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
@@ -164,7 +183,7 @@ jobs:
       - name: spin-machine-dev
         run: go tool task bin
 
-      - name: Propose the apk locks at what the mirror has today
+      - name: Make the builders and propose the ones whose packages moved
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: spin-machine-dev refresh apk
+        run: spin-machine-dev refresh builders

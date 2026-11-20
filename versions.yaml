@@ -57,12 +57,35 @@
   pin: sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
   track: digest
   note: >-
-    the musl builder of the static QEMU and e2fsprogs, and the base of the QEMU runtime image.
-    Its apk packages are the live archive's, so the digest pins the image and not everything
-    linked into the binaries. After the bump: bump QEMU_CONFIG_REV in qemu/Dockerfile - its
-    build directory lives in a cache mount configured under the old base, which is how a
-    dynamically linked QEMU was once built from a Dockerfile that says --static - then
-    `task qemu:build e2fsprogs:build`. A new series (3.25) is a decision, not a bump.
+    what the builders below are made on (builder/Dockerfile), and the base of the QEMU runtime
+    image. A bump reaches QEMU and e2fsprogs only through the builders: after it,
+    `spin-machine-dev refresh builders` makes them on the new Alpine. A new series (3.25) is a
+    decision, not a bump: bump QEMU_CONFIG_REV in qemu/Dockerfile with it - its build directory
+    lives in a cache mount configured under the old base, which is how a dynamically linked
+    QEMU was once built from a Dockerfile that says --static.
+
+- name: qemu-builder
+  kind: image
+  source: ghcr.io/spin-stack/spin-machine/builder-qemu
+  version: unpublished
+  pin: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  track: digest
+  note: >-
+    Alpine with qemu/apk.list installed (builder/Dockerfile): the static libraries QEMU links. Its
+    tag is a hash of the list and of every package installed, so it never moves; only
+    `spin-machine-dev refresh builders` makes one, and refresh.yml proposes it weekly with the
+    packages that moved. A new builder is a QEMU compiled cold: after it, `spin-machine-dev
+    build qemu`, and boot:compat on the pull request.
+
+- name: e2fsprogs-builder
+  kind: image
+  source: ghcr.io/spin-stack/spin-machine/builder-e2fsprogs
+  version: unpublished
+  pin: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  track: digest
+  note: >-
+    Alpine with e2fsprogs/apk.list installed (builder/Dockerfile): the static libraries
+    mkfs.ext4 and the rest link. Made and proposed with qemu-builder's.
 
 - name: kernel
   kind: download
