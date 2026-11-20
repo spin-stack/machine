@@ -79,10 +79,11 @@ func TestRestoreTogetherPoolsEveryRestore(t *testing.T) {
 			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 100, "login\x001": 110}},
 			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 105, "login\x001": 900}, Missed: "lost"},
 			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 95, "login\x001": 120}},
+			{Tree: "other", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 700, "login\x001": 800}},
 		},
 	}
-	if got := pooledLogins(r, "release", "2 at once, channels 8"); len(got) != 4 || slices.Contains(got, 900) {
-		t.Errorf("pooled = %v, want the four of the two measurements not lost", got)
+	if got := pooledLogins(r, "release", "2 at once, channels 8"); len(got) != 4 || slices.Contains(got, 900) || slices.Contains(got, 700) {
+		t.Errorf("pooled = %v, want the four of the tree's two measurements not lost", got)
 	}
 	d := (restoreTogether{}).Detail(r)
 	for _, want := range []string{"2 at once, channels 1   ", "over 4", `Δ p50 against "2 at once, channels 1"`} {
@@ -92,5 +93,10 @@ func TestRestoreTogetherPoolsEveryRestore(t *testing.T) {
 	}
 	if strings.Count(d, "Δ") != 1 {
 		t.Errorf("only the second row is set against the first:\n%s", d)
+	}
+	for _, line := range strings.Split(d, "\n") {
+		if strings.Contains(line, "Δ") && !strings.HasPrefix(strings.TrimSpace(line), "release, 2 at once, channels 8") {
+			t.Errorf("the Δ is on a row other than the one set against the first: %q", line)
+		}
 	}
 }
