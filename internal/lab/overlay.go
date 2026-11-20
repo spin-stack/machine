@@ -202,8 +202,9 @@ func namedEdit(name, checkout string) (Edit, error) {
 // prompt, so the probe's console column is the moment it starts listening. A tree boots it with
 // --append init=/usr/local/sbin/spin-floor, the kernel taking the last init= it is given.
 //
-// It is 11-13's floor (branch floor-kernel, 652fb3f): 220 ms to the first login against 467 as
-// built then (lab 43492686353).
+// It is 11-13's floor (branch floor-kernel, 652fb3f). On v20261120.02, bench fleet, 2026-11-20
+// (lab 44750322384): first login 219 ms against the release's 322 in the probes' shape (2 vCPUs,
+// 2 GiB), and 240 against 445 in spin's (1 vCPU, 128 MiB, ceilings 16 and 8 GiB, 4 hotplug disks).
 var floorEdit = Edit{
 	Files: map[string]string{"/usr/local/sbin/spin-floor": `#!/bin/sh
 mount -t proc proc /proc
