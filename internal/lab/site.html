@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spin-machine releases, measured</title>
+<style>
+:root { color-scheme: light dark; --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --rule: #d1d9e0; --link: #0969da; --code: #eff2f5; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --fg: #f0f6fc; --muted: #9198a1; --rule: #3d444d; --link: #4493f8; --code: #262c36; }
+}
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+main { max-width: 880px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 28px; margin: 0 0 16px; }
+h2 { font-size: 20px; margin: 40px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--rule); }
+p, li { color: var(--fg); }
+.note, footer { color: var(--muted); font-size: 14px; }
+a { color: var(--link); }
+code { background: var(--code); padding: 1px 4px; border-radius: 4px; font-size: 85%; }
+figure { margin: 24px 0; }
+figure svg { display: block; width: 100%; height: auto; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 12px; border-bottom: 1px solid var(--rule); text-align: left; white-space: nowrap; }
+th { font-weight: 600; white-space: normal; vertical-align: bottom; }
+footer { margin-top: 48px; }
+</style>
+</head>
+<body>
+<main>
+<h1>spin-machine releases, measured</h1>
+<p>{{.About}}</p>
+<figure>
+{{.Chart}}</figure>
+{{range .Tables}}
+<h2>{{.Title}}</h2>
+{{with .Before}}<p class="note">{{.}}</p>
+{{end}}<div class="scroll"><table>
+<thead><tr>{{range .Head}}<th>{{.}}</th>{{end}}</tr></thead>
+<tbody>
+{{range .Rows}}<tr>{{range .}}<td>{{if .Link}}<a href="{{.Link}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}</td>{{end}}</tr>
+{{end}}</tbody>
+</table></div>
+{{with .After}}<p>{{.}}</p>
+{{end}}{{end}}
+{{with .Dashes}}<p>{{$.DashesBefore}}</p>
+<ul>
+{{range .}}<li>{{.}}</li>
+{{end}}</ul>
+{{end}}<footer><p>Written by <code>spin-machine-dev releases site</code> from <a href="https://github.com/spin-stack/spin-machine/tree/main/docs/releases">docs/releases</a>; each release's record is linked from where it was measured.</p></footer>
+</main>
+</body>
+</html>

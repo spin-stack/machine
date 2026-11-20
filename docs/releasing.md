@@ -89,9 +89,12 @@ ahead, and save, state, the kernel's time and QEMU's resident memory beside them
 twenty boots of each (`spin-machine-dev releases measure`, docs/cli.md). What it keeps is the
 release's record, `docs/releases/RELEASE.json`: each number's p50 and p95, the host, the date and
 the run whose artifact holds every sample (90 days). `docs/releases.md` is written from every
-record - a chart of each goal number release by release, the tables, and where each was measured -
-and the job proposes both as a pull request, as the release app, so the checks on it run. A test
-fails when the page is not what the records say, so it is never edited by hand.
+record - a chart of the goal's numbers release by release (`docs/releases.svg`), the tables, and
+where each was measured - and the job proposes them as a pull request, as the release app, so the
+checks on it run. A test fails when the page or its chart is not what the records say, so neither
+is edited by hand. Once that pull request merges, `pages.yml` publishes the same page, with each
+record, at https://spin-stack.github.io/spin-machine/ (`spin-machine-dev releases site`): the
+link to share.
 
 Alone, a ladder of one, so every record is read the same way: a run of its own. The page says
 what that costs a reader. The bench moves between runs by as much as a release does: two reports

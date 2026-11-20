@@ -175,7 +175,9 @@ numbers release by release, each against the release above and the newest agains
 prestarted ones, and save, state, the kernel and QEMU's RSS as diagnostics.
 
 Each release's own numbers are kept in the repository, one record a release in `docs/releases/`,
-and `docs/releases.md` is the page written from them (docs/releasing.md, "The record"):
+and `docs/releases.md` is the page written from them, with its chart, `docs/releases.svg`
+(docs/releasing.md, "The record"). The same page is published at
+https://spin-stack.github.io/spin-machine/:
 
 ```
 spin-machine-dev releases measure [TAG...] [--reps N] [--run URL]  each release alone, here: its record and the page
@@ -183,7 +185,8 @@ spin-machine-dev releases record LADDER_JSON [--run URL]          the record of 
 spin-machine-dev releases missing                                 the published releases with no record, oldest first
 spin-machine-dev releases show RELEASE                            a record: its numbers, where and when
 spin-machine-dev releases compare A B                             two records side by side, and how to measure them together
-spin-machine-dev releases doc [--check]                           docs/releases.md from the records; --check exits 1 when it differs
+spin-machine-dev releases doc [--check]                           docs/releases.md and .svg from the records; --check exits 1 when either differs
+spin-machine-dev releases site --out OUT                          the same as a web page, OUT/index.html, each record beside it in OUT/releases
 spin-machine-dev releases propose                                 the records this checkout wrote, as a pull request against main
 ```
 
@@ -193,9 +196,12 @@ reads that directory). A record says where and when it was measured; two records
 `compare` says so and prints the `lab ladder` that measures them together. `record` takes a ladder
 measured some other way and keeps only its newest release: an older one beside it was measured
 interleaved, and a record of it would not read like the others. `propose` commits what `git status`
-shows changed under `docs/releases`, on a branch named for those releases; a branch already on
-origin is a set proposed once, and is not proposed again. Every verb takes `--dir` for the records'
-directory (default `docs/releases`, the page beside it as `DIR.md`).
+shows changed under `docs/releases`, with the page and its chart, on a branch named for those
+releases; a branch already on origin is a set proposed once, and is not proposed again. `site`
+writes one HTML file that fetches nothing, the chart inline so its points' tooltips show, from the
+same rows as the page's tables; `pages.yml` runs it on every merge to main that changes a record and
+deploys it to GitHub Pages. Every verb takes `--dir` for the records' directory (default
+`docs/releases`, the page and its chart beside it as `DIR.md` and `DIR.svg`).
 
 `lab compat` is boot:compat over every release since the fingerprint last moved, newest first: a
 host that skipped releases still resumes their checkpoints. A release is fetched checked against

@@ -26,18 +26,20 @@ func releasesCommand() *cobra.Command {
 	var dir string
 	c := &cobra.Command{
 		Use:   "releases",
-		Short: "Each release's measured numbers, kept in docs/releases: record, measure, compare, and docs/releases.md",
+		Short: "Each release's measured numbers, kept in docs/releases: record, measure, compare, docs/releases.md and the site",
 		Long: `A release's record is docs/releases/RELEASE.json: the goal's two numbers, the prestarted ones and
 the diagnostics, p50/p95, from one run that measured that release alone on the bench fleet, with
-where and when. docs/releases.md is written from the records, never by hand: a chart and a table
-of the goal's numbers release by release, the diagnostics, and the run each was measured in.
+where and when. docs/releases.md and docs/releases.svg, the chart it shows, are written from the
+records, never by hand: the goal's numbers release by release as a chart and a table, the
+diagnostics, and the run each was measured in. site writes the same as one web page, which
+pages.yml publishes at https://spin-stack.github.io/spin-machine/.
 
 Each record is a run of its own, so a Δ between two of them is read against the noise between runs;
 to decide on one, measure the two together (lab ladder).`,
 	}
 	c.PersistentFlags().StringVar(&dir, "dir", "docs/releases", "the records' directory; the page is DIR.md")
 	c.AddCommand(releasesRecord(&dir), releasesMeasure(&dir), releasesMissing(&dir), releasesShow(&dir),
-		releasesCompare(&dir), releasesDoc(&dir), releasesPropose(&dir))
+		releasesCompare(&dir), releasesDoc(&dir), releasesSite(&dir), releasesPropose(&dir))
 	return c
 }
 
@@ -69,23 +71,28 @@ func recordNewest(dir string, l *lab.Ladder, run string) (lab.Record, error) {
 	return r, lab.WriteRecord(filepath.Join(dir, r.Release+".json"), r)
 }
 
-// doc is the page dir's records make.
-func doc(dir string) (string, error) {
+// page is one file the records make beside their directory.
+type page struct{ path, body string }
+
+// pages are what dir's records make beside it: DIR.md, and DIR.svg, the chart it shows.
+func pages(dir string) ([]page, error) {
 	records, err := lab.ReadRecords(dir)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return lab.Doc(records), nil
+	return []page{{dir + ".md", lab.Doc(records, filepath.Base(dir))}, {dir + ".svg", lab.Chart(records)}}, nil
 }
 
-// writeDoc writes dir.md from dir's records.
+// writeDoc writes DIR.md and DIR.svg from dir's records.
 func writeDoc(dir string) error {
-	page, err := doc(dir)
+	ps, err := pages(dir)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(dir+".md", []byte(page), 0o644); err != nil { //nolint:gosec // the repository's own page
-		return fmt.Errorf("writing %s: %w", dir+".md", err)
+	for _, p := range ps {
+		if err := os.WriteFile(p.path, []byte(p.body), 0o644); err != nil { //nolint:gosec // the repository's own page
+			return fmt.Errorf("writing %s: %w", p.path, err)
+		}
 	}
 	return nil
 }
@@ -260,7 +267,7 @@ func releasesDoc(dir *string) *cobra.Command {
 	var check bool
 	c := &cobra.Command{
 		Use:   "doc",
-		Short: "Write DIR.md from the records; with --check, exit 1 when it is not what they say",
+		Short: "Write DIR.md and its chart, DIR.svg, from the records; with --check, exit 1 when either is not what they say",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			d, err := recordsDir(*dir)
@@ -273,17 +280,63 @@ func releasesDoc(dir *string) *cobra.Command {
 				}
 				return nil
 			}
-			want, err := doc(d)
+			ps, err := pages(d)
 			if err != nil {
 				return couldNot(err)
 			}
-			if got, err := os.ReadFile(d + ".md"); err != nil || string(got) != want { //nolint:gosec // the repository's own page
-				return exitError{code: 1, err: fmt.Errorf("%s.md is not what %s/*.json say: spin-machine-dev releases doc writes it", d, d)}
+			for _, p := range ps {
+				if got, err := os.ReadFile(p.path); err != nil || string(got) != p.body { //nolint:gosec // the repository's own page
+					return exitError{code: 1, err: fmt.Errorf("%s is not what %s/*.json say: spin-machine-dev releases doc writes it", p.path, d)}
+				}
 			}
 			return nil
 		},
 	}
 	c.Flags().BoolVar(&check, "check", false, "write nothing; exit 1 when the page differs")
+	return c
+}
+
+func releasesSite(dir *string) *cobra.Command {
+	var out string
+	c := &cobra.Command{
+		Use:   "site --out OUT",
+		Short: "Write the records' web page, OUT/index.html, and each record beside it in OUT/releases",
+		Long: `Write what docs/releases.md says as one HTML page that fetches nothing - the chart inline, so
+its points' tooltips show - with each record it links to copied beside it. pages.yml publishes it
+at https://spin-stack.github.io/spin-machine/ from every merge that changes a record.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			d, err := recordsDir(*dir)
+			if err != nil {
+				return err
+			}
+			records, err := lab.ReadRecords(d)
+			if err != nil {
+				return couldNot(err)
+			}
+			html, err := lab.Site(records)
+			if err != nil {
+				return couldNot(err)
+			}
+			kept := filepath.Join(out, lab.SiteRecords)
+			if err := os.MkdirAll(kept, 0o755); err != nil {
+				return couldNot(fmt.Errorf("making %s: %w", kept, err))
+			}
+			for _, r := range records {
+				if err := lab.WriteRecord(filepath.Join(kept, r.Release+".json"), r); err != nil {
+					return couldNot(err)
+				}
+			}
+			index := filepath.Join(out, "index.html")
+			if err := os.WriteFile(index, []byte(html), 0o644); err != nil { //nolint:gosec // a page to publish
+				return couldNot(fmt.Errorf("writing %s: %w", index, err))
+			}
+			say(c, "wrote %s and %d records", index, len(records))
+			return nil
+		},
+	}
+	c.Flags().StringVar(&out, "out", "", "the directory the site is written in")
+	_ = c.MarkFlagRequired("out")
 	return c
 }
 
@@ -318,7 +371,7 @@ func releasesPropose(dir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "propose",
 		Short: "Propose the records this checkout wrote, and the page, as a pull request against main",
-		Long: `Commit what releases record or measure wrote - each new or changed record in DIR, and DIR.md -
+		Long: `Commit what releases record or measure wrote - each new or changed record in DIR, DIR.md and DIR.svg -
 on a branch named for those releases, push it and open a pull request against main. Nothing is
 proposed when nothing was recorded, nor when the branch is on origin already: a set proposed once,
 merged or closed, is not proposed again. report.yml runs it as the release app, so the checks on
@@ -362,7 +415,7 @@ the pull request run.`,
 			title := "releases: " + strings.Join(releases, ", ") + ", measured"
 			for _, step := range [][]string{
 				{"git", "switch", "-c", branch},
-				{"git", "add", "--", d, d + ".md"},
+				{"git", "add", "--", d, d + ".md", d + ".svg"},
 				{"git", "commit", "-q", "-m", title},
 				{"git", "push", "origin", branch},
 			} {

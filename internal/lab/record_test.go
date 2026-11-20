@@ -78,26 +78,24 @@ func docRecords() []Record {
 	return records
 }
 
-// The page charts each goal number over the releases that have it, against the goal; tables each
-// release's numbers with Δ against the row above, and the newest against the goal; and says where
-// each was measured and why a number is a dash.
+// The page shows the chart beside it, tables each release's numbers with Δ against the row above,
+// and the newest against the goal; and says where each was measured, linking its record, and why
+// a number is a dash.
 func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
-	doc := Doc(docRecords())
+	doc := Doc(docRecords(), "kept")
 	if !strings.HasPrefix(doc, "<!-- Written by `spin-machine-dev releases doc` from docs/releases/*.json") {
 		t.Errorf("the page does not open by saying what writes it:\n%s", doc)
 	}
 	for _, want := range []string{
 		"7.3% later",
-		// The cold boot's chart has both releases and the goal; the restore's only the one with a restore.
-		"title \"cold boot to first login, p50 ms (flat: the goal)\"\n  x-axis [\"v1\", \"v2\"]\n  y-axis \"ms\" 0 --> 400\n  line [340, 321]\n  line [100, 100]\n",
-		"title \"restore to first login, p50 ms (flat: the goal)\"\n  x-axis [\"v2\"]\n  y-axis \"ms\" 0 --> 200\n  line [152]\n  line [100]\n",
-		"| v1 | 340 / 340 | | - | | - | - |",
-		"| v2 | 321 / 321 | -19.0 | 152 / 152 | | 296 / 296 | - |",
+		"\n![First SSH login, p50 and p95, release by release](kept.svg)\n",
+		"| v1 | 340 / 340 |  | - |  | - | - |",
+		"| v2 | 321 / 321 | -19.0 | 152 / 152 |  | 296 / 296 | - |",
 		"v2 against the goal: cold +221 ms, restore +52 ms.",
 		"| v1 | - | - | - | 300 |",
 		"| v2 | 151 | 140 | - | 290 |",
-		"| v1 | 2026-11-20 | c8id.4xlarge, nested | 2 |  |",
-		"| v2 | 2026-11-20 | c8id.4xlarge, nested | 2 | [7](https://x/actions/runs/7) |",
+		"| [v1](kept/v1.json) | 2026-11-20 | c8id.4xlarge, nested | 2 |  |",
+		"| [v2](kept/v2.json) | 2026-11-20 | c8id.4xlarge, nested | 2 | [7](https://x/actions/runs/7) |",
 		"- v1, restore to first login: its spin-machine's boot has no --restore",
 		"- v1, cold, QEMU started ahead: its spin-machine's boot has no --held",
 		"- v2, restore, QEMU started ahead: lost all 1",
@@ -110,15 +108,21 @@ func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
 	if strings.Contains(doc, "- v1, cold boot to first login") {
 		t.Errorf("a number that is there has a note:\n%s", doc)
 	}
-	if strings.Contains(Tables(docRecords()), "```mermaid") {
-		t.Error("the tables carry the page's charts")
+	// A ladder's tables have no chart, and no record to link a release to.
+	if ladder := Tables(docRecords()); strings.Contains(ladder, ".svg") || !strings.Contains(ladder, "| v1 | 2026-11-20 |") {
+		t.Errorf("a ladder's tables:\n%s", ladder)
 	}
 	// One release, with one of the goal's numbers: its gap alone.
-	if one := Doc(docRecords()[:1]); !strings.Contains(one, "v1 against the goal: cold +240 ms.\n") {
+	if one := Doc(docRecords()[:1], "kept"); !strings.Contains(one, "v1 against the goal: cold +240 ms.\n") {
 		t.Errorf("one release:\n%s", one)
 	}
-	empty := Doc(nil)
-	if strings.Contains(empty, "```mermaid") || strings.Contains(empty, "against the goal") || strings.Contains(empty, "A dash") {
+	// One dash is said as well as many.
+	lone := Record{Release: "v3", Cannot: map[string]string{"cold": "lost all 2"}}
+	if got := Tables([]Record{lone}); !strings.HasSuffix(got, "\nA dash is a number that release has not:\n\n- v3, cold boot to first login: lost all 2\n") {
+		t.Errorf("one dash:\n%s", got)
+	}
+	empty := Doc(nil, "kept")
+	if strings.Contains(empty, "against the goal") || strings.Contains(empty, "A dash") {
 		t.Errorf("no records:\n%s", empty)
 	}
 }
@@ -150,19 +154,22 @@ func TestTwoRecordsAreComparedSideBySide(t *testing.T) {
 	}
 }
 
-// docs/releases.md is the records' page as Doc writes it: a hand edit, or a record committed
-// without the page written again, fails here (spin-machine-dev releases doc writes it).
+// docs/releases.md and its chart, docs/releases.svg, are what Doc and Chart write from the records:
+// a hand edit, or a record committed without the two written again, fails here (spin-machine-dev
+// releases doc writes them).
 func TestTheCommittedPageIsTheRecords(t *testing.T) {
 	dir := filepath.Join("..", "..", "docs", "releases")
 	records, err := ReadRecords(dir)
 	if err != nil || len(records) == 0 {
 		t.Fatalf("records %d, %v", len(records), err)
 	}
-	page, err := os.ReadFile(dir + ".md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(page) != Doc(records) {
-		t.Error("docs/releases.md is not what docs/releases/*.json say: run spin-machine-dev releases doc")
+	for path, want := range map[string]string{dir + ".md": Doc(records, "releases"), dir + ".svg": Chart(records)} {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Errorf("%s is not what docs/releases/*.json say: run spin-machine-dev releases doc", path)
+		}
 	}
 }

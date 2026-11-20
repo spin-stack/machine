@@ -103,33 +103,88 @@ func TestReleasesShowAndCompareReadTheRecords(t *testing.T) {
 	}
 }
 
-// The page is what the records say: a hand edit, or a page missing, is a 1 from --check, and doc
-// writes it again.
+// The page and its chart are what the records say: a hand edit to either, or either missing, is a
+// 1 from --check that names it, and doc writes it again.
 func TestReleasesDocChecksThePageAgainstTheRecords(t *testing.T) {
 	dir := checkout(t)
-	page := filepath.Join(dir, "docs", "releases.md")
 	verb(t, "releases", "record", ladderOf(t, 300, "v1"))
 	if _, _, status := verb(t, "releases", "doc", "--check"); status != 0 {
 		t.Errorf("the page as written: exit %d", status)
 	}
-	put(t, page, read(t, page)+"a hand edit\n", 0o644)
-	if _, stderr, status := verb(t, "releases", "doc", "--check"); status != 1 || !strings.Contains(stderr, "releases doc writes it") {
-		t.Errorf("a hand edit: exit %d, %q", status, stderr)
+	if page := read(t, filepath.Join(dir, "docs", "releases.md")); !strings.Contains(page, "](releases.svg)") {
+		t.Errorf("the page does not show its chart:\n%s", page)
 	}
-	if _, _, status := verb(t, "releases", "doc"); status != 0 || strings.Contains(read(t, page), "a hand edit") {
-		t.Errorf("doc did not write the page again: exit %d", status)
+	if chart := read(t, filepath.Join(dir, "docs", "releases.svg")); !strings.Contains(chart, "<title>v1 cold: p50 300, p95 300 ms</title>") {
+		t.Errorf("the chart:\n%s", chart)
 	}
-	if err := os.Remove(page); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, status := verb(t, "releases", "doc", "--check"); status != 1 {
-		t.Errorf("no page: exit %d", status)
+	for _, name := range []string{"releases.md", "releases.svg"} {
+		page := filepath.Join(dir, "docs", name)
+		put(t, page, read(t, page)+"a hand edit\n", 0o644)
+		if _, stderr, status := verb(t, "releases", "doc", "--check"); status != 1 || !strings.Contains(stderr, name+" is not what") ||
+			!strings.Contains(stderr, "releases doc writes it") {
+			t.Errorf("a hand edit to %s: exit %d, %q", name, status, stderr)
+		}
+		if _, _, status := verb(t, "releases", "doc"); status != 0 || strings.Contains(read(t, page), "a hand edit") {
+			t.Errorf("doc did not write %s again: exit %d", name, status)
+		}
+		if err := os.Remove(page); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, status := verb(t, "releases", "doc", "--check"); status != 1 {
+			t.Errorf("no %s: exit %d", name, status)
+		}
+		verb(t, "releases", "doc")
 	}
 	put(t, filepath.Join(dir, "docs", "releases", "v2.json"), "{", 0o644)
 	for _, args := range [][]string{{"doc"}, {"doc", "--check"}} {
 		if _, _, status := verb(t, append([]string{"releases"}, args...)...); status != 2 {
 			t.Errorf("%v over a record that is not JSON exited %d", args, status)
 		}
+	}
+}
+
+// The site is the page as HTML, with each record it links to beside it, read back as written.
+func TestReleasesSiteWritesThePageAndItsRecords(t *testing.T) {
+	dir := checkout(t)
+	verb(t, "releases", "record", ladderOf(t, 300, "v1"))
+	verb(t, "releases", "record", ladderOf(t, 320, "v1", "v2"), "--run", "https://x/runs/9")
+	out := filepath.Join(t.TempDir(), "site")
+	if _, stderr, status := verb(t, "releases", "site", "--out", out); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	index := read(t, filepath.Join(out, "index.html"))
+	for _, want := range []string{`<a href="releases/v1.json">v1</a>`, `<a href="releases/v2.json">v2</a>`, "<title>v2 cold: p50 330, p95 330 ms</title>"} {
+		if !strings.Contains(index, want) {
+			t.Errorf("no %q in:\n%s", want, index)
+		}
+	}
+	for _, rel := range []string{"v1", "v2"} {
+		if got := read(t, filepath.Join(out, "releases", rel+".json")); got != read(t, filepath.Join(dir, "docs", "releases", rel+".json")) {
+			t.Errorf("%s's record on the site is %s", rel, got)
+		}
+	}
+
+	if _, _, status := verb(t, "releases", "site"); status != 2 {
+		t.Errorf("a site written nowhere: exit %d", status)
+	}
+	if _, _, status := verb(t, "releases", "site", "--out", filepath.Join(dir, "docs", "releases.md")); status != 2 {
+		t.Errorf("a site in a file: exit %d", status)
+	}
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	put(t, filepath.Join(blocked, "releases"), "", 0o644)
+	if _, _, status := verb(t, "releases", "site", "--out", blocked); status != 2 {
+		t.Errorf("a site whose records cannot be written: exit %d", status)
+	}
+	taken := filepath.Join(t.TempDir(), "taken")
+	if err := os.MkdirAll(filepath.Join(taken, "index.html"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, status := verb(t, "releases", "site", "--out", taken); status != 2 {
+		t.Errorf("a page that cannot be written: exit %d", status)
+	}
+	put(t, filepath.Join(dir, "docs", "releases", "v3.json"), "{", 0o644)
+	if _, _, status := verb(t, "releases", "site", "--out", out); status != 2 {
+		t.Errorf("a record that is not JSON: exit %d", status)
 	}
 }
 
@@ -180,7 +235,7 @@ func TestReleasesProposeCommitsWhatWasRecorded(t *testing.T) {
 		!strings.Contains(got, "### v2\n\nv2: measured") || !strings.Contains(got, "### releases.md, as it reads now") {
 		t.Errorf("gh ran %q", got)
 	}
-	if got := git("show", "--name-only", "--format=%s", "origin/releases/v2"); got != "releases: v2, measured\n\ndocs/releases.md\ndocs/releases/v2.json\n" {
+	if got := git("show", "--name-only", "--format=%s", "origin/releases/v2"); got != "releases: v2, measured\n\ndocs/releases.md\ndocs/releases.svg\ndocs/releases/v2.json\n" {
 		t.Errorf("the branch proposed holds %q", got)
 	}
 	if got := read(t, os.Getenv("GITHUB_STEP_SUMMARY")); got != "https://x/pull/9\n" {
