@@ -317,10 +317,21 @@ for u in systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-control
     fi
 done
 
-# The OOM kill that stops a slowly filling guest from thrashing (see the file). Nothing fails
-# without it; the machine just stops answering under memory pressure, weeks later.
-in_image /etc/tmpfiles.d/lru-gen.conf || {
-    echo "ERROR: the image has no /etc/tmpfiles.d/lru-gen.conf; MGLRU runs without min_ttl_ms" >&2
+# The OOM kill that stops a slowly filling guest from thrashing (spin-lru-gen-min-ttl.service).
+# Nothing fails without it; the machine just stops answering under memory pressure, weeks later.
+# Both halves: the timer's link is what arms it, and the unit is what it writes. Armed at the
+# boot's start instead (tmpfiles), it killed sshd-session and logind in the first second of a
+# 128 MiB guest; the unit says how often.
+stat_in_image /etc/systemd/system/timers.target.wants/spin-lru-gen-min-ttl.timer |
+        grep -qF '/usr/lib/systemd/system/spin-lru-gen-min-ttl.timer' || {
+    echo "ERROR: spin-lru-gen-min-ttl.timer is not enabled; MGLRU runs without min_ttl_ms" >&2
+    exit 1; }
+"$bin/debugfs" -R "cat /usr/lib/systemd/system/spin-lru-gen-min-ttl.service" /work/base.raw 2>/dev/null |
+        grep -qF 'echo 1000 > /sys/kernel/mm/lru_gen/min_ttl_ms' || {
+    echo "ERROR: spin-lru-gen-min-ttl.service does not set min_ttl_ms to 1000" >&2
+    exit 1; }
+! in_image /etc/tmpfiles.d/lru-gen.conf || {
+    echo "ERROR: /etc/tmpfiles.d/lru-gen.conf arms min_ttl_ms at the boot's start" >&2
     exit 1; }
 # And its other half: min_ttl_ms kills where the old LRU thrashed, and memory held by tmpfs is
 # not anybody's to kill. /tmp at half of memory hands the OOM killer innocents (see the drop-in).

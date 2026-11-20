@@ -1,0 +1,13 @@
+# MGLRU's thrashing protection, armed once the boot is over: spin-lru-gen-min-ttl.service says
+# why it is not armed from the start.
+[Unit]
+Description=Arm MGLRU's thrashing protection after the boot
+
+[Timer]
+# The guest's own clock, which a restored guest carries across its checkpoint: one saved a
+# moment after its first login is armed as long after its boot as one that never stopped.
+OnBootSec=10s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

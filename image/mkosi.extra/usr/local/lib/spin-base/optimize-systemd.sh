@@ -219,6 +219,11 @@ ln -sf /lib/systemd/system/ssh.socket /etc/systemd/system/sockets.target.wants/s
 mkdir -p /etc/systemd/system/sysinit.target.wants
 ln -sf /usr/lib/systemd/system/spin-machine-sshd-keygen.service \
     /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.service
+# MGLRU's thrashing protection, armed after the boot: the service says why. Dangling until
+# mkosi.postinst.chroot copies the units in, as the keygen link above is.
+mkdir -p /etc/systemd/system/timers.target.wants
+ln -sf /usr/lib/systemd/system/spin-lru-gen-min-ttl.timer \
+    /etc/systemd/system/timers.target.wants/spin-lru-gen-min-ttl.timer
 
 # logind stays in the boot transaction, as the package wants it
 # (/usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service), so that the first
