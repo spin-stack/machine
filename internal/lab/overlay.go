@@ -192,8 +192,31 @@ func namedEdit(name, checkout string) (Edit, error) {
 		return laneEdit(checkout)
 	case "floor":
 		return floorEdit, nil
+	case "min-ttl-late":
+		return minTTLLateEdit(checkout)
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, min-ttl-late", name)
+}
+
+// minTTLLateEdit is MGLRU's min_ttl_ms armed by a timer 10 s into the boot, as this checkout's
+// image does, put into a release that armed it from tmpfiles at the boot's start: the
+// experiment for the restores in spin's shape that waited ~400 ms for their login while the
+// guest's OOM killer took sshd-session and logind (spin-lru-gen-min-ttl.service). Remove it once
+// a release carries the timer.
+func minTTLLateEdit(checkout string) (Edit, error) {
+	units := filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", "usr", "lib", "systemd", "system")
+	e := Edit{Files: map[string]string{}, Links: map[string]string{
+		"/etc/tmpfiles.d/lru-gen.conf":                                       "/dev/null",
+		"/etc/systemd/system/timers.target.wants/spin-lru-gen-min-ttl.timer": "/usr/lib/systemd/system/spin-lru-gen-min-ttl.timer",
+	}}
+	for _, u := range []string{"spin-lru-gen-min-ttl.service", "spin-lru-gen-min-ttl.timer"} {
+		b, err := os.ReadFile(filepath.Join(units, u))
+		if err != nil {
+			return Edit{}, fmt.Errorf("reading the image's %s: %w", u, err)
+		}
+		e.Files["/usr/lib/systemd/system/"+u] = string(b)
+	}
+	return e, nil
 }
 
 // floorEdit is the first login with no systemd before it, a bound on what systemd costs and never
