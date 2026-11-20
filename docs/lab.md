@@ -47,7 +47,9 @@ Until 2026-11-21 the goal probes booted a machine, and logged in by a path, that
 
 Measured so (2026-11-20, v20261120.02 with spin not lingering, labs 44785179901, 44789688221): the
 cold first login ~500 ms, and a restore into a QEMU started ahead 150 ms at one channel, 103 at
-eight. The tables below are the older shape, and say so.
+eight. With the probes' defaults on main (spin's shape and login, 8 channels, QEMU with
+`max_target`, the release's kernel and image; lab 44798669409): cold 513/522, a restore 135/139,
+into a QEMU started ahead 106/112. The tables below are the older shape, and say so.
 
 The cold boot became the main target when templates were removed on 2026-09-30 (#51). Before
 that, `c2c4c6a` (2026-09-10) called it the path the product is designed never to take.
@@ -339,6 +341,9 @@ experiment can at most say.
 | 3 | The bzImage's decompression made cheaper: other compression settings, KASLR without decompression, qboot doing the load | cold | ~22-25 ms | the cost was not seen when the bzImage was kept (pitfalls). KASLR stays. First give the phase an instrument (rule 6) | **measured** (lab 44787491631, `boot:firmware-stages`): to the kernel's clock 33.6 ms with the bzImage against 12.3 with PVH, ~21 ms. Not LZ4 (an uncompressed payload, laptop: −3 ms, and +9 ms in qboot's copy and QEMU's start) and not the decompressor's VGA cursor (−2.7, below), so most of it is the copy and relocation KASLR needs. No candidate left |
 | 4 | Asynchronous SCSI scan | cold, spin's shape | ~12 ms: `virtio_scsi_init` is 12.1 in spin's shape (lab 44587603255) | `# CONFIG_SCSI_SCAN_ASYNC is not set` (kernel/config-7.3-x86_64). Not `scsi_mod.scan=manual`, which loses disks (rejected) | **kept another way** (lab 44788216590): the controller's `max_target` scans the 4 places that exist, first login −8.9 [−15.5, −0.9]; the asynchronous scan read −2.6 [−8.9, +6.8] and is rejected below |
 | 5 | The no-systemd floor on today's kernel and QEMU, in the ladder's shape and spin's | a bound | none: it says how much of the cold number is systemd's to give back. Last read 209 ms on 2026-11-13, on an 87 ms kernel (lab 43506390106) | measured once, on an older kernel | **measured** (lab 44750322384): the ladder's shape 322 → 219, Δ −103.5 [−108.6, −100.5]; spin's 445 → 240, Δ −204.8. Without systemd sshd accepts at 173 and 189 ms, so the cold number needs the phases before PID 1 as well |
+
+| 6 | A bound on starting the login early on spin's path: `ssh.service`, the forwarder, logind, dbus and spin's supervisor ordered before `basic.target` together | cold | sshd accepts at ~410-430 ms on spin's path (lab 44788216590), ~280 ms after PID 1 | on a laptop `ssh.service` alone with `DefaultDependencies=no` opened its socket at 70 ms against 145 and the first login did not move (317 against 314): the login waits for logind (11-21 entry, `docs/log.md`). A bound first; the ordering is spin's, and its side effects (`sysinit.target` not reached, `Conflicts=shutdown.target` lost) are why | not started |
+| 7 | Restores in a burst: 8 at once take ~330-400 ms each whatever the channels (lab 44792429636) | restore | the burst's ~230-300 ms over one restore alone | where the time goes is not known: the evicted reads of 8 states, 8 guests on 16 host CPUs, or QEMU's start | not started |
 
 The floor is a bound and never a candidate: systemd stays (AGENTS.md, "What must not break").
 
