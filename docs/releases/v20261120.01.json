@@ -1,41 +1,41 @@
 {
   "release": "v20261120.01",
-  "measured": "2026-11-20T00:25:22Z",
+  "measured": "2026-11-20T12:42:38Z",
   "host": "c8id.4xlarge, nested",
   "reps": 20,
-  "run": "https://github.com/spin-stack/spin-machine/actions/runs/44641240861",
+  "run": "https://github.com/spin-stack/spin-machine/actions/runs/44737371130",
   "numbers": {
     "cold": {
-      "p50": 326.7,
-      "p95": 337.3
+      "p50": 338.2,
+      "p95": 350.8
     },
     "cold-ahead": {
-      "p50": 298.6,
-      "p95": 315.2
+      "p50": 308.7,
+      "p95": 317
     },
     "kernel-ms": {
-      "p50": 62.5,
-      "p95": 64.6
+      "p50": 65.7,
+      "p95": 68.7
     },
     "qemu-rss-mib": {
       "p50": 207,
-      "p95": 208.9
+      "p95": 209
     },
     "restore": {
-      "p50": 158.9,
-      "p95": 164
+      "p50": 159.4,
+      "p95": 165.8
     },
     "restore-ahead": {
-      "p50": 132.7,
-      "p95": 137.5
+      "p50": 131.3,
+      "p95": 137.6
     },
     "save-ms": {
-      "p50": 154.6,
-      "p95": 159.3
+      "p50": 164.4,
+      "p95": 168.1
     },
     "state-mib": {
-      "p50": 155.8,
-      "p95": 156.7
+      "p50": 155.1,
+      "p95": 156.8
     }
   }
 }
