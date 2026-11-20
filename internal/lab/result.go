@@ -102,8 +102,8 @@ func (r *Result) label(tree, row string) string {
 	return tree + ", " + row
 }
 
-// Table is r's summary: a line per tree and row, p50/p95 of each metric, how many were lost, and
-// under it each tree's p50s against the first tree's.
+// Table is r's summary: the shape it booted, a line per tree and row, p50/p95 of each metric, how
+// many were lost, and under it each tree's p50s against the first tree's with their intervals.
 func (r *Result) Table() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %s\n", r.Probe, r.About)
@@ -111,8 +111,12 @@ func (r *Result) Table() string {
 	if r.Host.Instance != "" {
 		host += " on " + r.Host.Instance
 	}
-	fmt.Fprintf(&b, "p50/p95 over %d of each, interleaved; %s; %s (%s, %d CPUs, nested %v), scratch on %s\n\n",
-		r.Reps, optionsLine(r.Options), host, r.Host.CPU, r.Host.CPUs, r.Host.Nested, r.Host.ScratchDevice)
+	opts := ""
+	if o := optionsLine(r.Options); o != "" {
+		opts = o + "; "
+	}
+	fmt.Fprintf(&b, "p50/p95 over %d of each, interleaved, in %s; %s%s (%s, %d CPUs, nested %v), scratch on %s\n\n",
+		r.Reps, shapeOf(r.Options), opts, host, r.Host.CPU, r.Host.CPUs, r.Host.Nested, r.Host.ScratchDevice)
 	width := 10
 	for _, t := range r.Trees {
 		for _, row := range r.Rows {
@@ -145,20 +149,17 @@ func (r *Result) Table() string {
 	}
 	if len(r.Trees) > 1 {
 		first := r.Trees[0].Name
-		fmt.Fprintf(&b, "\n  p50 against %s\n", first)
+		fmt.Fprintf(&b, "\n  Δ p50 against %s [95%% interval]: a change only when the interval excludes 0\n", first)
+		var metric int
+		for _, m := range r.Metrics {
+			metric = max(metric, len(m.Name+" "+m.Unit))
+		}
 		for _, t := range r.Trees[1:] {
 			for _, row := range r.Rows {
-				fmt.Fprintf(&b, "  %-*s", width, r.label(t.Name, row))
-				for i, m := range r.Metrics {
-					a, okA := Pct(r.Values(first, row, m.Name), .5)
-					c, okC := Pct(r.Values(t.Name, row, m.Name), .5)
-					cell := "-"
-					if okA && okC {
-						cell = fmt.Sprintf("%+.1f", c-a)
-					}
-					fmt.Fprintf(&b, " %*s", cols[i], cell)
+				for _, m := range r.Metrics {
+					fmt.Fprintf(&b, "  %-*s %-*s %s\n", width, r.label(t.Name, row), metric, m.Name+" "+m.Unit,
+						against(r.Values(first, row, m.Name), r.Values(t.Name, row, m.Name)))
 				}
-				fmt.Fprintln(&b)
 			}
 		}
 	}
@@ -182,10 +183,25 @@ func (r *Result) Table() string {
 	return b.String()
 }
 
+// against is b's p50 against a's as a cell: the Δ and its interval, the Δ alone when a side has a
+// single sample, or a dash when one has none.
+func against(a, b []float64) string {
+	if d, ok := DeltaP50(a, b); ok {
+		return d.String()
+	}
+	pa, okA := Pct(a, .5)
+	pb, okB := Pct(b, .5)
+	if !okA || !okB {
+		return "-"
+	}
+	return fmt.Sprintf("%+.1f, no interval from one boot", pb-pa)
+}
+
+// optionsLine is o's options but the shape's, which the table says first.
 func optionsLine(o Options) string {
 	var parts []string
 	for _, k := range slices.Sorted(maps.Keys(o)) {
-		if o[k] != "" {
+		if o[k] != "" && !slices.ContainsFunc(shape, func(s Option) bool { return s.Name == k }) {
 			parts = append(parts, k+"="+o[k])
 		}
 	}

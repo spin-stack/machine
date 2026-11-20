@@ -82,13 +82,15 @@ request. A part's build refuses a tree whose apk.list its pinned builder was not
 
 ## The record
 
-A release also says what it costs. After it publishes, the `report` job measures it alone on the
-bench fleet (spin-stack/ci: a c8id.4xlarge, nested, the host the goal is measured on): the two goal
-numbers - a cold boot and a restore, each to the first SSH login - both again into a QEMU started
-ahead, and save, state, the kernel's time and QEMU's resident memory beside them as diagnostics,
-twenty boots of each (`spin-machine-dev releases measure`, docs/cli.md). What it keeps is the
-release's record, `docs/releases/RELEASE.json`: each number's p50 and p95, the host, the date and
-the run whose artifact holds every sample (90 days). `docs/releases.md` is written from every
+A release also says what it costs. After it publishes, the `report` job measures it on the bench
+fleet (spin-stack/ci: a c8id.4xlarge, nested, the host the goal is measured on), interleaved with
+the release before it, in the shape spin boots a workspace in: the two goal numbers - a cold boot
+and a restore, each to the first SSH login - both again into a QEMU started ahead, and save, state,
+the kernel's time and QEMU's resident memory beside them as diagnostics, twenty boots of each
+(`spin-machine-dev releases measure`, docs/cli.md). What it keeps is the release's record,
+`docs/releases/RELEASE.json`: each number's p50 and p95, the host, the shape, the date, the run
+whose artifact holds every sample (90 days), and the release before it with its numbers from the
+same run and each Δ with its 95% interval. `docs/releases.md` is written from every
 record - a chart of the goal's numbers release by release (`docs/releases.svg`), the tables, and
 where each was measured - and the job proposes them as a pull request, as the release app, so the
 checks on it run. A test fails when the page or its chart is not what the records say, so neither
@@ -96,14 +98,17 @@ is edited by hand. Once that pull request merges, `pages.yml` publishes the same
 record, at https://spin-stack.github.io/spin-machine/ (`spin-machine-dev releases site`): the
 link to share.
 
-Alone, a ladder of one, so every record is read the same way: a run of its own. The page says
-what that costs a reader. The bench moves between runs by as much as a release does: two reports
-taken on different days said v20261119.02 accepted SSH 7.3% later than v20261119.01, and the two
-interleaved on one host said they did not (labs 44583379559, 44600043625). So a Δ on the page is a
-lead, and a decision between two releases is the two measured together: `spin-machine-dev lab
-ladder --newest B --releases N` boots the N releases up to B interleaved on one host. Twenty boots,
-because at three a comparison of v20261001.01 with v20260930.02 flagged every row 5-11% slower,
-and twenty alternated on one host put them within 5 ms (2026-10-01).
+With the release before it, and not alone, because a Δ is only read between two releases booted
+in the same run. The bench moves between runs by as much as a release does: v20261120.01's restore
+to first login was 158.9 ms p50 in one run and 167.0 in another (labs 44641240861, 44727451080),
+and the page's Δ from records measured alone said v20261120.02's restore was 1.8 ms faster where,
+interleaved, it was +0.6 [-2.1, +5.4], within noise. So the page's Δ comes only from a record's
+pair, and is blank for the records measured alone until they are measured again; the second
+release's boots are what each run pays for it. A decision between two releases further apart is
+the two measured together: `spin-machine-dev lab ladder --newest B --releases N` boots the N
+releases up to B interleaved on one host. Twenty boots, because at three a comparison of
+v20261001.01 with v20260930.02 flagged every row 5-11% slower, and twenty alternated on one host
+put them within 5 ms (2026-10-01).
 
 Each release boots with the spin-machine of the commit it was made from (`--spin-machine release`):
 a release ships no spin-machine, and the machine it defined - devices, places, checkpoints - is
@@ -112,8 +117,8 @@ probe (one from before `boot --restore`, v20261119.02) has a dash for that numbe
 
 `report.yml` runs by hand too, for releases from before records: `spin-machine-dev releases
 missing` lists them, and `gh workflow run report.yml -f versions="<release> <release>..." -f
-record=true` measures each alone, one after another on one host, and proposes their records
-together. The runner needs `/dev/kvm` and `/dev/vhost-vsock` usable by its user, `gh`, and `sudo
+record=true` measures each with the release before it, one after another on one host, and
+proposes their records together. The runner needs `/dev/kvm` and `/dev/vhost-vsock` usable by its user, `gh`, and `sudo
 -n` for `qemu-nbd`.
 
 ## What a release owes

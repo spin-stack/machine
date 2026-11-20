@@ -34,8 +34,14 @@ func treeWith(t *testing.T, commands map[string][]string) *Tree {
 // A release's spin-machine runs a probe only when it has every command and flag the probe asks of
 // it: v20261119.01's has boot --incoming and no --restore, --held or start.
 func TestAProbeRunsOnlyWhereItsSpinMachineHasWhatItNeeds(t *testing.T) {
-	boot := []string{"release", "disk", "memory", "cpus", "vsock-cid", "console", "append", "qmp", "profile"}
+	boot := []string{"release", "disk", "memory", "cpus", "max-memory", "max-cpus", "hotplug-disks", "vsock-cid", "console",
+		"append", "qmp", "profile"}
 	old := treeWith(t, map[string][]string{"boot": append(boot, "incoming"), "save": {"qmp", "to"}, "restore": {"qmp", "from"}})
+	// Every probe boots spin's shape: a spin-machine that cannot is refused before it boots.
+	if err := CanRun(Probes["ssh-first"], nil, treeWith(t, map[string][]string{"boot": boot[:4]})); err == nil ||
+		!strings.Contains(err.Error(), "boot has no --max-memory") {
+		t.Errorf("CanRun of a spin-machine with no ceilings = %v", err)
+	}
 	now := treeWith(t, map[string][]string{"boot": append(boot, "restore", "held"), "save": {"qmp", "to"},
 		"restore": {"qmp", "from", "disk"}, "start": {"qmp", "disk"}})
 	for _, tc := range []struct {

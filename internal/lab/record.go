@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -59,14 +60,32 @@ type Record struct {
 	Release  string    `json:"release"`
 	Measured time.Time `json:"measured"`
 	Host     string    `json:"host"`
-	Reps     int       `json:"reps"`
+	// Shape is the machine the run booted (shapeOf); a record from before it was named booted
+	// shapeBefore.
+	Shape string `json:"shape,omitempty"`
+	Reps  int    `json:"reps"`
 	// Run is the workflow run whose artifact keeps every sample, when one did.
 	Run     string            `json:"run,omitempty"`
 	Numbers map[string]Number `json:"numbers"`
 	Cannot  map[string]string `json:"cannot,omitempty"`
+	// Against is the release before it, booted interleaved with it in the same run: the only
+	// numbers its Δ is read against. A release measured alone has none.
+	Against *Against `json:"against,omitempty"`
 }
 
-// Records are the ladder's releases as records, oldest first, each with the ladder's run.
+// Against is the release a record was measured interleaved with: that release's numbers from the
+// same run, and the record's Δ p50 against each.
+type Against struct {
+	Release string            `json:"release"`
+	Numbers map[string]Number `json:"numbers"`
+	Delta   map[string]Delta  `json:"delta,omitempty"`
+}
+
+// shape is the machine r was measured in.
+func (r Record) shape() string { return cmp.Or(r.Shape, shapeBefore) }
+
+// Records are the ladder's releases as records, oldest first, each with the ladder's run, and
+// each but the first against the release before it.
 func (l *Ladder) Records() []Record {
 	var measured time.Time
 	for _, r := range l.Results {
@@ -74,10 +93,17 @@ func (l *Ladder) Records() []Record {
 			measured = r.Started
 		}
 	}
+	machine := ""
+	if len(l.Results) > 0 {
+		machine = shapeOf(l.Results[0].Options)
+	}
 	var out []Record
-	for _, rel := range l.Releases {
-		r := Record{Release: rel, Measured: measured.UTC().Truncate(time.Second), Host: l.host(), Reps: l.reps(),
-			Numbers: map[string]Number{}}
+	for i, rel := range l.Releases {
+		r := Record{Release: rel, Measured: measured.UTC().Truncate(time.Second), Host: l.host(), Shape: machine,
+			Reps: l.reps(), Numbers: map[string]Number{}}
+		if i > 0 {
+			r.Against = l.against(out[i-1], rel)
+		}
 		for _, n := range numbers {
 			p50, p95, why := l.value(rel, n.cell)
 			if why != "" {
@@ -92,6 +118,21 @@ func (l *Ladder) Records() []Record {
 		out = append(out, r)
 	}
 	return out
+}
+
+// against is before's numbers as the ladder measured them beside rel, and rel's Δ against each.
+func (l *Ladder) against(before Record, rel string) *Against {
+	a := &Against{Release: before.Release, Numbers: maps.Clone(before.Numbers), Delta: map[string]Delta{}}
+	for _, n := range numbers {
+		r := l.result(n.cell.probe)
+		if r == nil {
+			continue
+		}
+		if d, ok := DeltaP50(r.Values(before.Release, n.cell.row, n.cell.metric), r.Values(rel, n.cell.row, n.cell.metric)); ok {
+			a.Delta[n.key] = d
+		}
+	}
+	return a
 }
 
 // tenth is v to a tenth: what a record keeps of a number whose noise between runs is whole ms, so
@@ -141,23 +182,29 @@ func ReadRecords(dir string) ([]Record, error) {
 	return out, nil
 }
 
-// apart is why two records' numbers are read with care, and how to measure a, older, and b
-// together instead.
+// drift is what the bench moved between two runs of the same release: why no Δ is read across two
+// runs.
+const drift = "the bench moves between runs by as much as a release does: v20261120.01's restore to first login " +
+	"was 158.9 ms p50 in one run and 167.0 in another (labs 44641240861, 44727451080)"
+
+// apart is why two records measured in different runs are not compared, and how to measure a,
+// older, and b together instead.
 func apart(a, b string) string {
-	return "Each release is measured in a run of its own, and the bench moves between runs by as much as a " +
-		"release does: two reports taken on different days said v20261119.02 accepted SSH 7.3% later than " +
-		"v20261119.01, and the two interleaved on one host said it did not (labs 44583379559, 44600043625; " +
-		"docs/log.md). A Δ of that size says nothing; to decide on one, measure the two together: " +
-		"`spin-machine-dev lab ladder --newest " + b + " --releases N`, N the releases from " + a + " to " + b + "."
+	return a + " and " + b + " were measured in different runs, and " + drift + ". No Δ is read across two runs; " +
+		"to decide between the two, measure them together: `spin-machine-dev lab ladder --newest " + b +
+		" --releases N`, N the releases from " + a + " to " + b + "."
 }
 
-// about is what the page and the site say first: where the records come from, the goal, and why a
-// Δ between two of them is read with care.
+// about is what the page and the site say first: where the records come from, the goal, and what
+// a Δ is read against.
 func about() string {
-	return fmt.Sprintf("Each release is measured on the bench fleet once it is published (report.yml), booted by the "+
-		"spin-machine of its own commit; a release from before that by `spin-machine-dev releases measure`. "+
-		"The goal is %.0f ms (AGENTS.md). ", Goal) +
-		apart("A", "B") + " `spin-machine-dev releases compare A B` puts two side by side."
+	return fmt.Sprintf("Each release is measured on the bench fleet once it is published (report.yml): booted "+
+		"interleaved with the release before it, each by the spin-machine of its own commit, in the shape spin "+
+		"boots a workspace in; a release from before that by `spin-machine-dev releases measure`. Each record says "+
+		"the shape it booted, and a number is only read beside one in the same shape. The goal is "+
+		"%.0f ms (AGENTS.md). A Δ is read only between two releases booted in the same run, because %s. ", Goal, drift) +
+		"So a release's Δ is against the release measured with it, with its 95% interval, and a Δ whose interval " +
+		"includes 0 is within noise, whatever its size. `spin-machine-dev releases compare A B` puts two side by side."
 }
 
 // chartTitle is what the chart shows, and its alternative text where it is an image.
@@ -192,12 +239,21 @@ type table struct {
 	After         string
 }
 
+// alone says what a blank Δ is, when a release has one. No code in it: the site writes it as text.
+const alone = " A release with no Δ was measured with no release before it in its run, and spin-machine-dev " +
+	"releases measure measures it again with the one before it."
+
 // tables are records' tables in the order they are read: the goal's numbers, each goal number's Δ
-// against the row above and the newest's gap to the goal; the diagnostics; and where each was
-// measured, each release linked to its record at kept/RELEASE.json when kept is not empty.
+// against the release measured with it and the newest's gap to the goal; the diagnostics; and
+// where, in what shape and with what each was measured, each release linked to its record at
+// kept/RELEASE.json when kept is not empty.
 func tables(records []Record, kept string) []table {
 	goal := table{Title: "The goal, release by release",
-		Before: "First SSH login, ms p50/p95. Δ is the p50 against the row above.", Head: []string{"release"}}
+		Before: "First SSH login, ms p50/p95. Δ is the p50 against the release before it, booted interleaved with it " +
+			"in the same run, and its [95% interval]: within noise when the interval includes 0.", Head: []string{"release"}}
+	if slices.ContainsFunc(records, func(r Record) bool { return r.Against == nil }) {
+		goal.Before += alone
+	}
 	diags := table{Title: "Diagnostics",
 		Before: "Not targets: what moves behind the goal's numbers (AGENTS.md, \"The goal\"). p50.", Head: []string{"release"}}
 	for _, n := range numbers {
@@ -210,8 +266,9 @@ func tables(records []Record, kept string) []table {
 			diags.Head = append(diags.Head, n.title)
 		}
 	}
-	where := table{Title: "Where each was measured", Head: []string{"release", "measured", "host", "boots of each probe", "run"}}
-	for i, r := range records {
+	where := table{Title: "Where each was measured",
+		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run"}}
+	for _, r := range records {
 		g, d := []entry{{Text: r.Release}}, []entry{{Text: r.Release}}
 		for _, n := range numbers {
 			v, ok := r.Numbers[n.key]
@@ -220,18 +277,9 @@ func tables(records []Record, kept string) []table {
 				continue
 			}
 			g = append(g, entry{Text: pair(v, ok)})
-			if n.kind != goalNumber {
-				continue
+			if n.kind == goalNumber {
+				g = append(g, entry{Text: r.delta(n.key)})
 			}
-			prev, had := Number{}, false
-			if i > 0 {
-				prev, had = records[i-1].Numbers[n.key]
-			}
-			delta := ""
-			if ok && had {
-				delta = fmt.Sprintf("%+.1f", v.P50-prev.P50)
-			}
-			g = append(g, entry{Text: delta})
 		}
 		goal.Rows = append(goal.Rows, g)
 		diags.Rows = append(diags.Rows, d)
@@ -239,12 +287,16 @@ func tables(records []Record, kept string) []table {
 		if kept != "" {
 			release.Link = kept + "/" + r.Release + ".json"
 		}
+		against := entry{}
+		if r.Against != nil {
+			against.Text = r.Against.Release
+		}
 		run := entry{}
 		if r.Run != "" {
 			run = entry{Text: r.Run[strings.LastIndex(r.Run, "/")+1:], Link: r.Run}
 		}
 		where.Rows = append(where.Rows, []entry{release, {Text: r.Measured.Format(time.DateOnly)}, {Text: r.Host},
-			{Text: itoa(r.Reps)}, run})
+			{Text: r.shape()}, {Text: itoa(r.Reps)}, against, run})
 	}
 	if len(records) > 0 {
 		newest := records[len(records)-1]
@@ -259,6 +311,18 @@ func tables(records []Record, kept string) []table {
 		}
 	}
 	return []table{goal, diags, where}
+}
+
+// delta is r's Δ for the number key against the release measured with it, as a table cell: blank
+// when r was measured alone or either release has no interval for it.
+func (r Record) delta(key string) string {
+	if r.Against == nil {
+		return ""
+	}
+	if d, ok := r.Against.Delta[key]; ok {
+		return d.String()
+	}
+	return ""
 }
 
 // markdown is tables as Markdown, and the dashes' reasons after them.
@@ -326,9 +390,13 @@ func dashes(records []Record) []string {
 	return lines
 }
 
-// header is where and when r was measured, as one line.
+// header is where, when, in what shape and with what r was measured, as one line.
 func (r Record) header() string {
-	line := fmt.Sprintf("%s: measured %s on %s, %d boots of each probe", r.Release, r.Measured.Format(time.DateOnly), r.Host, r.Reps)
+	line := fmt.Sprintf("%s: measured %s on %s; %s; %d boots of each probe", r.Release, r.Measured.Format(time.DateOnly),
+		r.Host, r.shape(), r.Reps)
+	if r.Against != nil {
+		line += ", interleaved with " + r.Against.Release
+	}
 	if r.Run != "" {
 		line += " (" + r.Run + ")"
 	}
@@ -337,32 +405,37 @@ func (r Record) header() string {
 
 // Table is r's numbers: each p50 / p95, and why it has not the others.
 func (r Record) Table() string {
-	return r.header() + "\n\n" + side([]Record{r})
+	return r.header() + "\n\n" + side([]Record{r}, nil)
 }
 
-// Compare is two records side by side, the older first, each with where and when it was measured
-// and why a Δ between them is read with care.
+// Compare is two records side by side, the older first. When the newer was measured interleaved
+// with the older, the two are that run's numbers, with the newer's Δ against the older's;
+// otherwise each is its own run's, with no Δ, why not, and how to measure the two together.
 func Compare(a, b Record) string {
 	if b.Release < a.Release {
 		a, b = b, a
 	}
-	return a.header() + "\n" + b.header() + "\n\n" + apart(a.Release, b.Release) + "\n\n" + side([]Record{a, b})
+	if b.Against != nil && b.Against.Release == a.Release {
+		with := Record{Release: a.Release, Numbers: b.Against.Numbers}
+		return b.header() + "\n\n" + a.Release + "'s numbers are the ones booted with " + b.Release + " in its run, not its own " +
+			"record's. Δ p50 [95% interval] is within noise when the interval includes 0.\n\n" +
+			side([]Record{with, b}, b.Against.Delta)
+	}
+	return a.header() + "\n" + b.header() + "\n\n" + apart(a.Release, b.Release) + "\n\n" + side([]Record{a, b}, nil)
 }
 
-// side is records' numbers in columns, with the last's Δ p50 against the first's when there are
-// two.
-func side(records []Record) string {
+// side is records' numbers in columns, and a column of deltas when there are some.
+func side(records []Record, deltas map[string]Delta) string {
 	var b strings.Builder
 	b.WriteString("| |")
 	for _, r := range records {
 		b.WriteString(" " + r.Release + " |")
 	}
-	delta := len(records) == 2
-	if delta {
+	if deltas != nil {
 		b.WriteString(" Δ p50 |")
 	}
 	b.WriteString("\n|---|" + strings.Repeat("---|", len(records)))
-	if delta {
+	if deltas != nil {
 		b.WriteString("---|")
 	}
 	b.WriteString("\n")
@@ -372,11 +445,9 @@ func side(records []Record) string {
 			v, ok := r.Numbers[n.key]
 			b.WriteString(" " + pair(v, ok) + " |")
 		}
-		if delta {
-			first, ok1 := records[0].Numbers[n.key]
-			last, ok2 := records[1].Numbers[n.key]
-			if ok1 && ok2 {
-				fmt.Fprintf(&b, " %+.1f |", last.P50-first.P50)
+		if deltas != nil {
+			if d, ok := deltas[n.key]; ok {
+				b.WriteString(" " + d.String() + " |")
 			} else {
 				b.WriteString(" |")
 			}

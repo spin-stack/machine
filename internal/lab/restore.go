@@ -6,8 +6,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -28,12 +28,18 @@ import (
 // evicted from the host's page cache before its restore, and the cache is asked whether it was: a
 // checkpoint kept for later is read from the disk.
 //
-// The cached row restores the same way from the page cache, its state read back whole first in
+// The cached row restores the same way from the page cache, the state's data read back first in
 // one sequential pass - which times what the disk gives, read - so that evicted against cached is
 // what the disk costs a restore, and read says whether QEMU reads the file as fast as the disk
-// can. The fast row is QEMU 11.2's fast snapshot load (mapped-ram and postcopy-ram), where the
-// guest runs once the device state is in; it needs userfaultfd for QEMU's user, and was slower to
-// the first login on the bench fleet, 293 ms against 152 (lab 44585840498).
+// can. Its data and not the whole file: a mapped-ram state is as long as the machine's RAM at its
+// ceilings, holes but for what the guest wrote, and QEMU reads only the data. Read whole, a 2 GiB
+// state with 155 MiB of data took 422-675 ms against 106-112 for its data (a laptop, 2026-11-20),
+// filled the cache with pages of zeros, and made the cached row slower than the evicted one in
+// every ladder cell.
+//
+// The fast row is QEMU 11.2's fast snapshot load (mapped-ram and postcopy-ram), where the guest
+// runs once the device state is in; it needs userfaultfd for QEMU's user, and was slower to the
+// first login on the bench fleet, 293 ms against 152 (lab 44585840498).
 type restoreFirst struct{}
 
 func init() { register(restoreFirst{}) }
@@ -71,8 +77,8 @@ func (restoreFirst) Metrics() []Metric {
 		{"state", "MiB", "the saved state's blocks on the disk (a mapped-ram state's length is its RAM ceiling)"},
 		{"cold_login", "ms", "the cold boot's first login"},
 		{"save", "ms", "`spin-machine save`, which ends the machine"},
-		{"read", "ms", "the state read whole, sequentially, from the disk (the cached row)"},
-		{"up", "ms", "the restoring QEMU's monitor socket open"},
+		{"read", "ms", "the state's data read, sequentially, from the disk (the cached row)"},
+		{"listening", "ms", "the restoring QEMU's monitor accepting a connection: its chardevs made, its machine not yet"},
 		{"running", "ms", "`spin-machine restore` returned: the guest is running"},
 		{"login", "ms", "the restored guest's first login"},
 	}
@@ -95,7 +101,7 @@ func restore(m *Measurement, cached, fast bool) error {
 		return err
 	}
 	if cached {
-		d, err := readWhole(c.state)
+		d, _, err := readData(c.state)
 		if err != nil {
 			return err
 		}
@@ -111,7 +117,11 @@ func restore(m *Measurement, cached, fast bool) error {
 	if err := waitSocket(qmp, t0.Add(30*time.Second)); err != nil {
 		return Miss("the restoring QEMU never opened its monitor: %v; spin-machine: %s", err, strings.TrimSpace(mc.Stderr.String()))
 	}
-	m.RecordMs("up", time.Since(t0))
+	// When the socket listens and not when QEMU is ready: asking the monitor whether the machine is
+	// made (settled) before `spin-machine restore` starts would put that exchange, and the restore's
+	// own start, after QEMU's instead of beside it, in the login this probe measures. What QEMU's
+	// whole start costs a restore is prestart's restored row against its restored-into-prestarted.
+	m.RecordMs("listening", time.Since(t0))
 	args := []string{"restore", "--release", m.Tree.Dir, "--qmp", qmp, "--from", c.state, "--disk", c.overlay}
 	if fast {
 		if err := userfaultfd(); err != nil {
@@ -220,19 +230,39 @@ func waitSocket(path string, deadline time.Time) error {
 	}
 }
 
-// readWhole reads path once, start to end, in 1 MiB reads, and says how long that took: what the
-// disk gives a sequential reader, and the state in the page cache after it.
-func readWhole(path string) (time.Duration, error) {
+// readData reads path's data once, extent after extent (SEEK_DATA, SEEK_HOLE) in 1 MiB reads, and
+// says how long that took and how many bytes it read: what the disk gives a sequential reader of
+// what QEMU loads, and that in the page cache after it, and no page of a hole.
+func readData(path string) (time.Duration, int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, fmt.Errorf("opening %s: %w", path, err)
+		return 0, 0, fmt.Errorf("opening %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
+	fd := int(f.Fd())
+	buf := make([]byte, 1<<20) // mutate-exempt: the size of each read; any size reads the data once
+	var n int64
 	t0 := time.Now()
-	if _, err := io.CopyBuffer(io.Discard, f, make([]byte, 1<<20)); err != nil { // mutate-exempt: the size of each read; any size reads the whole file once
-		return 0, fmt.Errorf("reading %s: %w", path, err)
+	for off := int64(0); ; {
+		start, err := unix.Seek(fd, off, unix.SEEK_DATA)
+		if errors.Is(err, unix.ENXIO) { // no data at or after off
+			return time.Since(t0), n, nil
+		}
+		if err != nil {
+			return 0, 0, fmt.Errorf("finding %s's data after byte %d: %w", path, off, err)
+		}
+		end, err := unix.Seek(fd, start, unix.SEEK_HOLE)
+		if err != nil {
+			return 0, 0, fmt.Errorf("finding %s's hole after byte %d: %w", path, start, err)
+		}
+		for off = start; off < end; {
+			k, err := f.ReadAt(buf[:min(int64(len(buf)), end-off)], off)
+			off, n = off+int64(k), n+int64(k)
+			if err != nil {
+				return 0, 0, fmt.Errorf("reading %s at byte %d: %w", path, off, err)
+			}
+		}
 	}
-	return time.Since(t0), nil
 }
 
 // evict drops path from the host's page cache and asks the cache whether it did: a restore of a

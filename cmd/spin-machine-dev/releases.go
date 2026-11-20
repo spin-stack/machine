@@ -28,14 +28,17 @@ func releasesCommand() *cobra.Command {
 		Use:   "releases",
 		Short: "Each release's measured numbers, kept in docs/releases: record, measure, compare, docs/releases.md and the site",
 		Long: `A release's record is docs/releases/RELEASE.json: the goal's two numbers, the prestarted ones and
-the diagnostics, p50/p95, from one run that measured that release alone on the bench fleet, with
-where and when. docs/releases.md and docs/releases.svg, the chart it shows, are written from the
-records, never by hand: the goal's numbers release by release as a chart and a table, the
-diagnostics, and the run each was measured in. site writes the same as one web page, which
-pages.yml publishes at https://spin-stack.github.io/spin-machine/.
+the diagnostics, p50/p95, from one run on the bench fleet that booted it interleaved with the
+release before it, in the shape spin boots a workspace in, with where and when, and that release's
+numbers from the same run with the Δ of each and its 95% interval. docs/releases.md and
+docs/releases.svg, the chart it shows, are written from the records, never by hand: the goal's
+numbers release by release as a chart and a table, the diagnostics, and the run each was measured
+in. site writes the same as one web page, which pages.yml publishes at
+https://spin-stack.github.io/spin-machine/.
 
-Each record is a run of its own, so a Δ between two of them is read against the noise between runs;
-to decide on one, measure the two together (lab ladder).`,
+A Δ is only read between two releases booted in the same run: the bench moves between runs by as
+much as a release does. Two records from different runs are compared by measuring them together
+(lab ladder).`,
 	}
 	c.PersistentFlags().StringVar(&dir, "dir", "docs/releases", "the records' directory; the page is DIR.md")
 	c.AddCommand(releasesRecord(&dir), releasesMeasure(&dir), releasesMissing(&dir), releasesShow(&dir),
@@ -56,8 +59,8 @@ func recordsDir(dir string) (string, error) {
 }
 
 // recordNewest writes the record of l's newest release in dir, the release the ladder was run
-// for. Older releases beside it in a ladder are left out: every record is a release measured in a
-// run of its own (releases measure), so that every two are read the same way.
+// for, against the release before it in the ladder. The older releases have no record of their
+// own from it: each record is the release a run was made for (releases measure).
 func recordNewest(dir string, l *lab.Ladder, run string) (lab.Record, error) {
 	records := l.Records()
 	if len(records) == 0 {
@@ -127,19 +130,21 @@ func releasesRecord(dir *string) *cobra.Command {
 	return c
 }
 
-// mutate-lane: TestReleasesMeasureRecordsEachAlone
+// mutate-lane: TestReleasesMeasureRecordsEachAgainstTheOneBefore
 func releasesMeasure(dir *string) *cobra.Command {
 	var reps int
 	var run string
 	c := &cobra.Command{
 		Use:   "measure [TAG...]",
-		Short: "Measure each release alone, here, and write its record and the page (default the newest published)",
-		Long: `Measure each TAG in a ladder of its own - each its own run, as a release's is when it is
-published - and write its record and the page. Each release boots with the spin-machine of the
-commit it was made from; one whose spin-machine cannot run a probe is a dash that says why. Each
-ladder.json, every sample, is kept in _output/lab/measured/TAG. Records are only worth keeping
-from the bench fleet: report.yml runs this there. Exits 1 when a measurement was lost (the records
-are written), 2 when a release could not be measured (the ones before it are).`,
+		Short: "Measure each release interleaved with the one before it, here, and write its record and the page (default the newest published)",
+		Long: `Measure each TAG in a ladder of its own with the published release before it, interleaved - as a
+release is when it is published - and write TAG's record, with the release before it and the Δ of
+each number against it, and the page. The oldest published release is measured alone. Each
+release boots with the spin-machine of the commit it was made from; one whose spin-machine cannot
+run a probe is a dash that says why. Each ladder.json, every sample, is kept in
+_output/lab/measured/TAG. Records are only worth keeping from the bench fleet: report.yml runs this
+there. Exits 1 when a measurement was lost (the records are written), 2 when a release could not
+be measured (the ones before it are).`,
 		RunE: func(c *cobra.Command, args []string) error {
 			d, err := recordsDir(*dir)
 			if err != nil {
@@ -161,9 +166,17 @@ are written), 2 when a release could not be measured (the ones before it are).`,
 			if err != nil {
 				return couldNot(err)
 			}
+			published, err := github().Releases(publishedReleases)
+			if err != nil {
+				return couldNot(err)
+			}
 			var lost error
 			for _, tag := range tags {
-				ts, err := trees(root, nil, []string{tag + "=--from release:" + tag + " --spin-machine release"}, c.ErrOrStderr())
+				pair, err := lab.LadderReleases(published, tag, 2)
+				if err != nil {
+					return couldNot(err)
+				}
+				ts, err := releaseTrees(root, pair, c.ErrOrStderr())
 				if err != nil {
 					return couldNot(err)
 				}
@@ -242,7 +255,7 @@ func releasesShow(dir *string) *cobra.Command {
 func releasesCompare(dir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "compare A B",
-		Short: "Print two releases' records side by side, each with its run, and how to measure them together",
+		Short: "Print two releases' records side by side: with the newer's Δ when it was measured against the older, else each its own run's and how to measure them together",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			d, err := recordsDir(*dir)
@@ -399,7 +412,7 @@ the pull request run.`,
 				say(c, "%s was proposed already", branch)
 				return nil
 			}
-			body := "Measured on the bench fleet by report.yml (spin-machine-dev releases measure), each release alone.\n\n"
+			body := "Measured on the bench fleet by report.yml (spin-machine-dev releases measure), each release interleaved with the one before it.\n\n"
 			for _, rel := range releases {
 				r, err := lab.ReadRecord(filepath.Join(d, rel+".json"))
 				if err != nil {

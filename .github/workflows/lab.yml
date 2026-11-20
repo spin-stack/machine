@@ -44,7 +44,7 @@ on:
         type: string
         default: "20"
       options:
-        description: "The probe's options, NAME=VALUE; NAME=VALUE, e.g. cpus=1; memory=512; flags=--max-cpus 16 --max-memory 8192 --hotplug-disks 1"
+        description: "The probe's options, NAME=VALUE; NAME=VALUE: spin's shape unless given, e.g. cpus=2; memory=2048; max-cpus=0; max-memory=0; hotplug-disks=0 for the shape before it"
         required: false
         type: string
       host:

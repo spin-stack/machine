@@ -12,23 +12,28 @@ import (
 )
 
 // A ladder's release is a record: each number it has, to a tenth, and why it has not the others,
-// with the host, the boots and when the ladder began.
+// with the host, the shape, the boots and when the ladder began; and each but the first against
+// the release before it in the ladder, with that release's numbers and the Δ of each both have.
 func TestALaddersReleasesAreRecords(t *testing.T) {
 	got := testLadder().Records()
 	if len(got) != 2 || got[0].Release != "v1" {
 		t.Fatalf("records %+v", got)
 	}
 	noRestore, noHeld := "its spin-machine's boot has no --restore", "its spin-machine's boot has no --held"
+	v1 := map[string]Number{"cold": {340, 340}, "qemu-rss-mib": {300, 300}}
 	want := []Record{{
-		Release: "v1", Measured: time.Date(2026, 11, 20, 11, 40, 7, 0, time.UTC), Host: "c8id.4xlarge, nested", Reps: 2,
-		Numbers: map[string]Number{"cold": {340, 340}, "qemu-rss-mib": {300, 300}},
+		Release: "v1", Measured: time.Date(2026, 11, 20, 11, 40, 7, 0, time.UTC), Host: "c8id.4xlarge, nested",
+		Shape: spinsShape, Reps: 2, Numbers: v1,
 		Cannot: map[string]string{"restore": noRestore, "save-ms": noRestore, "state-mib": noRestore,
 			"cold-ahead": noHeld, "restore-ahead": noHeld, "kernel-ms": "not measured"},
 	}, {
-		Release: "v2", Measured: time.Date(2026, 11, 20, 11, 40, 7, 0, time.UTC), Host: "c8id.4xlarge, nested", Reps: 2,
+		Release: "v2", Measured: time.Date(2026, 11, 20, 11, 40, 7, 0, time.UTC), Host: "c8id.4xlarge, nested",
+		Shape: spinsShape, Reps: 2,
 		Numbers: map[string]Number{"cold": {321, 321}, "restore": {152, 152}, "cold-ahead": {296, 296},
 			"save-ms": {151, 151}, "state-mib": {140, 140}, "qemu-rss-mib": {290, 290}},
 		Cannot: map[string]string{"restore-ahead": "lost all 1", "kernel-ms": "not measured"},
+		Against: &Against{Release: "v1", Numbers: v1,
+			Delta: map[string]Delta{"cold": {-19, -19, -19}, "qemu-rss-mib": {-10, -10, -10}}},
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("records\n%+v\nwant\n%+v", got, want)
@@ -87,15 +92,17 @@ func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
 		t.Errorf("the page does not open by saying what writes it:\n%s", doc)
 	}
 	for _, want := range []string{
-		"7.3% later",
+		"158.9 ms p50 in one run and 167.0 in another",
 		"\n![First SSH login, p50 and p95, release by release](kept.svg)\n",
 		"| v1 | 340 / 340 |  | - |  | - | - |",
-		"| v2 | 321 / 321 | -19.0 | 152 / 152 |  | 296 / 296 | - |",
+		"| v2 | 321 / 321 | -19.0 [-19.0, -19.0] | 152 / 152 |  | 296 / 296 | - |",
+		// v1 is the first in its run: it has no Δ, and the page says why.
+		"A release with no Δ was measured with no release before it in its run",
 		"v2 against the goal: cold +221 ms, restore +52 ms.",
 		"| v1 | - | - | - | 300 |",
 		"| v2 | 151 | 140 | - | 290 |",
-		"| [v1](kept/v1.json) | 2026-11-20 | c8id.4xlarge, nested | 2 |  |",
-		"| [v2](kept/v2.json) | 2026-11-20 | c8id.4xlarge, nested | 2 | [7](https://x/actions/runs/7) |",
+		"| [v1](kept/v1.json) | 2026-11-20 | c8id.4xlarge, nested | " + spinsShape + " | 2 |  |  |",
+		"| [v2](kept/v2.json) | 2026-11-20 | c8id.4xlarge, nested | " + spinsShape + " | 2 | v1 | [7](https://x/actions/runs/7) |",
 		"- v1, restore to first login: its spin-machine's boot has no --restore",
 		"- v1, cold, QEMU started ahead: its spin-machine's boot has no --held",
 		"- v2, restore, QEMU started ahead: lost all 1",
@@ -116,6 +123,26 @@ func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
 	if one := Doc(docRecords()[:1], "kept"); !strings.Contains(one, "v1 against the goal: cold +240 ms.\n") {
 		t.Errorf("one release:\n%s", one)
 	}
+	// A Δ is the record's against the release measured with it, never the row above: a release
+	// measured alone has none, and one whose interval includes 0 is within noise. A record from
+	// before records named their shape booted the shape the probes booted then.
+	alone, noisy := docRecords()[1], docRecords()[1]
+	alone.Against, alone.Shape = nil, ""
+	noisy.Release, noisy.Against = "v3", &Against{Release: "v1", Delta: map[string]Delta{"cold": {P50: -2, Lo: -5, Hi: 1}}}
+	got := Tables([]Record{docRecords()[0], alone, noisy})
+	for _, want := range []string{
+		"| v2 | 321 / 321 |  | 152 / 152 |",
+		"| v3 | 321 / 321 | -2.0 [-5.0, +1.0] within noise | 152 / 152 |",
+		"| v2 | 2026-11-20 | c8id.4xlarge, nested | " + shapeBefore + " | 2 |  |",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in:\n%s", want, got)
+		}
+	}
+	// Every release measured with the one before it: nothing to say about a blank Δ.
+	if got := Tables(docRecords()[1:]); strings.Contains(got, "A release with no Δ") {
+		t.Errorf("a page with every release measured against another explains a blank Δ:\n%s", got)
+	}
 	// One dash is said as well as many.
 	lone := Record{Release: "v3", Cannot: map[string]string{"cold": "lost all 2"}}
 	if got := Tables([]Record{lone}); !strings.HasSuffix(got, "\nA dash is a number that release has not:\n\n- v3, cold boot to first login: lost all 2\n") {
@@ -127,20 +154,38 @@ func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
 	}
 }
 
-// Two records are side by side, the older first whichever is named first, each with its run, and
-// with how to measure the two together.
+// Two records are side by side, the older first whichever is named first. When the newer was
+// measured against the older, the two are that run's numbers with the newer's Δ and its interval;
+// otherwise each is its own run's, with no Δ, why not, and how to measure the two together.
 func TestTwoRecordsAreComparedSideBySide(t *testing.T) {
 	records := docRecords()
+	records[1].Against.Numbers = map[string]Number{"cold": {338, 339}}
 	got := Compare(records[1], records[0])
-	if !strings.HasPrefix(got, "v1: measured 2026-11-20 on c8id.4xlarge, nested, 2 boots of each probe.\n"+
-		"v2: measured 2026-11-20 on c8id.4xlarge, nested, 2 boots of each probe (https://x/actions/runs/7).\n") {
-		t.Errorf("the headers:\n%s", got)
+	if !strings.HasPrefix(got, "v2: measured 2026-11-20 on c8id.4xlarge, nested; "+spinsShape+"; 2 boots of each probe, "+
+		"interleaved with v1 (https://x/actions/runs/7).\n\nv1's numbers are the ones booted with v2 in its run") {
+		t.Errorf("the header:\n%s", got)
 	}
 	for _, want := range []string{
-		"`spin-machine-dev lab ladder --newest v2 --releases N`, N the releases from v1 to v2.",
-		"| | v1 | v2 | Δ p50 |",
-		"| cold boot to first login | 340 / 340 | 321 / 321 | -19.0 |",
+		"| | v1 | v2 | Δ p50 |\n|---|---|---|---|\n",
+		"| cold boot to first login | 338 / 339 | 321 / 321 | -19.0 [-19.0, -19.0] |",
 		"| restore to first login | - | 152 / 152 | |",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in:\n%s", want, got)
+		}
+	}
+
+	records[1].Against.Release = "v0"
+	got = Compare(records[0], records[1])
+	if !strings.HasPrefix(got, "v1: measured 2026-11-20 on c8id.4xlarge, nested; "+spinsShape+"; 2 boots of each probe.\n"+
+		"v2: measured 2026-11-20 on c8id.4xlarge, nested; "+spinsShape+"; 2 boots of each probe, interleaved with v0 (https://x/actions/runs/7).\n") {
+		t.Errorf("the headers of two runs:\n%s", got)
+	}
+	for _, want := range []string{
+		"v1 and v2 were measured in different runs",
+		"`spin-machine-dev lab ladder --newest v2 --releases N`, N the releases from v1 to v2.",
+		"| | v1 | v2 |\n|---|---|---|\n",
+		"| cold boot to first login | 340 / 340 | 321 / 321 |\n",
 		"- v1, restore to first login: its spin-machine's boot has no --restore",
 	} {
 		if !strings.Contains(got, want) {

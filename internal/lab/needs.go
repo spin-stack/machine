@@ -20,7 +20,8 @@ type Needer interface {
 }
 
 // bootNeeds are the boot flags every probe's boots pass (Measurement.BootArgs).
-var bootNeeds = []Need{{"boot", "release"}, {"boot", "disk"}, {"boot", "memory"}, {"boot", "cpus"}}
+var bootNeeds = []Need{{"boot", "release"}, {"boot", "disk"}, {"boot", "memory"}, {"boot", "cpus"},
+	{"boot", "max-memory"}, {"boot", "max-cpus"}, {"boot", "hotplug-disks"}}
 
 // CanRun says why tree t's spin-machine cannot run probe p with options o, or nil when it can,
 // before anything boots: a release older than what the probe asks of it is a row that says so,
