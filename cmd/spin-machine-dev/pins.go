@@ -224,7 +224,6 @@ func proposeBuilders(ctx context.Context, c *cobra.Command, w workspace) error {
 		if pins, err = versions.Parse(file); err != nil {
 			return couldNot(err)
 		}
-		o.Pins = pins
 		body += "\n### " + entry + " " + b.Tag + "\n\n" + changes
 		say(c, "%s: %s@%s", entry, b.Tag, pin)
 	}
