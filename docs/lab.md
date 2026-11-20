@@ -244,6 +244,7 @@ An idea already here needs a new reason, not a new run.
 | The decompressor without `X86_VERBOSE_BOOTUP` (no VGA cursor writes) | Exits to the kernel's clock 168 → 12, time 35.1 → 32.4 ms: under the 3 ms set before the run, and a first-login comparison would need ~80 boots an arm | #328, lab 44787878809 | 11-20 |
 | An uncompressed bzImage payload, KASLR kept | Laptop lead: to the kernel's clock −3 ms, but the image 16.7 → 40 MB costs +3.3 ms in qboot's copy and +6-7 in QEMU's start. Not benched | #326 | 11-20 |
 | `driver_async_probe` for rng, balloon and vsock, and `rcupdate.rcu_expedited=1` (kept 11-13 and 09-07) | Taken out together in spin's shape, one vCPU: first login −1.4 [−4.9, +3.1] cold. Removed from the command line | lab 44818953987 | 11-21 |
+| PID 1's `LogLevel=err`, `LogTarget=journal`, `ShowStatus=no`, `StatusUnitFormat=name` and a `kernel.printk` sysctl of 3 3 3 3 (optimize-systemd.sh, from 2026-09) | Taken out together in spin's shape: first login +2.4 [−2.3, +7.8] at 20 boots, then −1.8 [−7.7, +3.2] at 40, cold. Removed; the console stays quiet by the command line | labs 44818953987, 44822157367 | 11-21 |
 
 ## What we carry, and what it earns
 
@@ -298,7 +299,7 @@ names the arm that removes it (below); "-" is out of the ablation.
 | Masks of the units of `ConditionNeedsUpdate` (ldconfig, sysusers, hwdb-update, journal-catalog-update, update-done) | optimize-systemd.sh | boot | nothing on record | yes: the image has no `/etc/.updated`, so unmasked they rebuild hwdb.bin and the linker cache at every boot, first login +260 ms (laptop, 2 boots, 11-21) | - |
 | Masks of 16 more units (journal-flush, fsck-root, modules-load, hibernate-clear, pstore, random-seed, four modprobe@, the debug and tracing mounts, both tmpfiles-setup-dev, hugepages, mqueue) | optimize-systemd.sh | boot | nothing on record for these | lead: +31 ms unmasked, ~2 ms a unit on one vCPU (laptop, 3 boots, 11-21) | C-masks: kept; −57.5 cold |
 | 8 generators disabled, 3 tmpfiles rules masked | optimize-systemd.sh | boot | 1.0 ms of the unit load (`systemd --test`, 09-26) | lead: +9 ms enabled (laptop) | C-generators: kept; −16.7 cold |
-| PID 1's `LogLevel=err`, `LogTarget`, `ShowStatus=no`, `StatusUnitFormat`; `kernel.printk` | optimize-systemd.sh | boot | nothing on record; `loglevel=3` already sets the console's | lead: 0 (laptop) | C-logging: undecided, a rerun |
+| PID 1's `LogLevel=err`, `LogTarget`, `ShowStatus=no`, `StatusUnitFormat`; `kernel.printk` | optimize-systemd.sh | boot | nothing on record; `loglevel=3` already sets the console's | lead: 0 (laptop) | **deleted** (#354): −1.8 [−7.7, +3.2] cold at 40 boots (lab 44822157367) |
 | udev's coldplug filtered (`10-coldplug.conf`) | image drop-in | boot; keeps `cpu` for hot-added cores | lane, 2 vCPUs, 436 → 402 (lab 43518915618) | **in doubt** on spin's path; lead +8 removed (laptop, 2 boots) | C-coldplug: kept; −14.9 cold, and unfiltered the restore breaks |
 | timesyncd, timedated, firstboot, machine-id-commit masked; journald volatile; the timeouts; docker and containerd by socket; `nsswitch` | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity, memory and disk | - | - | - |
 | logind, its Varlink socket, `user-runtime-dir@`, `user@` without default dependencies; `dbus.socket` copied without sysinit | image drop-ins, configure-system.sh | boot | lane 478 → 402 (lab 43518915618); the socket 11-19 (labs 44558035927, 44558053261) | tied to rank 6: worth measuring when spin's forwarder order is decided, not before | - |
@@ -340,9 +341,12 @@ cannot act on a restored guest, which does not boot, so it is read on the cold r
 rows say only that nothing broke, and in this run they moved ±13 ms on their own. E passed and is
 deleted (#352). A, B, C-masks, C-generators, C-coldplug and F earn what the cold column says and
 are kept: in one vCPU every unit, generator and exit before the login is on its path. A1 and
-C-logging are inside the noise with upper bounds over +5 ms, and are measured again at 40 boots
-on the cold row alone (`ssh-first`). D needs an image build: `--systemd` builds only an experiment
+C-logging were inside the noise with upper bounds over +5 ms, and were measured again at 40 boots
+on the cold row alone (`ssh-first`, lab 44822157367): A1 −2.5 [−8.4, +1.8], C-logging −1.8
+[−7.7, +3.2]. Both are deleted (#345, #354). D needs an image build: `--systemd` builds only an experiment
 patch, and `orphan_file` is the filesystem's.
+
+The `carry-*` edits stay in `internal/lab` after their questions are answered: they are how the ablation runs again when the shape, the kernel or systemd moves. An edit checks what it undoes, so one whose item has since been deleted fails on a release built after that, rather than measuring the release twice; `carry-logging` does from the first release after #354.
 
 The coldplug unfiltered breaks the restore, +464 ms. A guess from the mechanism, not instrumented:
 with udev at `StartupCPUWeight=1` its full replay (ACPI, the memory blocks of 2048 MiB plugged,

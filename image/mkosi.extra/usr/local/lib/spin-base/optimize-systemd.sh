@@ -53,9 +53,7 @@ MASK_UNITS=(
     # ldconfig, already pre-warmed at build time.
     ldconfig.service
 
-    # sysusers, done at build time. systemd-sysctl was masked here too and was
-    # removed from this list, because the same script writes /etc/sysctl.d/99-quiet-boot.conf
-    # and masking the unit that applies it left the file inert.
+    # sysusers, done at build time.
     systemd-sysusers.service
 
     # Modprobe services: this kernel has CONFIG_MODULES off entirely, so there is nothing to
@@ -127,7 +125,12 @@ for conf in "${MASK_TMPFILES[@]}"; do
     ln -sf /dev/null "/etc/tmpfiles.d/$conf"
 done
 
-log "Configuring systemd manager for quiet, fast boot..."
+# The manager's timeouts. Its logging and status lines are systemd's own: LogLevel=err,
+# LogTarget=journal, ShowStatus=no and StatusUnitFormat=name were here, with a kernel.printk
+# sysctl of 3 3 3 3, and taken out together they moved the first login +2.4 [-2.3, +7.8] ms at
+# 20 boots and -1.8 [-7.7, +3.2] at 40, spin's shape (labs 44818953987, 44822157367, 2026-11-21).
+# The console stays quiet through the kernel command line's quiet and loglevel=3.
+log "Configuring systemd manager timeouts..."
 mkdir -p /etc/systemd/system.conf.d
 
 cat <<'EOF' >/etc/systemd/system.conf.d/fast-boot.conf
@@ -138,12 +141,6 @@ DefaultDeviceTimeoutSec=10s
 
 RuntimeWatchdogSec=0
 ShutdownWatchdogSec=0
-
-LogLevel=err
-LogTarget=journal
-
-ShowStatus=no
-StatusUnitFormat=name
 EOF
 
 log "Configuring journald for minimal overhead..."
@@ -170,13 +167,6 @@ ForwardToKMsg=no
 SplitMode=none
 Audit=no
 LineMax=48K
-EOF
-
-log "Configuring quiet console..."
-
-mkdir -p /etc/sysctl.d
-cat <<'EOF' >/etc/sysctl.d/99-quiet-boot.conf
-kernel.printk = 3 3 3 3
 EOF
 
 log "Configuring Docker and containerd for socket activation..."
