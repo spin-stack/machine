@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -68,12 +69,16 @@ func src(t *testing.T) Sources {
 
 func TestATreeIsItsBaseLinkedAndSaysWhereEachPartCameFrom(t *testing.T) {
 	base := fakeRelease(t, "k1")
-	tr, err := MakeTree(filepath.Join(t.TempDir(), "t"), TreeSpec{Name: "t", From: base, Append: "quiet x=1"}, src(t))
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "t"), TreeSpec{Name: "t", From: base, Append: "quiet x=1", Boot: []string{"--cpu=Skylake-Server-v4"}}, src(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tr.Name() != "t" || tr.Cmdline() != "init=/sbin/init quiet x=1" {
 		t.Errorf("name %q, cmdline %q", tr.Name(), tr.Cmdline())
+	}
+	// Read back from the manifest on disk, as a measurement opens it.
+	if again, err := OpenTree(tr.Dir); err != nil || !slices.Equal(again.Manifest.Boot, []string{"--cpu=Skylake-Server-v4"}) {
+		t.Errorf("the tree's boot flags, reopened: %v, %v", again, err)
 	}
 	for name := range partFiles {
 		if got := tr.Manifest.Parts[name].Source; got != base {

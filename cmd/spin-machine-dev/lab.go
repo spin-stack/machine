@@ -48,6 +48,7 @@ func treeFlags(fs *pflag.FlagSet, s *lab.TreeSpec) {
 	fs.StringVar(&s.QEMU, "qemu", "", "QEMU and its firmware instead: run:N (a QEMU workflow run) or a directory with bin/ and qemu/")
 	fs.StringVar(&s.SpinMachine, "spin-machine", "", "here: built from this checkout; release: built from the commit the --from release was made from, the machine it defined; left out, the --from tree's own when it has one, else this checkout's (a release ships none)")
 	fs.StringVar(&s.Append, "append", "", "added to the kernel command line of every boot")
+	fs.StringArrayVar(&s.Boot, "boot", nil, "a spin-machine boot flag for every boot of the tree, e.g. --boot --cpu=Skylake-Server-v4")
 	fs.StringArrayVar(&s.Edits, "edit", nil, "an edit of every boot's overlay, by name: lane (the first login's lane as this checkout builds it)")
 	fs.StringVar(&s.Systemd, "systemd", "", "an image/systemd/experiments patch: systemd built with it here, in every overlay")
 }
