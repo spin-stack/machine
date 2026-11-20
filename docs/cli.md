@@ -152,7 +152,8 @@ gets this checkout's, as the `boot:` targets' `:tools` dependency gave the probe
 `machine.env` names: the machine that release defined, which the ladder boots each release with),
 `--append ARGS`, `--edit lane` (the first login's
 lane as this checkout builds it, put into a published release's overlays), `--edit nolinger` (spin
-not lingering, as this checkout builds the image), `--systemd PATCH`
+not lingering, as this checkout builds the image), `--edit forwarder-early` (`login=spin`'s
+forwarder, which stands for spin's supervisor, without systemd's default dependencies), `--systemd PATCH`
 (image/systemd/experiments). Nothing is written through the tree it starts from: parts are links,
 and a replaced part is a copy. A tree whose manifest is missing, names no source for a part, or
 does not match the file is refused before anything boots - a probe is handed trees, never a path
