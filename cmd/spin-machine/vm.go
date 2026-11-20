@@ -257,14 +257,16 @@ func start(o startFlags) error {
 }
 
 type saveFlags struct {
-	qmp     string
-	to      string
-	timeout time.Duration
+	qmp      string
+	to       string
+	channels int
+	timeout  time.Duration
 }
 
 func (o *saveFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "the running VM's QMP socket (required)")
 	fs.StringVar(&o.to, "to", "", "where to write the state; what the machine needs besides it goes to <to>.json (required)")
+	fs.IntVar(&o.channels, "channels", 1, "how many threads write the guest's memory (QEMU's multifd)")
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "how long the save may take")
 }
 
@@ -290,7 +292,7 @@ func save(o saveFlags) error {
 	defer func() { _ = m.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 	defer cancel()
-	saved, err := m.Checkpoint(ctx, f, func(context.Context) error { return nil })
+	saved, err := m.Checkpoint(ctx, f, machine.Save{Channels: o.channels}, func(context.Context) error { return nil })
 	if err != nil {
 		return err
 	}
@@ -307,18 +309,20 @@ func save(o saveFlags) error {
 }
 
 type restoreFlags struct {
-	qmp     string
-	from    string
-	fast    bool
-	release string
-	disks   diskFlags
-	timeout time.Duration
+	qmp      string
+	from     string
+	fast     bool
+	channels int
+	release  string
+	disks    diskFlags
+	timeout  time.Duration
 }
 
 func (o *restoreFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "QMP socket of a VM started with boot --restore (required)")
 	fs.StringVar(&o.from, "from", "", "the state save wrote (required)")
 	fs.BoolVar(&o.fast, "fast", false, "run the guest once its devices are in and read its memory as it touches it")
+	fs.IntVar(&o.channels, "channels", 1, "how many threads read the guest's memory (QEMU's multifd); any number reads a state saved with any")
 	fs.StringVar(&o.release, "release", "_output", "the release tree: its base image, under a throwaway overlay, is the disk when --disk is not given")
 	o.disks.register(fs)
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "how long the load may take")
@@ -361,7 +365,7 @@ func restore(o restoreFlags) error {
 		defer closeAll()
 		disks = append(disks, disk)
 	}
-	if err := m.Resume(ctx, f, saved, machine.Load{Fast: o.fast}, disks...); err != nil {
+	if err := m.Resume(ctx, f, saved, machine.Load{Fast: o.fast, Channels: o.channels}, disks...); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "restored %s\n", o.from)

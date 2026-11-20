@@ -62,7 +62,7 @@ type VM interface {
 	// seal runs while the guest is stopped and its disks quiet, before the state is complete:
 	// it is where the caller makes the disks match the state (a layer sealed, a snapshot
 	// named). An error from seal fails the checkpoint and the machine stays stopped.
-	Checkpoint(ctx context.Context, to *os.File, seal func(context.Context) error) (Saved, error)
+	Checkpoint(ctx context.Context, to *os.File, save Save, seal func(context.Context) error) (Saved, error)
 	// Continue runs a machine a checkpoint left stopped.
 	Continue(ctx context.Context) error
 
@@ -136,6 +136,16 @@ type Load struct {
 	// read from the file, and a nested fault is expensive; the full load reads the file in one
 	// pass. It is kept for a caller whose state is large and whose guest needs little of it soon.
 	Fast bool
+	// Channels is how many threads read the guest's memory, each its own part of the file: QEMU's
+	// multifd over a mapped-ram state. One, or none given, is the migration's own thread.
+	Channels int
+}
+
+// Save is how a checkpoint is written.
+type Save struct {
+	// Channels is how many threads write the guest's memory, as Load.Channels reads it. The
+	// state is the same file whatever wrote it, and loads with any number.
+	Channels int
 }
 
 // Saved is what a checkpoint is besides its state file: what the caller keeps beside the state

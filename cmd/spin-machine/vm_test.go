@@ -23,17 +23,20 @@ func TestSaveAndRestoreKeepTheFormatBesideTheState(t *testing.T) {
 		`{"return": {"name": "spin-machine:f00d"}}`, `{"return": {"qemu": {"major": 11, "minor": 2, "micro": 0}}}`,
 		`{"return": [{"qom-path": "/machine/unattached/device[0]"}]}`, `{"return": "host-x86_64-cpu"}`,
 		`{"return": {"model": {"name": "host", "props": {"vendor": "GenuineIntel", "sse2": true}}}}`,
-		ok, ok, `{"return": {"fdset-id": 1}}`, ok, ok, completed, ok)
-	if err := save(saveFlags{qmp: saving.socket, to: state, timeout: time.Minute}); err != nil {
+		ok, ok, `{"return": {"fdset-id": 1}}`, ok, completed, ok, ok)
+	if err := save(saveFlags{qmp: saving.socket, to: state, channels: 4, timeout: time.Minute}); err != nil {
 		t.Fatal(err)
 	}
 	var asked []string
 	for _, r := range saving.commands(t) {
 		asked = append(asked, r.Execute)
+		if r.Execute == "migrate-set-parameters" && r.Arguments["multifd-channels"] != float64(4) {
+			t.Errorf("save --channels 4 set %v", r.Arguments)
+		}
 	}
 	if want := []string{"qmp_capabilities", "query-hotpluggable-cpus", "qom-list",
 		"query-name", "query-version", "query-cpus-fast", "qom-get", "query-cpu-model-expansion", "migrate-set-capabilities",
-		"migrate-set-parameters", "add-fd", "migrate", "remove-fd", "query-migrate", "quit"}; !slices.Equal(asked, want) {
+		"migrate-set-parameters", "add-fd", "migrate", "query-migrate", "remove-fd", "quit"}; !slices.Equal(asked, want) {
 		t.Errorf("save asked %v, want %v", asked, want)
 	}
 	b, err := os.ReadFile(savedPath(state))
@@ -56,7 +59,7 @@ func TestSaveAndRestoreKeepTheFormatBesideTheState(t *testing.T) {
 			`{"return": {"name": "spin-machine:f00d"}}`, `{"return": {"qemu": {"major": 11, "minor": 2, "micro": 0}}}`,
 			`{"return": [{"qom-path": "/machine/unattached/device[0]"}]}`, `{"return": "host-x86_64-cpu"}`,
 			`{"return": {"model": {"name": "host", "props": {"vendor": "GenuineIntel", "sse2": true}}}}`}
-		replies = append(replies, `{"return": []}`, ok, `{"return": {"fdset-id": 1}}`, ok, ok, completed, `{"return": {"status": "running"}}`)
+		replies = append(replies, `{"return": []}`, ok, `{"return": {"fdset-id": 1}}`, ok, completed, ok, `{"return": {"status": "running"}}`)
 		restoring := newMonitor(t, replies...)
 		if err := restore(restoreFlags{qmp: restoring.socket, from: state, disks: diskFlags{path: "-"}, timeout: time.Minute}); err != nil {
 			t.Fatal(err)

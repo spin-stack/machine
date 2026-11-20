@@ -50,7 +50,7 @@ func (restoreFirst) About() string {
 }
 
 func (restoreFirst) Options() []Option {
-	return append(shape, Option{"fast", "false", "also restore each tree with the fast snapshot load (--fast)"})
+	return append(shape, Option{"fast", "false", "also restore each tree with the fast snapshot load (--fast)"}, channelsOption)
 }
 
 func (restoreFirst) Rows(o Options) []string {
@@ -58,7 +58,7 @@ func (restoreFirst) Rows(o Options) []string {
 	if o.Bool("fast") {
 		rows = append(rows, "fast")
 	}
-	return rows
+	return withChannels(o, rows...)
 }
 
 func (restoreFirst) Phases() int { return 2 }
@@ -69,7 +69,7 @@ func (restoreFirst) Needs(o Options) []Need {
 	if o.Bool("fast") {
 		needs = append(needs, Need{"restore", "fast"})
 	}
-	return needs
+	return append(needs, channelsNeeds(o)...)
 }
 
 func (restoreFirst) Metrics() []Metric {
@@ -86,16 +86,21 @@ func (restoreFirst) Metrics() []Metric {
 
 // mutate-lane: TestEveryProbeMeasuresATree
 func (restoreFirst) Measure(_ context.Context, m *Measurement) error {
-	if m.Phase == 0 {
-		return coldSave(m)
+	way, channels, err := rowChannels(m.Row)
+	if err != nil {
+		return err
 	}
-	return restore(m, m.Row == "cached", m.Row == "fast")
+	if m.Phase == 0 {
+		return coldSave(m, channels...)
+	}
+	return restore(m, way == "cached", way == "fast", channels...)
 }
 
 // restore resumes m's saved state - evicted from the page cache, or read back into it first when
-// cached - into a QEMU exec'd for it, and logs in.
+// cached - into a QEMU exec'd for it, and logs in. channels are restore's --channels, when the
+// row names them.
 // mutate-lane: TestEveryProbeMeasuresATree
-func restore(m *Measurement, cached, fast bool) error {
+func restore(m *Measurement, cached, fast bool, channels ...string) error {
 	c := m.State.(*checkpoint)
 	if err := evict(c.state); err != nil {
 		return err
@@ -122,7 +127,7 @@ func restore(m *Measurement, cached, fast bool) error {
 	// own start, after QEMU's instead of beside it, in the login this probe measures. What QEMU's
 	// whole start costs a restore is prestart's restored row against its restored-into-prestarted.
 	m.RecordMs("listening", time.Since(t0))
-	args := []string{"restore", "--release", m.Tree.Dir, "--qmp", qmp, "--from", c.state, "--disk", c.overlay}
+	args := append([]string{"restore", "--release", m.Tree.Dir, "--qmp", qmp, "--from", c.state, "--disk", c.overlay}, channels...)
 	if fast {
 		if err := userfaultfd(); err != nil {
 			return err
@@ -156,9 +161,10 @@ func (c *checkpoint) bootFlags(m *Measurement, qmp string, extra ...string) []st
 }
 
 // coldSave boots a fresh overlay of the tree, logs in, saves - which ends the machine - and evicts
-// the state the save has just put in the page cache. It is m.State from here on.
+// the state the save has just put in the page cache. It is m.State from here on. channels are
+// save's --channels, when the row names them.
 // mutate-lane: TestEveryProbeMeasuresATree
-func coldSave(m *Measurement) error {
+func coldSave(m *Measurement, channels ...string) error {
 	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edit())
 	if err != nil {
 		return err
@@ -177,7 +183,7 @@ func coldSave(m *Measurement) error {
 	}
 	m.RecordMs("cold_login", login)
 	t0 = time.Now()
-	if err := m.SpinMachine("save", "--qmp", qmp, "--to", c.state); err != nil {
+	if err := m.SpinMachine(append([]string{"save", "--qmp", qmp, "--to", c.state}, channels...)...); err != nil {
 		return err
 	}
 	m.RecordMs("save", time.Since(t0))
