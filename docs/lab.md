@@ -101,6 +101,16 @@ that is one sequential load of guest RAM. If multifd channels make that load ~4�
 restore is ~85-90 ms. The guest's ~47 ms from running to login is about one warm login (42.9),
 so a cheaper login moves both numbers.
 
+Measured (lab 44750713447, this shape, QEMU started ahead): 16 channels read 93.5/114.9 against
+140.9/152.0 at one, Δp50 −47.4 [−54.4, −39.4], the first goal number under 100 ms. What is
+left is ~42 ms to running and ~48 to the login. In spin's shape the p50 also falls (149 → 114),
+but ~20% of restores with channels (56 of 280) stalled ~400 ms between running and the login.
+That was a guest left at 128 MiB, which spin never runs past its first ~80 ms: sized to 2048 MiB
+as spin sizes it (`plugged=2048`, `login=spin`), no row stalls (lab 44788801555), and restored
+into a QEMU started ahead the login reads 150/156 at one channel, 103/108 at 8 and 92.7/111 at
+16, Δp50 −57.4 [−59.4, −54.3] (lab 44789688221): the restore under 100 ms in spin's shape. The
+default count waits on restores run side by side on one host.
+
 ### Nested, not metal
 
 The bench fleet is nested. On a c8i.metal-48xl (the same CPU) the cold first login read 332 ms
@@ -219,7 +229,7 @@ An idea already here needs a new reason, not a new run.
 | Mask sshd-socket- and run-generators | Login 489 (no change) | lab 43483372488 | 11-13 |
 | Mask 11 always-failing units | 484 (no change) | lab 43483372488 | 11-13 |
 | Vsock socket + sshd@ without default deps | No sooner; dropped 7 of 22 first connections (laptop) | `boot/ssh_first_test.go` (deleted 11-19, `c3c0fd1`) | 11-13 |
-| mapped-ram checkpoints (multifd ×4) | Restore login 385/400 vs 386/399. The run's own log calls the comparison not comparable (review of 2026-11-20); checkpoints have been mapped-ram since 11-19, and multifd channels are pending below | #246, lab 43483852339 | 11-13 |
+| mapped-ram checkpoints (multifd ×4) | Restore login 385/400 vs 386/399. The run's own log calls the comparison not comparable (review of 2026-11-20); checkpoints have been mapped-ram since 11-19, and multifd channels were measured on 11-20 ("What is next", rank 1) | #246, lab 43483852339 | 11-13 |
 | sntrup761 (OpenSSH default) | 104 vs 40 ms per login | #245, lab 43479854381 | 11-13 |
 | Configuration-space snapshot over fw_cfg (QEMU + kernel) | 209 vs 211 with 0005 | lab 43514884598 | 11-13 |
 | CPUWeight/IOWeight/Nice on the first login's lane | −2 ms over coldplug filtered; second login 63 vs 45 | lab 43518915618 | 11-13 |
@@ -319,16 +329,16 @@ Each of these made a number say something it did not measure.
 ## What is next
 
 Ranked by ceiling: what the goal number would gain if the phase cost nothing, or what the
-experiment can at most say. Two are on the bench now; their rows are filled in with the result.
+experiment can at most say.
 
 | Rank | Experiment | Number | Ceiling | Evidence it is untried | Status |
 |---|---|---|---|---|---|
-| 1 | multifd channels 1, 2, 4 and 8 on the mapped-ram save and load, restore rows with and without QEMU started ahead | restore | the RAM load's ~65-70 ms; ~85-90 ms to the login with QEMU ahead if the load is ~4× faster | `grep multifd machine cmd` finds nothing; the one rejection (#246) is a comparison its own run calls not comparable | **pending**: result to come |
+| 1 | multifd channels 1, 2, 4 and 8 on the mapped-ram save and load, restore rows with and without QEMU started ahead | restore | the RAM load's ~65-70 ms; ~85-90 ms to the login with QEMU ahead if the load is ~4× faster | `grep multifd machine cmd` found nothing; the one rejection (#246) is a comparison its own run calls not comparable | **measured** (lab 44750713447): 16 channels 93.5/114.9 against 140.9/152.0, Δp50 −47.4 [−54.4, −39.4]; 8 channels 101.5; 2 channels within the noise. In spin's shape sized as spin sizes it, 16 channels 92.7/111 against 150/156, Δp50 −57.4 [−59.4, −54.3], no stalls (labs 44788801555, 44789688221); the default count waits on concurrent restores |
 | 2 | A login without OpenSSH's exec per connection and PAM | both | a login costs 42.9 warm and is in both numbers; accept to login is 114.2 cold | `grep` for UsePAM, privsep, dropbear, tinyssh, qemu-ga finds nothing. It has to work on spin's path: its vsock forwarder to 127.0.0.1:22 | leads, 11-20 (`docs/log.md`): spin's path already runs one sshd; PAM and pam_systemd are what spin's sessions are made of. Next: spin not lingering, below |
 | 2a | spin not lingering (`--edit nolinger`), on spin's path and memory (`plugged=2048`, `login=spin`) | both | user@1000, a systemd --user on the one vCPU, ~38 ms of it in the first login's window (11-19); a laptop lead read accept to login 40 against 70 ms | the linger was added 11-12 for sessions of class `user`, which the lane replaced by `user-early-light` on 11-13; spin logs in as root | **kept** (labs 44785179901, 44785565313): first cold login 532/551 → 496/514, Δp50 −36.1 [−45.8, −23.6]; restore rows within the noise |
 | 3 | The bzImage's decompression made cheaper: other compression settings, KASLR without decompression, qboot doing the load | cold | ~22-25 ms | the cost was not seen when the bzImage was kept (pitfalls). KASLR stays. First give the phase an instrument (rule 6) | not started |
 | 4 | Asynchronous SCSI scan | cold, spin's shape | ~12 ms: `virtio_scsi_init` is 12.1 in spin's shape (lab 44587603255) | `# CONFIG_SCSI_SCAN_ASYNC is not set` (kernel/config-7.3-x86_64). Not `scsi_mod.scan=manual`, which loses disks (rejected) | not started |
-| 5 | The no-systemd floor on today's kernel and QEMU, in the ladder's shape and spin's | a bound | none: it says how much of the cold number is systemd's to give back. Last read 209 ms on 2026-11-13, on an 87 ms kernel (lab 43506390106) | measured once, on an older kernel | **pending**: result to come |
+| 5 | The no-systemd floor on today's kernel and QEMU, in the ladder's shape and spin's | a bound | none: it says how much of the cold number is systemd's to give back. Last read 209 ms on 2026-11-13, on an 87 ms kernel (lab 43506390106) | measured once, on an older kernel | **measured** (lab 44750322384): the ladder's shape 322 → 219, Δ −103.5 [−108.6, −100.5]; spin's 445 → 240, Δ −204.8. Without systemd sshd accepts at 173 and 189 ms, so the cold number needs the phases before PID 1 as well |
 
 The floor is a bound and never a candidate: systemd stays (AGENTS.md, "What must not break").
 
