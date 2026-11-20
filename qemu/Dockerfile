@@ -41,6 +41,9 @@
 #                    libfdt, so the subproject is how fdt gets built — and MICROVM depends
 #                    on fdt (hw/i386/Kconfig). Without git: `Git program not found, cannot
 #                    download dtc.wrap via git`, at configure.
+#   --disable-tests  QEMU's unit and qtest binaries were compiled and linked in every build and
+#                    never run: nothing here runs `make check`. What says this QEMU works is
+#                    qemu:verify, verify:args and the boot probes, against this configuration.
 #
 # Two flags that look like obvious wins and are not:
 #   --enable-vhost-user-blk-server   a device nothing asks for; a guest here gets an
@@ -82,7 +85,7 @@ ARG JOBS=8
 # configured under the old base, skipped configure, relinked, and produced a dynamically
 # linked binary from a Dockerfile that says --static on every other line. The assertion
 # below is what caught it.
-ARG QEMU_CONFIG_REV=8
+ARG QEMU_CONFIG_REV=9
 
 SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
@@ -136,6 +139,7 @@ ENV QEMU_FLAGS="\
     --enable-strip \
     --disable-containers \
     --disable-docs \
+    --disable-tests \
     --disable-debug-info \
     --disable-werror \
     --disable-plugins \
