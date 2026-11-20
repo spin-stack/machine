@@ -226,7 +226,7 @@ func TestBootArgsAreTheTreesInTheExperimentsShape(t *testing.T) {
 func TestTheTableIsEachTreesP50AndP95AndItsDistanceFromTheFirst(t *testing.T) {
 	r := &Result{Probe: "p", About: "about", Reps: 3, Rows: []string{"x"}, Options: Options{"cpus": "2", "flags": ""},
 		Metrics: []Metric{{"a", "ms", ""}, {"curve25519_in", "count", ""}},
-		Trees:   []Manifest{{Name: "release", Parts: map[string]Part{"kernel": {Source: "release v1"}}, Edits: []NamedEdit{{Name: "lane"}}, Append: "q"}, {Name: "kaslr"}},
+		Trees:   []Manifest{{Name: "release", Parts: map[string]Part{"kernel": {Source: "release v1"}}, Edits: []NamedEdit{{Name: "lane"}}, Append: "q"}, {Name: "kaslr", Boot: []string{"--cpu=Cascadelake-Server-v5"}}},
 		Host:    Host{Name: "h", Instance: "c8id.4xlarge", CPU: "Xeon", CPUs: 16, Nested: true, ScratchDevice: "/dev/nvme1n1"}}
 	for i, v := range []float64{100, 110, 300} {
 		r.Samples = append(r.Samples, Sample{Tree: "release", Row: "x", Rep: i + 1, Values: map[string]float64{"a": v, "curve25519_in": 0}})
@@ -242,6 +242,8 @@ func TestTheTableIsEachTreesP50AndP95AndItsDistanceFromTheFirst(t *testing.T) {
 		"  p50 against release\n",
 		"  kaslr              -10.5                   -\n",
 		"    release: kernel release v1; qemu ; image ; spin-machine ; edit lane; append \"q\";\n",
+		// A tree's own boot flag is said, even one alone: two trees of one release differ by it.
+		"; boot \"--cpu=Cascadelake-Server-v5\";\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the table has no %q:\n%s", want, got)
