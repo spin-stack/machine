@@ -356,6 +356,28 @@ for u in systemd-random-seed.service; do
         exit 1; }
 done
 
+# And every mask shadows something the image has. A mask of a unit, generator or tmpfiles rule
+# no package installed is dead code that reads as a decision: optimize-systemd.sh carried 16
+# (avahi, cups, multipathd, the tpm2 units of a systemd built without TPM2, ...), found on
+# 2026-11-21 (docs/lab.md, "What we carry, and what it earns"). An instance's mask is checked
+# against its template.
+for dir in /etc/systemd/system /etc/systemd/system-generators /etc/tmpfiles.d; do
+    links=$("$bin/debugfs" -R "ls -l $dir" /work/base.raw 2>/dev/null | awk '$2 ~ /^120/ {print $NF}')
+    for name in $links; do
+        stat_in_image "$dir/$name" | grep -q 'Fast link dest: "/dev/null"' || continue
+        case $dir in
+            */system-generators) shadowed=/usr/lib/systemd/system-generators/$name ;;
+            */tmpfiles.d) shadowed=/usr/lib/tmpfiles.d/$name ;;
+            *) unit=$name
+               case $unit in *@?*.*) unit="${unit%%@*}@.${unit##*.}" ;; esac
+               shadowed=/usr/lib/systemd/system/$unit ;;
+        esac
+        in_image "$shadowed" || {
+            echo "ERROR: $dir/$name masks nothing: the image has no $shadowed" >&2
+            exit 1; }
+    done
+done
+
 # And two that must never be masked, whatever they cost a boot. /tmp is where a machine's
 # services and its users leave what one boot needs - sockets, private directories, files
 # somebody meant to throw away - and on the disk it outlives the boot: every copy of the disk
