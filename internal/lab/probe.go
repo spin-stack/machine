@@ -82,14 +82,20 @@ func (o Options) Fields(name string) []string { return strings.Fields(o[name]) }
 // cores before the boot only for a workspace that asks for more than one, which the canonical
 // workspace does not. Its ceilings cost the boot: the kernel took 86.6 ms to "Freeing" in it
 // against 62 in the 2 vCPUs and 2 GiB with no hotplug the probes booted before (lab 44587603255).
+//
+// It is spin's after the start as well: spin sizes every workspace to 2048 MiB right after it
+// starts (Plug), and logs in as root through its supervisor's forwarder to ssh.service (login.go,
+// spinsPath). Measured either way on 2026-11-20, the guest left at 128 MiB OOM-killed its way
+// through the boot (lab 44784196287), and spin's cold first login read 532 ms where the probes'
+// own read 445 (lab 44785179901): neither is a number spin's users get.
 var shape = []Option{
 	{"cpus", "1", "vCPUs at boot"},
 	{"max-cpus", "16", "the vCPU hotplug ceiling (0: no hotplug)"},
 	{"memory", "128", "MiB of memory at boot"},
 	{"max-memory", "8192", "MiB the memory may grow to through virtio-mem (0: fixed)"},
 	{"hotplug-disks", "4", "targets on the hotplug controller"},
-	{"plugged", "0", "MiB the guest is sized to through virtio-mem right after its start, as spin sizes a workspace (0: left at memory)"},
-	{"login", "lane", "lane: as spin, through systemd's vsock sshd, an sshd@ a connection; spin: as root, through a forwarder to ssh.service on 127.0.0.1:22, spin's path"},
+	{"plugged", "2048", "MiB the guest is sized to through virtio-mem right after its start, as spin sizes a workspace (0: left at memory)"},
+	{"login", "spin", "spin: as root, through a forwarder to ssh.service on 127.0.0.1:22, spin's path; lane: as spin, through systemd's vsock sshd, an sshd@ a connection"},
 	{"flags", "", "more spin-machine boot flags for every boot"},
 }
 
