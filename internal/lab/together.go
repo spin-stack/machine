@@ -227,15 +227,29 @@ func restoreAll(m *Measurement, cs []*checkpoint, b burst) (err error) {
 			out[i].login = login
 		})
 	}
-	// What the host waited on while they ran (hostCounters), and the memory it had going in.
-	mem, before := memInfo(), readHostCounters()
+	// What the host waited on while they ran (hostCounters), the memory it had going in, and where
+	// on its CPUs the burst ran (cpuDetail).
+	pids := make([]int, len(machines))
+	for i, mc := range machines {
+		pids[i] = mc.PID()
+	}
+	done, watched := make(chan struct{}), make(chan map[string]float64)
+	go func() { watched <- watchQEMUs(pids, done) }()
+	mem, before, cpusBefore := memInfo(), readHostCounters(), readCPULoad()
 	close(start)
 	wg.Wait()
+	cpus := readCPULoad().details(cpusBefore)
+	close(done)
 	for k, v := range readHostCounters().since(before) {
 		m.Detail(hostDetail+k, v)
 	}
 	for k, v := range mem {
 		m.Detail(hostDetail+k, v)
+	}
+	for _, d := range []map[string]float64{cpus, <-watched, labCPUs()} {
+		for k, v := range d {
+			m.Detail(k, v)
+		}
 	}
 
 	var errs []error
@@ -297,10 +311,7 @@ func (restoreTogether) Detail(r *Result) string {
 	for _, t := range r.Trees {
 		for _, row := range r.Rows {
 			by := map[string][]float64{}
-			for _, s := range r.Samples {
-				if s.Tree != t.Name || s.Row != row || s.Missed != "" {
-					continue
-				}
+			for _, s := range rowSamples(r, t.Name, row) {
 				for k, v := range s.Detail {
 					if name, ok := strings.CutPrefix(k, hostDetail); ok {
 						by[name] = append(by[name], v)
@@ -317,16 +328,32 @@ func (restoreTogether) Detail(r *Result) string {
 			}
 		}
 	}
+	fmt.Fprintf(&b, "\n  the host's CPUs during each burst, over the measurements: whether one CPU took the burst\n")
+	for _, t := range r.Trees {
+		for _, row := range r.Rows {
+			if line := cpuSummary(rowSamples(r, t.Name, row)); line != "" {
+				fmt.Fprintf(&b, "  %-32s %s\n", r.label(t.Name, row), line)
+			}
+		}
+	}
 	return b.String()
+}
+
+// rowSamples are tree's measurements of row not lost.
+func rowSamples(r *Result, tree, row string) []Sample {
+	var samples []Sample
+	for _, s := range r.Samples {
+		if s.Tree == tree && s.Row == row && s.Missed == "" {
+			samples = append(samples, s)
+		}
+	}
+	return samples
 }
 
 // pooledLogins are every restore's first login in tree's row, over the measurements not lost.
 func pooledLogins(r *Result, tree, row string) []float64 {
 	var vs []float64
-	for _, s := range r.Samples {
-		if s.Tree != tree || s.Row != row || s.Missed != "" {
-			continue
-		}
+	for _, s := range rowSamples(r, tree, row) {
 		for k, v := range s.Detail {
 			if strings.HasPrefix(k, "login\x00") {
 				vs = append(vs, v)
