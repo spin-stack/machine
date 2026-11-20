@@ -43,23 +43,45 @@ func TestARestoreTogetherRowIsANumberAtOnceAndItsChannels(t *testing.T) {
 	}
 }
 
-// A row's number is how many restores go at once, and its count each one's --channels; a row
-// that names no number stops the experiment before anything boots.
+// A row's number is how many restores go at once, whether from the page cache, under which THP
+// defrag policy, and its count each one's --channels; a row that names no number, or a place for
+// the states that is neither, stops the experiment at its first measurement.
 func TestARestoreTogetherRowSaysHowManyAndWithWhat(t *testing.T) {
 	for _, tc := range []struct {
-		row   string
-		n     int
-		flags []string
+		row  string
+		want burst
 	}{
-		{"8 at once, channels 16", 8, []string{"--channels", "16"}},
-		{"1 at once", 1, nil},
+		{"8 at once, channels 16", burst{n: 8, channels: []string{"--channels", "16"}}},
+		{"1 at once", burst{n: 1}},
+		{"8 at once from the cache, channels 8", burst{n: 8, cached: true, channels: []string{"--channels", "8"}}},
+		{"8 at once from the cache under THP defrag defer+madvise, channels 8", burst{n: 8, cached: true, defrag: "defer+madvise", channels: []string{"--channels", "8"}}},
 	} {
-		n, flags, err := rowTogether(tc.row)
-		if err != nil || n != tc.n || !slices.Equal(flags, tc.flags) {
-			t.Errorf("rowTogether(%q) = %d, %v, %v", tc.row, n, flags, err)
+		got, err := rowTogether(tc.row)
+		if err != nil || got.n != tc.want.n || got.cached != tc.want.cached || got.defrag != tc.want.defrag || !slices.Equal(got.channels, tc.want.channels) {
+			t.Errorf("rowTogether(%q) = %+v, %v, want %+v", tc.row, got, err, tc.want)
 		}
 	}
-	for _, row := range []string{"0 at once", "many at once", "8", "8 at once, channels 0"} {
+	p := Probes["restore-together"]
+	o, err := settle(p, Options{"together": "8", "states": "evicted cached", "channels": "8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := p.Rows(o), []string{"8 at once, channels 8", "8 at once from the cache, channels 8"}; !slices.Equal(got, want) {
+		t.Errorf("rows with both states = %v, want %v", got, want)
+	}
+	o, err = settle(p, Options{"together": "1 8", "defrag": "madvise defer", "channels": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"1 at once under THP defrag madvise", "8 at once under THP defrag madvise", "1 at once under THP defrag defer", "8 at once under THP defrag defer"}
+	if got := p.Rows(o); !slices.Equal(got, want) {
+		t.Errorf("rows under two defrag policies = %v, want %v", got, want)
+	}
+	o, err = settle(p, Options{"together": "8", "states": "nowhere", "channels": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range append(p.Rows(o), "0 at once", "many at once", "8", "8 at once, channels 0") {
 		err := (restoreTogether{}).Measure(context.Background(), &Measurement{Row: row})
 		if err == nil || !strings.Contains(err.Error(), "not a number") {
 			t.Errorf("Measure of row %q = %v, want refused", row, err)
@@ -76,10 +98,10 @@ func TestRestoreTogetherPoolsEveryRestore(t *testing.T) {
 		Samples: []Sample{
 			{Tree: "release", Row: "2 at once, channels 1", Detail: map[string]float64{"login\x000": 150, "login\x001": 160}},
 			{Tree: "release", Row: "2 at once, channels 1", Detail: map[string]float64{"login\x000": 140, "login\x001": 170}},
-			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 100, "login\x001": 110}},
-			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 105, "login\x001": 900}, Missed: "lost"},
-			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 95, "login\x001": 120}},
-			{Tree: "other", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 700, "login\x001": 800}},
+			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 100, "login\x001": 110, hostDetail + "compact_stall": 7}},
+			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 105, "login\x001": 900, hostDetail + "compact_stall": 50}, Missed: "lost"},
+			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 95, "login\x001": 120, hostDetail + "compact_stall": 7}},
+			{Tree: "other", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 700, "login\x001": 800, hostDetail + "compact_stall": 100}},
 		},
 	}
 	got := pooledLogins(r, "release", "2 at once, channels 8")
@@ -93,6 +115,10 @@ func TestRestoreTogetherPoolsEveryRestore(t *testing.T) {
 			t.Errorf("detail lacks %q:\n%s", want, d)
 		}
 	}
+	// The host's counters are the row's own measurements', of its tree, not lost.
+	if !strings.Contains(d, "release, 2 at once, channels 8   compact_stall 7\n") || strings.Count(d, "compact_stall") != 1 {
+		t.Errorf("detail lacks the row's host counters, or gives them to a row that has none:\n%s", d)
+	}
 	if strings.Count(d, "Δ") != 1 {
 		t.Errorf("only the second row is set against the first:\n%s", d)
 	}
@@ -100,5 +126,16 @@ func TestRestoreTogetherPoolsEveryRestore(t *testing.T) {
 		if strings.Contains(line, "Δ") && !strings.HasPrefix(strings.TrimSpace(line), "release, 2 at once, channels 8") {
 			t.Errorf("the Δ is on a row other than the one set against the first: %q", line)
 		}
+	}
+}
+
+// The host's THP defrag policy is the one its file brackets, among the kernel's five.
+func TestTheHostsDefragPolicyIsTheBracketedOne(t *testing.T) {
+	p, err := defragPolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains([]string{"always", "defer", "defer+madvise", "madvise", "never"}, p) {
+		t.Errorf("defragPolicy = %q", p)
 	}
 }
