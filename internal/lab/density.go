@@ -87,7 +87,7 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 	m.RecordMs("crowd_up", time.Since(t0))
 	time.Sleep(time.Duration(m.Options.Int("settle")) * time.Second)
 
-	overlay, err := m.Overlay("measured.qcow2", m.Key.Edit())
+	overlay, err := m.Overlay("measured.qcow2", m.Key.Edits()...)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 // mutate-lane: TestEveryProbeMeasuresATree, whose density crowds boot real machines: an overlay a
 // test can make here is edited through NBD, which only the VM lane has.
 func (m *Measurement) bootLoggedIn(name string) (*Machine, uint32, error) {
-	overlay, err := m.Overlay(name, m.Key.Edit())
+	overlay, err := m.Overlay(name, m.Key.Edits()...)
 	if err != nil {
 		return nil, 0, err
 	}

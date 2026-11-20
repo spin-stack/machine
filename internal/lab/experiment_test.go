@@ -163,6 +163,7 @@ func TestALostMeasurementIsCountedAndAFailureStops(t *testing.T) {
 		{Probe: p, Reps: 1},
 		{Probe: p, Trees: trees("A"), Reps: 0},
 		{Probe: p, Trees: trees("A"), Reps: 1, Options: Options{"nope": "1"}},
+		{Probe: p, Trees: trees("A"), Reps: 1, Options: Options{"login": "vsock"}, Scratch: t.TempDir()},
 		{Probe: p, Trees: trees("A"), Reps: 1, Scratch: "/nonexistent/scratch"},
 	} {
 		if _, err := e.Run(t.Context()); err == nil {
@@ -182,7 +183,7 @@ func TestAnOptionIsOneTheProbeTakesAndOfItsKind(t *testing.T) {
 		given Options
 		want  string
 	}{
-		{Options{"nope": "1"}, `takes no option "nope"; it takes: cpus, flags, hotplug-disks, max-cpus, max-memory, memory, n, on`},
+		{Options{"nope": "1"}, `takes no option "nope"; it takes: cpus, flags, hotplug-disks, login, max-cpus, max-memory, memory, n, on, plugged`},
 		{Options{"n": "many"}, "is a number"},
 		{Options{"n": "-1"}, "is a number"},
 		{Options{"on": "maybe"}, "true or false"},
@@ -438,6 +439,42 @@ func TestALoginKeyGoesIntoTheOverlayOwnedBySpin(t *testing.T) {
 	}
 	if (&MissError{Why: "w"}).Error() != "w" {
 		t.Error("MissError")
+	}
+}
+
+// spin's login is root's, through a forwarder from vsock to ssh.service with Nagle off on its
+// loopback side, and systemd's own vsock sshd masked; the lane's is spin's, with no forwarder.
+func TestSpinsLoginIsRootThroughAForwarderToSSHService(t *testing.T) {
+	k, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k.User() != "spin" || len(k.Edits()) != 1 {
+		t.Errorf("the lane's login: %s, %d edits", k.User(), len(k.Edits()))
+	}
+	k.SpinsPath = true
+	e := k.Edits()
+	if k.User() != "root" || len(e) != 2 {
+		t.Fatalf("spin's login: %s, %d edits", k.User(), len(e))
+	}
+	fwd := e[1].Files["/etc/systemd/system/spin-lab-forward.service"]
+	if !slices.Equal(e[1].Mask, []string{"sshd-vsock.socket"}) || !strings.Contains(fwd, "TCP:127.0.0.1:22,nodelay") ||
+		!strings.Contains(fwd, "After=ssh.service") || !strings.Contains(e[1].Setup, "/root/.ssh/authorized_keys") ||
+		e[1].Links["/etc/systemd/system/multi-user.target.wants/spin-lab-forward.service"] == "" {
+		t.Errorf("spin's path: %+v", e[1])
+	}
+	o, err := settle(Probes["ssh-first"], Options{"plugged": "2048", "login": "spin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := shapeOf(o); got != "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login" {
+		t.Errorf("spin's shape sized, logged into as spin does, is said %q", got)
+	}
+	if n := plugNeeds(o); !slices.Contains(n, Need{"memory", "to"}) || plugNeeds(Options{"plugged": "0"}) != nil {
+		t.Errorf("sizing needs %v", n)
+	}
+	if err := (&Measurement{Options: Options{"plugged": "0"}}).Plug("/nonexistent")(); err != nil {
+		t.Errorf("a guest left at its memory: %v", err)
 	}
 }
 

@@ -151,7 +151,8 @@ gets this checkout's, as the `boot:` targets' `:tools` dependency gave the probe
 `--spin-machine release` (built, through the module proxy, from the commit the release's
 `machine.env` names: the machine that release defined, which the ladder boots each release with),
 `--append ARGS`, `--edit lane` (the first login's
-lane as this checkout builds it, put into a published release's overlays), `--systemd PATCH`
+lane as this checkout builds it, put into a published release's overlays), `--edit nolinger` (spin
+not lingering, as this checkout builds the image), `--systemd PATCH`
 (image/systemd/experiments). Nothing is written through the tree it starts from: parts are links,
 and a replaced part is a copy. A tree whose manifest is missing, names no source for a part, or
 does not match the file is refused before anything boots - a probe is handed trees, never a path
@@ -200,6 +201,14 @@ are `cpus`, `max-cpus`, `memory`, `max-memory`, `hotplug-disks` and `flags` (mor
 flags); `--opt cpus=2 --opt memory=2048 --opt max-cpus=0 --opt max-memory=0 --opt hotplug-disks=0`
 is the shape the probes booted before they booted spin's. Every table and record says the shape it
 measured; a record that names none booted that older one.
+
+Two options make a boot spin's after it starts, and are off unless asked for. `plugged=MIB` sizes
+the guest through virtio-mem right after its start, as spin sizes every workspace before handing
+it its filesystem (2048 MiB unless the workspace asks for more): left at 128 MiB the guest's OOM
+killer runs through the boot and the logins (laptop, 2026-11-20). `login=spin` logs in as spin
+does, as root through a forwarder from vsock to `ssh.service` on 127.0.0.1:22, where `lane`, the
+default, logs in as spin through systemd's vsock socket and an `sshd@` a connection
+(`internal/lab/login.go`, `spinsPath`).
 
 Each release's own numbers are kept in the repository, one record a release in `docs/releases/`,
 and `docs/releases.md` is the page written from them, with its chart, `docs/releases.svg`

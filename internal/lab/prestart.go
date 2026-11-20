@@ -45,7 +45,7 @@ func (prestart) Phases() int { return 2 }
 
 func (prestart) Needs(o Options) []Need {
 	return append(append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "qmp"}, Need{"boot", "held"}, Need{"boot", "restore"},
-		Need{"save", "to"}, Need{"start", "disk"}, Need{"restore", "disk"}), channelsNeeds(o)...)
+		Need{"save", "to"}, Need{"start", "disk"}, Need{"restore", "disk"}), append(channelsNeeds(o), plugNeeds(o)...)...)
 }
 
 func (prestart) Metrics() []Metric {
@@ -77,7 +77,7 @@ func (prestart) Measure(_ context.Context, m *Measurement) error {
 // bootAhead is a cold or a prestarted boot to the first login.
 // mutate-lane: TestEveryProbeMeasuresATree
 func bootAhead(m *Measurement) error {
-	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edit())
+	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edits()...)
 	if err != nil {
 		return err
 	}
@@ -90,8 +90,12 @@ func bootAhead(m *Measurement) error {
 			return err
 		}
 		defer mc.Stop()
+		plugged := m.Plug(qmp)
 		login, err := m.Key.LoggedIn(mc, c.cid, t0)
 		if err != nil {
+			return err
+		}
+		if err := plugged(); err != nil {
 			return err
 		}
 		m.RecordMs("login", login)
@@ -110,8 +114,12 @@ func bootAhead(m *Measurement) error {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
+	plugged := m.Plug(qmp)
 	login, err := m.Key.LoggedIn(mc, c.cid, t0)
 	if err != nil {
+		return err
+	}
+	if err := plugged(); err != nil {
 		return err
 	}
 	m.RecordMs("login", login)
