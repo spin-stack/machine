@@ -171,8 +171,35 @@ Two releases are compared by `lab ladder`, not by comparing two runs taken apart
 releases up to `--newest` (five unless told), each a tree with `--spin-machine release`, every goal
 probe over the releases whose spin-machine can run it (a probe says which commands and flags it
 needs; v20261119.01's has no `boot --restore`), interleaved on one host. Its table is the goal's two
-numbers release by release, each against the release above and the newest against 100 ms, the
-prestarted ones, and save, state, the kernel and QEMU's RSS as diagnostics.
+numbers release by release, each with its Δ against the release above and the newest against 100
+ms, the prestarted ones, and save, state, the kernel and QEMU's RSS as diagnostics, and the shape
+every release booted.
+
+### What a Δ says
+
+Every comparison the lab prints - `lab run`'s and `lab show`'s table of trees against the first,
+a ladder's, `releases compare`, the page's Δ column - is the Δ p50 of two sets of boots taken in
+one run, interleaved, and its 95% interval: the bootstrap's, each side drawn again with replacement
+2000 times from a fixed seed, so the same samples always print the same interval
+(`lab.DeltaP50`). The cold first login of v20261119.01 against v20261114.02 reads
+`-54.2 [-62.9, -49.7]`, and v20261119.02's against it `+3.0 [-0.8, +6.6] within noise` (lab
+44641240861).
+
+One rule decides: **a change is a gain only when the interval of its Δ excludes 0** - wholly below
+it, for a time. An interval that includes 0 is within noise, whatever the Δ's size; there is no
+threshold beside it. A Δ between two runs has no interval and is not read: the bench moves between
+runs by as much as a release does. A side with one boot has no interval either, and its Δ is
+printed bare, saying so.
+
+### The shape
+
+Every probe boots the machine spin boots a workspace in unless a run asks for another: one vCPU of
+a ceiling of 16, 128 MiB of a ceiling of 8 GiB through virtio-mem, four hotplug disks
+(spin-stack/spin's `internal/runner/vmm/vmm.go` and `internal/runner/qemu/spec.go`). The options
+are `cpus`, `max-cpus`, `memory`, `max-memory`, `hotplug-disks` and `flags` (more spin-machine boot
+flags); `--opt cpus=2 --opt memory=2048 --opt max-cpus=0 --opt max-memory=0 --opt hotplug-disks=0`
+is the shape the probes booted before they booted spin's. Every table and record says the shape it
+measured; a record that names none booted that older one.
 
 Each release's own numbers are kept in the repository, one record a release in `docs/releases/`,
 and `docs/releases.md` is the page written from them, with its chart, `docs/releases.svg`
@@ -180,22 +207,27 @@ and `docs/releases.md` is the page written from them, with its chart, `docs/rele
 https://spin-stack.github.io/spin-machine/:
 
 ```
-spin-machine-dev releases measure [TAG...] [--reps N] [--run URL]  each release alone, here: its record and the page
+spin-machine-dev releases measure [TAG...] [--reps N] [--run URL]  each release with the one before it, here: its record and the page
 spin-machine-dev releases record LADDER_JSON [--run URL]          the record of a ladder's newest release, and the page
 spin-machine-dev releases missing                                 the published releases with no record, oldest first
-spin-machine-dev releases show RELEASE                            a record: its numbers, where and when
-spin-machine-dev releases compare A B                             two records side by side, and how to measure them together
+spin-machine-dev releases show RELEASE                            a record: its numbers, where, when, in what shape and against what
+spin-machine-dev releases compare A B                             two records side by side: B's Δ when it was measured against A
 spin-machine-dev releases doc [--check]                           docs/releases.md and .svg from the records; --check exits 1 when either differs
 spin-machine-dev releases site --out OUT                          the same as a web page, OUT/index.html, each record beside it in OUT/releases
 spin-machine-dev releases propose                                 the records this checkout wrote, as a pull request against main
 ```
 
-`measure` runs a ladder of one for each release, so each record is a run of its own, as a release's
-is when report.yml measures it, and keeps each ladder.json in `_output/lab/measured/TAG` (`lab show`
-reads that directory). A record says where and when it was measured; two records are two runs, and
-`compare` says so and prints the `lab ladder` that measures them together. `record` takes a ladder
-measured some other way and keeps only its newest release: an older one beside it was measured
-interleaved, and a record of it would not read like the others. `propose` commits what `git status`
+`measure` runs a ladder of two for each release, the published release before it and the release,
+as report.yml does when a release is published, and keeps each ladder.json in
+`_output/lab/measured/TAG` (`lab show` reads that directory). The record is the release's, with an
+`against` block: the release before it, its numbers from the same run, and the Δ of each number
+with its interval. The page's Δ comes only from that block, and is blank for a record measured
+alone, as every record was before they were measured in pairs, until `measure` measures it again.
+`measure` over many tags, oldest first, backfills: each is measured with its own predecessor. `compare A B`
+prints the pair from B's run when B was measured against A, and otherwise both records, each its
+own run's, with no Δ and the `lab ladder` that measures them together. `record` takes a ladder
+measured some other way and keeps only its newest release, against the release before it in that
+ladder. `propose` commits what `git status`
 shows changed under `docs/releases`, with the page and its chart, on a branch named for those
 releases; a branch already on origin is a set proposed once, and is not proposed again. `site`
 writes one HTML file that fetches nothing, the chart inline so its points' tooltips show, from the
@@ -210,9 +242,11 @@ release with another fingerprint, and holds `machine.CanResume` to QEMU's one-wa
 each release's QEMU on the way.
 
 The probes: `ssh-first` and `restore-first` are the goal's two numbers, `prestart` a QEMU started
-ahead against today's, `initcalls` the kernel's boot by initcall. Every probe takes `cpus`,
-`memory` and `flags` (spin-machine boot flags, e.g. the ceilings a workspace boots with), and its
-own: `restore-first` `fast=true`, `initcalls` `top=N`. A name a probe does not take is refused.
+ahead against today's, `initcalls` the kernel's boot by initcall. Every probe takes the shape's
+options (above) and its own: `restore-first` `fast=true`, `initcalls` `top=N`. A name a probe does
+not take is refused. `restore-first`'s cached row reads only the data of the saved state into the
+page cache (`SEEK_DATA`), which is all QEMU loads from a mapped-ram state as long as the RAM
+ceiling; its `listening` is the restoring QEMU's monitor accepting, not its machine made.
 
 `lab dispatch` starts lab.yml once no other lab run is queued or running - the bench fleet
 measures one at a time, and two runs side by side measure each other - waits for it, and prints

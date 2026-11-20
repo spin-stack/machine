@@ -46,11 +46,17 @@ func samples(tree, row string, values map[string]float64, reps int) []Sample {
 	return out
 }
 
+// spins are the options of spin's shape, as a ladder's results keep them.
+var spins = Options{"cpus": "1", "max-cpus": "16", "memory": "128", "max-memory": "8192", "hotplug-disks": "4", "flags": ""}
+
+// spinsShape is spin's shape as a table says it.
+const spinsShape = "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks"
+
 func testLadder() *Ladder {
 	host := Host{Name: "h", Instance: "c8id.4xlarge", Nested: true}
 	// The ladder began with its second probe's start: the first's clock is a minute later.
 	began := time.Date(2026, 11, 20, 11, 40, 7, 370263306, time.UTC)
-	ssh := &Result{Probe: "ssh-first", Reps: 2, Host: host, Started: began.Add(time.Minute)}
+	ssh := &Result{Probe: "ssh-first", Reps: 2, Host: host, Started: began.Add(time.Minute), Options: spins}
 	ssh.Samples = append(samples("v1", "boot", map[string]float64{"first_login": 340, "qemu_rss": 300}, 2),
 		samples("v2", "boot", map[string]float64{"first_login": 321.04, "qemu_rss": 290}, 2)...)
 	rf := &Result{Probe: "restore-first", Reps: 2, Host: host, Started: began,

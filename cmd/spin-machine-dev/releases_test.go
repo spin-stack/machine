@@ -15,14 +15,19 @@ import (
 )
 
 // ladderOf writes, under the test's own directory, a ladder of releases whose cold boots read
-// first, first+10 and so on, and answers its path.
+// first, first+10 and so on, each the p50 of two boots 2 ms apart, and answers its path. A
+// release's Δ against the one before it is then +10, and its interval [+8, +12]: each side's p50
+// drawn again is its own or 2 ms more, both often enough to be inside the 95%.
 func ladderOf(t *testing.T, first float64, releases ...string) string {
 	t.Helper()
-	r := &lab.Result{Probe: "ssh-first", Reps: 1, Host: lab.Host{Instance: "c8id.4xlarge", Nested: true},
-		Started: time.Date(2026, 11, 20, 0, 25, 22, 0, time.UTC)}
+	r := &lab.Result{Probe: "ssh-first", Reps: 2, Host: lab.Host{Instance: "c8id.4xlarge", Nested: true},
+		Started: time.Date(2026, 11, 20, 0, 25, 22, 0, time.UTC),
+		Options: lab.Options{"cpus": "1", "max-cpus": "16", "memory": "128", "max-memory": "8192", "hotplug-disks": "4"}}
 	for i, rel := range releases {
-		r.Samples = append(r.Samples, lab.Sample{Tree: rel, Row: "boot", Rep: 1,
-			Values: map[string]float64{"first_login": first + 10*float64(i)}})
+		for rep := range 2 {
+			r.Samples = append(r.Samples, lab.Sample{Tree: rel, Row: "boot", Rep: rep + 1,
+				Values: map[string]float64{"first_login": first + 10*float64(i) + 2*float64(rep)}})
+		}
 	}
 	path := filepath.Join(t.TempDir(), "ladder.json")
 	if err := (&lab.Ladder{Releases: releases, Results: []*lab.Result{r}}).Write(path); err != nil {
@@ -47,11 +52,14 @@ func TestReleasesRecordWritesTheNewestAndThePage(t *testing.T) {
 		t.Error("an older release's record was replaced by a ladder run for another")
 	}
 	v2, err := lab.ReadRecord(filepath.Join(records, "v2.json"))
-	if err != nil || v2.Numbers["cold"] != (lab.Number{P50: 330, P95: 330}) || v2.Run != "https://x/runs/9" || v2.Host != "c8id.4xlarge, nested" {
+	if err != nil || v2.Numbers["cold"] != (lab.Number{P50: 330, P95: 332}) || v2.Run != "https://x/runs/9" || v2.Host != "c8id.4xlarge, nested" ||
+		v2.Shape != "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks" || v2.Against == nil || v2.Against.Release != "v1" ||
+		v2.Against.Numbers["cold"] != (lab.Number{P50: 320, P95: 322}) {
 		t.Errorf("v2's record %+v, %v", v2, err)
 	}
+	// v2's Δ is against v1 as its own run measured it, 320, and not against v1's record, 300.
 	page := read(t, records+".md")
-	if !strings.Contains(page, "| v1 | 300 / 300 |") || !strings.Contains(page, "| v2 | 330 / 330 | +30.0 |") {
+	if !strings.Contains(page, "| v1 | 300 / 302 |  |") || !strings.Contains(page, "| v2 | 330 / 332 | +10.0 [+8.0, +12.0] |") {
 		t.Errorf("the page:\n%s", page)
 	}
 	if _, _, status := verb(t, "releases", "record", ladderOf(t, 320, "v1", "v2"), "--run", "https://x/runs/9"); status != 0 ||
@@ -59,7 +67,7 @@ func TestReleasesRecordWritesTheNewestAndThePage(t *testing.T) {
 		t.Error("the same ladder recorded again changed something")
 	}
 	if _, _, status := verb(t, "releases", "record", ladderOf(t, 290, "v2")); status != 0 ||
-		!strings.Contains(read(t, records+".md"), "| v2 | 290 / 290 | -10.0 |") {
+		!strings.Contains(read(t, records+".md"), "| v2 | 290 / 292 |  |") {
 		t.Errorf("a newer measurement of v2 did not replace its record:\n%s", read(t, records+".md"))
 	}
 
@@ -87,14 +95,23 @@ func TestReleasesShowAndCompareReadTheRecords(t *testing.T) {
 	checkout(t)
 	verb(t, "releases", "record", ladderOf(t, 300, "v1"))
 	verb(t, "releases", "record", ladderOf(t, 320, "v1", "v2"), "--run", "https://x/runs/9")
+	verb(t, "releases", "record", ladderOf(t, 360, "v3"))
 	if out, _, status := verb(t, "releases", "show", "v2"); status != 0 ||
-		!strings.HasPrefix(out, "v2: measured 2026-11-20 on c8id.4xlarge, nested, 1 boots of each probe (https://x/runs/9).") ||
-		!strings.Contains(out, "| cold boot to first login | 330 / 330 |") {
+		!strings.HasPrefix(out, "v2: measured 2026-11-20 on c8id.4xlarge, nested; 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks; "+
+			"2 boots of each probe, interleaved with v1 (https://x/runs/9).") ||
+		!strings.Contains(out, "| cold boot to first login | 330 / 332 |") {
 		t.Errorf("show: exit %d\n%s", status, out)
 	}
+	// v2 was measured against v1: the two as that run had them, and the Δ with its interval.
 	if out, _, status := verb(t, "releases", "compare", "v2", "v1"); status != 0 ||
-		!strings.HasPrefix(out, "v1: measured") || !strings.Contains(out, "| cold boot to first login | 300 / 300 | 330 / 330 | +30.0 |") {
+		!strings.HasPrefix(out, "v2: measured") || !strings.Contains(out, "| cold boot to first login | 320 / 322 | 330 / 332 | +10.0 [+8.0, +12.0] |") {
 		t.Errorf("compare: exit %d\n%s", status, out)
+	}
+	// v3 was measured alone: each record its own run's, and no Δ across the two.
+	if out, _, status := verb(t, "releases", "compare", "v3", "v2"); status != 0 ||
+		!strings.HasPrefix(out, "v2: measured") || !strings.Contains(out, "v2 and v3 were measured in different runs") ||
+		!strings.Contains(out, "| cold boot to first login | 330 / 332 | 360 / 362 |\n") {
+		t.Errorf("compare across runs: exit %d\n%s", status, out)
 	}
 	for _, args := range [][]string{{"show", "v9"}, {"compare", "v1", "v9"}} {
 		if _, _, status := verb(t, append([]string{"releases"}, args...)...); status != 2 {
@@ -114,7 +131,7 @@ func TestReleasesDocChecksThePageAgainstTheRecords(t *testing.T) {
 	if page := read(t, filepath.Join(dir, "docs", "releases.md")); !strings.Contains(page, "](releases.svg)") {
 		t.Errorf("the page does not show its chart:\n%s", page)
 	}
-	if chart := read(t, filepath.Join(dir, "docs", "releases.svg")); !strings.Contains(chart, "<title>v1 cold: p50 300, p95 300 ms</title>") {
+	if chart := read(t, filepath.Join(dir, "docs", "releases.svg")); !strings.Contains(chart, "<title>v1 cold: p50 300, p95 302 ms</title>") {
 		t.Errorf("the chart:\n%s", chart)
 	}
 	for _, name := range []string{"releases.md", "releases.svg"} {
@@ -153,7 +170,7 @@ func TestReleasesSiteWritesThePageAndItsRecords(t *testing.T) {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
 	index := read(t, filepath.Join(out, "index.html"))
-	for _, want := range []string{`<a href="releases/v1.json">v1</a>`, `<a href="releases/v2.json">v2</a>`, "<title>v2 cold: p50 330, p95 330 ms</title>"} {
+	for _, want := range []string{`<a href="releases/v1.json">v1</a>`, `<a href="releases/v2.json">v2</a>`, "<title>v2 cold: p50 330, p95 332 ms</title>"} {
 		if !strings.Contains(index, want) {
 			t.Errorf("no %q in:\n%s", want, index)
 		}
@@ -285,19 +302,25 @@ func TestReleasesProposeNeedsAGitCheckout(t *testing.T) {
 	}
 }
 
-// TestReleasesMeasureRecordsEachAlone is measure's bench lane: the newest release, measured
-// alone, one boot of each probe (SPIN_LAB_LADDER=1, on a host with KVM, vhost-vsock, sudo and gh).
-// It downloads a release and builds its spin-machine.
-func TestReleasesMeasureRecordsEachAlone(t *testing.T) {
+// TestReleasesMeasureRecordsEachAgainstTheOneBefore is measure's bench lane: the newest release,
+// measured interleaved with the one before it, two boots of each probe, the fewest an interval
+// is drawn from (SPIN_LAB_LADDER=1, on a host with KVM, vhost-vsock, sudo and gh). It downloads
+// two releases and builds their spin-machines.
+func TestReleasesMeasureRecordsEachAgainstTheOneBefore(t *testing.T) {
 	if os.Getenv("SPIN_LAB_LADDER") == "" {
-		t.Skip("set SPIN_LAB_LADDER=1: downloads a release and boots it")
+		t.Skip("set SPIN_LAB_LADDER=1: downloads two releases and boots them")
 	}
 	dir := t.TempDir()
-	if _, stderr, status := verb(t, "releases", "measure", "--reps", "1", "--dir", dir); status != 0 {
+	if _, stderr, status := verb(t, "releases", "measure", "--reps", "2", "--dir", dir); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
 	records, err := lab.ReadRecords(dir)
 	if err != nil || len(records) != 1 || records[0].Numbers["cold"].P50 == 0 || !exists(dir+".md") {
-		t.Errorf("records %+v, %v", records, err)
+		t.Fatalf("records %+v, %v", records, err)
+	}
+	if a := records[0].Against; a == nil || a.Numbers["cold"].P50 == 0 {
+		t.Errorf("measured against %+v", a)
+	} else if _, ok := a.Delta["cold"]; !ok {
+		t.Errorf("no Δ of the cold boot against %s: %+v", a.Release, a.Delta)
 	}
 }

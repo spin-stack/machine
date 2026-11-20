@@ -1,22 +1,24 @@
 name: Report
 
-# Each release's numbers, measured and kept in the repository: the release booted alone on one
-# bench host with the spin-machine of the commit it was made from - the two goal numbers (a cold
-# boot and a restore, each to the first SSH login), both again into a QEMU started ahead, and save,
-# state, kernel and QEMU RSS as diagnostics - written to docs/releases/RELEASE.json, and
-# docs/releases.md written again from every record (spin-machine-dev releases, docs/cli.md). The
-# records are proposed as a pull request as the release app, so the checks on it run.
+# Each release's numbers, measured and kept in the repository: the release booted interleaved with
+# the release before it on one bench host, each with the spin-machine of the commit it was made
+# from, in the shape spin boots a workspace in - the two goal numbers (a cold boot and a restore,
+# each to the first SSH login), both again into a QEMU started ahead, and save, state, kernel and
+# QEMU RSS as diagnostics - written to docs/releases/RELEASE.json with the release before it and
+# each Δ against it, and docs/releases.md written again from every record (spin-machine-dev
+# releases, docs/cli.md). The records are proposed as a pull request as the release app, so the
+# checks on it run.
 #
-# Alone, a ladder of one: each record is a run of its own, and the page says a Δ between two runs
-# is read against the noise between them. Interleaving with the release before cost a second
-# release's boots on every run, and the five-release ladder this replaced booted the same releases
-# again and again (~13 min) to publish a table no one kept. A decision between two releases is a
-# ladder of them, measured together (lab ladder). A workflow of its own because it boots: GitHub's
-# runners have no /dev/kvm, and the goal is measured on the bench fleet's nested c8id.
+# With the release before it, a ladder of two: a Δ between two runs is the bench's drift as much as
+# the release's (v20261120.01's restore to first login was 158.9 ms p50 in one run and 167.0 in
+# another, labs 44641240861 and 44727451080), so the page's Δ is only ever the pair's. It costs
+# the second release's boots on every run, which measuring alone saved. A workflow of its own
+# because it boots: GitHub's runners have no /dev/kvm, and the goal is measured on the bench
+# fleet's nested c8id.
 #
 # release.yml calls it with record once a release is out. By hand, it measures past releases one
-# after another, each alone, and proposes them together: what releases missing lists, to take the
-# page back in time.
+# after another, each with its own predecessor, and proposes them together: what releases missing
+# lists, to take the page back in time, and the records measured alone, to give them a Δ.
 
 on:
   workflow_call:
@@ -27,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       versions:
-        description: "The releases measured, each alone, space-separated, e.g. v20261119.01 v20261119.02 (default the newest published)"
+        description: "The releases measured, each with the one before it, space-separated, e.g. v20261119.01 v20261119.02 (default the newest published)"
         type: string
         default: ""
       record:
@@ -76,7 +78,7 @@ jobs:
         run: go tool task vsock
 
       # Unquoted: one word a release.
-      - name: Measure each release alone
+      - name: Measure each release with the one before it
         run: spin-machine-dev releases measure $VERSIONS --reps 20 --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       # Every sample, which a record keeps only the p50 and p95 of: lab show DIR reads one release's.

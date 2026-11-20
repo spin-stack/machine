@@ -184,6 +184,18 @@ func trees(root string, names, specs []string, log io.Writer) ([]*lab.Tree, erro
 	return out, nil
 }
 
+// releaseTrees are the published releases tags as trees, each booted by the spin-machine of the
+// commit it was made from: a ladder's, and a record's.
+//
+// mutate-lane: TestLabLadderMeasuresReleases
+func releaseTrees(root string, tags []string, log io.Writer) ([]*lab.Tree, error) {
+	var specs []string
+	for _, tag := range tags {
+		specs = append(specs, tag+"=--from release:"+tag+" --spin-machine release")
+	}
+	return trees(root, nil, specs, log)
+}
+
 // options reads k=v pairs.
 func options(pairs []string) (lab.Options, error) {
 	o := lab.Options{}
@@ -247,7 +259,7 @@ several in one value. Exits 1 when a measurement was lost, 2 when the experiment
 		},
 	}
 	c.Flags().StringArrayVar(&specs, "tree", nil, "a tree made for this run, NAME=SPEC")
-	c.Flags().StringArrayVar(&opts, "opt", nil, "a probe option, NAME=VALUE (cpus, memory, flags, and the probe's own)")
+	c.Flags().StringArrayVar(&opts, "opt", nil, "a probe option, NAME=VALUE (the shape, spin's unless given: cpus, max-cpus, memory, max-memory, hotplug-disks, flags; and the probe's own)")
 	c.Flags().IntVar(&reps, "reps", 10, "repetitions of each tree")
 	c.Flags().StringVar(&out, "out", "", "where result.json goes (default _output/lab/results/TIME-PROBE)")
 	return c
@@ -297,11 +309,7 @@ the table. Exits 1 when a measurement was lost, 2 when the ladder could not run.
 			if err != nil {
 				return couldNot(err)
 			}
-			var specs []string
-			for _, tag := range tags {
-				specs = append(specs, tag+"=--from release:"+tag+" --spin-machine release")
-			}
-			ts, err := trees(root, nil, specs, c.ErrOrStderr())
+			ts, err := releaseTrees(root, tags, c.ErrOrStderr())
 			if err != nil {
 				return couldNot(err)
 			}

@@ -103,7 +103,7 @@ func TestAnExperimentInterleavesAndFinishesEachPhaseBeforeTheNext(t *testing.T) 
 	if len(r.Samples) != 8 || r.Samples[0].Rep != 1 || r.Samples[7].Rep != 2 || r.Samples[7].Tree != "B" {
 		t.Errorf("samples: %+v", r.Samples)
 	}
-	if r.Options["n"] != "5" || r.Options["cpus"] != "2" || r.Options["on"] != "false" || r.Reps != 2 || r.Probe != "recorder" ||
+	if r.Options["n"] != "5" || r.Options["cpus"] != "1" || r.Options["on"] != "false" || r.Reps != 2 || r.Probe != "recorder" ||
 		!slices.Equal(r.Rows, []string{"x", "y"}) || len(r.Trees) != 2 || r.Finished.Before(r.Started) {
 		t.Errorf("result: %+v", r)
 	}
@@ -182,10 +182,12 @@ func TestAnOptionIsOneTheProbeTakesAndOfItsKind(t *testing.T) {
 		given Options
 		want  string
 	}{
-		{Options{"nope": "1"}, `takes no option "nope"; it takes: cpus, flags, memory, n, on`},
+		{Options{"nope": "1"}, `takes no option "nope"; it takes: cpus, flags, hotplug-disks, max-cpus, max-memory, memory, n, on`},
 		{Options{"n": "many"}, "is a number"},
 		{Options{"n": "-1"}, "is a number"},
 		{Options{"on": "maybe"}, "true or false"},
+		// A number whose default is 1 is a number, not a boolean.
+		{Options{"cpus": "true"}, "is a number"},
 	} {
 		if _, err := settle(p, tc.given); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("settle(%v) = %v, want %q", tc.given, err, tc.want)
@@ -195,7 +197,7 @@ func TestAnOptionIsOneTheProbeTakesAndOfItsKind(t *testing.T) {
 		t.Errorf("settle(n=0) = %v, %v", o, err)
 	}
 	o, err := settle(p, Options{"n": "4", "on": "true", "flags": "--a b"})
-	if err != nil || o.Int("n") != 4 || !o.Bool("on") || !slices.Equal(o.Fields("flags"), []string{"--a", "b"}) || o["memory"] != "2048" {
+	if err != nil || o.Int("n") != 4 || !o.Bool("on") || !slices.Equal(o.Fields("flags"), []string{"--a", "b"}) || o["memory"] != "128" {
 		t.Errorf("settle = %v, %v", o, err)
 	}
 	if !slices.Equal(p.Rows(o), []string{"extra"}) {
@@ -203,12 +205,38 @@ func TestAnOptionIsOneTheProbeTakesAndOfItsKind(t *testing.T) {
 	}
 }
 
+// A probe boots the machine spin boots a workspace in unless the run asks for another: one vCPU
+// of 16, 128 MiB of 8 GiB, four hotplug disks (spin-stack/spin internal/runner/vmm/vmm.go).
 func TestBootArgsAreTheTreesInTheExperimentsShape(t *testing.T) {
-	m := &Measurement{Tree: trees("A")[0], Options: Options{"cpus": "1", "memory": "512", "flags": "--max-cpus 16"}}
-	got := m.BootArgs("/o.qcow2", "--vsock-cid", "9")
-	want := []string{"boot", "--release", "/A", "--disk", "/o.qcow2", "--memory", "512", "--cpus", "1", "--vsock-cid", "9", "--max-cpus", "16"}
-	if !slices.Equal(got, want) {
+	spins, err := settle(Probes["ssh-first"], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Measurement{Tree: trees("A")[0], Options: spins}
+	want := []string{"boot", "--release", "/A", "--disk", "/o.qcow2", "--memory", "128", "--cpus", "1", "--max-memory", "8192",
+		"--max-cpus", "16", "--hotplug-disks", "4", "--vsock-cid", "9"}
+	if got := m.BootArgs("/o.qcow2", "--vsock-cid", "9"); !slices.Equal(got, want) {
 		t.Errorf("BootArgs = %v", got)
+	}
+	if got := shapeOf(spins); got != "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks" {
+		t.Errorf("spin's shape is said %q", got)
+	}
+	m.Options, err = settle(Probes["ssh-first"], Options{"cpus": "2", "memory": "2048", "max-cpus": "0", "max-memory": "0",
+		"hotplug-disks": "0", "flags": "--cpu host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"boot", "--release", "/A", "--disk", "/o.qcow2", "--memory", "2048", "--cpus", "2", "--max-memory", "0",
+		"--max-cpus", "0", "--hotplug-disks", "0", "--cpu", "host"}
+	if got := m.BootArgs("/o.qcow2"); !slices.Equal(got, want) {
+		t.Errorf("BootArgs in the shape asked for = %v", got)
+	}
+	if got := shapeOf(m.Options); got != shapeBefore+", --cpu host" {
+		t.Errorf("the shape asked for is said %q", got)
+	}
+	// A ceiling of one is a ceiling, and one hotplug disk is one.
+	if got := shapeOf(Options{"cpus": "1", "max-cpus": "1", "memory": "128", "max-memory": "1", "hotplug-disks": "1"}); got != "1 of 1 vCPUs, 128 of 1 MiB, 1 hotplug disks" {
+		t.Errorf("ceilings of one are said %q", got)
 	}
 	// A tree's own boot flags come last, so a tree that names a CPU model is that model whatever
 	// the experiment's flags say.
@@ -223,24 +251,29 @@ func TestBootArgsAreTheTreesInTheExperimentsShape(t *testing.T) {
 	}
 }
 
+// The table says the shape it booted, each tree's p50/p95 and lost, and each tree's Δ p50 against
+// the first with its interval, within noise when that includes 0.
 func TestTheTableIsEachTreesP50AndP95AndItsDistanceFromTheFirst(t *testing.T) {
-	r := &Result{Probe: "p", About: "about", Reps: 3, Rows: []string{"x"}, Options: Options{"cpus": "2", "flags": ""},
+	r := &Result{Probe: "p", About: "about", Reps: 3, Rows: []string{"x"}, Options: Options{"cpus": "2", "memory": "2048", "flags": "", "top": "5"},
 		Metrics: []Metric{{"a", "ms", ""}, {"curve25519_in", "count", ""}},
 		Trees:   []Manifest{{Name: "release", Parts: map[string]Part{"kernel": {Source: "release v1"}}, Edits: []NamedEdit{{Name: "lane"}}, Append: "q"}, {Name: "kaslr", Boot: []string{"--cpu=Cascadelake-Server-v5"}}},
 		Host:    Host{Name: "h", Instance: "c8id.4xlarge", CPU: "Xeon", CPUs: 16, Nested: true, ScratchDevice: "/dev/nvme1n1"}}
 	for i, v := range []float64{100, 110, 300} {
-		r.Samples = append(r.Samples, Sample{Tree: "release", Row: "x", Rep: i + 1, Values: map[string]float64{"a": v, "curve25519_in": 0}})
+		r.Samples = append(r.Samples, Sample{Tree: "release", Row: "x", Rep: i + 1, Values: map[string]float64{"a": v, "curve25519_in": 1}})
 		r.Samples = append(r.Samples, Sample{Tree: "kaslr", Row: "x", Rep: i + 1, Values: map[string]float64{"a": v - 10.5}})
 	}
+	r.Samples[1].Values["curve25519_in"] = 0 // one boot of kaslr's: a Δ with no interval
 	r.Samples = append(r.Samples, Sample{Tree: "kaslr", Row: "x", Rep: 4, Missed: "gone", Values: map[string]float64{"a": 1}})
 	got := r.Table()
 	for _, want := range []string{
 		"p: about\n",
-		"p50/p95 over 3 of each, interleaved; cpus=2; h on c8id.4xlarge (Xeon, 16 CPUs, nested true), scratch on /dev/nvme1n1",
-		"  release          110/300                 0/0      0\n",
-		"  kaslr           99.5/290                   -      1\n",
-		"  p50 against release\n",
-		"  kaslr              -10.5                   -\n",
+		"p50/p95 over 3 of each, interleaved, in 2 vCPUs, 2048 MiB, no hotplug disks; top=5; h on c8id.4xlarge (Xeon, 16 CPUs, nested true), scratch on /dev/nvme1n1",
+		"  release          110/300                 1/1      0\n",
+		"  kaslr           99.5/290                 0/0      1\n",
+		"  Δ p50 against release [95% interval]: a change only when the interval excludes 0\n",
+		"  kaslr      a ms                -10.5 [",
+		"] within noise\n",
+		"  kaslr      curve25519_in count -1.0, no interval from one boot\n",
 		"    release: kernel release v1; qemu ; image ; spin-machine ; edit lane; append \"q\";\n",
 		// A tree's own boot flag is said, even one alone: two trees of one release differ by it.
 		"; boot \"--cpu=Cascadelake-Server-v5\";\n",
@@ -249,9 +282,12 @@ func TestTheTableIsEachTreesP50AndP95AndItsDistanceFromTheFirst(t *testing.T) {
 			t.Errorf("the table has no %q:\n%s", want, got)
 		}
 	}
-	r.Rows = []string{"x", "y"}
-	if !strings.Contains(r.Table(), "release, x") {
-		t.Error("with two rows a line is not named by its row")
+	// A second row the first tree booted and the second did not: no Δ.
+	two := *r
+	two.Rows = []string{"x", "y"}
+	two.Samples = append(slices.Clone(r.Samples), Sample{Tree: "release", Row: "y", Rep: 1, Values: map[string]float64{"a": 5}})
+	if got := two.Table(); !strings.Contains(got, "release, x") || !strings.Contains(got, "  kaslr, y   a ms                -\n") {
+		t.Errorf("with two rows a line is not named by its row, or a row one tree has no boots of has a Δ:\n%s", got)
 	}
 	path := filepath.Join(t.TempDir(), "result.json")
 	if err := r.Write(path); err != nil {
@@ -405,13 +441,39 @@ func TestALoginKeyGoesIntoTheOverlayOwnedBySpin(t *testing.T) {
 	}
 }
 
-func TestAStateIsReadWholeAndASocketWaitedFor(t *testing.T) {
+// A state's data is read and its holes are not: a mapped-ram state is as long as the machine's
+// RAM ceiling and mostly holes. Data that ends the file, and a file of no data, are read too.
+func TestAStatesDataIsReadAndASocketWaitedFor(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state")
-	write(t, path, bytes.Repeat([]byte("s"), 3<<20))
-	if d, err := readWhole(path); err != nil || d <= 0 {
-		t.Errorf("readWhole = %v, %v", d, err)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := readWhole(filepath.Join(t.TempDir(), "none")); err == nil {
+	for _, at := range []int64{0, 64 << 20, 1 << 30} { // three extents of 1.5 MiB, holes between and after
+		if _, err := f.WriteAt(bytes.Repeat([]byte("s"), 1<<20+1<<19), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.Truncate(2 << 30); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if d, n, err := readData(path); err != nil || d <= 0 || n != 3*(1<<20+1<<19) {
+		t.Errorf("readData = %v, %d bytes, %v", d, n, err)
+	}
+	tail := filepath.Join(t.TempDir(), "tail")
+	write(t, tail, bytes.Repeat([]byte("s"), 3<<20))
+	if _, n, err := readData(tail); err != nil || n != 3<<20 {
+		t.Errorf("readData of data to the end = %d bytes, %v", n, err)
+	}
+	empty := filepath.Join(t.TempDir(), "empty")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil || os.Truncate(empty, 1<<30) != nil {
+		t.Fatal(err)
+	}
+	if _, n, err := readData(empty); err != nil || n != 0 {
+		t.Errorf("readData of holes alone = %d bytes, %v", n, err)
+	}
+	if _, _, err := readData(filepath.Join(t.TempDir(), "none")); err == nil {
 		t.Error("read a state that is not there")
 	}
 	dir, err := shortDir()

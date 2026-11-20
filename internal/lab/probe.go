@@ -75,12 +75,45 @@ func (o Options) Bool(name string) bool {
 // Fields is option name split on spaces: spin-machine boot flags.
 func (o Options) Fields(name string) []string { return strings.Fields(o[name]) }
 
-// shape is the machine every probe boots unless told otherwise: what the probes this replaced
-// booted, so the numbers compare with theirs.
+// shape is the machine every probe boots unless a run asks for another: the one spin boots a
+// workspace in, so that the goal is measured on the machine its users get. spin-stack/spin at
+// c12bd87 (2026-11-20): internal/runner/vmm/vmm.go's canonicalBootCPUs, canonicalMemory,
+// defaultMaxCPUs and defaultMaxMemory, and internal/runner/qemu/spec.go's hotplugDisks. spin plugs
+// cores before the boot only for a workspace that asks for more than one, which the canonical
+// workspace does not. Its ceilings cost the boot: the kernel took 86.6 ms to "Freeing" in it
+// against 62 in the 2 vCPUs and 2 GiB with no hotplug the probes booted before (lab 44587603255).
 var shape = []Option{
-	{"cpus", "2", "vCPUs"},
-	{"memory", "2048", "MiB of memory"},
-	{"flags", "", "more spin-machine boot flags for every boot, e.g. the ceilings a workspace boots with: --max-cpus 16 --max-memory 8192 --hotplug-disks 1"},
+	{"cpus", "1", "vCPUs at boot"},
+	{"max-cpus", "16", "the vCPU hotplug ceiling (0: no hotplug)"},
+	{"memory", "128", "MiB of memory at boot"},
+	{"max-memory", "8192", "MiB the memory may grow to through virtio-mem (0: fixed)"},
+	{"hotplug-disks", "4", "targets on the hotplug controller"},
+	{"flags", "", "more spin-machine boot flags for every boot"},
+}
+
+// shapeBefore is the shape every probe booted before shape was spin's, which a record from then
+// does not name.
+const shapeBefore = "2 vCPUs, 2048 MiB, no hotplug disks"
+
+// shapeOf is the machine options o boot, as a table and a record say it.
+func shapeOf(o Options) string {
+	cpus := fmt.Sprintf("%d vCPUs", o.Int("cpus"))
+	if n := o.Int("max-cpus"); n > 0 {
+		cpus = fmt.Sprintf("%d of %d vCPUs", o.Int("cpus"), n)
+	}
+	memory := fmt.Sprintf("%d MiB", o.Int("memory"))
+	if n := o.Int("max-memory"); n > 0 {
+		memory = fmt.Sprintf("%d of %d MiB", o.Int("memory"), n)
+	}
+	disks := "no hotplug disks"
+	if n := o.Int("hotplug-disks"); n > 0 {
+		disks = fmt.Sprintf("%d hotplug disks", n)
+	}
+	s := cpus + ", " + memory + ", " + disks
+	if f := strings.TrimSpace(o["flags"]); f != "" {
+		s += ", " + f
+	}
+	return s
 }
 
 // settle is given with every option p takes filled in, refusing a name p does not take or a value
@@ -101,8 +134,7 @@ func settle(p Probe, given Options) (Options, error) {
 			if n, err := strconv.Atoi(v); err != nil || n < 0 {
 				return nil, fmt.Errorf("%s's option %s is a number, not %q", p.Name(), name, v)
 			}
-		}
-		if _, err := strconv.ParseBool(o.Default); err == nil {
+		} else if _, err := strconv.ParseBool(o.Default); err == nil { // a number's default of 1 or 0 parses as one too
 			if _, err := strconv.ParseBool(v); err != nil {
 				return nil, fmt.Errorf("%s's option %s is true or false, not %q", p.Name(), name, v)
 			}
@@ -178,7 +210,8 @@ func (m *Measurement) Overlay(name string, edits ...Edit) (string, error) {
 // ones after them.
 func (m *Measurement) BootArgs(overlay string, extra ...string) []string {
 	args := []string{"boot", "--release", m.Tree.Dir, "--disk", overlay,
-		"--memory", m.Options["memory"], "--cpus", m.Options["cpus"]}
+		"--memory", m.Options["memory"], "--cpus", m.Options["cpus"], "--max-memory", m.Options["max-memory"],
+		"--max-cpus", m.Options["max-cpus"], "--hotplug-disks", m.Options["hotplug-disks"]}
 	args = append(args, extra...)
 	args = append(args, m.Options.Fields("flags")...)
 	return append(args, m.Tree.Manifest.Boot...)
