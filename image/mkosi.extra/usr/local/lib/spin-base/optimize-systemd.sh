@@ -29,8 +29,7 @@ MASK_UNITS=(
     #   * A hot-plugged CPU never produced an add event, so nothing could act on one —
     #     see 40-spin-hotadd.rules, which is the thing that acts on it.
 
-    # Time sync - handled by host
-    systemd-timesyncd.service
+    # Time is the host's: timedated would let a session set a clock it does not own.
     systemd-timedated.service
 
     systemd-journal-flush.service
@@ -41,11 +40,8 @@ MASK_UNITS=(
 
     systemd-modules-load.service
     systemd-hibernate-clear.service
-    systemd-pcrmachine.service
     systemd-pstore.service
     systemd-hwdb-update.service
-    systemd-tpm2-setup.service
-    systemd-tpm2-setup-early.service
 
     # First-boot setup (done at build time)
     systemd-firstboot.service
@@ -53,20 +49,6 @@ MASK_UNITS=(
 
     # Random seed (VM gets entropy from virtio-rng)
     systemd-random-seed.service
-
-    systemd-boot-system-token.service
-
-    avahi-daemon.service
-    cups.service
-    bluetooth.service
-
-    smartd.service
-    e2scrub_reap.service
-    multipathd.service
-    multipathd.socket
-    lvm2-monitor.service
-
-    e2scrub_all.timer
 
     # ldconfig, already pre-warmed at build time.
     ldconfig.service
@@ -95,11 +77,9 @@ MASK_UNITS=(
     systemd-tmpfiles-setup-dev-early.service
 
     # Mounts for hardware and interfaces this machine does not have:
-    # no hugepages are configured, nothing uses POSIX message queues, and /run/lock has no
-    # user on a machine that runs one workload.
+    # no hugepages are configured, and nothing uses POSIX message queues.
     dev-hugepages.mount
     dev-mqueue.mount
-    run-lock.mount
 )
 
 log "Masking unnecessary systemd units..."
@@ -118,15 +98,14 @@ DISABLE_GENERATORS=(
     systemd-rc-local-generator
     systemd-hibernate-resume-generator
     systemd-system-update-generator
-    # Two that cannot do anything on this machine, and the boot log says so in both cases:
-    # the tpm2 one reports that libtss2-esys.so.0 cannot be opened, and the factory-reset one
-    # runs on a machine systemd itself logs as not booted in EFI mode.
+    # One that cannot do anything on this machine: the factory-reset generator runs on a
+    # machine systemd itself logs as not booted in EFI mode.
     #
-    # Worth 1.0 ms of the 26 ms systemd spends loading units and building the initial
-    # transaction — measured 2026-09-26 with the unitload probe (ad05544), which asks systemd for that
-    # number through `systemd --test` rather than reading it out of a debug-logged boot. The
-    # same number read from a debug boot is 212 ms, and that difference is the logging.
-    systemd-tpm2-generator
+    # Worth, with the tpm2 generator that was here, 1.0 ms of the 26 ms systemd spends loading
+    # units and building the initial transaction — measured 2026-09-26 with the unitload probe
+    # (ad05544), which asks systemd for that number through `systemd --test` rather than reading
+    # it out of a debug-logged boot. The same number read from a debug boot is 212 ms, and that
+    # difference is the logging.
     systemd-factory-reset-generator
 )
 

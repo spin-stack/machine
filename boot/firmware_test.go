@@ -126,7 +126,7 @@ func (p *probe) start(t *testing.T, variant string, gen bool, incoming, kernel, 
 		"-kernel", cmp.Or(kernel, p.kernel),
 		"-initrd", cmp.Or(initrd, p.initrd),
 		"-append", "console=ttyS0 quiet loglevel=3 pci=lastbus=0 no_timer_check " +
-			"tsc=reliable rcupdate.rcu_expedited=1 TERM=dumb rdinit=/init",
+			"tsc=reliable TERM=dumb rdinit=/init",
 	}
 	if gen {
 		args = append(args, "-device", "vmgenid,guid=auto")
