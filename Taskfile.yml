@@ -76,6 +76,24 @@ tasks:
     cmds:
       - go tool ghatrace run -out {{.OUTPUT_ABS}}/ghatrace
 
+  # spin-stack/ship-it reads the releases here and dispatches what follows one (spin's machine
+  # proposal). GitHub's schedule does not wake it (its */5 ran 3 of 576 in 48 h), so the run that
+  # made the release does. A hint: ship-it reads the state itself, and its hourly cron catches a
+  # wake that was lost.
+  ship-it:wake:
+    desc: Wake spin-stack/ship-it with this run and its CONCLUSION (GH_TOKEN, the release app's on ship-it; release.yml's last job).
+    requires:
+      vars: [CONCLUSION]
+    cmds:
+      - |
+        set -euo pipefail
+        workflow=${GITHUB_WORKFLOW_REF%@*}
+        gh api repos/spin-stack/ship-it/dispatches -f event_type=wake \
+          -f "client_payload[repository]=${GITHUB_REPOSITORY}" \
+          -f "client_payload[workflow]=${workflow##*/}" \
+          -f "client_payload[run]=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          -f "client_payload[conclusion]=${CONCLUSION}"
+
   vsock:
     desc: spin-machine-dev vsock, for the probes and the lab (lab.yml and report.yml run it by this name).
     deps: [bin]
