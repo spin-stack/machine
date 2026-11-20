@@ -423,7 +423,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	f := &fakeQEMU{answer: migrations(base, "active", "pre-switchover", "completed")}
 	m := f.attach(t)
 	to := image(t, "raw").File
-	saved, err := m.Checkpoint(ctx(t), to, func(context.Context) error { sealed++; return nil })
+	saved, err := m.Checkpoint(ctx(t), to, Save{}, func(context.Context) error { sealed++; return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,13 +453,14 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	}
 	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get", "query-cpus-fast", "qom-get", "query-cpu-model-expansion",
 		"migrate-set-capabilities", "migrate-set-parameters",
-		"add-fd", "migrate", "remove-fd", "query-migrate", "query-migrate", "migrate-continue", "query-migrate"}
+		"add-fd", "migrate", "query-migrate", "query-migrate", "migrate-continue", "query-migrate", "remove-fd"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Errorf("commands\n%v\nwant\n%v", got, want)
 	}
 	caps := f.sent("migrate-set-capabilities")[0]["capabilities"]
 	wantCaps := []any{
 		map[string]any{"capability": "mapped-ram", "state": true},
+		map[string]any{"capability": "multifd", "state": false},
 		map[string]any{"capability": "pause-before-switchover", "state": true},
 		map[string]any{"capability": "postcopy-ram", "state": false},
 	}
@@ -503,7 +504,7 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 				return ok
 			}, tc.statuses...)}
 			m := f.attach(t)
-			_, err := m.Checkpoint(ctx(t), image(t, "raw").File, func(context.Context) error { return tc.seal })
+			_, err := m.Checkpoint(ctx(t), image(t, "raw").File, Save{}, func(context.Context) error { return tc.seal })
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Checkpoint = %v, want %q", err, tc.want)
 			}
@@ -512,6 +513,38 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 				t.Errorf("last command %s, want migrate_cancel", cmds[len(cmds)-1])
 			}
 		})
+	}
+}
+
+// A checkpoint written by more than one channel asks QEMU for multifd and that many channels; one
+// written by one leaves the migration's own thread to write it.
+func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
+	for _, channels := range []int{0, 1, 4} {
+		f := &fakeQEMU{answer: migrations(func(c call) string {
+			if r, ok := cpuAnswers(c); ok {
+				return r
+			}
+			switch c.Command {
+			case "query-hotpluggable-cpus", "qom-list":
+				return ret(`[]`)
+			case "add-fd":
+				return ret(`{"fdset-id": 3}`)
+			}
+			return ok
+		}, "completed")}
+		if _, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, Save{Channels: channels}, func(context.Context) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		multifd := false
+		for _, c := range f.sent("migrate-set-capabilities")[0]["capabilities"].([]any) {
+			if c := c.(map[string]any); c["capability"] == "multifd" {
+				multifd = c["state"].(bool)
+			}
+		}
+		count, set := f.sent("migrate-set-parameters")[0]["multifd-channels"]
+		if multifd != (channels > 1) || set != (channels > 1) || set && count != float64(channels) {
+			t.Errorf("%d channels: multifd %t, multifd-channels %v", channels, multifd, count)
+		}
 	}
 }
 
@@ -534,9 +567,11 @@ func TestResume(t *testing.T) {
 		cont     bool
 	}{
 		{"fast, at postcopy-active", mapped, Load{Fast: true}, []string{"setup", "postcopy-active"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false}, 2, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false}, 2, false},
 		{"in full, past postcopy-active, which it never asked for", mapped, Load{}, []string{"active", "postcopy-active", "completed"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false}, 3, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false}, 3, false},
+		{"in full, by four channels", mapped, Load{Channels: 4}, []string{"active", "completed"}, "running",
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true}, 2, false},
 		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream}, Load{}, []string{"completed"}, "paused",
 			map[string]bool{"mapped-ram": false, "pause-before-switchover": false}, 1, true},
 	} {
@@ -576,6 +611,10 @@ func TestResume(t *testing.T) {
 			if !reflect.DeepEqual(caps, tc.caps) {
 				t.Errorf("capabilities %v, want %v", caps, tc.caps)
 			}
+			if params := f.sent("migrate-set-parameters"); tc.load.Channels > 1 && (len(params) != 1 || params[0]["multifd-channels"] != float64(tc.load.Channels)) ||
+				tc.load.Channels <= 1 && len(params) != 0 {
+				t.Errorf("parameters %v, want multifd-channels only for more than one channel", params)
+			}
 			if got := len(f.sent("query-migrate")); got != tc.polls {
 				t.Errorf("asked for the migration's state %d times, want %d", got, tc.polls)
 			}
@@ -606,6 +645,7 @@ func TestResumeRefuses(t *testing.T) {
 		want   string
 	}{
 		{"a stream checkpoint, fast", Saved{Format: FormatStream}, Load{Fast: true}, "inmigrate", "loads only in full"},
+		{"a stream checkpoint, by channels", Saved{Format: FormatStream}, Load{Channels: 2}, "inmigrate", "which one thread reads"},
 		{"a format it does not read", Saved{Format: "firecracker-snapshot"}, Load{}, "inmigrate", `format "firecracker-snapshot"`},
 		{"no format", Saved{}, Load{}, "inmigrate", `format ""`},
 		{"a machine held for a boot", Saved{Format: FormatMappedRAM}, Load{}, "prelaunch", "is prelaunch"},
@@ -1095,16 +1135,20 @@ func TestResumeFailsWhereAHotDiskIsRefused(t *testing.T) {
 }
 
 // QEMU's refusal to let go of the state's descriptor set is the migration's error when the
-// migration itself was accepted, and not when it was refused: the first failure is what is said.
+// migration itself was accepted and ran, and not when it was refused or failed: the first failure
+// is what is said. The set goes only once the migration is over, whatever became of it: a multifd
+// channel opens the file from the set after the command has returned.
 func TestMigrateSaysTheFirstFailure(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		migrate, removed string
+		done             error
 		want             string
 	}{
-		{"the set kept", ok, refused("busy"), "remove-fd: GenericError: busy"},
-		{"the migration refused", refused("no"), refused("busy"), "migrate: GenericError: no"},
-		{"both accepted", ok, ok, ""},
+		{"the set kept", ok, refused("busy"), nil, "remove-fd: GenericError: busy"},
+		{"the migration refused", refused("no"), refused("busy"), nil, "migrate: GenericError: no"},
+		{"the migration failed", ok, refused("busy"), errors.New("No space left on device"), "No space left on device"},
+		{"both accepted", ok, ok, nil, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: func(c call) string {
@@ -1118,9 +1162,22 @@ func TestMigrateSaysTheFirstFailure(t *testing.T) {
 				}
 				return ok
 			}}
-			err := f.attach(t).migrate(ctx(t), "migrate", image(t, "raw").File, os.O_WRONLY, "state")
+			waited := false
+			err := f.attach(t).migrate(ctx(t), "migrate", image(t, "raw").File, os.O_WRONLY, func() error {
+				waited = true
+				if f.commands()[len(f.commands())-1] != "migrate" {
+					t.Error("the set was removed before the migration was over")
+				}
+				return tc.done
+			})
 			if (tc.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.want)) {
 				t.Errorf("migrate = %v, want %q", err, tc.want)
+			}
+			if waited == (tc.migrate != ok) {
+				t.Errorf("waited for the migration: %t, when QEMU answered %s", waited, tc.migrate)
+			}
+			if cmds := f.commands(); cmds[len(cmds)-1] != "remove-fd" {
+				t.Errorf("the last command was %s, want the set removed", cmds[len(cmds)-1])
 			}
 		})
 	}

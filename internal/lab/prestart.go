@@ -37,15 +37,15 @@ func (prestart) Name() string { return "prestart" }
 func (prestart) About() string {
 	return "ms to the first SSH login from before QEMU's exec, or for a prestarted QEMU from before the request"
 }
-func (prestart) Options() []Option { return shape }
-func (prestart) Rows(Options) []string {
-	return []string{rowCold, rowPrestarted, rowRestored, rowRestoredAhead}
+func (prestart) Options() []Option { return append(shape, channelsOption) }
+func (prestart) Rows(o Options) []string {
+	return append([]string{rowCold, rowPrestarted}, withChannels(o, rowRestored, rowRestoredAhead)...)
 }
 func (prestart) Phases() int { return 2 }
 
-func (prestart) Needs(Options) []Need {
-	return append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "qmp"}, Need{"boot", "held"}, Need{"boot", "restore"},
-		Need{"save", "to"}, Need{"start", "disk"}, Need{"restore", "disk"})
+func (prestart) Needs(o Options) []Need {
+	return append(append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "qmp"}, Need{"boot", "held"}, Need{"boot", "restore"},
+		Need{"save", "to"}, Need{"start", "disk"}, Need{"restore", "disk"}), channelsNeeds(o)...)
 }
 
 func (prestart) Metrics() []Metric {
@@ -57,13 +57,17 @@ func (prestart) Metrics() []Metric {
 
 // mutate-lane: TestEveryProbeMeasuresATree
 func (prestart) Measure(_ context.Context, m *Measurement) error {
+	way, channels, err := rowChannels(m.Row)
+	if err != nil {
+		return err
+	}
 	switch {
-	case m.Phase == 0 && (m.Row == rowRestored || m.Row == rowRestoredAhead):
-		return coldSave(m)
-	case m.Phase == 1 && m.Row == rowRestored:
-		return restore(m, false, false)
-	case m.Phase == 1 && m.Row == rowRestoredAhead:
-		return restoreAhead(m)
+	case m.Phase == 0 && (way == rowRestored || way == rowRestoredAhead):
+		return coldSave(m, channels...)
+	case m.Phase == 1 && way == rowRestored:
+		return restore(m, false, false, channels...)
+	case m.Phase == 1 && way == rowRestoredAhead:
+		return restoreAhead(m, channels...)
 	case m.Phase == 0:
 		return bootAhead(m)
 	}
@@ -114,9 +118,10 @@ func bootAhead(m *Measurement) error {
 	return nil
 }
 
-// restoreAhead loads the saved state into a QEMU started ahead with --restore.
+// restoreAhead loads the saved state into a QEMU started ahead with --restore, with restore's
+// --channels when the row names them.
 // mutate-lane: TestEveryProbeMeasuresATree
-func restoreAhead(m *Measurement) error {
+func restoreAhead(m *Measurement, channels ...string) error {
 	c := m.State.(*checkpoint)
 	if err := evict(c.state); err != nil {
 		return err
@@ -131,7 +136,7 @@ func restoreAhead(m *Measurement) error {
 		return err
 	}
 	t0 := time.Now()
-	if err := m.SpinMachine("restore", "--release", m.Tree.Dir, "--qmp", qmp, "--disk", c.overlay, "--from", c.state); err != nil {
+	if err := m.SpinMachine(append([]string{"restore", "--release", m.Tree.Dir, "--qmp", qmp, "--disk", c.overlay, "--from", c.state}, channels...)...); err != nil {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
