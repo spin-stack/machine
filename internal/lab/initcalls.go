@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -39,8 +41,8 @@ func (initcalls) Options() []Option {
 }
 func (initcalls) Rows(Options) []string { return []string{"boot"} }
 
-func (initcalls) Needs(Options) []Need {
-	return append(bootNeeds, Need{"boot", "console"}, Need{"boot", "append"}, Need{"boot", "profile"})
+func (initcalls) Needs(o Options) []Need {
+	return append(append(bootNeeds, Need{"boot", "console"}, Need{"boot", "append"}, Need{"boot", "profile"}), plugNeeds(o)...)
 }
 func (initcalls) Phases() int { return 1 }
 
@@ -73,16 +75,27 @@ func (initcalls) Measure(_ context.Context, m *Measurement) error {
 		return err
 	}
 	console, w := io.Pipe()
-	mc, err := m.Launch(w, m.BootArgs(overlay, "--console", "file:/dev/stdout", "--append", m.Tree.Cmdline(), "--profile")...)
+	qmp := filepath.Join(m.Socks, "m.qmp")
+	args := append([]string{"--console", "file:/dev/stdout", "--append", m.Tree.Cmdline(), "--profile"}, m.qmpToPlug(qmp)...)
+	mc, err := m.Launch(w, m.BootArgs(overlay, args...)...)
 	if err != nil {
 		return err
 	}
+	// Sized as the shape it records says, as spin sizes a workspace. Left at 128 MiB, this probe lost
+	// 7 of 80 boots across two release reports, each a dump that never came in 90 s (report runs
+	// 44800662338 and 44805222647, 2026-11-20), where ssh-first and the restores, which size their
+	// guests, lost none; such a guest had 6 MiB of its 72 free and had already stalled on memory
+	// when the dump ran on a laptop that lost none (2026-11-20).
+	plugged := m.Plug(qmp)
 	// The read end closed first: once the marker is read nothing drains the pipe, and the copy of
 	// the console into it - which the machine's Wait waits for - would block on it for good.
 	defer func() { _ = console.Close(); mc.Stop(); _ = w.Close() }()
 	out, err := readUntil(console, "SPIN-DMESG-END", 90*time.Second)
 	if err != nil {
 		return Miss("%v; console tail: %s", err, tail(out, 2000))
+	}
+	if err := plugged(); err != nil {
+		return err
 	}
 	p, err := parseRingBuffer(out)
 	if err != nil {
@@ -102,16 +115,25 @@ func (initcalls) Measure(_ context.Context, m *Measurement) error {
 	return nil
 }
 
-// readUntil reads r until marker has appeared, and returns all of it.
+// readUntil reads r until marker has appeared, and returns all of it - or, when it never does,
+// all that came before the timeout, which is what says where the guest stopped: a timeout that
+// returned nothing once hid that the console had been read all along (2026-11-20).
 func readUntil(r io.Reader, marker string, timeout time.Duration) (string, error) {
-	var b bytes.Buffer
+	var (
+		mu sync.Mutex
+		b  bytes.Buffer
+	)
+	read := func() string { mu.Lock(); defer mu.Unlock(); return b.String() }
 	done := make(chan error, 1)
 	go func() {
 		buf := make([]byte, 1<<16) // mutate-exempt: the size of each read; the console is read whole either way
 		for {
 			n, err := r.Read(buf)
+			mu.Lock()
 			b.Write(buf[:n])
-			if bytes.Contains(b.Bytes(), []byte(marker)) {
+			seen := bytes.Contains(b.Bytes(), []byte(marker))
+			mu.Unlock()
+			if seen {
 				done <- nil
 				return
 			}
@@ -124,11 +146,11 @@ func readUntil(r io.Reader, marker string, timeout time.Duration) (string, error
 	select {
 	case err := <-done:
 		if err != nil {
-			return b.String(), fmt.Errorf("the console ended before %q: %w", marker, err)
+			return read(), fmt.Errorf("the console ended before %q: %w", marker, err)
 		}
-		return b.String(), nil
+		return read(), nil
 	case <-time.After(timeout):
-		return "", fmt.Errorf("never saw %q in %s", marker, timeout)
+		return read(), fmt.Errorf("never saw %q in %s", marker, timeout)
 	}
 }
 

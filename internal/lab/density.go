@@ -5,6 +5,7 @@ package lab
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -40,8 +41,8 @@ func (density) Options() []Option {
 func (density) Rows(o Options) []string { return o.Fields("crowds") }
 func (density) Phases() int             { return 1 }
 
-func (density) Needs(Options) []Need {
-	return append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "console"}, Need{"boot", "append"})
+func (density) Needs(o Options) []Need {
+	return append(append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "console"}, Need{"boot", "append"}), plugNeeds(o)...)
 }
 
 func (density) Metrics() []Metric {
@@ -68,7 +69,7 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 	}()
 	t0 := time.Now()
 	for i := range n {
-		mc, cid, err := m.bootLoggedIn(fmt.Sprintf("crowd%d.qcow2", i))
+		mc, cid, _, err := m.bootLoggedIn(fmt.Sprintf("crowd%d.qcow2", i))
 		if mc != nil {
 			crowd = append(crowd, mc)
 		}
@@ -87,19 +88,10 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 	m.RecordMs("crowd_up", time.Since(t0))
 	time.Sleep(time.Duration(m.Options.Int("settle")) * time.Second)
 
-	overlay, err := m.Overlay("measured.qcow2", m.Key.Edits()...)
-	if err != nil {
-		return err
+	mc, _, login, err := m.bootLoggedIn("measured.qcow2")
+	if mc != nil {
+		defer mc.Stop()
 	}
-	cid := NewCID()
-	t0 = time.Now()
-	mc, err := m.Launch(nil, m.BootArgs(overlay, "--vsock-cid", fmt.Sprint(cid),
-		"--console", "file:"+m.Dir+"/measured.console", "--append", m.Tree.Cmdline())...)
-	if err != nil {
-		return err
-	}
-	defer mc.Stop()
-	login, err := m.Key.LoggedIn(mc, cid, t0)
 	if err != nil {
 		return err
 	}
@@ -108,24 +100,29 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 	return nil
 }
 
-// bootLoggedIn boots one more of the tree's workspaces and returns it, for the caller to end, and
-// its vsock CID once it has been logged into. A machine that started is returned with any error.
+// bootLoggedIn boots one more of the tree's workspaces, sized as spin sizes one (Plug), and returns
+// it, for the caller to end, with its vsock CID and how long after the moment before its exec it was
+// logged into. A machine that started is returned with any error.
 // mutate-lane: TestEveryProbeMeasuresATree, whose density crowds boot real machines: an overlay a
 // test can make here is edited through NBD, which only the VM lane has.
-func (m *Measurement) bootLoggedIn(name string) (*Machine, uint32, error) {
+func (m *Measurement) bootLoggedIn(name string) (*Machine, uint32, time.Duration, error) {
 	overlay, err := m.Overlay(name, m.Key.Edits()...)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	cid := NewCID()
+	qmp := filepath.Join(m.Socks, name+".qmp")
+	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--console", "file:" + m.Dir + "/" + name + ".console",
+		"--append", m.Tree.Cmdline()}, m.qmpToPlug(qmp)...)
 	t0 := time.Now()
-	mc, err := m.Launch(nil, m.BootArgs(overlay, "--vsock-cid", fmt.Sprint(cid),
-		"--console", "file:"+m.Dir+"/"+name+".console", "--append", m.Tree.Cmdline())...)
+	mc, err := m.Launch(nil, m.BootArgs(overlay, args...)...)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
-	if _, err := m.Key.LoggedIn(mc, cid, t0); err != nil {
-		return mc, 0, err
+	plugged := m.Plug(qmp)
+	login, err := m.Key.LoggedIn(mc, cid, t0)
+	if err != nil {
+		return mc, 0, 0, err
 	}
-	return mc, cid, nil
+	return mc, cid, login, plugged()
 }

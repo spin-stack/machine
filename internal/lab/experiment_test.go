@@ -410,6 +410,13 @@ func TestReadUntilReturnsOnceTheMarkerIsThere(t *testing.T) {
 	if _, err := readUntil(r, "END", 20*time.Millisecond); err == nil || !strings.Contains(err.Error(), "never saw") {
 		t.Errorf("a console that says nothing: %v", err)
 	}
+	// A console that stops short of the marker: what it said is the tail a lost boot is read by.
+	r, w = io.Pipe()
+	defer func() { _ = w.Close() }()
+	go func() { _, _ = w.Write([]byte("Freeing unused kernel image")) }()
+	if got, err := readUntil(r, "END", 200*time.Millisecond); err == nil || got != "Freeing unused kernel image" {
+		t.Errorf("a console that stopped short: %q, %v", got, err)
+	}
 }
 
 func TestALoginKeyGoesIntoTheOverlayOwnedBySpin(t *testing.T) {
@@ -475,6 +482,35 @@ func TestSpinsLoginIsRootThroughAForwarderToSSHService(t *testing.T) {
 	}
 	if err := (&Measurement{Options: Options{"plugged": "0"}}).Plug("/nonexistent")(); err != nil {
 		t.Errorf("a guest left at its memory: %v", err)
+	}
+}
+
+// Every probe that boots spin's shape sizes the guest as the shape says: initcalls, which did not,
+// lost 7 of 80 boots of a guest left at 128 MiB in the release reports of 2026-11-20, while its
+// record said "sized to 2048 MiB". A probe's Needs naming memory --to is what says it plugs.
+func TestEveryProbeInSpinsShapeSizesItsGuest(t *testing.T) {
+	for _, name := range ProbeNames() {
+		p := Probes[name]
+		if !slices.ContainsFunc(p.Options(), func(o Option) bool { return o.Name == "plugged" }) {
+			continue
+		}
+		n, ok := p.(Needer)
+		if !ok {
+			t.Errorf("%s takes plugged and says nothing of what it runs", name)
+			continue
+		}
+		if !slices.Contains(n.Needs(Options{"plugged": "2048"}), Need{"memory", "to"}) {
+			t.Errorf("%s boots spin's shape and never sizes its guest", name)
+		}
+		if slices.Contains(n.Needs(Options{"plugged": "0"}), Need{"memory", "to"}) {
+			t.Errorf("%s sizes a guest the options leave at its memory", name)
+		}
+	}
+	if got := (&Measurement{Options: Options{"plugged": "2048"}}).qmpToPlug("/s/m.qmp"); !slices.Equal(got, []string{"--qmp", "/s/m.qmp"}) {
+		t.Errorf("a sized boot's monitor: %v", got)
+	}
+	if got := (&Measurement{Options: Options{"plugged": "0"}}).qmpToPlug("/s/m.qmp"); got != nil {
+		t.Errorf("a boot left at its memory opens a monitor: %v", got)
 	}
 }
 
