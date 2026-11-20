@@ -1,46 +1,42 @@
 name: Report
 
-# The machine's evolution, measured: the newest releases booted together on one bench host, each
-# with the spin-machine of the commit it was made from, the two goal numbers (a cold boot and a
-# restore, each to the first SSH login) and both again into a QEMU started ahead, with save, state,
-# kernel and QEMU RSS beside them as diagnostics (spin-machine-dev lab ladder, docs/cli.md).
+# Each release's numbers, measured and kept in the repository: the release booted alone on one
+# bench host with the spin-machine of the commit it was made from - the two goal numbers (a cold
+# boot and a restore, each to the first SSH login), both again into a QEMU started ahead, and save,
+# state, kernel and QEMU RSS as diagnostics - written to docs/releases/RELEASE.json, and
+# docs/releases.md written again from every record (spin-machine-dev releases, docs/cli.md). The
+# records are proposed as a pull request as the release app, so the checks on it run.
 #
-# Interleaved on one host because that is the only comparison the bench leaves honest: two
-# reports taken on different days said v20261119.02 accepted SSH 7.3% later than v20261119.01,
-# and the same two interleaved said it did not. A workflow of its own because it boots: GitHub's
-# runners have no /dev/kvm, and the goal is measured on the bench fleet's nested c8i.
+# Alone, a ladder of one: each record is a run of its own, and the page says a Δ between two runs
+# is read against the noise between them. Interleaving with the release before cost a second
+# release's boots on every run, and the five-release ladder this replaced booted the same releases
+# again and again (~13 min) to publish a table no one kept. A decision between two releases is a
+# ladder of them, measured together (lab ladder). A workflow of its own because it boots: GitHub's
+# runners have no /dev/kvm, and the goal is measured on the bench fleet's nested c8id.
 #
-# release.yml calls it with publish once a release is out: ladder.json goes up as that release's
-# asset and the table ends its notes. By hand, any release as the newest, kept as the run's
-# artifact (lab show RUN_ID reads it).
-#
-# Not on a schedule: with no release between two runs it boots the same five releases again, and
-# a fleet that drifted shows in the next release's ladder anyway, which measures the four before
-# it interleaved on the same host (removed 2026-11-20).
+# release.yml calls it with record once a release is out. By hand, it measures past releases one
+# after another, each alone, and proposes them together: what releases missing lists, to take the
+# page back in time.
 
 on:
   workflow_call:
     inputs:
-      version: { type: string, required: true }
+      versions: { type: string, required: true }
       ref: { type: string, required: true }
-      publish: { type: boolean, default: false }
+      record: { type: boolean, default: false }
   workflow_dispatch:
     inputs:
-      version:
-        description: "The newest release measured, e.g. v20261119.02 (default the newest published)"
+      versions:
+        description: "The releases measured, each alone, space-separated, e.g. v20261119.01 v20261119.02 (default the newest published)"
         type: string
         default: ""
-      releases:
-        description: "How many releases, the newest up to version"
-        type: number
-        default: 5
-      publish:
-        description: "Upload ladder.json to that release and end its notes with the table"
+      record:
+        description: "Propose their records and docs/releases.md as a pull request"
         type: boolean
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 # As ci.yml: go-tools' downloads ask GitHub with it, which sheds anonymous ones first.
 env:
@@ -52,16 +48,17 @@ jobs:
     timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
-      VERSION: ${{ inputs.version }}
-      RELEASES: ${{ inputs.releases || 5 }}
+      VERSIONS: ${{ inputs.versions }}
     steps:
-      # The ladder from the ref asked for - the release's own tag when release.yml calls - and,
-      # by hand, from where the run started. The releases it measures each boot
-      # with their own spin-machine whatever this ref is.
+      # The verbs from the ref asked for - the release's own tag when release.yml calls - and, by
+      # hand, from where the run started. The releases measured each boot with their own
+      # spin-machine whatever this ref is.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
+          # The records are pushed as the app, below, and not with this run's token.
+          persist-credentials: false
 
       # Go's caches come back from the fleet's cache (its S3 bucket): the instance starts with
       # nothing.
@@ -78,17 +75,41 @@ jobs:
       - name: Load vhost_vsock
         run: go tool task vsock
 
-      - name: Measure the ladder
-        run: spin-machine-dev lab ladder --newest "$VERSION" --releases "$RELEASES" --reps 20 --out _output/lab/result
+      # Unquoted: one word a release.
+      - name: Measure each release alone
+        run: spin-machine-dev releases measure $VERSIONS --reps 20 --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
-      - name: Keep the ladder
+      # Every sample, which a record keeps only the p50 and p95 of: lab show DIR reads one release's.
+      - name: Keep the ladders
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lab-${{ github.run_id }}
-          path: _output/lab/result/ladder.json
+          path: _output/lab/releases
+          retention-days: 90
           if-no-files-found: ignore
 
-      - name: Publish the ladder
-        if: inputs.publish
-        run: spin-machine-dev lab publish _output/lab/result
+      # The app's token is made here and not first: it lasts an hour, and measuring past releases
+      # takes longer. What a lost measurement left recorded (measure's 1) is proposed too, its dash
+      # saying why.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        if: ${{ inputs.record && !cancelled() }}
+        with:
+          client-id: Iv23licJKNgsPIM00SD0 # spin-stack-release's client ID, public: app-id is deprecated
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          owner: spin-stack
+          repositories: spin-machine
+
+      - name: Commit as the app
+        if: ${{ inputs.record && !cancelled() }}
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: go tool task git:app
+
+      - name: Propose the records
+        if: ${{ inputs.record && !cancelled() }}
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: spin-machine-dev releases propose

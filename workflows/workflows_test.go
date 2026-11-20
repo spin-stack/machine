@@ -19,7 +19,7 @@ func TestEveryUploadIsAttested(t *testing.T) {
 		Root:        "..",
 		RequireSBOM: true,
 		MainOnly:    []string{"release.yml"},
-		UploadTasks: []string{"spin-machine-dev publish qemu", "spin-machine-dev lab publish", "spin-machine-dev refresh builders"},
+		UploadTasks: []string{"spin-machine-dev publish qemu", "spin-machine-dev refresh builders"},
 		AttestTasks: []string{"spin-machine-dev release sign"},
 		NotPublished: map[string]string{
 			"ci.yml/gate/Upload Go coverage HTML":                                              "a coverage page for a person, kept seven days",
@@ -29,8 +29,7 @@ func TestEveryUploadIsAttested(t *testing.T) {
 			"parts.yml/qemu/Publish the runtime image":                                         "what ci.yml's argument check pulls (spin-machine-dev fetch qemu); a release compiles QEMU, it never takes this",
 			"refresh.yml/builders/Make the builders and propose the ones whose packages moved": "a build's input, pinned by digest in the pull request that takes it; a release ships what is compiled on it, attested",
 			"release.yml/trace/Keep the trace":                                                 "where the release's time went, for a person: nothing installs or verifies it",
-			"report.yml/report/Keep the ladder":                                                "the run's ladder.json, which lab show reads; for a person",
-			"report.yml/report/Publish the ladder":                                             "ladder.json is measurement data: nothing installs or verifies it",
+			"report.yml/report/Keep the ladders":                                               "each release's ladder.json, every sample, which lab show reads; for a person",
 		},
 	}
 	if err := g.Check(); err != nil {

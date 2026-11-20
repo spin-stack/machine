@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestALadderIsTheNewestReleasesUpToOneOldestFirst(t *testing.T) {
@@ -47,12 +48,14 @@ func samples(tree, row string, values map[string]float64, reps int) []Sample {
 
 func testLadder() *Ladder {
 	host := Host{Name: "h", Instance: "c8id.4xlarge", Nested: true}
-	ssh := &Result{Probe: "ssh-first", Reps: 2, Host: host}
+	// The ladder began with its second probe's start: the first's clock is a minute later.
+	began := time.Date(2026, 11, 20, 11, 40, 7, 370263306, time.UTC)
+	ssh := &Result{Probe: "ssh-first", Reps: 2, Host: host, Started: began.Add(time.Minute)}
 	ssh.Samples = append(samples("v1", "boot", map[string]float64{"first_login": 340, "qemu_rss": 300}, 2),
-		samples("v2", "boot", map[string]float64{"first_login": 318.5, "qemu_rss": 290}, 2)...)
-	rf := &Result{Probe: "restore-first", Reps: 2, Host: host,
+		samples("v2", "boot", map[string]float64{"first_login": 321.04, "qemu_rss": 290}, 2)...)
+	rf := &Result{Probe: "restore-first", Reps: 2, Host: host, Started: began,
 		Samples: samples("v2", "evicted", map[string]float64{"login": 152, "save": 151, "state": 140}, 2)}
-	ps := &Result{Probe: "prestart", Reps: 2, Host: host,
+	ps := &Result{Probe: "prestart", Reps: 2, Host: host, Started: began.Add(2 * time.Minute),
 		Samples: append(samples("v2", rowPrestarted, map[string]float64{"login": 296}, 2),
 			Sample{Tree: "v2", Row: rowRestoredAhead, Rep: 1, Missed: "never answered"})}
 	return &Ladder{Releases: []string{"v1", "v2"}, Results: []*Result{ssh, rf, ps},
@@ -60,57 +63,6 @@ func testLadder() *Ladder {
 			"restore-first": {"v1": "its spin-machine's boot has no --restore"},
 			"prestart":      {"v1": "its spin-machine's boot has no --held"},
 		}}
-}
-
-// The table is each release's goal numbers against the release above and against the goal, a
-// dash with its reason where a release could not run a probe or lost every measurement.
-func TestTheLadderSaysEachReleaseAgainstTheOneBeforeAndTheGoal(t *testing.T) {
-	md := testLadder().Markdown()
-	for _, want := range []string{
-		"over 2 boots of each release, interleaved on one host (c8id.4xlarge, nested true)",
-		"the goal is 100 ms",
-		"| v1 | 340 / 340 | | - | | - | - |",
-		"| v2 | 318 / 318 | -21.5 | 152 / 152 | | 296 / 296 | - |",
-		"v2 against the goal: cold +218 ms, restore +52 ms.",
-		"| v1 | - | - | - | 300 |",
-		"| v2 | 151 | 140 | - | 290 |",
-		"- v1, restore to first login: its spin-machine's boot has no --restore",
-		"- v1, cold, QEMU started ahead: its spin-machine's boot has no --held",
-		"- v2, restore, QEMU started ahead: lost all 1",
-		"- v1, cold boot to first login",
-	} {
-		if want == "- v1, cold boot to first login" {
-			if strings.Contains(md, want) {
-				t.Errorf("a number that is there has a note:\n%s", md)
-			}
-			continue
-		}
-		if !strings.Contains(md, want) {
-			t.Errorf("no %q in:\n%s", want, md)
-		}
-	}
-	// A probe that never ran is said, not taken for zero.
-	l := testLadder()
-	l.Results = l.Results[:1]
-	l.Cannot = nil
-	if md := l.Markdown(); !strings.Contains(md, "v2, restore to first login: not measured") {
-		t.Errorf("a probe that did not run:\n%s", md)
-	}
-	if md := (&Ladder{}).Markdown(); !strings.Contains(md, "no host") || !strings.Contains(md, "over 0 boots") ||
-		strings.Contains(md, "against the goal") || strings.Contains(md, "A dash") {
-		t.Errorf("an empty ladder:\n%s", md)
-	}
-	// One release, and one number it has not: the goal line and the one note.
-	one := &Ladder{Releases: []string{"v1"}, Results: []*Result{
-		{Probe: "ssh-first", Reps: 1, Samples: samples("v1", "boot", map[string]float64{"first_login": 300}, 1)},
-		{Probe: "prestart", Reps: 1, Samples: append(samples("v1", rowPrestarted, map[string]float64{"login": 280}, 1),
-			samples("v1", rowRestoredAhead, map[string]float64{"login": 120}, 1)...)},
-	}, Cannot: map[string]map[string]string{"restore-first": {"v1": "no restore"}}}
-	md = one.Markdown()
-	if !strings.Contains(md, "v1 against the goal: cold +200 ms.") || !strings.Contains(md, "A dash is a number that release has not") ||
-		strings.Count(md, "\n- v1, ") != 1 || !strings.Contains(md, "- v1, restore to first login: no restore") {
-		t.Errorf("one release:\n%s", md)
-	}
 }
 
 // A release whose spin-machine can run none of the ladder's probes is in it with why, and nothing
@@ -165,7 +117,7 @@ func TestALadderIsWrittenAndReadBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := ReadLadder(path)
-	if err != nil || got.Markdown() != l.Markdown() {
+	if err != nil || !reflect.DeepEqual(got.Records(), l.Records()) {
 		t.Errorf("read back: %v", err)
 	}
 	if _, err := ReadLadder(filepath.Join(t.TempDir(), "none.json")); err == nil {
@@ -178,21 +130,5 @@ func TestALadderIsWrittenAndReadBack(t *testing.T) {
 	write(t, bad, []byte("{"))
 	if _, err := ReadLadder(bad); err == nil {
 		t.Error("a ladder that is not JSON")
-	}
-}
-
-// A section published again replaces the one before it, from its marker on.
-func TestASectionPublishedAgainReplacesItself(t *testing.T) {
-	m := "<!-- m -->"
-	once := WithSection("notes\n\n", m, "table 1\n")
-	if once != "notes\n\n"+m+"\ntable 1\n" {
-		t.Errorf("once: %q", once)
-	}
-	if twice := WithSection(once, m, "table 2\n"); twice != "notes\n\n"+m+"\ntable 2\n" {
-		t.Errorf("twice: %q", twice)
-	}
-	// Notes that are only the section are only the new one.
-	if only := WithSection(m+"\ntable 1\n", m, "table 2\n"); only != "\n\n"+m+"\ntable 2\n" {
-		t.Errorf("only: %q", only)
 	}
 }
