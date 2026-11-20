@@ -67,8 +67,8 @@
 - name: qemu-builder
   kind: image
   source: ghcr.io/spin-stack/spin-machine/builder-qemu
-  version: unpublished
-  pin: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  version: b06465ba23ab
+  pin: sha256:19e41fb9909758e885abf79bd9dcedb69b2fd27993065f908739631ec15a96a1
   track: digest
   note: >-
     Alpine with qemu/apk.list installed (builder/Dockerfile): the static libraries QEMU links. Its
@@ -80,8 +80,8 @@
 - name: e2fsprogs-builder
   kind: image
   source: ghcr.io/spin-stack/spin-machine/builder-e2fsprogs
-  version: unpublished
-  pin: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  version: 0abe81a64b32
+  pin: sha256:6149d49f1379b1906ffdbcbc764dcff2374393317531989996e2c4c35e5e3ff0
   track: digest
   note: >-
     Alpine with e2fsprogs/apk.list installed (builder/Dockerfile): the static libraries
