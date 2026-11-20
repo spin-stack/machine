@@ -80,12 +80,13 @@ jobs:
         run: spin-machine-dev releases measure $VERSIONS --reps 20 --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       # Every sample, which a record keeps only the p50 and p95 of: lab show DIR reads one release's.
+      # Only the ladders: a release's tarball, downloaded beside them, is 1.5 GB (run 44734233084).
       - name: Keep the ladders
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lab-${{ github.run_id }}
-          path: _output/lab/releases
+          path: _output/lab/measured/*/ladder.json
           retention-days: 90
           if-no-files-found: ignore
 

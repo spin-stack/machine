@@ -130,7 +130,7 @@ func releasesMeasure(dir *string) *cobra.Command {
 		Long: `Measure each TAG in a ladder of its own - each its own run, as a release's is when it is
 published - and write its record and the page. Each release boots with the spin-machine of the
 commit it was made from; one whose spin-machine cannot run a probe is a dash that says why. Each
-ladder.json, every sample, is kept in _output/lab/releases/TAG. Records are only worth keeping
+ladder.json, every sample, is kept in _output/lab/measured/TAG. Records are only worth keeping
 from the bench fleet: report.yml runs this there. Exits 1 when a measurement was lost (the records
 are written), 2 when a release could not be measured (the ones before it are).`,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -164,7 +164,7 @@ are written), 2 when a release could not be measured (the ones before it are).`,
 				if err != nil {
 					return couldNot(err)
 				}
-				if err := writeLadder(c.OutOrStdout(), l, filepath.Join(root, "_output", "lab", "releases", tag)); exitCode(err) == 1 {
+				if err := writeLadder(c.OutOrStdout(), l, filepath.Join(root, "_output", "lab", "measured", tag)); exitCode(err) == 1 {
 					lost = err
 				} else if err != nil {
 					return err

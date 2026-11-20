@@ -188,7 +188,7 @@ spin-machine-dev releases propose                                 the records th
 ```
 
 `measure` runs a ladder of one for each release, so each record is a run of its own, as a release's
-is when report.yml measures it, and keeps each ladder.json in `_output/lab/releases/TAG` (`lab show`
+is when report.yml measures it, and keeps each ladder.json in `_output/lab/measured/TAG` (`lab show`
 reads that directory). A record says where and when it was measured; two records are two runs, and
 `compare` says so and prints the `lab ladder` that measures them together. `record` takes a ladder
 measured some other way and keeps only its newest release: an older one beside it was measured
