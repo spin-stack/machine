@@ -188,6 +188,12 @@ func TestBootArgsAreTheTreesInTheExperimentsShape(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("BootArgs = %v", got)
 	}
+	// A tree's own boot flags come last, so a tree that names a CPU model is that model whatever
+	// the experiment's flags say.
+	named := &Measurement{Tree: &Tree{Dir: "/B", Manifest: Manifest{Boot: []string{"--cpu=Skylake-Server-v4"}}}, Options: m.Options}
+	if got := named.BootArgs("/o.qcow2"); got[len(got)-1] != "--cpu=Skylake-Server-v4" {
+		t.Errorf("BootArgs of a tree with boot flags = %v, want them last", got)
+	}
 	c := &checkpoint{cid: 42}
 	m.Tree.Manifest.Append = "quiet"
 	if got := c.bootFlags(m, "/s/q", "--held"); !slices.Equal(got, []string{"--vsock-cid", "42", "--qmp", "/s/q", "--console", "file:/s/q.console", "--append", "init=/sbin/init quiet", "--held"}) {

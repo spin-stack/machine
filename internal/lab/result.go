@@ -174,6 +174,9 @@ func (r *Result) Table() string {
 		if t.Append != "" {
 			fmt.Fprintf(&b, " append %q;", t.Append)
 		}
+		if len(t.Boot) > 0 {
+			fmt.Fprintf(&b, " boot %q;", strings.Join(t.Boot, " "))
+		}
 		fmt.Fprintln(&b)
 	}
 	return b.String()

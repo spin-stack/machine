@@ -180,7 +180,8 @@ func (m *Measurement) BootArgs(overlay string, extra ...string) []string {
 	args := []string{"boot", "--release", m.Tree.Dir, "--disk", overlay,
 		"--memory", m.Options["memory"], "--cpus", m.Options["cpus"]}
 	args = append(args, extra...)
-	return append(args, m.Options.Fields("flags")...)
+	args = append(args, m.Options.Fields("flags")...)
+	return append(args, m.Tree.Manifest.Boot...)
 }
 
 // MissError is a measurement lost - a machine that never answered - and not an experiment that

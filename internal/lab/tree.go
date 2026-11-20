@@ -44,6 +44,10 @@ type Manifest struct {
 	Parts map[string]Part `json:"parts"`
 	// Append is added to the kernel command line of every boot of the tree.
 	Append string `json:"append,omitempty"`
+	// Boot are spin-machine boot flags added to every boot of the tree, after the probe's and the
+	// experiment's: a machine the release defines but does not default to, such as a named CPU
+	// model (--cpu Skylake-Server-v4).
+	Boot []string `json:"boot,omitempty"`
 	// Edits are made to every boot's own overlay, in order.
 	Edits []NamedEdit `json:"edits,omitempty"`
 }
@@ -168,6 +172,7 @@ type TreeSpec struct {
 	// checkout's otherwise. The manifest says whose.
 	SpinMachine string
 	Append      string
+	Boot        []string
 	Edits       []string
 	// Systemd is an image/systemd/experiments patch: systemd built with it, put into every overlay.
 	Systemd string
@@ -201,7 +206,7 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 	if err := linkTree(base, dir); err != nil {
 		return nil, err
 	}
-	m := Manifest{Name: spec.Name, Parts: map[string]Part{}, Append: spec.Append}
+	m := Manifest{Name: spec.Name, Parts: map[string]Part{}, Append: spec.Append, Boot: spec.Boot}
 	for name := range partFiles {
 		m.Parts[name] = Part{Source: baseSource}
 	}
