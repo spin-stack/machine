@@ -162,7 +162,7 @@ spin-machine-dev lab tree NAME [tree flags]              make _output/trees/NAME
 spin-machine-dev lab run PROBE [TREE...] [--tree NAME=SPEC]... [--reps N] [--opt K=V]...
 spin-machine-dev lab show RUN_ID|DIR                     a lab run's result.json, downloaded, as its table
 spin-machine-dev lab dispatch PROBE --tree NAME=SPEC... [--reps N] [--opt K=V]... [--host bench|bench-metal]
-spin-machine-dev lab check TARGET [--tree NAME=SPEC]     boot:TARGET on one tree
+spin-machine-dev lab check TARGET [--tree NAME=SPEC]     boot:TARGET on one tree; a second tree, firmware-stages boots beside it
 spin-machine-dev lab ladder [--releases N] [--newest vX] the newest releases measured together: ladder.json
 spin-machine-dev lab compat [--here DIR] [--releases N]  a checkpoint of every release since the contract moved, resumed
 ```

@@ -43,8 +43,14 @@ func main() {
 		if err != nil || n <= 0 {
 			continue
 		}
-		if line := message(buf[:n]); strings.Contains(strings.ToLower(line), "vmgenid") {
+		line := message(buf[:n])
+		if strings.Contains(strings.ToLower(line), "vmgenid") {
 			fmt.Println(line)
+		}
+		// Where the kernel's clock starts, and how far along it the kernel was done: what
+		// boot:firmware-stages needs to split the time after the firmware's jump.
+		if strings.Contains(line, "kvm-clock: using sched offset") || strings.Contains(line, "Freeing unused kernel image") {
+			fmt.Printf("SPIN-KMSG %s %s\n", stamp(buf[:n]), line)
 		}
 	}
 	fmt.Println("SPIN-READY")
@@ -56,6 +62,16 @@ func main() {
 		}
 		fmt.Println(message(buf[:n]))
 	}
+}
+
+// stamp is a /dev/kmsg record's time on the kernel's clock, in µs: "6,339,5140900,-;text\n" is
+// 5140900.
+func stamp(rec []byte) string {
+	f := strings.SplitN(string(rec), ",", 4)
+	if len(f) < 4 {
+		return "?"
+	}
+	return f[2]
 }
 
 // message is a /dev/kmsg record's text: "6,339,5140900,-;text\n" is text.
