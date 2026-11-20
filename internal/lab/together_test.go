@@ -82,7 +82,9 @@ func TestRestoreTogetherPoolsEveryRestore(t *testing.T) {
 			{Tree: "other", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 700, "login\x001": 800}},
 		},
 	}
-	if got := pooledLogins(r, "release", "2 at once, channels 8"); len(got) != 4 || slices.Contains(got, 900) || slices.Contains(got, 700) {
+	got := pooledLogins(r, "release", "2 at once, channels 8")
+	slices.Sort(got)
+	if !slices.Equal(got, []float64{95, 100, 110, 120}) {
 		t.Errorf("pooled = %v, want the four of the tree's two measurements not lost", got)
 	}
 	d := (restoreTogether{}).Detail(r)
