@@ -1,28 +1,22 @@
 {
   "release": "v20261113.01",
-  "measured": "2026-11-20T12:58:01Z",
-  "host": "c8id.4xlarge, nested",
-  "reps": 20,
-  "run": "https://github.com/spin-stack/spin-machine/actions/runs/44737371130",
-  "numbers": {
-    "cold": {
-      "p50": 461.5,
-      "p95": 470.2
-    },
-    "kernel-ms": {
-      "p50": 86.2,
-      "p95": 88.1
-    },
-    "qemu-rss-mib": {
-      "p50": 215.1,
-      "p95": 215.2
-    }
-  },
+  "measured": "0001-01-01T00:00:00Z",
+  "host": "no host",
+  "reps": 0,
+  "run": "https://github.com/spin-stack/spin-machine/actions/runs/44820465606",
+  "numbers": {},
   "cannot": {
+    "cold": "its spin-machine's memory has no --to",
     "cold-ahead": "its spin-machine's boot has no --held",
+    "kernel-ms": "its spin-machine's memory has no --to",
+    "qemu-rss-mib": "its spin-machine's memory has no --to",
     "restore": "its spin-machine's boot has no --restore",
     "restore-ahead": "its spin-machine's boot has no --held",
     "save-ms": "its spin-machine's boot has no --restore",
     "state-mib": "its spin-machine's boot has no --restore"
+  },
+  "against": {
+    "release": "v20261112.01",
+    "numbers": {}
   }
 }

@@ -1,41 +1,46 @@
 {
   "release": "v20261119.02",
-  "measured": "2026-11-20T12:46:13Z",
+  "measured": "2026-11-20T21:35:52Z",
   "host": "c8id.4xlarge, nested",
+  "shape": "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login",
   "reps": 20,
-  "run": "https://github.com/spin-stack/spin-machine/actions/runs/44737371130",
+  "run": "https://github.com/spin-stack/spin-machine/actions/runs/44820465606",
   "numbers": {
     "cold": {
-      "p50": 329.5,
-      "p95": 344.7
+      "p50": 517.5,
+      "p95": 535.7
     },
     "cold-ahead": {
-      "p50": 298.9,
-      "p95": 313.2
+      "p50": 475.5,
+      "p95": 484.6
     },
     "kernel-ms": {
-      "p50": 64,
-      "p95": 66.1
+      "p50": 90.2,
+      "p95": 92
     },
     "qemu-rss-mib": {
-      "p50": 207,
-      "p95": 209
+      "p50": 240,
+      "p95": 240.2
     },
     "restore": {
-      "p50": 156.7,
-      "p95": 165
+      "p50": 180.6,
+      "p95": 182.9
     },
     "restore-ahead": {
-      "p50": 130.8,
-      "p95": 141.8
+      "p50": 153.9,
+      "p95": 162.1
     },
     "save-ms": {
-      "p50": 159.6,
-      "p95": 165.1
+      "p50": 180,
+      "p95": 185.5
     },
     "state-mib": {
-      "p50": 155.7,
-      "p95": 157.8
+      "p50": 182.7,
+      "p95": 183.3
     }
+  },
+  "against": {
+    "release": "v20261119.01",
+    "numbers": {}
   }
 }
