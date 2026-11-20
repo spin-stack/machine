@@ -57,9 +57,21 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 	if err != nil || n < 0 {
 		return fmt.Errorf("a crowd of %q workspaces is not a number of them", m.Row)
 	}
+	// Ended here, before the next measurement starts, and not by m.Cleanup, which runs when the
+	// whole experiment has: a first run of this probe left every crowd up, and the rows measured a
+	// host carrying hundreds of machines (lab 44665519945, 2026-11-20).
+	var crowd []*Machine
+	defer func() {
+		for _, mc := range crowd {
+			mc.Stop()
+		}
+	}()
 	t0 := time.Now()
 	for i := range n {
-		cid, err := m.bootLoggedIn(fmt.Sprintf("crowd%d.qcow2", i))
+		mc, cid, err := m.bootLoggedIn(fmt.Sprintf("crowd%d.qcow2", i))
+		if mc != nil {
+			crowd = append(crowd, mc)
+		}
 		if err != nil {
 			return err
 		}
@@ -86,7 +98,7 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 	if err != nil {
 		return err
 	}
-	m.Cleanup(mc.Stop)
+	defer mc.Stop()
 	login, err := m.Key.LoggedIn(mc, cid, t0)
 	if err != nil {
 		return err
@@ -96,23 +108,22 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 	return nil
 }
 
-// bootLoggedIn boots one more of the tree's workspaces, left running until the measurement ends,
-// and returns its vsock CID once it has been logged into.
-func (m *Measurement) bootLoggedIn(name string) (uint32, error) {
+// bootLoggedIn boots one more of the tree's workspaces and returns it, for the caller to end, and
+// its vsock CID once it has been logged into. A machine that started is returned with any error.
+func (m *Measurement) bootLoggedIn(name string) (*Machine, uint32, error) {
 	overlay, err := m.Overlay(name, m.Key.Edit())
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	cid := NewCID()
 	t0 := time.Now()
 	mc, err := m.Launch(nil, m.BootArgs(overlay, "--vsock-cid", fmt.Sprint(cid),
 		"--console", "file:"+m.Dir+"/"+name+".console", "--append", m.Tree.Cmdline())...)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	m.Cleanup(mc.Stop)
 	if _, err := m.Key.LoggedIn(mc, cid, t0); err != nil {
-		return 0, err
+		return mc, 0, err
 	}
-	return cid, nil
+	return mc, cid, nil
 }
