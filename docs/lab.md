@@ -321,9 +321,9 @@ with #339's drop-ins), in one `prestart` run, spin's shape, 20 boots each, inter
 
 | Arm | Removes | Tree |
 |---|---|---|
-| A | every kernel patch, and the in-doubt options | `--kernel run:KA` (#346) |
-| A1 | 0006, 0009, 0011, `DEFERRED_STRUCT_PAGE_INIT`, the loop and 8250 counts | `--kernel run:K1` (#345) |
-| B | QEMU 0001 and qboot's `pam.patch` | `--qemu run:QQ` (#347) |
+| A | every kernel patch, and the in-doubt options | `--kernel run:44812049304` (#346) |
+| A1 | 0006, 0009, 0011, `DEFERRED_STRUCT_PAGE_INIT`, the loop and 8250 counts | `--kernel run:44812044088` (#345) |
+| B | QEMU 0001 and qboot's `pam.patch` | `--qemu run:44812062232` (#347) |
 | C-masks, C-generators, C-logging, C-coldplug | the image rows of that name | `--edit carry-masks` and so on, after `--edit lane` |
 | E | `rcu_expedited`, `driver_async_probe` | `--append 'driver_async_probe= rcupdate.rcu_expedited=0'` |
 | F | qboot, for SeaBIOS | `--boot --bios=bios-256k.bin` |
