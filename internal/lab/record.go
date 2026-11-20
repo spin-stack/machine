@@ -20,7 +20,7 @@ type Number struct {
 	P95 float64 `json:"p95"`
 }
 
-// kind is where a number stands in what a record is read as.
+// kind is how a number is read: as one of the goal's, beside them, or as a diagnostic.
 type kind int
 
 const (
