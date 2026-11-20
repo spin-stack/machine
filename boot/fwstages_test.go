@@ -28,15 +28,20 @@ import (
 // QEMU beside them, all stamped by QEMU's own clock - is the firmware's timeline, read from
 // outside it. The exec is stamped by this process, on the same wall clock.
 //
+// After the firmware's jump nothing exits for tens of milliseconds while the bzImage is
+// decompressed, and the kernel's own clock starts only after that. The probe init prints the
+// kernel's kvm-clock reading and "Freeing", and kernelClock puts them on the host's clock, so
+// the jump to the kernel's clock is a row of its own (docs/lab.md, rule 6).
+//
 // Tracing costs a little in every interval it measures - a formatted line per event - so the
 // numbers are where the time goes, not how much a boot without tracing takes.
 //
 //	SPIN_FIRMWARE_STAGES=1   run at all
 //	REPS=<n>                 boots (default 10)
-//	FLAGS=<flags>            spin-machine flags for the machine (default: a workspace's shape)
-//	SPIN_PROBE_INITRD=<cpio> as for boot:firmware
-//	SPIN_MACHINE_OUTPUT_B=<dir> the release with another QEMU and firmware (the lab's qemu_run),
-//	                         booted interleaved with it
+//	FLAGS=<flags>            spin-machine flags for the machine (default: spin's shape, as
+//	                         spin's internal/runner/vmm/vmm.go boots a workspace)
+//	SPIN_PROBE_INITRD=<cpio> as for boot:firmware; its /init must print what probeinit does
+//	SPIN_MACHINE_OUTPUT_B=<dir> another tree (`lab check`'s second), booted interleaved with it
 func TestFirmwareStages(t *testing.T) {
 	if os.Getenv("SPIN_FIRMWARE_STAGES") == "" {
 		t.Skip("set SPIN_FIRMWARE_STAGES=1: this boots VMs under QEMU's tracing")
@@ -45,7 +50,7 @@ func TestFirmwareStages(t *testing.T) {
 	reps := envInt(t, "REPS", 10)
 	initrd := probeInitrd(t)
 
-	flags := strings.Fields(cmp.Or(os.Getenv("FLAGS"), "--cpus 1 --memory 512 --max-cpus 16 --max-memory 8192 --hotplug-disks 1"))
+	flags := strings.Fields(cmp.Or(os.Getenv("FLAGS"), "--cpus 1 --memory 128 --max-cpus 16 --max-memory 8192 --hotplug-disks 4"))
 	flags = append([]string{"--disk", "-", "--initrd", initrd, "--console", "file:/dev/stdout"}, flags...)
 	cli := filepath.Join(out, "bin", "spin-machine")
 	type variant struct {
@@ -200,15 +205,81 @@ func traceOneBoot(t *testing.T, args []string, start func(t *testing.T)) (map[st
 		t.Fatal(err)
 	}
 	evs := parseTrace(string(raw))
-	st := stages(evs, exec0, ready)
+	kc, err := readKernelClock(console.String(), evs)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, tail([]byte(console.String()), 2000))
+	}
+	st := stages(evs, exec0, ready, kc)
 	if len(st) < 3 {
 		// A trace that names no step is a trace this parser does not read - a format QEMU
 		// changed, or events it was not built with - and a table of nothing reads as a finding.
 		lines := strings.SplitN(string(raw), "\n", 21)
 		t.Fatalf("the trace names no firmware step; its first lines:\n%s", strings.Join(lines[:min(len(lines), 20)], "\n"))
 	}
+	// The kernel's clock is placed on the host's by an anchor (kernelClock); the time from
+	// "Freeing" to SPIN-READY is what is left, init's exec and its first write, and is never
+	// negative. A negative one is an anchor that is wrong, and every row after the jump with it.
+	if r := st["Freeing to SPIN-READY"]; r.ms < 0 {
+		t.Fatalf("the kernel's clock puts \"Freeing\" %.2f ms after SPIN-READY reached the host: the anchor at QEMU's \"running\" is wrong", -r.ms)
+	}
 	return st, waits(evs), startWaits(evs, exec0)
 }
+
+// kernelClock places the kernel's own clock on the host's, so that the time between the
+// firmware's jump and the kernel's first printk - the bzImage's decompression and the kernel's
+// setup before its clock runs, which no exit and no log line marks - can be read.
+//
+// The anchor is kvm-clock. QEMU sets it to zero (KVM_SET_CLOCK with the clock it last saved,
+// which a machine never run has as 0) as the machine goes to "running", the runstate_set the
+// trace stamps (hw/i386/kvm/clock.c, kvmclock_vm_state_change; QEMU 11.1-11.2). The kernel
+// reads kvm-clock once as it makes it the scheduler's clock and prints what it read, in ns
+// despite the word (arch/x86/kernel/kvmclock.c, kvm_sched_clock_init: "kvm-clock: using sched
+// offset of N cycles"), and every printk after is stamped from that reading on. So the
+// kernel's clock starts at running + N, on the host's clock, to within the microseconds
+// between runstate_set and the ioctl.
+type kernelClock struct {
+	start   time.Time     // the kernel's clock at zero, on the host's
+	freeing time.Duration // "Freeing unused kernel image", on the kernel's clock
+}
+
+// readKernelClock reads the anchor from the probe init's SPIN-KMSG lines and the trace's
+// runstate_set to "running".
+func readKernelClock(console string, evs []event) (kernelClock, error) {
+	var running time.Time
+	for _, ev := range evs {
+		if ev.kind == "runstate_set" && strings.HasSuffix(ev.what, "(running)") {
+			running = ev.at
+			break
+		}
+	}
+	if running.IsZero() {
+		return kernelClock{}, fmt.Errorf("the trace has no runstate_set to \"running\": nothing to place the kernel's clock by")
+	}
+	var kc kernelClock
+	var offset, freeing bool
+	for line := range strings.SplitSeq(console, "\n") {
+		m := reKmsg.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		us, _ := strconv.ParseInt(m[1], 10, 64)
+		switch {
+		case m[3] != "":
+			ns, _ := strconv.ParseInt(m[3], 10, 64)
+			kc.start, offset = running.Add(time.Duration(ns)), true
+		case !freeing && strings.HasPrefix(m[2], "Freeing unused kernel image"):
+			kc.freeing, freeing = time.Duration(us)*time.Microsecond, true
+		}
+	}
+	if !offset || !freeing {
+		return kernelClock{}, fmt.Errorf("the guest printed no SPIN-KMSG line for kvm-clock's sched offset and \"Freeing unused kernel image\": an initrd whose /init does not print them (boot/probeinit), or a kernel not on kvm-clock")
+	}
+	return kc, nil
+}
+
+// "SPIN-KMSG 0 kvm-clock: using sched offset of 38731954 cycles": the probe init's copy of a
+// kernel log record, its time on the kernel's clock in µs first.
+var reKmsg = regexp.MustCompile(`^SPIN-KMSG (\d+) (kvm-clock: using sched offset of (\d+) cycles|.*)$`)
 
 // "2026-09-30T01:52:04.431886Z fw_cfg_select 0x7c8f2b993390 key 0x0019 'file_dir', ret: 1": QEMU's
 // log backend under -msg timestamp=on, in UTC.
@@ -249,7 +320,7 @@ func parseTrace(trace string) []event {
 				files = append(files, f[1])
 				ev.what = f[1]
 			}
-		case "loader_write_rom":
+		case "loader_write_rom", "kvm_run_exit", "runstate_set":
 			ev.what = m[3]
 		case "fw_cfg_select":
 			s := reSelect.FindStringSubmatch(m[3])
@@ -310,9 +381,14 @@ func stageOf(what string) string {
 }
 
 // stages splits one boot's trace into steps: QEMU's start (exec to the first exit), the
-// firmware's steps (a PCI walk, then each run of fw_cfg selects), and the kernel and init (the
-// last select to SPIN-READY). Each step's exits are counted from kvm_run_exit.
-func stages(evs []event, exec0, ready time.Time) map[string]stage {
+// firmware's steps (a PCI walk, then each run of fw_cfg selects), and after the firmware's last
+// select, by the kernel's clock (kernelClock): to the kernel's clock, the kernel to "Freeing",
+// and "Freeing" to SPIN-READY. Each step's exits are counted from kvm_run_exit.
+//
+// "to the kernel's clock" is the firmware's last copy (the initrd's, or the command line's
+// when there is none), its jump, the bzImage's decompression and the kernel's setup until it
+// starts kvm-clock: everything the kernel's own clock, which "Freeing" is read on, cannot see.
+func stages(evs []event, exec0, ready time.Time, kc kernelClock) map[string]stage {
 	type mark struct {
 		name string
 		at   time.Time
@@ -348,15 +424,14 @@ func stages(evs []event, exec0, ready time.Time) map[string]stage {
 		return out
 	}
 	out["QEMU start"] = stage{ms: float64(marks[0].at.Sub(exec0).Microseconds()) / 1000}
+	marks[len(marks)-1].name = "to the kernel's clock"
+	marks = append(marks, mark{"kernel to Freeing", kc.start}, mark{"Freeing to SPIN-READY", kc.start.Add(kc.freeing)})
 	for i, mk := range marks {
 		end := ready
 		if i+1 < len(marks) {
 			end = marks[i+1].at
 		}
 		name := mk.name
-		if i == len(marks)-1 {
-			name = "kernel and init"
-		}
 		n := 0
 		for _, e := range exits {
 			if !e.Before(mk.at) && e.Before(end) {
@@ -447,7 +522,8 @@ func startWaits(evs []event, exec0 time.Time) map[string]float64 {
 // stageTable is the p50 of each step over the boots, in the order a boot takes them.
 func stageTable(runs []map[string]stage) string {
 	order := []string{"QEMU start", "firmware start", "PCI walk", "fw_cfg directory", "ACPI tables", "e820",
-		"SMBIOS", "command line", "initrd", "kernel handoff", "kernel load", "kernel and init"}
+		"SMBIOS", "command line", "initrd", "kernel handoff", "kernel load",
+		"to the kernel's clock", "kernel to Freeing", "Freeing to SPIN-READY"}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nbefore the kernel, p50 over %d traced boots (tracing inflates every step a little)\n\n", len(runs))
 	fmt.Fprintf(&b, "%-18s %10s %8s\n", "STEP", "MS", "EXITS")
@@ -502,6 +578,7 @@ func TestTheFirmwareTraceIsSplitIntoItsSteps(t *testing.T) {
 1970-01-01T00:16:39.900001Z fw_cfg_add_file 0x55 #0: etc/acpi/tables (131072 bytes)
 1970-01-01T00:16:39.900002Z fw_cfg_add_file 0x55 #1: etc/e820 (40 bytes)
 1970-01-01T00:16:39.990000Z fw_cfg_select 0x55 key 0x0000 'signature', ret: 1
+1970-01-01T00:16:40.029000Z runstate_set current_run_state 6 (prelaunch) new_state 9 (running)
 1970-01-01T00:16:40.030000Z kvm_run_exit cpu_index 0, reason 2
 1970-01-01T00:16:40.030500Z pci_cfg_write mch 00:00.0 @0x91 <- 0x33
 1970-01-01T00:16:40.031000Z kvm_run_exit cpu_index 0, reason 2
@@ -516,17 +593,28 @@ func TestTheFirmwareTraceIsSplitIntoItsSteps(t *testing.T) {
 1970-01-01T00:16:40.041200Z fw_cfg_select 0x55 key 0x0010 'kernel_entry', ret: 1
 `
 	evs := parseTrace(trace)
-	got := stages(evs, exec0, time.Unix(1000, 100_000_000))
+	// kvm-clock read 20 ms after "running", and "Freeing" 30 ms along the kernel's clock: the
+	// kernel's clock starts at 40.049, 8 ms after the firmware's last select.
+	console := "ACPI: SSDT\r\nSPIN-KMSG 0 kvm-clock: using sched offset of 20000000 cycles\r\n" +
+		"SPIN-KMSG 30000 Freeing unused kernel image (initmem) memory: 2628K\r\n" +
+		"SPIN-KMSG 30300 Freeing unused kernel image (text/rodata gap) memory: 1472K\r\nSPIN-READY\r\n"
+	kc, err := readKernelClock(console, evs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := stages(evs, exec0, time.Unix(1000, 100_000_000), kc)
 	want := map[string]stage{
-		"QEMU start":       {ms: 30},
-		"firmware start":   {ms: 0.5, exits: 1},
-		"PCI walk":         {ms: 1.5, exits: 1},
-		"fw_cfg directory": {ms: 1},
-		"ACPI tables":      {ms: 3, exits: 1},
-		"e820":             {ms: 1},
-		"command line":     {ms: 1},
-		"initrd":           {ms: 3},
-		"kernel and init":  {ms: 59},
+		"QEMU start":            {ms: 30},
+		"firmware start":        {ms: 0.5, exits: 1},
+		"PCI walk":              {ms: 1.5, exits: 1},
+		"fw_cfg directory":      {ms: 1},
+		"ACPI tables":           {ms: 3, exits: 1},
+		"e820":                  {ms: 1},
+		"command line":          {ms: 1},
+		"initrd":                {ms: 3},
+		"to the kernel's clock": {ms: 8},
+		"kernel to Freeing":     {ms: 30},
+		"Freeing to SPIN-READY": {ms: 21},
 	}
 	for k, w := range want {
 		g := got[k]

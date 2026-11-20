@@ -68,7 +68,7 @@ to spend 100 ms. It is an allocation, not a measurement: it says how far each ph
 |---|---|---|---|---|
 | QEMU exec to ready for the guest | 29.4 | cold boot 325.3 less the boot into a QEMU started ahead 295.9 (`prestart`, lab 44727451080) | by difference, same run | 0, started ahead |
 | qboot, loading the kernel | ~8.5 | `boot:firmware-stages`, lab 43494513791 (2026-11-13, PVH, before the bzImage) | approximate: one run, an older machine | 3 |
-| The kernel before its clock starts: LZ4 decompression of the bzImage and early setup | ~25-35 | v20261119.01 → .02: sshd accepts +10.2 ms (95% CI [2.2, 16.9]) while "Freeing" went −12.3 (lab 44727451080), so ~22-25 ms moved where the kernel's clock does not see; firmware-stages read "kernel and init" 108.7 against a "Freeing" of 75.6 (lab 44535161371, PVH) | approximate: no probe times it | 5 |
+| The kernel before its clock starts: LZ4 decompression of the bzImage and early setup | ~25-35 | v20261119.01 → .02: sshd accepts +10.2 ms (95% CI [2.2, 16.9]) while "Freeing" went −12.3 (lab 44727451080), so ~22-25 ms moved where the kernel's clock does not see; firmware-stages read "kernel and init" 108.7 against a "Freeing" of 75.6 (lab 44535161371, PVH) | approximate: `boot:firmware-stages`' "to the kernel's clock" times it since 11-20, not yet on the bench | 5 |
 | Kernel start to "Freeing unused kernel image" | 62.6 (86.6 in spin's shape) | `initcalls`, lab 44727451080; lab 44587603255 | measured | 25 |
 | PID 1 to sshd accepting on vsock | ~75-85 | sshd accepts 210.0 less the four rows above | by difference | 30 |
 | sshd's accept to the first login | 114.2 | `ssh-first` `accept_to_login`, lab 44727451080 | measured | 37 |
