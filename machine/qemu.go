@@ -622,7 +622,7 @@ type savedMachine struct {
 const checkpointBandwidth = int64(64) << 30
 
 // Checkpoint saves the machine to a file in FormatMappedRAM, its memory written by save.Channels
-// threads.
+// threads, DefaultChannels when it names none.
 //
 // pause-before-switchover stops the migration with the guest paused and the disks quiet, after
 // the last RAM is written and before the device state is: seal runs there. The vCPUs and disks
@@ -645,13 +645,14 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save Save, seal func
 	if err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	caps := map[string]bool{"mapped-ram": true, "pause-before-switchover": true, "postcopy-ram": false, "multifd": save.Channels > 1}
+	channels := save.channels()
+	caps := map[string]bool{"mapped-ram": true, "pause-before-switchover": true, "postcopy-ram": false, "multifd": channels > 1}
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	params := map[string]any{"max-bandwidth": checkpointBandwidth}
-	if save.Channels > 1 {
-		params["multifd-channels"] = save.Channels
+	if channels > 1 {
+		params["multifd-channels"] = channels
 	}
 	if err := m.q.run(ctx, "migrate-set-parameters", params, nil); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
@@ -798,15 +799,16 @@ func (m *QEMU) migrate(ctx context.Context, command string, f *os.File, access i
 // user, or vm.unprivileged_userfaultfd=1, or CAP_SYS_PTRACE - the guest's faults are taken in
 // the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor does not see.
 func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Load, disks ...Disk) error {
+	channels := load.channels(saved.Format)
 	caps := map[string]bool{"pause-before-switchover": false}
 	switch {
 	case saved.Format == FormatMappedRAM:
 		caps["mapped-ram"] = true
 		caps["postcopy-ram"] = load.Fast
-		caps["multifd"] = load.Channels > 1
+		caps["multifd"] = channels > 1
 	case saved.Format == FormatStream && load.Fast:
 		return errors.New("resuming: a stream checkpoint has no page at a fixed offset to fetch when the guest touches it, and loads only in full")
-	case saved.Format == FormatStream && load.Channels > 1:
+	case saved.Format == FormatStream && channels > 1:
 		return errors.New("resuming: a stream checkpoint is one sequence of pages, which one thread reads")
 	case saved.Format == FormatStream:
 		caps["mapped-ram"] = false
@@ -848,8 +850,8 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	if load.Channels > 1 {
-		if err := m.q.run(ctx, "migrate-set-parameters", map[string]any{"multifd-channels": load.Channels}, nil); err != nil {
+	if channels > 1 {
+		if err := m.q.run(ctx, "migrate-set-parameters", map[string]any{"multifd-channels": channels}, nil); err != nil {
 			return fmt.Errorf("resuming: %w", err)
 		}
 	}

@@ -60,7 +60,11 @@ func TestSaveAndRestoreKeepTheFormatBesideTheState(t *testing.T) {
 			`{"return": {"name": "spin-machine:f00d"}}`, `{"return": {"qemu": {"major": 11, "minor": 2, "micro": 0}}}`,
 			`{"return": [{"qom-path": "/machine/unattached/device[0]"}]}`, `{"return": "host-x86_64-cpu"}`,
 			`{"return": {"model": {"name": "host", "props": {"vendor": "GenuineIntel", "sse2": true}}}}`}
-		replies = append(replies, `{"return": []}`, ok, `{"return": {"fdset-id": 1}}`, ok, completed, ok, `{"return": {"status": "running"}}`)
+		replies = append(replies, `{"return": []}`, ok)
+		if record && machine.DefaultChannels > 1 { // migrate-set-parameters: a mapped-ram state loads by the default's channels
+			replies = append(replies, ok)
+		}
+		replies = append(replies, `{"return": {"fdset-id": 1}}`, ok, completed, ok, `{"return": {"status": "running"}}`)
 		restoring := newMonitor(t, replies...)
 		if err := restore(restoreFlags{qmp: restoring.socket, from: state, disks: diskFlags{path: "-"}, timeout: time.Minute}); err != nil {
 			t.Fatal(err)
@@ -85,25 +89,25 @@ func TestSaveAndRestoreKeepTheFormatBesideTheState(t *testing.T) {
 	}
 }
 
-// save and restore move the guest's memory on QEMU's migration thread alone unless told how many
-// channels to: a checkpoint is written and read as a release before --channels did.
-func TestSaveAndRestoreUseOneThreadUnlessGivenChannels(t *testing.T) {
-	for _, args := range [][]string{nil, {"--channels", "4"}} {
+// save and restore name no count of channels unless told one, so that the machine's default moves
+// the guest's memory - and a stream state, which one thread reads, still loads - and pass on a
+// count they are told, one included.
+func TestSaveAndRestoreLeaveTheChannelsToTheMachineUnlessGivenThem(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want int
+	}{{nil, 0}, {[]string{"--channels", "1"}, 1}, {[]string{"--channels", "4"}, 4}} {
 		var s saveFlags
 		var r restoreFlags
 		for _, f := range []interface{ register(*flag.FlagSet) }{&s, &r} {
 			fs := flag.NewFlagSet("x", flag.ContinueOnError)
 			f.register(fs)
-			if err := fs.Parse(args); err != nil {
+			if err := fs.Parse(tc.args); err != nil {
 				t.Fatal(err)
 			}
 		}
-		want := 1
-		if args != nil {
-			want = 4
-		}
-		if s.channels != want || r.channels != want {
-			t.Errorf("%v: save --channels %d, restore --channels %d, want %d", args, s.channels, r.channels, want)
+		if s.channels != tc.want || r.channels != tc.want {
+			t.Errorf("%v: save --channels %d, restore --channels %d, want %d", tc.args, s.channels, r.channels, tc.want)
 		}
 	}
 }
