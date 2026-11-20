@@ -71,6 +71,11 @@ tasks:
     cmds:
       - '{{.SPIN_MACHINE_DEV}} --out {{.OUTPUT_ABS}} build spin-machine'
 
+  trace:
+    desc: Where a workflow run's time went - the Job Summary, trace.html and trace.json in _output/ghatrace (go-tools' ghatrace, release.yml's last job).
+    cmds:
+      - go tool ghatrace run -out {{.OUTPUT_ABS}}/ghatrace
+
   vsock:
     desc: spin-machine-dev vsock, for the probes and the lab (lab.yml and report.yml run it by this name).
     deps: [bin]
