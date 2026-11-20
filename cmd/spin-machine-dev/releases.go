@@ -41,7 +41,7 @@ much as a release does. Two records from different runs are compared by measurin
 (lab ladder).`,
 	}
 	c.PersistentFlags().StringVar(&dir, "dir", "docs/releases", "the records' directory; the page is DIR.md")
-	c.AddCommand(releasesRecord(&dir), releasesMeasure(&dir), releasesMissing(&dir), releasesShow(&dir),
+	c.AddCommand(releasesRecord(&dir), releasesMeasure(), releasesMissing(&dir), releasesShow(&dir),
 		releasesCompare(&dir), releasesDoc(&dir), releasesSite(&dir), releasesPropose(&dir))
 	return c
 }
@@ -103,53 +103,56 @@ func writeDoc(dir string) error {
 func releasesRecord(dir *string) *cobra.Command {
 	var run string
 	c := &cobra.Command{
-		Use:   "record LADDER_JSON",
-		Short: "Write the record of a ladder.json's newest release, replacing one before it, and the page",
-		Args:  cobra.ExactArgs(1),
+		Use:   "record LADDER_JSON...",
+		Short: "Write the record of each ladder.json's newest release, replacing one before it, and the page",
+		Long: `Write the record of each ladder.json's newest release - the release that ladder was measured for -
+replacing a record of it, and then the page, DIR.md and DIR.svg, from every record. report.yml
+records what releases measure measured with main's spin-machine-dev, whichever commit measured it,
+so the page proposed is the one main's test holds the records to.`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			d, err := recordsDir(*dir)
 			if err != nil {
 				return err
 			}
-			l, err := lab.ReadLadder(args[0])
-			if err != nil {
-				return couldNot(err)
-			}
-			r, err := recordNewest(d, l, run)
-			if err != nil {
-				return couldNot(fmt.Errorf("recording %s: %w", args[0], err))
+			for _, path := range args {
+				l, err := lab.ReadLadder(path)
+				if err != nil {
+					return couldNot(err)
+				}
+				r, err := recordNewest(d, l, run)
+				if err != nil {
+					return couldNot(fmt.Errorf("recording %s: %w", path, err))
+				}
+				say(c, "recorded %s", r.Release)
 			}
 			if err := writeDoc(d); err != nil {
 				return couldNot(err)
 			}
-			say(c, "recorded %s", r.Release)
 			return nil
 		},
 	}
-	c.Flags().StringVar(&run, "run", "", "the URL of the run whose artifact keeps the ladder's samples")
+	c.Flags().StringVar(&run, "run", "", "the URL of the run whose artifact keeps the ladders' samples")
 	return c
 }
 
-// mutate-lane: TestReleasesMeasureRecordsEachAgainstTheOneBefore
-func releasesMeasure(dir *string) *cobra.Command {
+// mutate-lane: TestReleasesMeasureLaddersEachWithTheOneBefore
+func releasesMeasure() *cobra.Command {
 	var reps int
-	var run string
 	c := &cobra.Command{
 		Use:   "measure [TAG...]",
-		Short: "Measure each release interleaved with the one before it, here, and write its record and the page (default the newest published)",
+		Short: "Measure each release interleaved with the one before it, here: a ladder.json each, for releases record (default the newest published)",
 		Long: `Measure each TAG in a ladder of its own with the published release before it, interleaved - as a
-release is when it is published - and write TAG's record, with the release before it and the Δ of
-each number against it, and the page. The oldest published release is measured alone. Each
-release boots with the spin-machine of the commit it was made from; one whose spin-machine cannot
-run a probe is a dash that says why. Each ladder.json, every sample, is kept in
-_output/lab/measured/TAG. Records are only worth keeping from the bench fleet: report.yml runs this
-there. Exits 1 when a measurement was lost (the records are written), 2 when a release could not
-be measured (the ones before it are).`,
+release is when it is published - and keep the ladder.json, every sample, in
+_output/lab/measured/TAG: releases record writes TAG's record from it, with the release before it
+and the Δ of each number against it, and the page. The oldest published release is measured alone.
+Each release boots with the spin-machine of the commit it was made from; one whose spin-machine
+cannot run a probe is a dash that says why. Measuring and recording are two verbs because they are
+two commits in report.yml: a release is measured at its own tag, and recorded by main's code, which
+writes the page main's test holds the records to. Records are only worth keeping from the bench
+fleet: report.yml runs this there. Exits 1 when a measurement was lost (the ladders are written),
+2 when a release could not be measured (the ones before it are).`,
 		RunE: func(c *cobra.Command, args []string) error {
-			d, err := recordsDir(*dir)
-			if err != nil {
-				return err
-			}
 			root, err := repo()
 			if err != nil {
 				return err
@@ -189,18 +192,11 @@ be measured (the ones before it are).`,
 				} else if err != nil {
 					return err
 				}
-				if _, err := recordNewest(d, l, run); err != nil {
-					return couldNot(err)
-				}
-				if err := writeDoc(d); err != nil {
-					return couldNot(err)
-				}
 			}
 			return lost
 		},
 	}
 	c.Flags().IntVar(&reps, "reps", 20, "boots of each release for each probe")
-	c.Flags().StringVar(&run, "run", "", "the URL of the run whose artifact keeps the samples")
 	return c
 }
 
@@ -384,7 +380,7 @@ func releasesPropose(dir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "propose",
 		Short: "Propose the records this checkout wrote, and the page, as a pull request against main",
-		Long: `Commit what releases record or measure wrote - each new or changed record in DIR, DIR.md and DIR.svg -
+		Long: `Commit what releases record wrote - each new or changed record in DIR, DIR.md and DIR.svg -
 on a branch named for those releases, push it and open a pull request against main. Nothing is
 proposed when nothing was recorded, nor when the branch is on origin already: a set proposed once,
 merged or closed, is not proposed again. report.yml runs it as the release app, so the checks on
@@ -426,9 +422,10 @@ the pull request run.`,
 			}
 			body += "### " + filepath.Base(d) + ".md, as it reads now\n\n" + string(page)
 			title := "releases: " + strings.Join(releases, ", ") + ", measured"
-			// The branch is main with the records on it, not the commit measured: report.yml checks
-			// out the release's tag, and a branch cut there carries the workflows as they were, which
-			// GitHub refuses from the release app once main's have moved (v20261120.03's record).
+			// The branch is main with the records on it, not whatever this checkout is: a branch cut
+			// from an older commit carries the workflows as they were, which GitHub refuses from the
+			// release app once main's have moved (v20261120.03's record). report.yml records and
+			// proposes from main's checkout; a person may run it from anywhere.
 			for _, step := range [][]string{
 				{"git", "fetch", "-q", "--depth=1", "origin", "main"},
 				{"git", "switch", "-q", "--merge", "-c", branch, "FETCH_HEAD"},

@@ -115,6 +115,14 @@ a release ships no spin-machine, and the machine it defined - devices, places, c
 that commit's `machine` package, which spin builds. A release whose spin-machine cannot run a
 probe (one from before `boot --restore`, v20261119.02) has a dash for that number with the reason.
 
+The job runs two commits. It measures with the release's tag checked out, and `releases measure`
+keeps only the ladders (`_output/lab/measured/RELEASE/ladder.json`). The record, the page and the
+proposal are main's: a second checkout of main builds its own spin-machine-dev, `releases record`
+writes each record and the page from the ladders, and `releases propose` opens the pull request
+from there. The page is whatever main's code writes from the records, and main's test fails on any
+other page, so a page written by the tag's code fails the moment main's chart or tables change
+after the tag: v20261120.04's proposal did (#350), after #342 changed the chart.
+
 `report.yml` runs by hand too, for releases from before records: `spin-machine-dev releases
 missing` lists them, and `gh workflow run report.yml -f versions="<release> <release>..." -f
 record=true` measures each with the release before it, one after another on one host, and
