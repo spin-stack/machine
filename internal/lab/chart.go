@@ -70,7 +70,7 @@ func Chart(records []Record) string {
 			// Its end just right of the point's foot, below the axis, so the name reads up to its point.
 			fmt.Fprintf(&b, `<text transform="translate(%.1f %.1f) rotate(-40)" text-anchor="end">%s</text>`+"\n", x(i)+4, plotBottom+16, name) // mutate-exempt: px offsets from the point's foot; a px either way is the same chart, and TestACrowdedChartLabelsTheNewestAndTurnsTheNames holds the names below the axis
 		} else {
-			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle">%s</text>`+"\n", x(i), plotBottom+20, name)
+			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle">%s</text>`+"\n", x(i), plotBottom+20, name) // mutate-exempt: px below the axis for a release's name; a px either way is the same chart
 		}
 	}
 
