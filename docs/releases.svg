@@ -51,9 +51,9 @@
 <text x="669.2" y="178.9" text-anchor="middle">328</text>
 </g>
 <g class="run" data-number="cold">
-<polygon class="band" points="732.4,120.5 748.4,120.5 748.4,126.7 732.4,126.7" fill="#2a78d6" fill-opacity="0.25"/>
-<circle cx="740.4" cy="126.7" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.03 cold: p50 473, p95 487 ms</title></circle>
-<text x="740.4" y="116.7" text-anchor="middle">473</text>
+<polygon class="band" points="732.4,121.4 748.4,121.4 748.4,126.2 732.4,126.2" fill="#2a78d6" fill-opacity="0.25"/>
+<circle cx="740.4" cy="126.2" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.03 cold: p50 474, p95 485 ms</title></circle>
+<text x="740.4" y="116.2" text-anchor="middle">474</text>
 </g>
 <g class="run" data-number="restore">
 <polygon class="band" points="526.8,259.1 598.0,258.7 669.2,251.1 669.2,262.2 598.0,261.5 526.8,262.6" fill="#d95926" fill-opacity="0.25"/>
@@ -66,9 +66,9 @@
 <text x="669.2" y="252.2" text-anchor="middle">158</text>
 </g>
 <g class="run" data-number="restore">
-<polygon class="band" points="732.4,273.2 748.4,273.2 748.4,274.8 732.4,274.8" fill="#d95926" fill-opacity="0.25"/>
-<circle cx="740.4" cy="274.8" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.03 restore: p50 128, p95 132 ms</title></circle>
-<text x="740.4" y="264.8" text-anchor="middle">128</text>
+<polygon class="band" points="732.4,273.1 748.4,273.1 748.4,276.3 732.4,276.3" fill="#d95926" fill-opacity="0.25"/>
+<circle cx="740.4" cy="276.3" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.03 restore: p50 125, p95 132 ms</title></circle>
+<text x="740.4" y="266.3" text-anchor="middle">125</text>
 </g>
 <rect x="64.0" y="24" width="20" height="12" fill="#2a78d6" fill-opacity="0.25"/><line x1="64.0" y1="30" x2="84.0" y2="30" stroke="#2a78d6" stroke-width="2"/><text x="90.0" y="34">cold boot to first login</text>
 <rect x="282.0" y="24" width="20" height="12" fill="#d95926" fill-opacity="0.25"/><line x1="282.0" y1="30" x2="302.0" y2="30" stroke="#d95926" stroke-width="2"/><text x="308.0" y="34">restore to first login</text>
