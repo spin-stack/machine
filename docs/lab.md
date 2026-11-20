@@ -25,33 +25,29 @@ Measured 2026-11-20, 20 boots of each of five releases, interleaved. `docs/relea
 v20261120.02 at 328/346 and 158/184: another run, on another day, and the gap between the two
 is the drift between runs (see "Measurement pitfalls").
 
-### What the probes do not yet measure
+### What spin runs, and what the probes measure
 
-The goal probes boot a machine, and log in by a path, that spin does not use (review of
-2026-11-20):
+Until 2026-11-21 the goal probes booted a machine, and logged in by a path, that spin does not use
+(review of 2026-11-20). They now boot and log in as spin does unless a run asks otherwise
+(docs/cli.md, "Measuring"):
 
-- **The shape.** Every probe above ran with `flags: ""`: 2 vCPUs, 2 GiB, and spin-machine's
-  defaults `--max-cpus 0` and `--max-memory 0`, so no CPU or memory hotplug. spin
-  (spin-stack/spin, `internal/runner/vmm/vmm.go`) boots 1 CPU and 128 MiB, with ceilings of 16
-  CPUs and 8 GiB, and 4 hotplug disks. In that shape the kernel takes 86.6 ms to "Freeing unused
-  kernel image" against 62.6 (lab 44587603255: `virtio_scsi_init` 12.1, `virtio_mem` 4.7,
+- **The shape.** spin (spin-stack/spin, `internal/runner/vmm/vmm.go`) boots 1 CPU and 128 MiB,
+  with ceilings of 16 CPUs and 8 GiB, and 4 hotplug disks. In that shape the kernel takes 86.6 ms
+  to "Freeing unused kernel image" against 62.6 in the 2 vCPUs and 2 GiB with no hotplug the
+  tables below were measured in (lab 44587603255: `virtio_scsi_init` 12.1, `virtio_mem` 4.7,
   `acpi_init` 17 against 10).
-- **The login path.** spin boots `/sbin/vminitd` from its own initrd with `systemd.ssh_auto=0`
-  (spin's `internal/runner/qemu/kernel_cmdline.go`), and its end-to-end test
-  `TestAWorkspaceOpensNoSSHServerOfSystemdsOwn` requires `sshd-vsock.socket` inactive. spin
-  reaches sshd through its supervisor's vsock forwarder to 127.0.0.1:22. The lane tuned here
-  (`sshd-vsock.socket.d`, `sshd@.service.d`, the keygen ordering) is tuned for a socket spin
-  turns off.
-
-Branch `lab-measure` makes spin's shape the probes' default and names the shape on every table.
-The login path is still the probes' own. Until both are spin's, a gain on these numbers is a
-lead for spin, not a measurement of it.
-
 - **The memory.** spin sizes every workspace to 2048 MiB or more through virtio-mem right after
-  its start, before the guest's handoff. Left at 128 MiB, the guest's OOM killer runs through
-  every boot and login of spin's shape (laptop, 2026-11-20, `docs/log.md`). `--opt plugged=2048`
-  sizes it as spin does, and `--opt login=spin` logs in as spin does: root, through a forwarder to
-  `ssh.service` on 127.0.0.1:22.
+  its start, before the guest's handoff (`plugged=2048`). Left at 128 MiB, the guest's OOM killer
+  runs through every boot and login (lab 44784196287).
+- **The login path.** spin turns systemd's vsock sshd off (`systemd.ssh_auto=0`) and reaches a
+  long-running `ssh.service` as root through its supervisor's forwarder to 127.0.0.1:22
+  (`login=spin`). The lane tuned here (`sshd-vsock.socket.d`, `sshd@.service.d`) is `login=lane`.
+- **Still not spin's:** spin boots `/sbin/vminitd` from its own initrd before systemd, and its
+  supervisor starts `ssh.service` when it installs the user CA. The probes boot the image's init.
+
+Measured so (2026-11-20, v20261120.02 with spin not lingering, labs 44785179901, 44789688221): the
+cold first login ~500 ms, and a restore into a QEMU started ahead 150 ms at one channel, 103 at
+eight. The tables below are the older shape, and say so.
 
 The cold boot became the main target when templates were removed on 2026-09-30 (#51). Before
 that, `c2c4c6a` (2026-09-10) called it the path the product is designed never to take.

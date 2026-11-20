@@ -198,17 +198,18 @@ Every probe boots the machine spin boots a workspace in unless a run asks for an
 a ceiling of 16, 128 MiB of a ceiling of 8 GiB through virtio-mem, four hotplug disks
 (spin-stack/spin's `internal/runner/vmm/vmm.go` and `internal/runner/qemu/spec.go`). The options
 are `cpus`, `max-cpus`, `memory`, `max-memory`, `hotplug-disks` and `flags` (more spin-machine boot
-flags); `--opt cpus=2 --opt memory=2048 --opt max-cpus=0 --opt max-memory=0 --opt hotplug-disks=0`
-is the shape the probes booted before they booted spin's. Every table and record says the shape it
-measured; a record that names none booted that older one.
+flags); `--opt cpus=2 --opt memory=2048 --opt max-cpus=0 --opt max-memory=0 --opt hotplug-disks=0
+--opt plugged=0 --opt login=lane` is the shape the probes booted before they booted spin's. Every
+table and record says the shape it measured; a record that names none booted that older one.
 
-Two options make a boot spin's after it starts, and are off unless asked for. `plugged=MIB` sizes
+Two options make a boot spin's after it starts as well. `plugged=MIB`, 2048 unless given, sizes
 the guest through virtio-mem right after its start, as spin sizes every workspace before handing
-it its filesystem (2048 MiB unless the workspace asks for more): left at 128 MiB the guest's OOM
-killer runs through the boot and the logins (laptop, 2026-11-20). `login=spin` logs in as spin
-does, as root through a forwarder from vsock to `ssh.service` on 127.0.0.1:22, where `lane`, the
-default, logs in as spin through systemd's vsock socket and an `sshd@` a connection
-(`internal/lab/login.go`, `spinsPath`).
+it its filesystem (2048 MiB unless the workspace asks for more): left at 128 MiB (`plugged=0`) the
+guest's OOM killer runs through the boot and the logins (lab 44784196287). `login=spin`, the
+default, logs in as spin does, as root through a forwarder from vsock to `ssh.service` on
+127.0.0.1:22; `login=lane` logs in as the user spin through systemd's vsock socket and an `sshd@`
+a connection (`internal/lab/login.go`, `spinsPath`), the path the probes took before 2026-11-21
+and the one the `floor` edit's sshd serves, so a floor run passes `login=lane`.
 
 Each release's own numbers are kept in the repository, one record a release in `docs/releases/`,
 and `docs/releases.md` is the page written from them, with its chart, `docs/releases.svg`

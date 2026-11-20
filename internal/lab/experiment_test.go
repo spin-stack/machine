@@ -219,11 +219,11 @@ func TestBootArgsAreTheTreesInTheExperimentsShape(t *testing.T) {
 	if got := m.BootArgs("/o.qcow2", "--vsock-cid", "9"); !slices.Equal(got, want) {
 		t.Errorf("BootArgs = %v", got)
 	}
-	if got := shapeOf(spins); got != "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks" {
+	if got := shapeOf(spins); got != "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login" {
 		t.Errorf("spin's shape is said %q", got)
 	}
 	m.Options, err = settle(Probes["ssh-first"], Options{"cpus": "2", "memory": "2048", "max-cpus": "0", "max-memory": "0",
-		"hotplug-disks": "0", "flags": "--cpu host"})
+		"hotplug-disks": "0", "plugged": "0", "login": "lane", "flags": "--cpu host"})
 	if err != nil {
 		t.Fatal(err)
 	}
