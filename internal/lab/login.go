@@ -166,6 +166,15 @@ func (k *Key) Run(cid uint32, kex, command string) (time.Duration, string, error
 		_ = unix.Close(fd)
 		return 0, "", fmt.Errorf("connecting to vsock %d:22: %w", cid, err)
 	}
+	// Non-blocking, so that os.NewFile puts it on Go's poller: a blocking descriptor is closed
+	// only once nothing reads it, and the SSH client's reader blocks on it until the guest sends
+	// something, which it never does. Every login stayed open in the guest - its forwarder's
+	// child, sshd-session and logind's session - and a checkpoint saved after a login carried
+	// it, to be torn down on the guest's one vCPU beside the restored login (laptop, 2026-11-21).
+	if err := unix.SetNonblock(fd, true); err != nil {
+		_ = unix.Close(fd)
+		return 0, "", fmt.Errorf("making the vsock socket non-blocking: %w", err)
+	}
 	conn := vsockConn{os.NewFile(uintptr(fd), "vsock")}
 	defer func() { _ = conn.Close() }()
 	c, chans, reqs, err := xssh.NewClientConn(conn, "vsock", &xssh.ClientConfig{
