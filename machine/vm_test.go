@@ -460,7 +460,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	caps := f.sent("migrate-set-capabilities")[0]["capabilities"]
 	wantCaps := []any{
 		map[string]any{"capability": "mapped-ram", "state": true},
-		map[string]any{"capability": "multifd", "state": false},
+		map[string]any{"capability": "multifd", "state": DefaultChannels > 1},
 		map[string]any{"capability": "pause-before-switchover", "state": true},
 		map[string]any{"capability": "postcopy-ram", "state": false},
 	}
@@ -517,9 +517,14 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 }
 
 // A checkpoint written by more than one channel asks QEMU for multifd and that many channels; one
-// written by one leaves the migration's own thread to write it.
+// written by one leaves the migration's own thread to write it, and one naming none is written by
+// DefaultChannels.
 func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
 	for _, channels := range []int{0, 1, 2, 4} {
+		want := channels
+		if channels == 0 {
+			want = DefaultChannels
+		}
 		f := &fakeQEMU{answer: migrations(func(c call) string {
 			if r, ok := cpuAnswers(c); ok {
 				return r
@@ -542,7 +547,7 @@ func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
 			}
 		}
 		count, set := f.sent("migrate-set-parameters")[0]["multifd-channels"]
-		if multifd != (channels > 1) || set != (channels > 1) || set && count != float64(channels) {
+		if multifd != (want > 1) || set != (want > 1) || set && count != float64(want) {
 			t.Errorf("%d channels: multifd %t, multifd-channels %v", channels, multifd, count)
 		}
 	}
@@ -560,19 +565,22 @@ func TestResume(t *testing.T) {
 		name     string
 		saved    Saved
 		load     Load
+		channels int // the threads that read it
 		statuses []string
 		after    string // the run state once loaded
 		caps     map[string]bool
 		polls    int
 		cont     bool
 	}{
-		{"fast, at postcopy-active", mapped, Load{Fast: true}, []string{"setup", "postcopy-active"}, "running",
+		{"fast, at postcopy-active", mapped, Load{Fast: true}, 1, []string{"setup", "postcopy-active"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false}, 2, false},
-		{"in full, past postcopy-active, which it never asked for", mapped, Load{}, []string{"active", "postcopy-active", "completed"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false}, 3, false},
-		{"in full, by two channels", mapped, Load{Channels: 2}, []string{"active", "completed"}, "running",
+		{"in full, past postcopy-active, which it never asked for", mapped, Load{}, DefaultChannels, []string{"active", "postcopy-active", "completed"}, "running",
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": DefaultChannels > 1}, 3, false},
+		{"in full, by one channel, named", mapped, Load{Channels: 1}, 1, []string{"active", "completed"}, "running",
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false}, 2, false},
+		{"in full, by two channels", mapped, Load{Channels: 2}, 2, []string{"active", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true}, 2, false},
-		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream}, Load{}, []string{"completed"}, "paused",
+		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream}, Load{}, 1, []string{"completed"}, "paused",
 			map[string]bool{"mapped-ram": false, "pause-before-switchover": false}, 1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -611,8 +619,8 @@ func TestResume(t *testing.T) {
 			if !reflect.DeepEqual(caps, tc.caps) {
 				t.Errorf("capabilities %v, want %v", caps, tc.caps)
 			}
-			if params := f.sent("migrate-set-parameters"); tc.load.Channels > 1 && (len(params) != 1 || params[0]["multifd-channels"] != float64(tc.load.Channels)) ||
-				tc.load.Channels <= 1 && len(params) != 0 {
+			if params := f.sent("migrate-set-parameters"); tc.channels > 1 && (len(params) != 1 || params[0]["multifd-channels"] != float64(tc.channels)) ||
+				tc.channels <= 1 && len(params) != 0 {
 				t.Errorf("parameters %v, want multifd-channels only for more than one channel", params)
 			}
 			if got := len(f.sent("query-migrate")); got != tc.polls {

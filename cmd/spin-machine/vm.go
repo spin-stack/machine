@@ -266,7 +266,7 @@ type saveFlags struct {
 func (o *saveFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "the running VM's QMP socket (required)")
 	fs.StringVar(&o.to, "to", "", "where to write the state; what the machine needs besides it goes to <to>.json (required)")
-	fs.IntVar(&o.channels, "channels", 1, "how many threads write the guest's memory (QEMU's multifd)")
+	fs.IntVar(&o.channels, "channels", 0, fmt.Sprintf("how many threads write the guest's memory (QEMU's multifd); none given is %d, machine.DefaultChannels", machine.DefaultChannels))
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "how long the save may take")
 }
 
@@ -322,7 +322,7 @@ func (o *restoreFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "QMP socket of a VM started with boot --restore (required)")
 	fs.StringVar(&o.from, "from", "", "the state save wrote (required)")
 	fs.BoolVar(&o.fast, "fast", false, "run the guest once its devices are in and read its memory as it touches it")
-	fs.IntVar(&o.channels, "channels", 1, "how many threads read the guest's memory (QEMU's multifd); any number reads a state saved with any")
+	fs.IntVar(&o.channels, "channels", 0, fmt.Sprintf("how many threads read the guest's memory (QEMU's multifd); any number reads a state saved with any, and none given is %d, machine.DefaultChannels, or one for --fast or a stream state", machine.DefaultChannels))
 	fs.StringVar(&o.release, "release", "_output", "the release tree: its base image, under a throwaway overlay, is the disk when --disk is not given")
 	o.disks.register(fs)
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "how long the load may take")

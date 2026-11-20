@@ -137,15 +137,43 @@ type Load struct {
 	// pass. It is kept for a caller whose state is large and whose guest needs little of it soon.
 	Fast bool
 	// Channels is how many threads read the guest's memory, each its own part of the file: QEMU's
-	// multifd over a mapped-ram state. One, or none given, is the migration's own thread.
+	// multifd over a mapped-ram state. One is the migration's own thread; none given is
+	// DefaultChannels for a full load of a mapped-ram state, and one for a fast load or a stream
+	// state, which one thread reads.
 	Channels int
 }
 
 // Save is how a checkpoint is written.
 type Save struct {
-	// Channels is how many threads write the guest's memory, as Load.Channels reads it. The
-	// state is the same file whatever wrote it, and loads with any number.
+	// Channels is how many threads write the guest's memory, as Load.Channels reads it; none given
+	// is DefaultChannels. The state is the same file whatever wrote it, and loads with any number.
 	Channels int
+}
+
+// DefaultChannels is how many threads move a checkpoint's memory when a Save or a Load names
+// none. One restore into a QEMU started ahead reached the first login at 150 ms with 1 channel,
+// 103 with 8 and 93 with 16 (bench, spin's shape and login, lab 44789688221, 2026-11-20); each
+// channel is a thread of QEMU's, and the count stays the migration's own thread until restores
+// side by side say which holds up (lab restore-together, docs/lab.md "What is next").
+const DefaultChannels = 1
+
+// channels is how many threads write s's state.
+func (s Save) channels() int {
+	if s.Channels == 0 {
+		return DefaultChannels
+	}
+	return s.Channels
+}
+
+// channels is how many threads read a state in format with l.
+func (l Load) channels(format string) int {
+	switch {
+	case l.Channels != 0:
+		return l.Channels
+	case l.Fast || format == FormatStream:
+		return 1
+	}
+	return DefaultChannels
 }
 
 // Saved is what a checkpoint is besides its state file: what the caller keeps beside the state
