@@ -307,23 +307,19 @@ RUN <<EOT
     # patches/0005 has each device's capability list walked once rather than per search: the
     # kernel 95.1 -> 88.9 ms (lab run 43327612594, 2026-11-12). Dropped and brought back on
     # 2026-11-13: against a goal of 100 ms to the first SSH login, 6 ms is 6% of it.
-    # patches/0006 parses vmlinux BTF in the background from a core_initcall instead of inside
-    # inet_init on the boot CPU, where it was 11.2 of inet_init's 11.8 ms traced (lab run
-    # 43498943572).
     # patches/0007 builds ORC's lookup table in one merge pass instead of a binary search per
     # 256-byte block of text: 3.5 ms of CPU on the bench fleet, nested and on metal alike (lab
     # runs 44563496308, 44563512999), 4.5 -> 0.8 ms on a laptop (2026-11-19).
     # patches/0008 takes init's 1,989 ftrace records out with one memmove, not one each: 2.6
     # ms before "Freeing unused kernel image" on the bench fleet, nested and on metal alike;
     # ftrace_free_mem() is 59 us after it.
-    # patches/0009 has the boot CPU poll for an AP by local_clock() while the system boots,
-    # rather than sleep on the jiffies clocksource: "CPUs: #1" to "Brought up" was 4.1 ms
-    # nested against under 1.4 on metal. Not yet measured nested; a laptop's AP never waits.
     # patches/0010 skips early_quirks()' port I/O scan of bus 0 in a KVM guest: none of its
     # quirks matches this machine's devices, and the scan was 2.1 ms of exits nested (lab run
     # 44563496308). Only the scan: pci=noearly, which also defers MMCONFIG, does not boot.
-    # patches/0011 writes virtio-pci's queue_select only when the queue changes: 84 -> 22
-    # writes, each a trap to QEMU, in a boot of a workspace-shaped guest (2026-11-19).
+    # 0006 (BTF parsed on another CPU), 0009 (polling for a booting AP) and 0011 (queue_select
+    # written only on a change) were here and are not: taken out together in spin's shape, one
+    # vCPU, the first login read -2.5 [-8.4, +1.8] ms (lab 44822157367, 40 boots each; first
+    # +1.2 [-4.5, +8.3] at 20, lab 44818953987). The first two need a second CPU at boot.
 
     # Boot performance: the RAID6 PQ benchmark probes all SIMD implementations at boot to
     # pick the fastest. It must stay disabled. (RAID6_PQ itself is not selected today, so

@@ -244,6 +244,7 @@ An idea already here needs a new reason, not a new run.
 | The decompressor without `X86_VERBOSE_BOOTUP` (no VGA cursor writes) | Exits to the kernel's clock 168 → 12, time 35.1 → 32.4 ms: under the 3 ms set before the run, and a first-login comparison would need ~80 boots an arm | #328, lab 44787878809 | 11-20 |
 | An uncompressed bzImage payload, KASLR kept | Laptop lead: to the kernel's clock −3 ms, but the image 16.7 → 40 MB costs +3.3 ms in qboot's copy and +6-7 in QEMU's start. Not benched | #326 | 11-20 |
 | `driver_async_probe` for rng, balloon and vsock, and `rcupdate.rcu_expedited=1` (kept 11-13 and 09-07) | Taken out together in spin's shape, one vCPU: first login −1.4 [−4.9, +3.1] cold. Removed from the command line | lab 44818953987 | 11-21 |
+| Kernel 0006 (BTF parsed in the background), 0009 (a booting AP polled by local_clock()), 0011 (queue_select written only on a change), kept 11-13 and 11-19 | Taken out together in spin's shape, one vCPU: first login +1.2 [−4.5, +8.3] at 20 boots, then −2.5 [−8.4, +1.8] at 40, cold. Removed | labs 44818953987, 44822157367 | 11-21 |
 
 ## What we carry, and what it earns
 
@@ -266,14 +267,14 @@ names the arm that removes it (below); "-" is out of the ablation.
 | 0003 event formats' eval map on first use | kernel/patches | boot | 9.0 ms of a kworker, runner | yes, as 0002 | A: kept; the whole stack is worth −67.5 cold |
 | 0004 ECAM before type 1 | kernel/patches | boot | kernel −4.5 ms, runner | yes: nested exits cost more | A: kept; the whole stack is worth −67.5 cold |
 | 0005 a device's capability list walked once | kernel/patches | boot | kernel 95.1 → 88.9, ladder (lab 43327612594) | yes: spin's shape has more devices | A: kept; the whole stack is worth −67.5 cold |
-| 0006 vmlinux BTF parsed in the background | kernel/patches | boot | with 0005 and the deferred page init, kernel 96.3 → 87.1, ladder (lab 43505126131) | **in doubt**: it moves the parse to a second CPU, and spin boots one | A1: undecided, a rerun |
+| 0006 vmlinux BTF parsed in the background | kernel/patches | boot | with 0005 and the deferred page init, kernel 96.3 → 87.1, ladder (lab 43505126131) | **in doubt**: it moves the parse to a second CPU, and spin boots one | **deleted** (#345): with 0009 and 0011, −2.5 [−8.4, +1.8] cold at 40 boots (lab 44822157367) |
 | 0007 ORC's table in one pass | kernel/patches | boot | 3.5 ms nested and metal, PVH; 0007-0011 kernel 96.4 → 86.6, spin's shape at 128 MiB (lab 44587603255) | yes: CPU, not shape | A: kept; the whole stack is worth −67.5 cold |
 | 0008 init's ftrace records in one memmove | kernel/patches | boot | 2.6 ms, as 0007 | yes, as 0007 | A: kept; the whole stack is worth −67.5 cold |
-| 0009 a booting AP polled by local_clock() | kernel/patches | boot | 4.1 ms nested in 2 vCPUs (lab 44563496308); never moved on a laptop | **no**: one vCPU brings up no AP at boot | A1: undecided, a rerun |
+| 0009 a booting AP polled by local_clock() | kernel/patches | boot | 4.1 ms nested in 2 vCPUs (lab 44563496308); never moved on a laptop | **no**: one vCPU brings up no AP at boot | **deleted** (#345): with 0006 and 0011, −2.5 [−8.4, +1.8] cold at 40 boots (lab 44822157367) |
 | 0010 no early-quirks PCI scan under KVM | kernel/patches | boot | 2.1 ms of exits nested (lab 44563496308) | yes: the same bus | A: kept; the whole stack is worth −67.5 cold |
-| 0011 queue_select written only on a change | kernel/patches | boot | 84 → 22 writes; `virtio_pci_driver_init` 8.57 → 8.59 nested (lab 44587603255) | **in doubt**: no time was ever seen | A1: undecided, a rerun |
-| `DEFERRED_STRUCT_PAGE_INIT=y` | kernel/config | boot | with 0005, 0006 (lab 43505126131), 2 GiB at boot | **in doubt**: 128 MiB at boot; plugged memory is not deferred | A1: undecided, a rerun |
-| `BLK_DEV_LOOP_MIN_COUNT=0`, `SERIAL_8250_RUNTIME_UARTS=1` | kernel/config | boot | read 0 on 09-26 ("Measured and rejected"), back on 11-19 on a laptop lead | **in doubt** | A1: undecided, a rerun |
+| 0011 queue_select written only on a change | kernel/patches | boot | 84 → 22 writes; `virtio_pci_driver_init` 8.57 → 8.59 nested (lab 44587603255) | **in doubt**: no time was ever seen | **deleted** (#345): with 0006 and 0009, −2.5 [−8.4, +1.8] cold at 40 boots (lab 44822157367) |
+| `DEFERRED_STRUCT_PAGE_INIT=y` | kernel/config | boot | with 0005, 0006 (lab 43505126131), 2 GiB at boot | **in doubt**: 128 MiB at boot; plugged memory is not deferred | A: kept with it. Meant for A1, but A1's build did not carry the option: not measured alone |
+| `BLK_DEV_LOOP_MIN_COUNT=0`, `SERIAL_8250_RUNTIME_UARTS=1` | kernel/config | boot | read 0 on 09-26 ("Measured and rejected"), back on 11-19 on a laptop lead | **in doubt** | A: kept with it. Meant for A1, but A1's build did not carry the options: not measured alone |
 | `KERNEL_LZ4` | kernel/config | boot | the alternatives measured 11-20 (#326, #328) | yes: no better candidate | - |
 | `VT=n`, `X86_MSR=n`, `X86_CPUID=n` | kernel/config | function: dead code, less surface | "not because it is slow" (kernel/Dockerfile) | - | - |
 | QEMU 0001, device creation in one memory transaction | qemu/patches | boot | 438 flat-view rebuilds counted, 09-30; no time ever recorded | **unmeasured** | B: kept; with pam.patch −11.5 cold |
@@ -325,7 +326,7 @@ positive, so it is what the group earns.
 | Arm | Removes | Tree | Cold | Restored | Into prestarted |
 |---|---|---|---|---|---|
 | A | every kernel patch, and the in-doubt options | `--kernel run:44812049304` (#346, closed) | +67.5 [+62.5, +72.4] | +8.1 [−8.4, +20.1] | +12.1 [−6.5, +21.2] |
-| A1 | 0006, 0009, 0011, `DEFERRED_STRUCT_PAGE_INIT`, the loop and 8250 counts | `--kernel run:44812044088` (#345) | +1.2 [−4.5, +8.3] | −5.2 [−16.2, +12.7] | +1.3 [−12.3, +14.5] |
+| A1 | 0006, 0009, 0011 (the in-doubt options were meant to be here; the branch's commit left them out, so A1 is the three patches) | `--kernel run:44812044088` (#345) | +1.2 [−4.5, +8.3] | −5.2 [−16.2, +12.7] | +1.3 [−12.3, +14.5] |
 | B | QEMU 0001 and qboot's `pam.patch` | `--qemu run:44812062232` (#347, closed) | +11.5 [+6.7, +20.2] | +4.4 | +0.9 |
 | C-masks | 16 unit masks | `--edit carry-masks` | +57.5 [+49.0, +63.0] | −0.7 | +0.1 |
 | C-generators | 8 generators, 3 tmpfiles rules | `--edit carry-generators` | +16.7 [+11.6, +23.3] | −5.3 | −1.3 |
