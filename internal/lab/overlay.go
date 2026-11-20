@@ -196,8 +196,10 @@ func namedEdit(name, checkout string) (Edit, error) {
 		return noLingerEdit, nil
 	case "min-ttl-late":
 		return minTTLLateEdit(checkout)
+	case "sshd-debug":
+		return sshdDebugEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger, min-ttl-late", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger, min-ttl-late, sshd-debug", name)
 }
 
 // noLingerEdit is a published release's image as this checkout builds it: spin no longer lingers
@@ -229,6 +231,12 @@ func minTTLLateEdit(checkout string) (Edit, error) {
 	}
 	return e, nil
 }
+
+// sshdDebugEdit is sshd logging every step of a login to the journal (DEBUG3), for the restores
+// whose login waited ~400 ms inside sshd's authentication with the guest idle (restore-stall,
+// 2026-11-20): the journal's timestamps say which step. sshd takes the first value it reads, and
+// the drop-ins are read in order. An experiment's edit; remove it with restore-stall.
+var sshdDebugEdit = Edit{Files: map[string]string{"/etc/ssh/sshd_config.d/00-lab-debug.conf": "LogLevel DEBUG3\n"}}
 
 // floorEdit is the first login with no systemd before it, a bound on what systemd costs and never
 // a candidate (systemd stays: what runs in a workspace expects it). Its init mounts what sshd

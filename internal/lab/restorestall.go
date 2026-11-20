@@ -33,7 +33,8 @@ func (restoreStall) About() string {
 }
 
 func (restoreStall) Options() []Option {
-	return append(shape, Option{"pairs", "1/1 8/8 8/1 1/8", "save/restore --channels, space-separated, a row each"})
+	return append(shape, Option{"pairs", "1/1 8/8 8/1 1/8", "save/restore --channels, space-separated, a row each"},
+		Option{"again", "0", "restores of each state after the measured one, each onto its disk as it was saved, logged and not recorded: whether a state that stalls always does"})
 }
 
 func (restoreStall) Rows(o Options) []string {
@@ -47,9 +48,9 @@ func (restoreStall) Rows(o Options) []string {
 
 func (restoreStall) Phases() int { return 2 }
 
-func (restoreStall) Needs(Options) []Need {
-	return append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "qmp"}, Need{"boot", "restore"},
-		Need{"save", "to"}, Need{"restore", "disk"}, Need{"save", "channels"}, Need{"restore", "channels"})
+func (restoreStall) Needs(o Options) []Need {
+	return append(append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "qmp"}, Need{"boot", "restore"},
+		Need{"save", "to"}, Need{"restore", "disk"}, Need{"save", "channels"}, Need{"restore", "channels"}), plugNeeds(o)...)
 }
 
 func (restoreStall) Metrics() []Metric {
@@ -75,10 +76,10 @@ func (restoreStall) Metrics() []Metric {
 	}
 }
 
-// stallDiag is read as spin after the login, with the kernel's own account of each OOM kill.
-// Nothing in it reads much: under 128 MiB a `journalctl -b` here woke the OOM killer (a laptop,
-// 2026-11-20).
-const stallDiag = `cat /proc/pressure/memory; grep -E '^(pgscan_kswapd|pgscan_direct|pgsteal_kswapd|pgsteal_direct|workingset_refault_file|pgmajfault|allocstall_normal|allocstall_dma32|allocstall_movable|oom_kill) ' /proc/vmstat; grep '^MemFree:' /proc/meminfo; echo uptime $(cut -d' ' -f1 /proc/uptime) $(cat /sys/devices/system/clocksource/clocksource0/current_clocksource); sudo -n journalctl -b -o short-monotonic --no-pager -n 40 2>/dev/null | grep -E 'sshd|session|logind|Started|user@' | tail -25; sudo -n dmesg | grep -E 'invoked oom-killer|Killed process' || true`
+// stallDiag is read after the login, with the guest's uptime and clocksource and the kernel's own
+// account of each OOM kill. Nothing in it reads much: under 128 MiB, with min_ttl_ms armed at the
+// boot's start, a `journalctl -b` here woke the OOM killer (a laptop, 2026-11-20).
+const stallDiag = `cat /proc/pressure/memory; grep -E '^(pgscan_kswapd|pgscan_direct|pgsteal_kswapd|pgsteal_direct|workingset_refault_file|pgmajfault|allocstall_normal|allocstall_dma32|allocstall_movable|oom_kill) ' /proc/vmstat; grep '^MemFree:' /proc/meminfo; echo uptime $(cut -d' ' -f1 /proc/uptime) $(cat /sys/devices/system/clocksource/clocksource0/current_clocksource); sudo -n dmesg | grep -E 'invoked oom-killer|Killed process' || true`
 
 func (restoreStall) Measure(_ context.Context, m *Measurement) error {
 	pair, _, _ := strings.Cut(strings.TrimPrefix(m.Row, "saved "), ", restored ")
@@ -87,9 +88,40 @@ func (restoreStall) Measure(_ context.Context, m *Measurement) error {
 		return coldSave(m, "--channels", pair)
 	}
 	c := m.State.(*checkpoint)
+	again := m.Options.Int("again")
+	saved := c.overlay + ".saved"
+	if again > 0 {
+		if err := run("cp", "--reflink=auto", c.overlay, saved); err != nil {
+			return err
+		}
+	}
 	if err := evict(c.state); err != nil {
 		return err
 	}
+	if err := restoreStallOnce(m, c, load); err != nil {
+		return err
+	}
+	for i := range again {
+		if err := run("cp", "--reflink=auto", saved, c.overlay); err != nil {
+			return err
+		}
+		if err := evict(c.state); err != nil {
+			return err
+		}
+		a := &Measurement{Tree: m.Tree, Row: fmt.Sprintf("%s, again %d", m.Row, i+1), Rep: m.Rep, Phase: m.Phase, Options: m.Options,
+			Dir: m.Dir, Socks: m.Socks, Key: m.Key, State: c, values: map[string]float64{"save": m.values["save"]}, detail: map[string]float64{}, log: m.log}
+		if err := restoreStallOnce(a, c, load); err != nil {
+			a.Logf("%v", err)
+		}
+		for j := len(a.cleanup) - 1; j >= 0; j-- {
+			a.cleanup[j]()
+		}
+	}
+	return nil
+}
+
+// restoreStallOnce restores c into a QEMU exec'd for it and logs in, recording into m.
+func restoreStallOnce(m *Measurement, c *checkpoint, load string) error {
 	qmp := filepath.Join(m.Socks, "restored.qmp")
 	t0 := time.Now()
 	mc, err := m.Launch(nil, m.BootArgs(c.overlay, c.bootFlags(m, qmp, "--restore")...)...)
@@ -142,8 +174,20 @@ func (restoreStall) Measure(_ context.Context, m *Measurement) error {
 	m.Logf("save %.0f running %.0f accept %.0f login %.0f gap %.0f vcpu %.0f; failed logins %q; guest: %s",
 		m.values["save"], m.values["running"], m.values["accept"], m.values["login"], m.values["gap"], m.values["vcpu_gap"],
 		failed, strings.Join(strings.Fields(out), " "))
+	// The guest's own account of the cold login's end, the checkpoint and the login after it, on its
+	// clock: what the restored guest was finishing, and what the login waited for. Apart from the
+	// numbers above, so that a journal the guest cannot read loses no measurement.
+	if _, journal, err := m.Key.Run(c.cid, xssh.KeyExchangeMLKEM768X25519, stallJournal); err == nil {
+		m.Logf("guest journal:\n%s", journal)
+	} else {
+		m.Logf("guest journal: %v", err)
+	}
 	return nil
 }
+
+// stallJournal is the guest's disk's counters and its journal from the restore on (the kernel's
+// "virtual machine fork", vmgenid's), on its monotonic clock.
+const stallJournal = `cat /sys/block/vda/stat; sudo -n journalctl -b -o short-monotonic --no-pager 2>&1 | sed -n '/virtual machine fork/,$p' | head -400`
 
 // tracedLogin is Key.Login with the time of each read and write on the connection, from t0: where
 // a slow login waited, the guest's reply or the client.
@@ -160,7 +204,7 @@ func (k *Key) tracedLogin(cid uint32, t0 time.Time) ([]string, error) {
 	tc.note("connected", 0)
 	defer func() { _ = tc.Close() }()
 	c, chans, reqs, err := xssh.NewClientConn(tc, "vsock", &xssh.ClientConfig{
-		User: "spin", Auth: []xssh.AuthMethod{xssh.PublicKeys(k.Signer)},
+		User: k.User(), Auth: []xssh.AuthMethod{xssh.PublicKeys(k.Signer)},
 		HostKeyCallback: xssh.InsecureIgnoreHostKey(),
 		Config:          xssh.Config{KeyExchanges: []string{xssh.KeyExchangeMLKEM768X25519}},
 	})
@@ -176,10 +220,12 @@ func (k *Key) tracedLogin(cid uint32, t0 time.Time) ([]string, error) {
 	}
 	tc.note("session", 0)
 	defer func() { _ = sess.Close() }()
-	if _, err := sess.Output("true"); err != nil {
-		return tc.events, fmt.Errorf("running true: %w", err)
+	up, err := sess.Output("cat /proc/uptime")
+	if err != nil {
+		return tc.events, fmt.Errorf("reading the guest's uptime: %w", err)
 	}
 	tc.note("done", 0)
+	tc.events = append(tc.events, "guest-uptime="+strings.Fields(string(up) + " -")[0])
 	return tc.events, nil
 }
 
@@ -193,6 +239,9 @@ type tracedConn struct {
 func (c *tracedConn) note(what string, n int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if what == "r" && n == 1 && len(c.events) > 0 && strings.HasPrefix(c.events[len(c.events)-1], "r1@") {
+		return // the banner, read a byte at a time: its first byte is the one that says when
+	}
 	c.events = append(c.events, fmt.Sprintf("%s%d@%.1f", what, n, float64(time.Since(c.t0).Microseconds())/1000))
 }
 
