@@ -3,6 +3,7 @@
 package lab
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -149,3 +150,19 @@ func TestTwoRecordsAreComparedSideBySide(t *testing.T) {
 	}
 }
 
+// docs/releases.md is the records' page as Doc writes it: a hand edit, or a record committed
+// without the page written again, fails here (spin-machine-dev releases doc writes it).
+func TestTheCommittedPageIsTheRecords(t *testing.T) {
+	dir := filepath.Join("..", "..", "docs", "releases")
+	records, err := ReadRecords(dir)
+	if err != nil || len(records) == 0 {
+		t.Fatalf("records %d, %v", len(records), err)
+	}
+	page, err := os.ReadFile(dir + ".md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(page) != Doc(records) {
+		t.Error("docs/releases.md is not what docs/releases/*.json say: run spin-machine-dev releases doc")
+	}
+}
