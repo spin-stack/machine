@@ -519,7 +519,7 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 // A checkpoint written by more than one channel asks QEMU for multifd and that many channels; one
 // written by one leaves the migration's own thread to write it.
 func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
-	for _, channels := range []int{0, 1, 4} {
+	for _, channels := range []int{0, 1, 2, 4} {
 		f := &fakeQEMU{answer: migrations(func(c call) string {
 			if r, ok := cpuAnswers(c); ok {
 				return r
@@ -570,7 +570,7 @@ func TestResume(t *testing.T) {
 			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false}, 2, false},
 		{"in full, past postcopy-active, which it never asked for", mapped, Load{}, []string{"active", "postcopy-active", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false}, 3, false},
-		{"in full, by four channels", mapped, Load{Channels: 4}, []string{"active", "completed"}, "running",
+		{"in full, by two channels", mapped, Load{Channels: 2}, []string{"active", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true}, 2, false},
 		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream}, Load{}, []string{"completed"}, "paused",
 			map[string]bool{"mapped-ram": false, "pause-before-switchover": false}, 1, true},

@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"slices"
@@ -81,6 +82,29 @@ func TestSaveAndRestoreKeepTheFormatBesideTheState(t *testing.T) {
 	}
 	if got := mappedRAM(false); got != false {
 		t.Errorf("a state with no record loaded with mapped-ram %v, want the stream format", got)
+	}
+}
+
+// save and restore move the guest's memory on QEMU's migration thread alone unless told how many
+// channels to: a checkpoint is written and read as a release before --channels did.
+func TestSaveAndRestoreUseOneThreadUnlessGivenChannels(t *testing.T) {
+	for _, args := range [][]string{nil, {"--channels", "4"}} {
+		var s saveFlags
+		var r restoreFlags
+		for _, f := range []interface{ register(*flag.FlagSet) }{&s, &r} {
+			fs := flag.NewFlagSet("x", flag.ContinueOnError)
+			f.register(fs)
+			if err := fs.Parse(args); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want := 1
+		if args != nil {
+			want = 4
+		}
+		if s.channels != want || r.channels != want {
+			t.Errorf("%v: save --channels %d, restore --channels %d, want %d", args, s.channels, r.channels, want)
+		}
 	}
 }
 
