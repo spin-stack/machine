@@ -1,0 +1,27 @@
+# MGLRU's thrashing protection: when the pages used in the last second cannot all be kept, the
+# kernel calls the OOM killer instead of evicting and re-reading them. Without it, a guest whose
+# memory fills slowly while its programs keep running evicts their code and faults it back in,
+# page cache still counts as reclaimable, and the OOM killer never comes: the VM is up and
+# answers nothing.
+#
+# Measured 2026-09-28 with the memory-policy probe (337c08d), 1 GiB, 2 vCPUs, memory taken at
+# ~80 MB/s while a session re-read its libraries, 3 boots: the worst SSH login was 611-1785 ms
+# without this and 105-106 ms with it, and the process was killed after 11.2 s instead of 13.8.
+# 1000 ms is the value the kernel's documentation suggests; the kernel needs CONFIG_LRU_GEN,
+# which kernel/Dockerfile asserts.
+#
+# Armed by spin-lru-gen-min-ttl.timer 10 s into the boot, not by tmpfiles at its start. In a
+# guest's first second every page it has is younger than 1000 ms, so none may be evicted, and a
+# guest short of memory then goes straight to the OOM killer without scanning a page. In spin's
+# shape (1 vCPU, 128 MiB, ~84 MiB of it left by the kernel) that happened in nearly every boot:
+# up to 15 kills by 0.5 s of uptime - an sshd-session in the middle of a login, systemd-logind,
+# the user's manager, udev's workers - with pgscan at 0 (a laptop, v20261120.02, 2026-11-20). A
+# guest restored from a checkpoint taken just after its first login resumes inside that second,
+# and its next login met the same kills.
+[Unit]
+Description=Arm MGLRU's thrashing protection
+ConditionPathExists=/sys/kernel/mm/lru_gen/min_ttl_ms
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 1000 > /sys/kernel/mm/lru_gen/min_ttl_ms'
