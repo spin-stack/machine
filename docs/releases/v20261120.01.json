@@ -1,41 +1,121 @@
 {
   "release": "v20261120.01",
-  "measured": "2026-11-20T12:42:38Z",
+  "measured": "2026-11-20T21:40:12Z",
   "host": "c8id.4xlarge, nested",
+  "shape": "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login",
   "reps": 20,
-  "run": "https://github.com/spin-stack/spin-machine/actions/runs/44737371130",
+  "run": "https://github.com/spin-stack/spin-machine/actions/runs/44820465606",
   "numbers": {
     "cold": {
-      "p50": 338.2,
-      "p95": 350.8
+      "p50": 507.7,
+      "p95": 516.2
     },
     "cold-ahead": {
-      "p50": 308.7,
-      "p95": 317
+      "p50": 481.5,
+      "p95": 491
     },
     "kernel-ms": {
-      "p50": 65.7,
-      "p95": 68.7
+      "p50": 88.8,
+      "p95": 89.7
     },
     "qemu-rss-mib": {
-      "p50": 207,
-      "p95": 209
+      "p50": 240,
+      "p95": 240.1
     },
     "restore": {
-      "p50": 159.4,
-      "p95": 165.8
+      "p50": 184.7,
+      "p95": 304.6
     },
     "restore-ahead": {
-      "p50": 131.3,
-      "p95": 137.6
+      "p50": 156.1,
+      "p95": 171.8
     },
     "save-ms": {
-      "p50": 164.4,
-      "p95": 168.1
+      "p50": 180.7,
+      "p95": 187.7
     },
     "state-mib": {
-      "p50": 155.1,
-      "p95": 156.8
+      "p50": 182.7,
+      "p95": 183.3
+    }
+  },
+  "against": {
+    "release": "v20261119.02",
+    "numbers": {
+      "cold": {
+        "p50": 510.9,
+        "p95": 520.8
+      },
+      "cold-ahead": {
+        "p50": 480.7,
+        "p95": 495.2
+      },
+      "kernel-ms": {
+        "p50": 88.6,
+        "p95": 89.7
+      },
+      "qemu-rss-mib": {
+        "p50": 238.1,
+        "p95": 240.2
+      },
+      "restore": {
+        "p50": 182.6,
+        "p95": 269.3
+      },
+      "restore-ahead": {
+        "p50": 154.4,
+        "p95": 161
+      },
+      "save-ms": {
+        "p50": 179.3,
+        "p95": 186.4
+      },
+      "state-mib": {
+        "p50": 182.5,
+        "p95": 183.1
+      }
+    },
+    "delta": {
+      "cold": {
+        "p50": -3.2,
+        "lo": -10.1,
+        "hi": 4.6
+      },
+      "cold-ahead": {
+        "p50": 0.9,
+        "lo": -9.3,
+        "hi": 7.5
+      },
+      "kernel-ms": {
+        "p50": 0.1,
+        "lo": -1.7,
+        "hi": 0.7
+      },
+      "qemu-rss-mib": {
+        "p50": 1.9,
+        "lo": -0.1,
+        "hi": 2.1
+      },
+      "restore": {
+        "p50": 2.1,
+        "lo": -2.9,
+        "hi": 9.6
+      },
+      "restore-ahead": {
+        "p50": 1.7,
+        "lo": -2.9,
+        "hi": 5.8
+      },
+      "save-ms": {
+        "p50": 1.4,
+        "lo": -1.5,
+        "hi": 4
+      },
+      "state-mib": {
+        "p50": 0.2,
+        "lo": 0,
+        "hi": 0.4
+      }
     }
   }
 }
