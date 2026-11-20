@@ -448,6 +448,12 @@ stat_in_image /etc/tmpfiles.d/systemd-nologin.conf | grep -q '/dev/null' || {
         grep -q -- '--subsystem-match=cpu' || {
     echo "ERROR: udev's coldplug lost cpu; a core attached before systemd starts stays offline" >&2
     exit 1; }
+for f in systemd-udevd.service.d/20-startup-weight.conf systemd-udev-trigger.service.d/20-startup-weight.conf; do
+    "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
+            grep -qx 'StartupCPUWeight=1' || {
+        echo "ERROR: udev runs beside the first login at the lane's weight ($f)" >&2
+        exit 1; }
+done
 if stat_in_image /etc/systemd/system/systemd-logind.service | grep -q '/dev/null'; then
     echo "ERROR: systemd-logind.service is masked - it never starts, no login gets a" \
          "session, and spin's manager never starts either" >&2

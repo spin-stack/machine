@@ -194,8 +194,10 @@ func namedEdit(name, checkout string) (Edit, error) {
 		return floorEdit, nil
 	case "nolinger":
 		return noLingerEdit, nil
+	case "udev-startup":
+		return udevStartupEdit(checkout)
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger, udev-startup", name)
 }
 
 // noLingerEdit is a published release's image as this checkout builds it: spin no longer lingers
@@ -264,18 +266,34 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 `,
 	}
-	rootfs := filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs")
-	for _, d := range []string{"sshd-vsock.socket.d/10-lane.conf", "sshd@.service.d/10-lane.conf",
+	err := readDropIns(e.Files, checkout, "the lane's", "sshd-vsock.socket.d/10-lane.conf", "sshd@.service.d/10-lane.conf",
 		"systemd-logind.service.d/10-lane.conf", "systemd-logind-varlink.socket.d/20-lane.conf",
 		"user-runtime-dir@.service.d/10-lane.conf",
-		"user@.service.d/10-lane.conf", "systemd-udev-trigger.service.d/10-coldplug.conf"} {
-		b, err := os.ReadFile(filepath.Join(rootfs, "etc", "systemd", "system", d))
+		"user@.service.d/10-lane.conf", "systemd-udev-trigger.service.d/10-coldplug.conf")
+	return e, err
+}
+
+// udevStartupEdit is udev at the lowest CPU weight while the boot runs, as this checkout's image
+// has it (systemd-udevd.service.d/20-startup-weight.conf says why), put into a published release's
+// overlay.
+func udevStartupEdit(checkout string) (Edit, error) {
+	e := Edit{Files: map[string]string{}}
+	err := readDropIns(e.Files, checkout, "udev's", "systemd-udevd.service.d/20-startup-weight.conf",
+		"systemd-udev-trigger.service.d/20-startup-weight.conf")
+	return e, err
+}
+
+// readDropIns puts each of this checkout's image drop-ins named into files, at its path in the image.
+func readDropIns(files map[string]string, checkout, whose string, names ...string) error {
+	dir := filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", "etc", "systemd", "system")
+	for _, d := range names {
+		b, err := os.ReadFile(filepath.Join(dir, d))
 		if err != nil {
-			return Edit{}, fmt.Errorf("reading the lane's %s from this checkout: %w", d, err)
+			return fmt.Errorf("reading %s %s from this checkout: %w", whose, d, err)
 		}
-		e.Files["/etc/systemd/system/"+d] = string(b)
+		files["/etc/systemd/system/"+d] = string(b)
 	}
-	return e, nil
+	return nil
 }
 
 // systemdPackages is the edit that replaces the overlay's systemd with the packages in debs: each

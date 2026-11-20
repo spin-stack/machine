@@ -272,7 +272,26 @@ func TestTheLaneEditIsThisCheckoutsLane(t *testing.T) {
 	}
 }
 
-// --spin-machine here builds this checkout's: the tree's is a copy, named for its commit, and a
+func TestTheUdevStartupEditIsThisCheckoutsDropIns(t *testing.T) {
+	e, err := namedEdit("udev-startup", checkoutRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"systemd-udevd.service.d/20-startup-weight.conf", "systemd-udev-trigger.service.d/20-startup-weight.conf"} {
+		want := read(t, filepath.Join(checkoutRoot(t), "image/mkosi.extra/usr/local/lib/spin-base/rootfs/etc/systemd/system", d))
+		if got := e.Files["/etc/systemd/system/"+d]; got != want || !strings.Contains(got, "\nStartupCPUWeight=1\n") {
+			t.Errorf("%s: %q", d, got)
+		}
+	}
+	if len(e.Files) != 2 {
+		t.Errorf("%d files, want 2", len(e.Files))
+	}
+	if _, err := namedEdit("udev-startup", t.TempDir()); err == nil || !strings.Contains(err.Error(), "reading udev's") {
+		t.Errorf("a checkout with no image: %v", err)
+	}
+}
+
+// --spin-machine here builds this checkout's:the tree's is a copy, named for its commit, and a
 // checkout that does not build, or a systemd that does not, is no tree.
 func TestATreesSpinMachineCanBeThisCheckouts(t *testing.T) {
 	base := fakeRelease(t, "k")

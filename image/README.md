@@ -85,8 +85,9 @@ spin's runtime directory and manager. None of them waits for `sysinit.target` or
   session has its scope and `XDG_RUNTIME_DIR` and waits for neither. Nobody lingers: no user's
   manager starts in the boot.
 
-And udev's coldplug replays only the devices something here uses (`10-coldplug.conf`), so the
-lane has the CPU. On the bench fleet the first login went 478 -> 402 ms with all of it (`task
+And udev's coldplug replays only the devices something here uses (`10-coldplug.conf`), and runs at
+the lowest CPU weight until the boot's jobs are done (`20-startup-weight.conf`), so the lane has
+the CPU: on spin's one vCPU everything that runs before the login runs instead of it. On the bench fleet the first login went 478 -> 402 ms with all of it (`task
 boot:ssh-first`, lab run 43518915618, 2026-11-13); `configure-system.sh` and the drop-ins say what
 each part did, and `build.sh` asserts each on the finished filesystem.
 
