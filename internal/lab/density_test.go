@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package lab
+
+import (
+	"context"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// The rows are the crowds asked for, and a crowd that is not a number stops the experiment
+// before anything boots.
+func TestADensityRowIsTheNumberOfWorkspacesAlreadyRunning(t *testing.T) {
+	o, err := settle(density{}, Options{"crowds": "0 4 12"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := (density{}).Rows(o); !slices.Equal(got, []string{"0", "4", "12"}) {
+		t.Errorf("rows = %v", got)
+	}
+	if o["load"] != "idle" || o["settle"] != "10" {
+		t.Errorf("defaults: load %q, settle %q", o["load"], o["settle"])
+	}
+	for _, row := range []string{"many", "-1"} {
+		err := (density{}).Measure(context.Background(), &Measurement{Row: row, Options: o})
+		if err == nil || !strings.Contains(err.Error(), "not a number") {
+			t.Errorf("Measure of a crowd of %q = %v, want refused", row, err)
+		}
+	}
+}

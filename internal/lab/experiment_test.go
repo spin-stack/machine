@@ -443,7 +443,7 @@ func TestAStateIsReadWholeAndASocketWaitedFor(t *testing.T) {
 }
 
 func TestTheProbesAreTheGoalsAndTheKernels(t *testing.T) {
-	if got := ProbeNames(); !slices.Equal(got, []string{"initcalls", "prestart", "restore-first", "ssh-first"}) {
+	if got := ProbeNames(); !slices.Equal(got, []string{"density", "initcalls", "prestart", "restore-first", "ssh-first"}) {
 		t.Errorf("probes %v", got)
 	}
 	for _, name := range ProbeNames() {
