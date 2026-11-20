@@ -26,6 +26,7 @@ on:
         options:
           - ssh-first
           - restore-first
+          - restore-together
           - prestart
           - initcalls
           - density

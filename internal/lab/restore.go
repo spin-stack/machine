@@ -165,50 +165,69 @@ func (c *checkpoint) bootFlags(m *Measurement, qmp string, extra ...string) []st
 // save's --channels, when the row names them.
 // mutate-lane: TestEveryProbeMeasuresATree
 func coldSave(m *Measurement, channels ...string) error {
-	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edits()...)
+	c, err := saveCold(m, "", channels...)
 	if err != nil {
 		return err
 	}
-	c := &checkpoint{overlay: overlay, state: filepath.Join(m.Dir, "state"), cid: NewCID()}
-	qmp := filepath.Join(m.Socks, "cold.qmp")
+	m.RecordMs("cold_login", c.login)
+	m.RecordMs("save", c.save)
+	m.Record("state", c.stateMiB)
+	m.State = c.checkpoint
+	m.Logf("cold login %v, saved in %v", c.login.Round(time.Millisecond), c.save.Round(time.Millisecond))
+	return nil
+}
+
+// saved is a checkpoint and what making it took.
+type saved struct {
+	*checkpoint
+	login, save time.Duration
+	// stateMiB is the state's blocks on the disk and not its length: a mapped-ram state is as long
+	// as the machine's RAM at its ceilings, and what was never written is holes.
+	stateMiB float64
+}
+
+// saveCold is coldSave's checkpoint with nothing recorded, its files in m.Dir and its sockets in
+// m.Socks named after prefix, so that one measurement can make several.
+// mutate-lane: TestEveryProbeMeasuresATree
+func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error) {
+	overlay, err := m.Overlay(prefix+"overlay.qcow2", m.Key.Edits()...)
+	if err != nil {
+		return nil, err
+	}
+	c := &saved{checkpoint: &checkpoint{overlay: overlay, state: filepath.Join(m.Dir, prefix+"state"), cid: NewCID()}}
+	qmp := filepath.Join(m.Socks, prefix+"cold.qmp")
 	t0 := time.Now()
 	mc, err := m.Launch(nil, m.BootArgs(overlay, c.bootFlags(m, qmp)...)...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer mc.Stop()
 	plugged := m.Plug(qmp)
-	login, err := m.Key.LoggedIn(mc, c.cid, t0)
-	if err != nil {
-		return err
+	if c.login, err = m.Key.LoggedIn(mc, c.cid, t0); err != nil {
+		return nil, err
 	}
 	if err := plugged(); err != nil {
-		return err
+		return nil, err
 	}
-	m.RecordMs("cold_login", login)
 	t0 = time.Now()
 	if err := m.SpinMachine(append([]string{"save", "--qmp", qmp, "--to", c.state}, channels...)...); err != nil {
-		return err
+		return nil, err
 	}
-	m.RecordMs("save", time.Since(t0))
+	c.save = time.Since(t0)
 	select { // save quits QEMU, and the restore opens the same overlay
 	case <-mc.Done():
 	case <-time.After(30 * time.Second):
-		return Miss("QEMU was still running 30s after its state was saved")
+		return nil, Miss("QEMU was still running 30s after its state was saved")
 	}
 	if err := evict(c.state); err != nil {
-		return err
+		return nil, err
 	}
 	st, err := os.Stat(c.state)
 	if err != nil {
-		return fmt.Errorf("reading the saved state: %w", err)
+		return nil, fmt.Errorf("reading the saved state: %w", err)
 	}
-	// The blocks on the disk and not the length: a mapped-ram state is as long as the machine's
-	// RAM at its ceilings, and what was never written is holes.
-	m.Record("state", float64(st.Sys().(*syscall.Stat_t).Blocks*512)/(1<<20))
-	m.State = c
-	m.Logf("cold login %v, saved in %v", login.Round(time.Millisecond), time.Duration(m.values["save"]*1e6).Round(time.Millisecond))
-	return nil
+	c.stateMiB = float64(st.Sys().(*syscall.Stat_t).Blocks*512) / (1 << 20)
+	return c, nil
 }
 
 // userfaultfd makes sure an unprivileged QEMU can have one, which the fast load serves the guest's

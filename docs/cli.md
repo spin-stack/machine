@@ -257,6 +257,16 @@ not take is refused. `restore-first`'s cached row reads only the data of the sav
 page cache (`SEEK_DATA`), which is all QEMU loads from a mapped-ram state as long as the RAM
 ceiling; its `listening` is the restoring QEMU's monitor accepting, not its machine made.
 
+`restore-together` is whether a checkpoint's channels hold up when a host restores several
+workspaces at once: a row for each number in `together` (default `1 4 8`) and each count in
+`channels` (default `1 8 16`; empty is the tree's spin-machine's own count). A measurement saves
+that many checkpoints, each of its own overlay, starts a QEMU ahead for each with `--restore`,
+evicts every state from the page cache, as `restore-first`'s evicted row does, and lets every
+`spin-machine restore` go at once. Its table's `login` is each measurement's median and `slowest`
+its slowest; under the table every restore's first login is pooled, one sample each, with each
+row's p50 against the same number at once with the first count. Restores let go together are not
+independent, so that interval is narrower than the truth. A restore lost loses its measurement.
+
 `lab dispatch` starts lab.yml once no other lab run is queued or running - the bench fleet
 measures one at a time, and two runs side by side measure each other - waits for it, and prints
 its result. It is the way to compare: `host=bench` (nested, the default) unless the question is
