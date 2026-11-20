@@ -8,8 +8,8 @@ import (
 )
 
 // The site says what the page does: why a Δ is read with care, the chart inline with its
-// tooltips, the tables, the gap to the goal, each run and each record linked, and the dashes'
-// reasons.
+// tooltips, the tables, the gap to the goal, each run and each record linked; and, as the page,
+// no reasons for its dashes.
 func TestTheSiteIsThePageAsHTML(t *testing.T) {
 	page, err := Site(docRecords())
 	if err != nil {
@@ -29,11 +29,13 @@ func TestTheSiteIsThePageAsHTML(t *testing.T) {
 		"<th>kernel to &#34;Freeing&#34; ms</th>",
 		"<td><a href=\"releases/v2.json\">v2</a></td>",
 		"<td><a href=\"https://x/actions/runs/7\">7</a></td>",
-		"<li>v2, restore, QEMU started ahead: lost all 1</li>",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("no %q in:\n%s", want, page)
 		}
+	}
+	if strings.Contains(page, "lost all 1") {
+		t.Errorf("the page says why a number is a dash:\n%s", page)
 	}
 	if strings.Contains(page, "<script") || strings.Contains(page, "src=") || strings.Contains(page, "stylesheet") {
 		t.Errorf("the page runs or fetches something:\n%s", page)
@@ -43,7 +45,7 @@ func TestTheSiteIsThePageAsHTML(t *testing.T) {
 // Whatever a record holds is text on the page, never markup.
 func TestTheSiteEscapesWhatARecordHolds(t *testing.T) {
 	r := docRecords()[1]
-	r.Release, r.Host, r.Cannot = "<i>v2</i>", `"a" & <b>`, map[string]string{"kernel-ms": "<script>alert(1)</script>"}
+	r.Release, r.Host = "<i>v2</i>", `"a" & <b> <script>alert(1)</script>`
 	page, err := Site([]Record{r})
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +55,7 @@ func TestTheSiteEscapesWhatARecordHolds(t *testing.T) {
 			t.Errorf("%s is markup on the page:\n%s", unwanted, page)
 		}
 	}
-	for _, want := range []string{"&lt;i&gt;v2&lt;/i&gt;", "&#34;a&#34; &amp; &lt;b&gt;", "&lt;script&gt;alert(1)&lt;/script&gt;"} {
+	for _, want := range []string{"&lt;i&gt;v2&lt;/i&gt;", "&#34;a&#34; &amp; &lt;b&gt; &lt;script&gt;alert(1)&lt;/script&gt;"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("no %q in:\n%s", want, page)
 		}

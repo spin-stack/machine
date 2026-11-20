@@ -26,17 +26,13 @@ var site = template.Must(template.New("site").Parse(siteHTML))
 func Site(records []Record) (string, error) {
 	var b strings.Builder
 	err := site.Execute(&b, struct {
-		About        template.HTML
-		Chart        template.HTML
-		Tables       []table
-		DashesBefore string
-		Dashes       []string
+		About  template.HTML
+		Chart  template.HTML
+		Tables []table
 	}{
-		About:        prose(about()),
-		Chart:        template.HTML(Chart(records)), //nolint:gosec // Chart escapes every value it writes
-		Tables:       tables(records, SiteRecords),
-		DashesBefore: dashesBefore,
-		Dashes:       dashes(records),
+		About:  prose(about()),
+		Chart:  template.HTML(Chart(records)), //nolint:gosec // Chart escapes every value it writes
+		Tables: tables(records, SiteRecords),
 	})
 	if err != nil {
 		return "", fmt.Errorf("writing the records' page: %w", err)

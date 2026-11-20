@@ -84,8 +84,8 @@ func docRecords() []Record {
 }
 
 // The page shows the chart beside it, tables each release's numbers with Δ against the row above,
-// and the newest against the goal; and says where each was measured, linking its record, and why
-// a number is a dash.
+// and the newest against the goal; and says where each was measured, linking its record. Why a
+// number is a dash is the ladder's to say, not the page's.
 func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
 	doc := Doc(docRecords(), "kept")
 	if !strings.HasPrefix(doc, "<!-- Written by `spin-machine-dev releases doc` from docs/releases/*.json") {
@@ -103,21 +103,32 @@ func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
 		"| v2 | 151 | 140 | - | 290 |",
 		"| [v1](kept/v1.json) | 2026-11-20 | c8id.4xlarge, nested | " + spinsShape + " | 2 |  |  |",
 		"| [v2](kept/v2.json) | 2026-11-20 | c8id.4xlarge, nested | " + spinsShape + " | 2 | v1 | [7](https://x/actions/runs/7) |",
-		"- v1, restore to first login: its spin-machine's boot has no --restore",
-		"- v1, cold, QEMU started ahead: its spin-machine's boot has no --held",
-		"- v2, restore, QEMU started ahead: lost all 1",
-		"- v2, kernel to \"Freeing\" ms: not measured",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("no %q in:\n%s", want, doc)
 		}
 	}
-	if strings.Contains(doc, "- v1, cold boot to first login") {
-		t.Errorf("a number that is there has a note:\n%s", doc)
+	if strings.Contains(doc, dashesBefore) {
+		t.Errorf("the page says why a number is a dash:\n%s", doc)
 	}
-	// A ladder's tables have no chart, and no record to link a release to.
-	if ladder := Tables(docRecords()); strings.Contains(ladder, ".svg") || !strings.Contains(ladder, "| v1 | 2026-11-20 |") {
+	// A ladder's tables have no chart, and no record to link a release to; they say why each
+	// number is a dash, and only for a number that is not there.
+	ladder := Tables(docRecords())
+	if strings.Contains(ladder, ".svg") || !strings.Contains(ladder, "| v1 | 2026-11-20 |") {
 		t.Errorf("a ladder's tables:\n%s", ladder)
+	}
+	for _, want := range []string{
+		"- v1, restore to first login: its spin-machine's boot has no --restore",
+		"- v1, cold, QEMU started ahead: its spin-machine's boot has no --held",
+		"- v2, restore, QEMU started ahead: lost all 1",
+		"- v2, kernel to \"Freeing\" ms: not measured",
+	} {
+		if !strings.Contains(ladder, want) {
+			t.Errorf("no %q in:\n%s", want, ladder)
+		}
+	}
+	if strings.Contains(ladder, "- v1, cold boot to first login") {
+		t.Errorf("a number that is there has a note:\n%s", ladder)
 	}
 	// One release, with one of the goal's numbers: its gap alone.
 	if one := Doc(docRecords()[:1], "kept"); !strings.Contains(one, "v1 against the goal: cold +240 ms.\n") {
