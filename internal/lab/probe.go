@@ -239,6 +239,15 @@ func plugNeeds(o Options) []Need {
 	return []Need{{"boot", "qmp"}, {"memory", "qmp"}, {"memory", "to"}}
 }
 
+// qmpToPlug is the boot flag that opens the monitor Plug talks to on qmp, when the options size
+// the guest; a probe whose boot opens no monitor of its own for anything else boots with it.
+func (m *Measurement) qmpToPlug(qmp string) []string {
+	if m.Options.Int("plugged") == 0 {
+		return nil
+	}
+	return []string{"--qmp", qmp}
+}
+
 // Plug sizes the machine whose monitor is qmp to the plugged option's MiB, as spin does a
 // workspace: spin boots every machine at 128 MiB and, right after its start and before it hands the
 // guest its filesystem, asks virtio-mem for the workspace's size and waits for the guest to take it
