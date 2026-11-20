@@ -47,6 +47,12 @@ Branch `lab-measure` makes spin's shape the probes' default and names the shape 
 The login path is still the probes' own. Until both are spin's, a gain on these numbers is a
 lead for spin, not a measurement of it.
 
+- **The memory.** spin sizes every workspace to 2048 MiB or more through virtio-mem right after
+  its start, before the guest's handoff. Left at 128 MiB, the guest's OOM killer runs through
+  every boot and login of spin's shape (laptop, 2026-11-20, `docs/log.md`). `--opt plugged=2048`
+  sizes it as spin does, and `--opt login=spin` logs in as spin does: root, through a forwarder to
+  `ssh.service` on 127.0.0.1:22.
+
 The cold boot became the main target when templates were removed on 2026-09-30 (#51). Before
 that, `c2c4c6a` (2026-09-10) called it the path the product is designed never to take.
 
@@ -318,7 +324,8 @@ experiment can at most say. Two are on the bench now; their rows are filled in w
 | Rank | Experiment | Number | Ceiling | Evidence it is untried | Status |
 |---|---|---|---|---|---|
 | 1 | multifd channels 1, 2, 4 and 8 on the mapped-ram save and load, restore rows with and without QEMU started ahead | restore | the RAM load's ~65-70 ms; ~85-90 ms to the login with QEMU ahead if the load is ~4× faster | `grep multifd machine cmd` finds nothing; the one rejection (#246) is a comparison its own run calls not comparable | **pending**: result to come |
-| 2 | A login without OpenSSH's exec per connection and PAM | both | a login costs 42.9 warm and is in both numbers; accept to login is 114.2 cold | `grep` for UsePAM, privsep, dropbear, tinyssh, qemu-ga finds nothing. It has to work on spin's path: its vsock forwarder to 127.0.0.1:22 | not started |
+| 2 | A login without OpenSSH's exec per connection and PAM | both | a login costs 42.9 warm and is in both numbers; accept to login is 114.2 cold | `grep` for UsePAM, privsep, dropbear, tinyssh, qemu-ga finds nothing. It has to work on spin's path: its vsock forwarder to 127.0.0.1:22 | leads, 11-20 (`docs/log.md`): spin's path already runs one sshd; PAM and pam_systemd are what spin's sessions are made of. Next: spin not lingering, below |
+| 2a | spin not lingering (`--edit nolinger`), on spin's path and memory (`plugged=2048`, `login=spin`) | both | user@1000, a systemd --user on the one vCPU, ~38 ms of it in the first login's window (11-19); a laptop lead read accept to login 40 against 70 ms | the linger was added 11-12 for sessions of class `user`, which the lane replaced by `user-early-light` on 11-13; spin logs in as root | **pending**: `ssh-first` and `prestart`, 20 each |
 | 3 | The bzImage's decompression made cheaper: other compression settings, KASLR without decompression, qboot doing the load | cold | ~22-25 ms | the cost was not seen when the bzImage was kept (pitfalls). KASLR stays. First give the phase an instrument (rule 6) | not started |
 | 4 | Asynchronous SCSI scan | cold, spin's shape | ~12 ms: `virtio_scsi_init` is 12.1 in spin's shape (lab 44587603255) | `# CONFIG_SCSI_SCAN_ASYNC is not set` (kernel/config-7.3-x86_64). Not `scsi_mod.scan=manual`, which loses disks (rejected) | not started |
 | 5 | The no-systemd floor on today's kernel and QEMU, in the ladder's shape and spin's | a bound | none: it says how much of the cold number is systemd's to give back. Last read 209 ms on 2026-11-13, on an 87 ms kernel (lab 43506390106) | measured once, on an older kernel | **pending**: result to come |

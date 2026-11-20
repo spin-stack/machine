@@ -25,10 +25,9 @@ func TestLogindSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := newRawRoot(t, out, base)
-	// The shipped image starts logind at boot, because spin lingers and logind is what starts
-	// a lingering user's manager (optimize-systemd.sh). So the state this asserts before any
-	// login is `active`, and a machine that answers `inactive` has taken logind out of the boot
-	// again and moved spin's manager back into the first login.
+	// The shipped image starts logind at boot, so that the first login does not
+	// (optimize-systemd.sh). So the state this asserts before any login is `active`, and a
+	// machine that answers `inactive` has taken logind out of the boot again.
 	//
 	// SPIN_LOGIND_NO_SEATS=1 removes the 10-seats.conf drop-in and nothing else, and logind is
 	// then held back from the boot as it once was: that is the case the drop-in exists for - a

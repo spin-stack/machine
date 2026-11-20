@@ -368,24 +368,21 @@ for u in tmp.mount systemd-tmpfiles-setup.service; do
     fi
 done
 
-# logind starts in the boot, because spin lingers and logind is what starts a lingering
-# user's manager: the first SSH login comes 60 ms sooner for both together (the numbers are
-# in optimize-systemd.sh). Each half alone is silent - the want overridden leaves the linger
-# file doing nothing until the first login starts logind, and the file gone leaves logind in
-# the boot buying nothing - so both are asserted here. The want is the package's, in /usr; an
-# override would be a /dev/null symlink at the /etc path, which is how it was done before
-# (2026-09-12) and what a stale configure step would bring back.
+# logind starts in the boot, so that the first login does not start it (optimize-systemd.sh).
+# The want is the package's, in /usr; an override would be a /dev/null symlink at the /etc path,
+# which is how it was done before (2026-09-12) and what a stale configure step would bring back.
 if stat_in_image /etc/systemd/system/multi-user.target.wants/systemd-logind.service |
         grep -q '/dev/null'; then
-    echo "ERROR: the want for systemd-logind is overridden; spin's manager would start in" \
-         "the first login instead of the boot" >&2
+    echo "ERROR: the want for systemd-logind is overridden; the first login would start it" >&2
     exit 1
 fi
 in_image /usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service || {
     echo "ERROR: the package no longer wants systemd-logind from multi-user.target" >&2
     exit 1; }
-in_image /var/lib/systemd/linger/spin || {
-    echo "ERROR: spin does not linger; its manager starts inside the first login" >&2
+# And spin does not linger: a lingering user's manager is a systemd --user started in every boot, on
+# the vCPU the first login needs, for a user spin does not log in as (configure-system.sh).
+! in_image /var/lib/systemd/linger/spin || {
+    echo "ERROR: spin lingers; its manager would start in every boot" >&2
     exit 1; }
 # The drop-in still matters with logind in the boot: a login can arrive before logind has
 # run, and without it pam_systemd hands that login no session and says nothing.
