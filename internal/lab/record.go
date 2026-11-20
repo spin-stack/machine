@@ -211,14 +211,15 @@ func about() string {
 const chartTitle = "First SSH login, p50 and p95, release by release"
 
 // Doc is docs/releases.md: the goal's two numbers release by release, as a chart and as tables, the
-// diagnostics, and the run each release was measured in. kept is the records' directory beside
+// diagnostics, and the run each release was measured in. A missing number is a dash and nothing
+// more: why a probe lost its boots is the ladder's to say (Tables), not the page's. kept is the records' directory beside
 // the page: the chart is kept.svg (Chart, which releases doc writes) and each record is linked as
 // kept/RELEASE.json.
 func Doc(records []Record, kept string) string {
 	return "<!-- Written by `spin-machine-dev releases doc` from docs/releases/*.json: edit those, never this. -->\n\n" +
 		"# Releases, measured\n\n" + about() + "\n\n" +
 		"![" + chartTitle + "](" + kept + ".svg)\n\n" +
-		markdown(tables(records, kept), dashes(records))
+		markdown(tables(records, kept), nil)
 }
 
 // Tables are a ladder's records as tables (lab ladder's ladder.md): the page's, with no record to

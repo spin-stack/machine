@@ -12,12 +12,6 @@ First SSH login, ms p50/p95. Δ is the p50 against the release before it, booted
 
 | release | cold boot to first login | Δ | restore to first login | Δ | cold, QEMU started ahead | restore, QEMU started ahead |
 |---|---|---|---|---|---|---|
-| v20261113.01 | - |  | - |  | - | - |
-| v20261113.02 | - |  | - |  | - | - |
-| v20261113.03 | - |  | - |  | - | - |
-| v20261114.01 | - |  | - |  | - | - |
-| v20261114.02 | - |  | - |  | - | - |
-| v20261119.01 | - |  | - |  | - | - |
 | v20261119.02 | 518 / 536 |  | 181 / 183 |  | 476 / 485 | 154 / 162 |
 | v20261120.01 | 508 / 516 | -3.2 [-10.1, +4.6] within noise | 185 / 305 | +2.1 [-2.9, +9.6] within noise | 482 / 491 | 156 / 172 |
 | v20261120.02 | 502 / 513 | +1.2 [-4.0, +15.7] within noise | 182 / 632 | +1.1 [-2.0, +6.1] within noise | 472 / 484 | 155 / 162 |
@@ -32,12 +26,6 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 
 | release | save ms | state MiB | kernel to "Freeing" ms | QEMU RSS MiB |
 |---|---|---|---|---|
-| v20261113.01 | - | - | - | - |
-| v20261113.02 | - | - | - | - |
-| v20261113.03 | - | - | - | - |
-| v20261114.01 | - | - | - | - |
-| v20261114.02 | - | - | - | - |
-| v20261119.01 | - | - | - | - |
 | v20261119.02 | 180 | 183 | 90.2 | 240 |
 | v20261120.01 | 181 | 183 | 88.8 | 240 |
 | v20261120.02 | 176 | 182 | 89.3 | 238 |
@@ -48,65 +36,8 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 
 | release | measured | host | shape | boots of each probe | against | run |
 |---|---|---|---|---|---|---|
-| [v20261113.01](releases/v20261113.01.json) | 0001-01-01 | no host | 2 vCPUs, 2048 MiB, no hotplug disks | 0 | v20261112.01 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
-| [v20261113.02](releases/v20261113.02.json) | 0001-01-01 | no host | 2 vCPUs, 2048 MiB, no hotplug disks | 0 | v20261113.01 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
-| [v20261113.03](releases/v20261113.03.json) | 0001-01-01 | no host | 2 vCPUs, 2048 MiB, no hotplug disks | 0 | v20261113.02 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
-| [v20261114.01](releases/v20261114.01.json) | 0001-01-01 | no host | 2 vCPUs, 2048 MiB, no hotplug disks | 0 | v20261113.03 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
-| [v20261114.02](releases/v20261114.02.json) | 0001-01-01 | no host | 2 vCPUs, 2048 MiB, no hotplug disks | 0 | v20261114.01 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
-| [v20261119.01](releases/v20261119.01.json) | 0001-01-01 | no host | 2 vCPUs, 2048 MiB, no hotplug disks | 0 | v20261114.02 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
 | [v20261119.02](releases/v20261119.02.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261119.01 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
 | [v20261120.01](releases/v20261120.01.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261119.02 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
 | [v20261120.02](releases/v20261120.02.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.01 | [44820465606](https://github.com/spin-stack/spin-machine/actions/runs/44820465606) |
 | [v20261120.03](releases/v20261120.03.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.02 | [44809542263](https://github.com/spin-stack/spin-machine/actions/runs/44809542263) |
 | [v20261120.04](releases/v20261120.04.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.03 | [44811347183](https://github.com/spin-stack/spin-machine/actions/runs/44811347183) |
-
-A dash is a number that release has not:
-
-- v20261113.01, cold boot to first login: its spin-machine's memory has no --to
-- v20261113.01, restore to first login: its spin-machine's boot has no --restore
-- v20261113.01, cold, QEMU started ahead: its spin-machine's boot has no --held
-- v20261113.01, restore, QEMU started ahead: its spin-machine's boot has no --held
-- v20261113.01, save ms: its spin-machine's boot has no --restore
-- v20261113.01, state MiB: its spin-machine's boot has no --restore
-- v20261113.01, kernel to "Freeing" ms: its spin-machine's memory has no --to
-- v20261113.01, QEMU RSS MiB: its spin-machine's memory has no --to
-- v20261113.02, cold boot to first login: its spin-machine's memory has no --to
-- v20261113.02, restore to first login: its spin-machine's boot has no --restore
-- v20261113.02, cold, QEMU started ahead: its spin-machine's boot has no --held
-- v20261113.02, restore, QEMU started ahead: its spin-machine's boot has no --held
-- v20261113.02, save ms: its spin-machine's boot has no --restore
-- v20261113.02, state MiB: its spin-machine's boot has no --restore
-- v20261113.02, kernel to "Freeing" ms: its spin-machine's memory has no --to
-- v20261113.02, QEMU RSS MiB: its spin-machine's memory has no --to
-- v20261113.03, cold boot to first login: its spin-machine's memory has no --to
-- v20261113.03, restore to first login: its spin-machine's boot has no --restore
-- v20261113.03, cold, QEMU started ahead: its spin-machine's boot has no --held
-- v20261113.03, restore, QEMU started ahead: its spin-machine's boot has no --held
-- v20261113.03, save ms: its spin-machine's boot has no --restore
-- v20261113.03, state MiB: its spin-machine's boot has no --restore
-- v20261113.03, kernel to "Freeing" ms: its spin-machine's memory has no --to
-- v20261113.03, QEMU RSS MiB: its spin-machine's memory has no --to
-- v20261114.01, cold boot to first login: its spin-machine's memory has no --to
-- v20261114.01, restore to first login: its spin-machine's boot has no --restore
-- v20261114.01, cold, QEMU started ahead: its spin-machine's boot has no --held
-- v20261114.01, restore, QEMU started ahead: its spin-machine's boot has no --held
-- v20261114.01, save ms: its spin-machine's boot has no --restore
-- v20261114.01, state MiB: its spin-machine's boot has no --restore
-- v20261114.01, kernel to "Freeing" ms: its spin-machine's memory has no --to
-- v20261114.01, QEMU RSS MiB: its spin-machine's memory has no --to
-- v20261114.02, cold boot to first login: its spin-machine's memory has no --to
-- v20261114.02, restore to first login: its spin-machine's boot has no --restore
-- v20261114.02, cold, QEMU started ahead: its spin-machine's boot has no --held
-- v20261114.02, restore, QEMU started ahead: its spin-machine's boot has no --held
-- v20261114.02, save ms: its spin-machine's boot has no --restore
-- v20261114.02, state MiB: its spin-machine's boot has no --restore
-- v20261114.02, kernel to "Freeing" ms: its spin-machine's memory has no --to
-- v20261114.02, QEMU RSS MiB: its spin-machine's memory has no --to
-- v20261119.01, cold boot to first login: its spin-machine's memory has no --to
-- v20261119.01, restore to first login: its spin-machine's boot has no --restore
-- v20261119.01, cold, QEMU started ahead: its spin-machine's boot has no --held
-- v20261119.01, restore, QEMU started ahead: its spin-machine's boot has no --held
-- v20261119.01, save ms: its spin-machine's boot has no --restore
-- v20261119.01, state MiB: its spin-machine's boot has no --restore
-- v20261119.01, kernel to "Freeing" ms: its spin-machine's memory has no --to
-- v20261119.01, QEMU RSS MiB: its spin-machine's memory has no --to
