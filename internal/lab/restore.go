@@ -69,7 +69,7 @@ func (restoreFirst) Needs(o Options) []Need {
 	if o.Bool("fast") {
 		needs = append(needs, Need{"restore", "fast"})
 	}
-	return append(needs, channelsNeeds(o)...)
+	return append(append(needs, channelsNeeds(o)...), plugNeeds(o)...)
 }
 
 func (restoreFirst) Metrics() []Metric {
@@ -165,7 +165,7 @@ func (c *checkpoint) bootFlags(m *Measurement, qmp string, extra ...string) []st
 // save's --channels, when the row names them.
 // mutate-lane: TestEveryProbeMeasuresATree
 func coldSave(m *Measurement, channels ...string) error {
-	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edit())
+	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edits()...)
 	if err != nil {
 		return err
 	}
@@ -177,8 +177,12 @@ func coldSave(m *Measurement, channels ...string) error {
 		return err
 	}
 	defer mc.Stop()
+	plugged := m.Plug(qmp)
 	login, err := m.Key.LoggedIn(mc, c.cid, t0)
 	if err != nil {
+		return err
+	}
+	if err := plugged(); err != nil {
 		return err
 	}
 	m.RecordMs("cold_login", login)

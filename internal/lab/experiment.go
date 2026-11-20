@@ -47,6 +47,13 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	switch opts["login"] {
+	case "", "lane":
+	case "spin":
+		key.SpinsPath = true
+	default:
+		return nil, fmt.Errorf("%s's option login is lane or spin, not %q", e.Probe.Name(), opts["login"])
+	}
 	r := &Result{Probe: e.Probe.Name(), About: e.Probe.About(), Options: opts, Reps: e.Reps,
 		Rows: e.Probe.Rows(opts), Metrics: e.Probe.Metrics(), Host: ReadHost(e.Scratch), Started: time.Now().UTC()}
 	for _, t := range e.Trees {

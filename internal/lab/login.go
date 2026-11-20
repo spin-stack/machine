@@ -19,6 +19,9 @@ import (
 type Key struct {
 	Signer xssh.Signer
 	public []byte
+	// SpinsPath is a login the way spin makes one (the login option's "spin") rather than the
+	// lane's, the default: see spinsPath.
+	SpinsPath bool
 }
 
 // NewKey makes a key for one experiment.
@@ -38,6 +41,49 @@ func NewKey() (*Key, error) {
 	return &Key{Signer: signer, public: xssh.MarshalAuthorizedKey(sshPub)}, nil
 }
 
+// User is who logs in: root on spin's path, whose certificates are issued for root (spin's
+// cmd/cli/cmd/ssh.go; execserver's loginUser), and spin on the lane.
+func (k *Key) User() string {
+	if k.SpinsPath {
+		return "root"
+	}
+	return "spin"
+}
+
+// spinsPath is the login as spin makes it, stood in for (spin-stack/spin at 1bd3414, 2026-11-20).
+// spin turns systemd's vsock sshd off (systemd.ssh_auto=0, internal/runner/qemu/kernel_cmdline.go)
+// and its supervisor forwards vsock to 127.0.0.1:22 (internal/guest/supervisor/forward), where the
+// image's ssh.socket hands every connection to one long-running sshd, ssh.service. The supervisor
+// lets SSH through once it has installed the user CA, and installing it runs
+// `systemctl reload-or-restart ssh.service` (internal/guest/supervisor/handler/userca.go): sshd
+// is running before the first connection reaches it, as it is here. socat stands for the
+// forwarder, with TCP_NODELAY on the loopback side as Go's dialer sets it by default: without it,
+// Nagle's algorithm against the delayed ACK held each login ~40 ms (laptop, 69 against 26 ms warm,
+// 2026-11-20). The login is root's, through authorized_keys rather than spin's certificate.
+//
+// sshd_accepts on this path is the forwarder listening, which follows sshd's start; when spin's
+// supervisor listens is its own and is not measured here.
+var spinsPath = Edit{
+	Mask: []string{"sshd-vsock.socket"},
+	Files: map[string]string{
+		"/etc/systemd/system/spin-lab-forward.service": `[Unit]
+Description=Stands for spin's supervisor forwarding vsock port 22 to 127.0.0.1:22
+Wants=ssh.service
+After=ssh.service
+[Service]
+ExecStart=/usr/bin/socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22,nodelay
+`,
+	},
+	Links: map[string]string{
+		"/etc/systemd/system/multi-user.target.wants/spin-lab-forward.service": "/etc/systemd/system/spin-lab-forward.service",
+	},
+	Setup: `test -x "$MNT/usr/bin/socat" && test -e "$MNT/usr/lib/systemd/system/ssh.socket"
+install -d -m 700 "$MNT/root/.ssh"
+cp "$MNT/home/spin/.ssh/authorized_keys" "$MNT/root/.ssh/authorized_keys"
+chmod 600 "$MNT/root/.ssh/authorized_keys"
+`,
+}
+
 // GettyEcho is the serial getty replaced by an echo, for a boot whose prompt is timed: agetty
 // sleeps a second before it prints (util-linux's "let the line settle", strace'd 2026-09-10), which
 // nothing configures away and which is larger than anything compared. An empty ExecStart= first:
@@ -50,6 +96,15 @@ func GettyDropin(body string) map[string]string {
 	return map[string]string{
 		"/etc/systemd/system/serial-getty@ttyS0.service.d/zz-bench.conf": "[Service]\n" + body,
 	}
+}
+
+// Edits are what a boot logged into with k needs in its overlay: Edit, and on spin's path
+// spinsPath after it.
+func (k *Key) Edits() []Edit {
+	if k.SpinsPath {
+		return []Edit{k.Edit(), spinsPath}
+	}
+	return []Edit{k.Edit()}
 }
 
 // Edit is what a boot logged into with k needs in its overlay: k in spin's authorized_keys,
@@ -89,7 +144,7 @@ func VsockAccepts(cid, port uint32) bool {
 	return unix.Connect(fd, &unix.SockaddrVM{CID: cid, Port: port}) == nil
 }
 
-// Login runs `true` as spin over SSH on cid's port 22, offering only the key exchange kex, and says
+// Login runs `true` as k.User over SSH on cid's port 22, offering only the key exchange kex, and says
 // how long it took from the connect. The client offers mlkem768x25519-sha256 because it is the one
 // key exchange the image's sshd accepts; the runners' OpenSSH 9.6 has no ML-KEM and is refused.
 // mutate-lane: TestEveryProbeMeasuresATree
@@ -98,7 +153,7 @@ func (k *Key) Login(cid uint32, kex string) (time.Duration, error) {
 	return d, err
 }
 
-// Run runs command as spin over SSH on cid's port 22 and returns how long it took from the
+// Run runs command as k.User over SSH on cid's port 22 and returns how long it took from the
 // connect and what it wrote.
 // mutate-lane: TestEveryProbeMeasuresATree
 func (k *Key) Run(cid uint32, kex, command string) (time.Duration, string, error) {
@@ -114,7 +169,7 @@ func (k *Key) Run(cid uint32, kex, command string) (time.Duration, string, error
 	conn := vsockConn{os.NewFile(uintptr(fd), "vsock")}
 	defer func() { _ = conn.Close() }()
 	c, chans, reqs, err := xssh.NewClientConn(conn, "vsock", &xssh.ClientConfig{
-		User:            "spin",
+		User:            k.User(),
 		Auth:            []xssh.AuthMethod{xssh.PublicKeys(k.Signer)},
 		HostKeyCallback: xssh.InsecureIgnoreHostKey(), // a fresh VM's keys, made in its boot
 		Config:          xssh.Config{KeyExchanges: []string{kex}},

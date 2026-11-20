@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -31,14 +32,14 @@ func init() { register(sshFirst{}) }
 
 func (sshFirst) Name() string { return "ssh-first" }
 func (sshFirst) About() string {
-	return "ms from the moment before QEMU is exec'd to sshd accepting on vsock, and to `true` run as spin over SSH"
+	return "ms from the moment before QEMU is exec'd to sshd accepting on vsock, and to `true` run over SSH, as spin or, on spin's login, root"
 }
 func (sshFirst) Options() []Option     { return shape }
 func (sshFirst) Rows(Options) []string { return []string{"boot"} }
 func (sshFirst) Phases() int           { return 1 }
 
-func (sshFirst) Needs(Options) []Need {
-	return append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "console"}, Need{"boot", "append"})
+func (sshFirst) Needs(o Options) []Need {
+	return append(append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "console"}, Need{"boot", "append"}), plugNeeds(o)...)
 }
 
 func (sshFirst) Metrics() []Metric {
@@ -55,7 +56,7 @@ func (sshFirst) Metrics() []Metric {
 
 // mutate-lane: TestEveryProbeMeasuresATree
 func (sshFirst) Measure(_ context.Context, m *Measurement) error {
-	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edit())
+	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edits()...)
 	if err != nil {
 		return err
 	}
@@ -63,11 +64,16 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	console, w := io.Pipe()
 	// t0 before the exec, so QEMU's start and the firmware are inside what is measured.
 	t0 := time.Now()
-	mc, err := m.Launch(w, m.BootArgs(overlay, "--vsock-cid", fmt.Sprint(cid),
-		"--console", "file:/dev/stdout", "--append", m.Tree.Cmdline())...)
+	args := []string{"--vsock-cid", fmt.Sprint(cid), "--console", "file:/dev/stdout", "--append", m.Tree.Cmdline()}
+	qmp := filepath.Join(m.Socks, "m.qmp")
+	if m.Options.Int("plugged") > 0 {
+		args = append(args, "--qmp", qmp)
+	}
+	mc, err := m.Launch(w, m.BootArgs(overlay, args...)...)
 	if err != nil {
 		return err
 	}
+	plugged := m.Plug(qmp)
 	defer func() { _ = console.Close(); mc.Stop(); _ = w.Close() }()
 
 	var mu sync.Mutex
@@ -107,6 +113,9 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	}
 	if login == 0 {
 		return Miss("sshd accepted and no login came: %v", why)
+	}
+	if err := plugged(); err != nil {
+		return err
 	}
 	m.RecordMs("sshd_accepts", accepts)
 	m.RecordMs("first_login", login)

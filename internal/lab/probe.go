@@ -88,6 +88,8 @@ var shape = []Option{
 	{"memory", "128", "MiB of memory at boot"},
 	{"max-memory", "8192", "MiB the memory may grow to through virtio-mem (0: fixed)"},
 	{"hotplug-disks", "4", "targets on the hotplug controller"},
+	{"plugged", "0", "MiB the guest is sized to through virtio-mem right after its start, as spin sizes a workspace (0: left at memory)"},
+	{"login", "lane", "lane: as spin, through systemd's vsock sshd, an sshd@ a connection; spin: as root, through a forwarder to ssh.service on 127.0.0.1:22, spin's path"},
 	{"flags", "", "more spin-machine boot flags for every boot"},
 }
 
@@ -110,6 +112,12 @@ func shapeOf(o Options) string {
 		disks = fmt.Sprintf("%d hotplug disks", n)
 	}
 	s := cpus + ", " + memory + ", " + disks
+	if n := o.Int("plugged"); n > 0 {
+		s += fmt.Sprintf(", sized to %d MiB", n)
+	}
+	if o["login"] == "spin" {
+		s += ", spin's login"
+	}
 	if f := strings.TrimSpace(o["flags"]); f != "" {
 		s += ", " + f
 	}
@@ -215,6 +223,47 @@ func (m *Measurement) BootArgs(overlay string, extra ...string) []string {
 	args = append(args, extra...)
 	args = append(args, m.Options.Fields("flags")...)
 	return append(args, m.Tree.Manifest.Boot...)
+}
+
+// plugNeeds are what Plug runs, when the options size the guest.
+func plugNeeds(o Options) []Need {
+	if o.Int("plugged") == 0 {
+		return nil
+	}
+	return []Need{{"boot", "qmp"}, {"memory", "qmp"}, {"memory", "to"}}
+}
+
+// Plug sizes the machine whose monitor is qmp to the plugged option's MiB, as spin does a
+// workspace: spin boots every machine at 128 MiB and, right after its start and before it hands the
+// guest its filesystem, asks virtio-mem for the workspace's size and waits for the guest to take it
+// (spin-stack/spin internal/runner/vmm/vmm.go, resize; 2048 MiB unless the workspace asks for
+// more, installconfig.MinMemoryMB). Left at 128 MiB the guest's OOM killer ran through every boot
+// of spin's shape on a laptop - logind, user@1000, sshd@ and ssh.service killed, logins lost and
+// retried (2026-11-20) - which no workspace of spin's does.
+//
+// It runs beside the boot, from the moment the monitor listens, and the returned wait says whether
+// the guest got there: a measurement of a guest that did not is lost. With the option at 0 it does
+// nothing.
+// mutate-lane: TestEveryProbeMeasuresATree
+func (m *Measurement) Plug(qmp string) (wait func() error) {
+	mib := m.Options.Int("plugged")
+	if mib == 0 {
+		return func() error { return nil }
+	}
+	done := make(chan error, 1)
+	go func() {
+		if err := waitSocket(qmp, time.Now().Add(30*time.Second)); err != nil {
+			done <- err
+			return
+		}
+		done <- m.SpinMachine("memory", "--qmp", qmp, "--to", strconv.Itoa(mib))
+	}()
+	return func() error {
+		if err := <-done; err != nil {
+			return Miss("the guest was not sized to %d MiB: %v", mib, err)
+		}
+		return nil
+	}
 }
 
 // MissError is a measurement lost - a machine that never answered - and not an experiment that
