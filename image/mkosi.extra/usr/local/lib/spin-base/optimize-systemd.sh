@@ -221,9 +221,9 @@ ln -sf /usr/lib/systemd/system/spin-machine-sshd-keygen.service \
     /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.service
 
 # logind stays in the boot transaction, as the package wants it
-# (/usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service), because spin
-# lingers - configure-system.sh - and it is logind that starts a lingering user's manager.
-# Taking it out of the boot was worth 24 ms to a console prompt (2026-09-12) and moved logind,
+# (/usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service), so that the first
+# login does not start it. spin lingered when this was measured, and no longer does
+# (configure-system.sh). Taking it out of the boot was worth 24 ms to a console prompt (2026-09-12) and moved logind,
 # dbus-broker and user@1000.service into the first login instead, which is what a workspace
 # waits for: with logind in the boot and spin lingering, the first SSH login over vsock came
 # 60 ms sooner, 510/525 against 570/626 ms p50/p95, and sshd accepted no later (321 against

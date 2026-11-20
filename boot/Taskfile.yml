@@ -99,7 +99,7 @@ tasks:
     desc: >-
       Check first SSH login, reconnect, user services and logout in a disposable guest.
       Needs a built release; uses KVM when available, otherwise TCG.
-      The image starts logind at boot, for spin's lingering manager, and this checks that
+      The image starts logind at boot, so the first login does not, and this checks that
       logins get a real session. SPIN_LOGIND_NO_SEATS=1 holds logind back from the boot and
       removes the drop-in that lets an early login still activate it, and is expected to
       fail, not to measure anything.

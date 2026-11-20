@@ -192,8 +192,19 @@ func namedEdit(name, checkout string) (Edit, error) {
 		return laneEdit(checkout)
 	case "floor":
 		return floorEdit, nil
+	case "nolinger":
+		return noLingerEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger", name)
+}
+
+// noLingerEdit is a published release's image as this checkout builds it: spin no longer lingers
+// (configure-system.sh), so logind starts no user@1000 in the boot. A release from before has the
+// linger file, and the edit fails on one without it rather than measuring the release twice.
+var noLingerEdit = Edit{
+	Setup: `test -e "$MNT/var/lib/systemd/linger/spin"
+rm "$MNT/var/lib/systemd/linger/spin"
+`,
 }
 
 // floorEdit is the first login with no systemd before it, a bound on what systemd costs and never
@@ -226,8 +237,8 @@ test -x "$MNT/usr/bin/socat" && test -x "$MNT/usr/sbin/sshd"
 // release's overlay: the lab boots releases, and a change to the image is measured as the release
 // with the change in it, interleaved with the release as it was published.
 //
-// It holds on a release from before the lane as well as after: logind in the boot, spin
-// lingering, the host keys made from the boot's first dispatch, the lane's drop-ins read from
+// It holds on a release from before the lane as well as after: logind in the boot, the host keys
+// made from the boot's first dispatch, the lane's drop-ins read from
 // image/mkosi.extra, and configure-system.sh's edits done the same way. Each step checks what it
 // edits, so an edit that matched nothing fails rather than measuring the image under another name.
 //
@@ -245,7 +256,6 @@ func laneEdit(checkout string) (Edit, error) {
 		},
 		Setup: `rm -f "$MNT/etc/systemd/system/multi-user.target.wants/systemd-logind.service"
 test -e "$MNT/usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service"
-install -d "$MNT/var/lib/systemd/linger" && touch "$MNT/var/lib/systemd/linger/spin"
 grep -qx 'After=sysinit.target' "$MNT/usr/lib/systemd/system/dbus.socket"
 sed -e '/^Wants=sysinit.target$/d' -e '/^After=sysinit.target$/d' "$MNT/usr/lib/systemd/system/dbus.socket" > "$MNT/etc/systemd/system/dbus.socket"
 ln -sf /dev/null "$MNT/etc/tmpfiles.d/systemd-nologin.conf"
