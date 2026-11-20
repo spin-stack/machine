@@ -5,6 +5,7 @@ package lab
 import (
 	"encoding/xml"
 	"fmt"
+	"html"
 	"slices"
 	"strconv"
 	"strings"
@@ -137,6 +138,28 @@ func (d drawn) axis() []string {
 		}
 	}
 	return out
+}
+
+// A release measured in another shape than the one before it starts its numbers' lines anew, and
+// a rule says where the shape changed: two machines' numbers are not one line.
+func TestTheChartBreaksEachLineWhereTheShapeChanges(t *testing.T) {
+	n := map[string]Number{"cold": {330, 345}}
+	spins := rec("v3", map[string]Number{"cold": {473, 487}})
+	spins.Shape = "1 of 16 vCPUs, sized to 2048 MiB, spin's login"
+	newer := spins
+	newer.Release = "v4"
+	svg := Chart([]Record{rec("v1", n), rec("v2", n), spins, newer})
+	d := draw(t, []Record{rec("v1", n), rec("v2", n), spins, newer})
+	if got, want := d.lines("cold"), [][]string{{"v1 cold: p50 330, p95 345 ms", "v2 cold: p50 330, p95 345 ms"},
+		{"v3 cold: p50 473, p95 487 ms", "v4 cold: p50 473, p95 487 ms"}}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("cold's lines %q", got)
+	}
+	if strings.Count(svg, `class="shape"`) != 1 || !strings.Contains(svg, "from here: "+html.EscapeString(spins.Shape)) {
+		t.Errorf("the shape's change is not marked once, between v2 and v3:\n%s", svg)
+	}
+	if got := Chart([]Record{rec("v1", n), rec("v2", n)}); strings.Contains(got, `class="shape"`) {
+		t.Errorf("one shape is marked as a change:\n%s", got)
+	}
 }
 
 // The axis runs from 0 to a round number above the highest p95, or the goal, in eight steps or

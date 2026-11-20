@@ -35,7 +35,11 @@ const labelRoom = 40.0
 
 // Chart is the goal's numbers release by release as an SVG: each goal number's p50 as a line over
 // a band up to its p95, against the goal, with a tooltip on every point. A release without a
-// number breaks that number's line, where a zero would draw a release that was never measured.
+// number breaks that number's line, where a zero would draw a release that was never measured,
+// and so does a release measured in another shape than the one before it: v20261120.03, the first
+// in spin's shape, read 473 ms cold against v20261120.02's 328 in the shape before, and 38 ms
+// faster than v20261120.02 booted beside it in its own (lab 44805222647). A dashed rule between
+// the two says where the shape changed.
 func Chart(records []Record) string {
 	var goals []number
 	for _, n := range numbers {
@@ -68,6 +72,16 @@ func Chart(records []Record) string {
 		} else {
 			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle">%s</text>`+"\n", x(i), plotBottom+20, name)
 		}
+	}
+
+	for i := 1; i < len(records); i++ {
+		if records[i].shape() == records[i-1].shape() {
+			continue
+		}
+		mx := (x(i-1) + x(i)) / 2
+		fmt.Fprintf(&b, `<g class="shape"><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-dasharray="2 4"/>`+
+			`<text x="%.1f" y="%.1f" text-anchor="end">shape changes</text><title>from here: %s</title></g>`+"\n",
+			mx, plotTop, mx, plotBottom, ink, mx-4, plotTop+12, html.EscapeString(records[i].shape()))
 	}
 
 	fmt.Fprintf(&b, `<line class="goal" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5" stroke-dasharray="6 4"/>`+"\n",
@@ -116,12 +130,17 @@ func axis(records []Record, goals []number) (top, step float64) {
 	return math.Ceil(hi/step) * step, step
 }
 
-// runs are the stretches of consecutive records that have the number key, each as the records'
-// indexes: one line each, so that no line joins two releases across one without the number.
+// runs are the stretches of consecutive records in one shape that have the number key, each as the
+// records' indexes: one line each, so that no line joins two releases across one without the
+// number, nor two machines.
 func runs(records []Record, key string) [][]int {
 	var out [][]int
 	var run []int
 	for i, r := range records {
+		if run != nil && r.shape() != records[run[len(run)-1]].shape() {
+			out = append(out, run)
+			run = nil
+		}
 		if _, ok := r.Numbers[key]; ok {
 			run = append(run, i)
 			continue
