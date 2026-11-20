@@ -21,16 +21,10 @@ First SSH login, ms p50/p95. Δ is the p50 against the release before it, booted
 | v20261119.02 | 330 / 345 |  | 157 / 165 |  | 299 / 313 | 131 / 142 |
 | v20261120.01 | 338 / 351 |  | 159 / 166 |  | 309 / 317 | 131 / 138 |
 | v20261120.02 | 328 / 346 |  | 158 / 184 |  | 308 / 322 | 134 / 137 |
-<<<<<<< FETCH_HEAD
 | v20261120.03 | 474 / 485 | -35.7 [-43.1, -27.6] | 125 / 132 | -46.7 [-48.2, -43.5] | 446 / 459 | 102 / 106 |
-
-v20261120.03 against the goal: cold +374 ms, restore +25 ms.
-=======
-| v20261120.03 | 473 / 487 | -38.0 [-42.3, -29.0] | 128 / 132 | -55.8 [-58.9, -52.1] | 439 / 451 | 99.5 / 103 |
 | v20261120.04 | 456 / 477 | -14.3 [-20.4, -8.2] | 108 / 111 | -13.2 [-15.1, -11.4] | 428 / 440 | 83.2 / 87.1 |
 
 v20261120.04 against the goal: cold +356 ms, restore +8 ms.
->>>>>>> local
 
 ## Diagnostics
 
@@ -47,12 +41,8 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | v20261119.02 | 160 | 156 | 64 | 207 |
 | v20261120.01 | 164 | 155 | 65.7 | 207 |
 | v20261120.02 | 162 | 156 | 65.9 | 207 |
-<<<<<<< FETCH_HEAD
 | v20261120.03 | 122 | 178 | 70.8 | 234 |
-=======
-| v20261120.03 | 126 | 178 | 70.1 | 234 |
 | v20261120.04 | 122 | 178 | 79.9 | 232 |
->>>>>>> local
 
 ## Where each was measured
 
@@ -67,12 +57,8 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | [v20261119.02](releases/v20261119.02.json) | 2026-11-20 | c8id.4xlarge, nested | 2 vCPUs, 2048 MiB, no hotplug disks | 20 |  | [44737371130](https://github.com/spin-stack/spin-machine/actions/runs/44737371130) |
 | [v20261120.01](releases/v20261120.01.json) | 2026-11-20 | c8id.4xlarge, nested | 2 vCPUs, 2048 MiB, no hotplug disks | 20 |  | [44737371130](https://github.com/spin-stack/spin-machine/actions/runs/44737371130) |
 | [v20261120.02](releases/v20261120.02.json) | 2026-11-20 | c8id.4xlarge, nested | 2 vCPUs, 2048 MiB, no hotplug disks | 20 |  | [44737371130](https://github.com/spin-stack/spin-machine/actions/runs/44737371130) |
-<<<<<<< FETCH_HEAD
 | [v20261120.03](releases/v20261120.03.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.02 | [44809542263](https://github.com/spin-stack/spin-machine/actions/runs/44809542263) |
-=======
-| [v20261120.03](releases/v20261120.03.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.02 | [44805222647](https://github.com/spin-stack/spin-machine/actions/runs/44805222647) |
 | [v20261120.04](releases/v20261120.04.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.03 | [44811347183](https://github.com/spin-stack/spin-machine/actions/runs/44811347183) |
->>>>>>> local
 
 A dash is a number that release has not:
 
