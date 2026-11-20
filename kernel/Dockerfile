@@ -259,10 +259,10 @@ RUN <<EOT
     # three PVH boots all had _text at ffffffff81000000 with both options =y. boot:lockdown
     # asks the booted kernel.
     #
-    # LZ4 is the payload's compression, the fastest to decompress of the ones x86 offers: x86
-    # does not select HAVE_KERNEL_UNCOMPRESSED, so KERNEL_UNCOMPRESSED is not a choice here.
-    # It changes the bzImage only, not vmlinux.
-    for opt in RELOCATABLE RANDOMIZE_BASE RANDOMIZE_MEMORY KERNEL_LZ4; do
+    # The payload is not compressed (patches/0012, an experiment): x86 upstream offers
+    # only compressed payloads, of which LZ4 is the fastest to decompress. It changes the
+    # bzImage only, not vmlinux.
+    for opt in RELOCATABLE RANDOMIZE_BASE RANDOMIZE_MEMORY KERNEL_UNCOMPRESSED; do
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig (the kernel would not be randomized)!"; exit 1; }
     done
 

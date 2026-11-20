@@ -1,0 +1,105 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Fri, 20 Nov 2026 15:30:00 -0300
+Subject: [PATCH 12/12] x86/boot: Allow an uncompressed payload
+
+The x86 bzImage always carries its kernel compressed, and the
+decompressor in arch/x86/boot/compressed is also where KASLR picks the
+random base and applies the relocations. A guest that must keep KASLR
+therefore pays for decompression on every boot, even where the image
+is loaded from host memory and its size costs little: on this machine
+LZ4 turns a 16.7 MB payload into the 35.6 MB vmlinux.bin.all inside the
+guest, before the kernel's clock starts.
+
+Select HAVE_KERNEL_UNCOMPRESSED, and with KERNEL_UNCOMPRESSED make the
+payload vmlinux.bin.all as it is, followed by its size as every other
+format is, so mkpiggy and header.S read it unchanged: its output length
+is its input length less four bytes, and the extract offset is the
+extra bytes alone. Its "decompressor" is one forward copy into the
+output, after which parse_elf, the relocations and KASLR run as before.
+
+What it costs: a bzImage twice the size for the boot loader to read
+and copy. Whether the copy is cheaper than LZ4 is the experiment.
+
+Local patch for this machine. Not upstream.
+
+Assisted-by: LLM
+---
+ arch/x86/Kconfig                  |  1 +
+ arch/x86/boot/compressed/Makefile | 10 +++++++++-
+ arch/x86/boot/compressed/misc.c   | 22 ++++++++++++++++++++++
+ 3 files changed, 32 insertions(+), 1 deletion(-)
+
+--- a/arch/x86/Kconfig
++++ b/arch/x86/Kconfig
+@@ -258,6 +258,7 @@
+ 	select HAVE_KERNEL_LZ4
+ 	select HAVE_KERNEL_LZMA
+ 	select HAVE_KERNEL_LZO
++	select HAVE_KERNEL_UNCOMPRESSED
+ 	select HAVE_KERNEL_XZ
+ 	select HAVE_KERNEL_ZSTD
+ 	select HAVE_KPROBES
+--- a/arch/x86/boot/compressed/Makefile
++++ b/arch/x86/boot/compressed/Makefile
+@@ -18,7 +18,8 @@
+ #	compressed vmlinux.bin.all + u32 size of vmlinux.bin.all
+ 
+ targets := vmlinux vmlinux.bin vmlinux.bin.gz vmlinux.bin.bz2 vmlinux.bin.lzma \
+-	vmlinux.bin.xz vmlinux.bin.lzo vmlinux.bin.lz4 vmlinux.bin.zst
++	vmlinux.bin.xz vmlinux.bin.lzo vmlinux.bin.lz4 vmlinux.bin.zst \
++	vmlinux.bin.none
+ 
+ # CLANG_FLAGS must come before any cc-disable-warning or cc-option calls in
+ # case of cross compiling, as it has the '--target=' flag, which is needed to
+@@ -147,6 +148,12 @@
+ $(obj)/vmlinux.bin.zst: $(vmlinux.bin.all-y) FORCE
+ 	$(call if_changed,zstd22_with_size)
+ 
++quiet_cmd_none_with_size = CAT     $@
++      cmd_none_with_size = { cat $(real-prereqs); $(size_append); } > $@
++
++$(obj)/vmlinux.bin.none: $(vmlinux.bin.all-y) FORCE
++	$(call if_changed,none_with_size)
++
+ suffix-$(CONFIG_KERNEL_GZIP)	:= gz
+ suffix-$(CONFIG_KERNEL_BZIP2)	:= bz2
+ suffix-$(CONFIG_KERNEL_LZMA)	:= lzma
+@@ -154,6 +161,7 @@
+ suffix-$(CONFIG_KERNEL_LZO) 	:= lzo
+ suffix-$(CONFIG_KERNEL_LZ4) 	:= lz4
+ suffix-$(CONFIG_KERNEL_ZSTD)	:= zst
++suffix-$(CONFIG_KERNEL_UNCOMPRESSED)	:= none
+ 
+ quiet_cmd_mkpiggy = MKPIGGY $@
+       cmd_mkpiggy = $(obj)/mkpiggy $< > $@
+--- a/arch/x86/boot/compressed/misc.c
++++ b/arch/x86/boot/compressed/misc.c
+@@ -87,6 +87,28 @@
+ #ifdef CONFIG_KERNEL_ZSTD
+ #include "../../../../lib/decompress_unzstd.c"
+ #endif
++
++#ifdef CONFIG_KERNEL_UNCOMPRESSED
++/*
++ * The payload is vmlinux.bin.all as it is, followed by its size. The output
++ * never overlaps it from above: head_64.S moved the payload to the end of the
++ * buffer, past the output, and KASLR places the output clear of that range
++ * (MEM_AVOID_ZO_RANGE). So the memmove is one forward copy.
++ */
++static int __decompress(unsigned char *in, long in_len,
++			long (*fill)(void *, unsigned long),
++			long (*flush)(void *, unsigned long),
++			unsigned char *out, long out_len,
++			long *pos, void (*error)(char *x))
++{
++	if (in_len < out_len) {
++		error("Payload shorter than its size");
++		return -1;
++	}
++	memmove(out, in, out_len);
++	return 0;
++}
++#endif
+ /*
+  * NOTE: When adding a new decompressor, please update the analysis in
+  * ../header.S.
