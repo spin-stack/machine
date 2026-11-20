@@ -167,7 +167,6 @@ confidence interval. The two rows marked "inside the noise" would not pass rule 
 | 11-13 | sshd offers only `mlkem768x25519-sha256` | a second login 104 → 40 against sntrup761; first 489 → 461 | lab 43479854381 |
 | 11-13 | SSH host keys made from the first dispatch | first login 489/506 → 468/494 | lab 43483372488 |
 | 11-13 | Kernel 0005, 0006, `DEFERRED_STRUCT_PAGE_INIT` | kernel 96.3 → 87.1; first login 466 → 456 | labs 43505126131, 43501992969 |
-| 11-13 | `driver_async_probe` for rng, balloon, vsock | 214 → 209 at the no-systemd floor; inside the noise | lab 43506390106 |
 | 11-13 | The first login's lane (units without default dependencies, `user-early-light`, coldplug filtered) | first login 478 → 402 | lab 43518915618 |
 | 11-19 | systemd from Ubuntu's source, stage1 | first login −47, −38, −47 | labs 44531842773, 44537549305, 44538877783 |
 | 11-19 | logind's Varlink socket without default dependencies | accept to login 131 → 120; first login 332 → 328, inside the noise | labs 44558035927, 44558053261 |
@@ -244,6 +243,7 @@ An idea already here needs a new reason, not a new run.
 | `CONFIG_SCSI_SCAN_ASYNC` | First login −2.6 [−8.9, +6.8] in spin's shape: `async_synchronize_full` waits for the scan before "Freeing", so it only overlaps, and `max_target` leaves it nothing to scan | #325, lab 44788216590 | 11-20 |
 | The decompressor without `X86_VERBOSE_BOOTUP` (no VGA cursor writes) | Exits to the kernel's clock 168 → 12, time 35.1 → 32.4 ms: under the 3 ms set before the run, and a first-login comparison would need ~80 boots an arm | #328, lab 44787878809 | 11-20 |
 | An uncompressed bzImage payload, KASLR kept | Laptop lead: to the kernel's clock −3 ms, but the image 16.7 → 40 MB costs +3.3 ms in qboot's copy and +6-7 in QEMU's start. Not benched | #326 | 11-20 |
+| `driver_async_probe` for rng, balloon and vsock, and `rcupdate.rcu_expedited=1` (kept 11-13 and 09-07) | Taken out together in spin's shape, one vCPU: first login −1.4 [−4.9, +3.1] cold. Removed from the command line | lab 44818953987 | 11-21 |
 
 ## What we carry, and what it earns
 

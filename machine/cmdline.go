@@ -178,18 +178,12 @@ func (c Cmdline) String() string {
 	//                            or stops; this machine's TSC is the host's, which
 	//                            KVM advertises as invariant, and the guest is
 	//                            told so through CPUID.
-	//   rcupdate.rcu_expedited=1 expedite RCU grace periods during boot.
-	parts = append(parts, "no_timer_check", "tsc=reliable", "rcupdate.rcu_expedited=1")
-
-	// The virtio devices nothing before init needs - the entropy source, the balloon and
-	// the vsock transport - probed asynchronously, on the second vCPU beside the
-	// initcalls, rather than one after the other on the boot CPU. Each probe is a run of
-	// VM exits (2.2, 2.8 and 3.0 ms on the bench fleet, boot:initcalls lab run
-	// 43505126131). The root mount still waits for them (wait_for_device_probe), so this
-	// takes them off the boot CPU, not out of the boot: with kernel patches 0005 and 0006
-	// the first SSH login of a minimal init went 214 -> 209 ms (boot:ssh-first, lab run
-	// 43506390106). The root disk's driver is not here: the mount needs it first.
-	parts = append(parts, "driver_async_probe=virtio_rng,virtio_balloon,vmw_vsock_virtio_transport")
+	//
+	// rcupdate.rcu_expedited=1 and driver_async_probe= for rng, balloon and vsock were here
+	// too and are not: taken out together, spin's shape (one vCPU, so nothing for an
+	// asynchronous probe to run beside), the first login read -1.4 [-4.9, +3.1] ms cold
+	// (lab 44818953987, 2026-11-21, 20 boots each).
+	parts = append(parts, "no_timer_check", "tsc=reliable")
 
 	// The single largest thing in this machine's boot, and it is not the kernel's.
 	//
