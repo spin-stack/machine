@@ -100,7 +100,7 @@ func TestRestoreTogetherPoolsEveryRestore(t *testing.T) {
 			{Tree: "release", Row: "2 at once, channels 1", Detail: map[string]float64{"login\x000": 140, "login\x001": 170}},
 			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 100, "login\x001": 110, hostDetail + "compact_stall": 7}},
 			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 105, "login\x001": 900, hostDetail + "compact_stall": 50}, Missed: "lost"},
-			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 95, "login\x001": 120, hostDetail + "compact_stall": 7}},
+			{Tree: "release", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 95, "login\x001": 120, hostDetail + "compact_stall": 7, cpuDetail + "busy ms\x000": 10}},
 			{Tree: "other", Row: "2 at once, channels 8", Detail: map[string]float64{"login\x000": 700, "login\x001": 800, hostDetail + "compact_stall": 100}},
 		},
 	}
@@ -118,6 +118,10 @@ func TestRestoreTogetherPoolsEveryRestore(t *testing.T) {
 	// The host's counters are the row's own measurements', of its tree, not lost.
 	if !strings.Contains(d, "release, 2 at once, channels 8   compact_stall 7\n") || strings.Count(d, "compact_stall") != 1 {
 		t.Errorf("detail lacks the row's host counters, or gives them to a row that has none:\n%s", d)
+	}
+	// Where on the host's CPUs a row's bursts ran is a line of its own, for the rows that recorded it.
+	if !strings.Contains(d, "release, 2 at once, channels 8   busiest cpu0 100% of busy\n") || strings.Count(d, "busiest") != 1 {
+		t.Errorf("detail lacks the row's CPU summary, or gives one to a row that has none:\n%s", d)
 	}
 	if strings.Count(d, "Δ") != 1 {
 		t.Errorf("only the second row is set against the first:\n%s", d)

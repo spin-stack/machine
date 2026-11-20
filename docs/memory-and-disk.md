@@ -23,6 +23,19 @@ contributes and how it was measured.
 | `page_reporting_order` stays at the kernel's 9 | A lower order gives ~100 MB more back per VM, briefly, and costs ~180 MB of the guest's RAM its huge pages for good | #83, below |
 | The release's boot report boots each row 20 times, KVM only | At 3 boots a row the report flagged every KVM row 5-11% slower between two releases that 20 alternating boots put within 5 ms | #81, `boot/report_test.go` |
 
+## What the host must set
+
+**`/sys/kernel/mm/transparent_hugepage/defrag` = `defer`.** QEMU marks guest RAM `MADV_HUGEPAGE`,
+and under the kernel's and Ubuntu's default, `madvise`, a fault that finds no free 2 MiB block
+compacts and reclaims before it returns. One restore finds the blocks it needs; several at once, on
+a host that has run a while, fight over them. `defer` lets the fault take 4 KiB pages and leaves
+the compaction to kcompactd. On the bench (lab 44810128678, 2026-11-21, spin's shape, 30 bursts):
+one restore alone to the first login 99.6 → 99.5 ms, Δ −0.1 [−2.0, +1.6]; eight at once from the
+disk 283 → 239, Δ −44.1 [−53.2, −35.2]; eight from the page cache 268 → 193, Δ −74.9
+[−83.2, −64.9]. spin restores workspaces concurrently and does not set the policy, so the host's
+setup does (`echo defer > /sys/kernel/mm/transparent_hugepage/defrag` at boot, or a tmpfiles.d
+`w` line). `docs/log.md`, 11-21, has the run.
+
 ## The host's copy of the guest's disk
 
 With the overlay writeback, what the guest writes is also in the host's page cache. That copy

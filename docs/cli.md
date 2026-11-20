@@ -274,7 +274,11 @@ instead, which takes the disk out of the burst; `defrag` names the host's THP de
 it), each the rows over again. Under the pooled logins the table prints, for each row, what the
 host counted during its bursts: the memory free and cached going in, CPU busy, MiB read, the PSI
 stall time of CPU, I/O and memory, and the page allocations that waited on reclaim or compaction
-or went without a huge page. Each burst's are in `result.json`, with every restore's `running`.
+or went without a huge page; and where on the host's CPUs the bursts ran: the busiest CPU and its
+share of the busy time, CPU 0's busy time against the others' mean, the CPU taking most interrupts
+with its share and its busiest lines, a histogram of the CPUs QEMU's running threads were found on
+(sampled every 5 ms), the QEMUs' and the job's `Cpus_allowed_list`, and whether irqbalance runs.
+Each burst's are in `result.json`, with every restore's `running`.
 
 `lab dispatch` starts lab.yml once no other lab run is queued or running - the bench fleet
 measures one at a time, and two runs side by side measure each other - waits for it, and prints
