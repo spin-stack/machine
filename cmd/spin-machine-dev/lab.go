@@ -37,7 +37,7 @@ Probes: ` + strings.Join(lab.ProbeNames(), ", ") + `.
 A number is only worth comparing on a quiet host of the kind the goal is measured on: the bench
 fleet, through lab dispatch. Here, lab run finds leads.`,
 	}
-	c.AddCommand(labTree(), labRun(), labShow(), labDispatch(), labCheck(), labLadder(), labPublish(), labCompat())
+	c.AddCommand(labTree(), labRun(), labShow(), labDispatch(), labCheck(), labLadder(), labCompat())
 	return c
 }
 
@@ -270,10 +270,6 @@ func report(w io.Writer, r *lab.Result) error {
 	return nil
 }
 
-// ladderMarker heads the ladder's section of a release's notes, so that publishing again replaces
-// it rather than adding a second.
-const ladderMarker = "<!-- spin-machine-dev lab ladder -->"
-
 // mutate-lane: TestLabLadderMeasuresReleases
 func labLadder() *cobra.Command {
 	var releases, reps int
@@ -339,7 +335,7 @@ func writeLadder(w io.Writer, l *lab.Ladder, out string) error {
 	if err := l.Write(filepath.Join(out, "ladder.json")); err != nil {
 		return couldNot(err)
 	}
-	md := l.Markdown()
+	md := lab.Tables(l.Records())
 	if err := os.WriteFile(filepath.Join(out, "ladder.md"), []byte(md), 0o644); err != nil {
 		return couldNot(fmt.Errorf("writing %s: %w", filepath.Join(out, "ladder.md"), err))
 	}
@@ -419,29 +415,6 @@ Exits 1 when one did not resume.`,
 	return c
 }
 
-func labPublish() *cobra.Command {
-	return &cobra.Command{
-		Use:   "publish DIR",
-		Short: "Upload DIR/ladder.json to the newest release it measured and end that release's notes with its table",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			path := filepath.Join(args[0], "ladder.json")
-			l, err := lab.ReadLadder(path)
-			if err != nil {
-				return couldNot(err)
-			}
-			if len(l.Releases) == 0 {
-				return couldNot(fmt.Errorf("%s measured no release", path))
-			}
-			tag := l.Releases[len(l.Releases)-1]
-			if err := github().Publish(tag, path, ladderMarker, l.Markdown()); err != nil {
-				return couldNot(fmt.Errorf("publishing the ladder to %s: %w", tag, err))
-			}
-			return nil
-		},
-	}
-}
-
 func labShow() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show RUN_ID|DIR",
@@ -458,7 +431,7 @@ func labShow() *cobra.Command {
 				if err != nil {
 					return couldNot(err)
 				}
-				_, _ = fmt.Fprintln(c.OutOrStdout(), l.Markdown())
+				_, _ = fmt.Fprintln(c.OutOrStdout(), lab.Tables(l.Records()))
 				return nil
 			}
 			r, err := lab.ReadResult(path)

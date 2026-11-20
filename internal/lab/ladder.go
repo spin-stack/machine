@@ -3,13 +3,13 @@
 package lab
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"slices"
-	"strings"
 )
 
 // Goal is the first login a cold boot and a restore are measured against (AGENTS.md, "The goal").
@@ -121,139 +121,17 @@ func (l *Ladder) value(release string, c cell) (p50, p95 float64, why string) {
 	return
 }
 
-var (
-	coldLogin    = cell{"ssh-first", "boot", "first_login"}
-	restoreLogin = cell{"restore-first", "evicted", "login"}
-	goalColumns  = []struct {
-		title string
-		cell  cell
-		delta bool
-	}{
-		{"cold boot to first login", coldLogin, true},
-		{"restore to first login", restoreLogin, true},
-		{"cold, QEMU started ahead", cell{"prestart", rowPrestarted, "login"}, false},
-		{"restore, QEMU started ahead", cell{"prestart", rowRestoredAhead, "login"}, false},
-	}
-	diagnostics = []struct {
-		title string
-		cell  cell
-	}{
-		{"save ms", cell{"restore-first", "evicted", "save"}},
-		{"state MiB", cell{"restore-first", "evicted", "state"}},
-		{`kernel to "Freeing" ms`, cell{"initcalls", "boot", "freeing"}},
-		{"QEMU RSS MiB", cell{"ssh-first", "boot", "qemu_rss"}},
-	}
-)
-
-// Markdown is the ladder as release notes carry it: the goal's numbers release by release, each
-// against the release before it and against the goal, and the diagnostics beside them.
-func (l *Ladder) Markdown() string {
-	var b strings.Builder
-	b.WriteString("### The goal, release by release\n\n")
-	host := l.host()
-	fmt.Fprintf(&b, "First SSH login, ms p50/p95 over %d boots of each release, interleaved on one host (%s). "+
-		"Δ is the p50 against the release above; the goal is %.0f ms. Each release runs the spin-machine of its own commit.\n\n",
-		l.reps(), host, Goal)
-	b.WriteString("| release |")
-	for _, c := range goalColumns {
-		b.WriteString(" " + c.title + " |")
-		if c.delta {
-			b.WriteString(" Δ |")
-		}
-	}
-	b.WriteString("\n|---|")
-	for _, c := range goalColumns {
-		b.WriteString("---|")
-		if c.delta {
-			b.WriteString("---|")
-		}
-	}
-	b.WriteString("\n")
-	var notes []string
-	for i, rel := range l.Releases {
-		fmt.Fprintf(&b, "| %s |", rel)
-		for _, c := range goalColumns {
-			p50, p95, why := l.value(rel, c.cell)
-			if why != "" {
-				b.WriteString(" - |")
-				notes = appendOnce(notes, fmt.Sprintf("%s, %s: %s", rel, c.title, why))
-			} else {
-				fmt.Fprintf(&b, " %s / %s |", num(p50), num(p95))
-			}
-			if !c.delta {
-				continue
-			}
-			if i == 0 || why != "" {
-				b.WriteString(" |")
-				continue
-			}
-			prev, _, prevWhy := l.value(l.Releases[i-1], c.cell)
-			if prevWhy != "" {
-				b.WriteString(" |")
-				continue
-			}
-			fmt.Fprintf(&b, " %+.1f |", p50-prev)
-		}
-		b.WriteString("\n")
-	}
-	if n := len(l.Releases); n > 0 {
-		newest := l.Releases[n-1]
-		var gaps []string
-		for _, c := range []struct {
-			name string
-			cell cell
-		}{{"cold", coldLogin}, {"restore", restoreLogin}} {
-			if p50, _, why := l.value(newest, c.cell); why == "" {
-				gaps = append(gaps, fmt.Sprintf("%s %+.0f ms", c.name, p50-Goal))
-			}
-		}
-		if len(gaps) > 0 {
-			fmt.Fprintf(&b, "\n%s against the goal: %s.\n", newest, strings.Join(gaps, ", "))
-		}
-	}
-	b.WriteString("\n#### Diagnostics\n\nNot targets: what moves behind the goal's numbers (AGENTS.md, \"The goal\"). p50.\n\n| release |")
-	for _, d := range diagnostics {
-		b.WriteString(" " + d.title + " |")
-	}
-	b.WriteString("\n|---|" + strings.Repeat("---|", len(diagnostics)) + "\n")
-	for _, rel := range l.Releases {
-		fmt.Fprintf(&b, "| %s |", rel)
-		for _, d := range diagnostics {
-			if p50, _, why := l.value(rel, d.cell); why != "" {
-				b.WriteString(" - |")
-			} else {
-				fmt.Fprintf(&b, " %s |", num(p50))
-			}
-		}
-		b.WriteString("\n")
-	}
-	if len(notes) > 0 {
-		b.WriteString("\nA dash is a number that release has not:\n\n")
-		for _, n := range notes {
-			b.WriteString("- " + n + "\n")
-		}
-	}
-	return b.String()
-}
-
-func appendOnce(xs []string, x string) []string {
-	if slices.Contains(xs, x) {
-		return xs
-	}
-	return append(xs, x)
-}
-
 // host is where the ladder ran, as the first result says.
 func (l *Ladder) host() string {
 	if len(l.Results) == 0 {
 		return "no host"
 	}
 	h := l.Results[0].Host
-	name := h.Instance
-	if name == "" {
-		name = h.Name
+	name := cmp.Or(h.Instance, h.Name)
+	if h.Nested {
+		return name + ", nested"
 	}
-	return fmt.Sprintf("%s, nested %v", name, h.Nested)
+	return name
 }
 
 func (l *Ladder) reps() int {

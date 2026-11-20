@@ -178,17 +178,17 @@ jobs:
             _output/release/*.cdx.json
             _output/release/*.sigstore.json
 
-  # The release just published, booted beside the ones before it on one bench host: the goal's
-  # two numbers release by release, as ladder.json beside it and a table at the end of its notes.
-  # report.yml says why it is a job of its own, on its own runner.
+  # The release just published, measured alone on a bench host: its record in docs/releases and
+  # docs/releases.md, proposed as a pull request. report.yml says why it is a job of its own, on
+  # its own runner.
   report:
     needs: release
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/report.yml
     with:
-      version: ${{ needs.release.outputs.version }}
+      versions: ${{ needs.release.outputs.version }}
       ref: ${{ needs.release.outputs.version }}
-      publish: true
+      record: true
     secrets: inherit
 
   # Where the release's time went, the jobs of compat and report included: the critical path on

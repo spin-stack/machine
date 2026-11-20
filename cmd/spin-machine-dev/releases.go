@@ -1,0 +1,381 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/spin-stack/spin-machine/internal/lab"
+)
+
+func init() { verbs = append(verbs, releasesCommand) }
+
+// releasesCommand is each release's numbers kept in the repository, one small file a release, and
+// the page that reads them together.
+func releasesCommand() *cobra.Command {
+	var dir string
+	c := &cobra.Command{
+		Use:   "releases",
+		Short: "Each release's measured numbers, kept in docs/releases: record, measure, compare, and docs/releases.md",
+		Long: `A release's record is docs/releases/RELEASE.json: the goal's two numbers, the prestarted ones and
+the diagnostics, p50/p95, from one run that measured that release alone on the bench fleet, with
+where and when. docs/releases.md is written from the records, never by hand: a chart and a table
+of the goal's numbers release by release, the diagnostics, and the run each was measured in.
+
+Each record is a run of its own, so a Δ between two of them is read against the noise between runs;
+to decide on one, measure the two together (lab ladder).`,
+	}
+	c.PersistentFlags().StringVar(&dir, "dir", "docs/releases", "the records' directory; the page is DIR.md")
+	c.AddCommand(releasesRecord(&dir), releasesMeasure(&dir), releasesMissing(&dir), releasesShow(&dir),
+		releasesCompare(&dir), releasesDoc(&dir), releasesPropose(&dir))
+	return c
+}
+
+// recordsDir is dir in the repository, when it is not a path of its own.
+func recordsDir(dir string) (string, error) {
+	if filepath.IsAbs(dir) {
+		return dir, nil
+	}
+	root, err := repo()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, dir), nil
+}
+
+// recordNewest writes the record of l's newest release in dir, the release the ladder was run
+// for. Older releases beside it in a ladder are left out: every record is a release measured in a
+// run of its own (releases measure), so that every two are read the same way.
+func recordNewest(dir string, l *lab.Ladder, run string) (lab.Record, error) {
+	records := l.Records()
+	if len(records) == 0 {
+		return lab.Record{}, errors.New("the ladder measured no release")
+	}
+	r := records[len(records)-1]
+	r.Run = run
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return lab.Record{}, fmt.Errorf("making %s: %w", dir, err)
+	}
+	return r, lab.WriteRecord(filepath.Join(dir, r.Release+".json"), r)
+}
+
+// doc is the page dir's records make.
+func doc(dir string) (string, error) {
+	records, err := lab.ReadRecords(dir)
+	if err != nil {
+		return "", err
+	}
+	return lab.Doc(records), nil
+}
+
+// writeDoc writes dir.md from dir's records.
+func writeDoc(dir string) error {
+	page, err := doc(dir)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dir+".md", []byte(page), 0o644); err != nil { //nolint:gosec // the repository's own page
+		return fmt.Errorf("writing %s: %w", dir+".md", err)
+	}
+	return nil
+}
+
+func releasesRecord(dir *string) *cobra.Command {
+	var run string
+	c := &cobra.Command{
+		Use:   "record LADDER_JSON",
+		Short: "Write the record of a ladder.json's newest release, replacing one before it, and the page",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			d, err := recordsDir(*dir)
+			if err != nil {
+				return err
+			}
+			l, err := lab.ReadLadder(args[0])
+			if err != nil {
+				return couldNot(err)
+			}
+			r, err := recordNewest(d, l, run)
+			if err != nil {
+				return couldNot(fmt.Errorf("recording %s: %w", args[0], err))
+			}
+			if err := writeDoc(d); err != nil {
+				return couldNot(err)
+			}
+			say(c, "recorded %s", r.Release)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&run, "run", "", "the URL of the run whose artifact keeps the ladder's samples")
+	return c
+}
+
+// mutate-lane: TestReleasesMeasureRecordsEachAlone
+func releasesMeasure(dir *string) *cobra.Command {
+	var reps int
+	var run string
+	c := &cobra.Command{
+		Use:   "measure [TAG...]",
+		Short: "Measure each release alone, here, and write its record and the page (default the newest published)",
+		Long: `Measure each TAG in a ladder of its own - each its own run, as a release's is when it is
+published - and write its record and the page. Each release boots with the spin-machine of the
+commit it was made from; one whose spin-machine cannot run a probe is a dash that says why. Each
+ladder.json, every sample, is kept in _output/lab/releases/TAG. Records are only worth keeping
+from the bench fleet: report.yml runs this there. Exits 1 when a measurement was lost (the records
+are written), 2 when a release could not be measured (the ones before it are).`,
+		RunE: func(c *cobra.Command, args []string) error {
+			d, err := recordsDir(*dir)
+			if err != nil {
+				return err
+			}
+			root, err := repo()
+			if err != nil {
+				return err
+			}
+			tags := args
+			if len(tags) == 0 {
+				newest, err := github().LatestRelease()
+				if err != nil {
+					return couldNot(err)
+				}
+				tags = []string{newest}
+			}
+			scratch, err := lab.Scratch(filepath.Join(root, "_output", "lab"))
+			if err != nil {
+				return couldNot(err)
+			}
+			var lost error
+			for _, tag := range tags {
+				ts, err := trees(root, nil, []string{tag + "=--from release:" + tag + " --spin-machine release"}, c.ErrOrStderr())
+				if err != nil {
+					return couldNot(err)
+				}
+				l, err := lab.RunLadder(c.Context(), ts, reps, scratch, c.ErrOrStderr())
+				if err != nil {
+					return couldNot(err)
+				}
+				if err := writeLadder(c.OutOrStdout(), l, filepath.Join(root, "_output", "lab", "releases", tag)); exitCode(err) == 1 {
+					lost = err
+				} else if err != nil {
+					return err
+				}
+				if _, err := recordNewest(d, l, run); err != nil {
+					return couldNot(err)
+				}
+				if err := writeDoc(d); err != nil {
+					return couldNot(err)
+				}
+			}
+			return lost
+		},
+	}
+	c.Flags().IntVar(&reps, "reps", 20, "boots of each release for each probe")
+	c.Flags().StringVar(&run, "run", "", "the URL of the run whose artifact keeps the samples")
+	return c
+}
+
+// publishedReleases is how many of the newest releases missing asks GitHub for: all of them.
+const publishedReleases = 1000
+
+func releasesMissing(dir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "missing",
+		Short: "List the published releases with no record, oldest first: what releases measure has left to do",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			d, err := recordsDir(*dir)
+			if err != nil {
+				return err
+			}
+			tags, err := github().Releases(publishedReleases)
+			if err != nil {
+				return couldNot(err)
+			}
+			slices.Reverse(tags)
+			for _, tag := range tags {
+				if !exists(filepath.Join(d, tag+".json")) {
+					_, _ = fmt.Fprintln(c.OutOrStdout(), tag)
+				}
+			}
+			return nil
+		},
+	}
+}
+
+func releasesShow(dir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show RELEASE",
+		Short: "Print a release's record: its numbers, and where and when they were measured",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			d, err := recordsDir(*dir)
+			if err != nil {
+				return err
+			}
+			r, err := lab.ReadRecord(filepath.Join(d, args[0]+".json"))
+			if err != nil {
+				return couldNot(err)
+			}
+			_, _ = fmt.Fprint(c.OutOrStdout(), r.Table())
+			return nil
+		},
+	}
+}
+
+func releasesCompare(dir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "compare A B",
+		Short: "Print two releases' records side by side, each with its run, and how to measure them together",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			d, err := recordsDir(*dir)
+			if err != nil {
+				return err
+			}
+			var rs []lab.Record
+			for _, rel := range args {
+				r, err := lab.ReadRecord(filepath.Join(d, rel+".json"))
+				if err != nil {
+					return couldNot(err)
+				}
+				rs = append(rs, r)
+			}
+			_, _ = fmt.Fprint(c.OutOrStdout(), lab.Compare(rs[0], rs[1]))
+			return nil
+		},
+	}
+}
+
+func releasesDoc(dir *string) *cobra.Command {
+	var check bool
+	c := &cobra.Command{
+		Use:   "doc",
+		Short: "Write DIR.md from the records; with --check, exit 1 when it is not what they say",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			d, err := recordsDir(*dir)
+			if err != nil {
+				return err
+			}
+			if !check {
+				if err := writeDoc(d); err != nil {
+					return couldNot(err)
+				}
+				return nil
+			}
+			want, err := doc(d)
+			if err != nil {
+				return couldNot(err)
+			}
+			if got, err := os.ReadFile(d + ".md"); err != nil || string(got) != want { //nolint:gosec // the repository's own page
+				return exitError{code: 1, err: fmt.Errorf("%s.md is not what %s/*.json say: spin-machine-dev releases doc writes it", d, d)}
+			}
+			return nil
+		},
+	}
+	c.Flags().BoolVar(&check, "check", false, "write nothing; exit 1 when the page differs")
+	return c
+}
+
+// recorded are the releases whose records the checkout has added or changed, oldest first.
+func recorded(c *cobra.Command, root, dir string) ([]string, error) {
+	out, err := exec.CommandContext(c.Context(), "git", "-C", root, "status", "--porcelain", "--untracked-files=all", "--", dir).Output() //nolint:gosec // the records' directory
+	if err != nil {
+		return nil, fmt.Errorf("asking git what %s holds that is not committed: %w", dir, err)
+	}
+	var releases []string
+	for line := range strings.Lines(string(out)) {
+		if name, ok := strings.CutSuffix(filepath.Base(strings.TrimSpace(line)), ".json"); ok {
+			releases = append(releases, name)
+		}
+	}
+	slices.Sort(releases)
+	return releases, nil
+}
+
+// proposalBranch is named for the releases it proposes, so a set proposed once is not proposed
+// again: one release by its name, several by the oldest, the newest and a hash of them all, which
+// a ref's length allows when a backfill is forty releases.
+func proposalBranch(releases []string) string {
+	if len(releases) == 1 {
+		return "releases/" + releases[0]
+	}
+	sum := sha256.Sum256([]byte(strings.Join(releases, " ")))
+	return "releases/" + releases[0] + "-" + releases[len(releases)-1] + "-" + hex.EncodeToString(sum[:4])
+}
+
+func releasesPropose(dir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "propose",
+		Short: "Propose the records this checkout wrote, and the page, as a pull request against main",
+		Long: `Commit what releases record or measure wrote - each new or changed record in DIR, and DIR.md -
+on a branch named for those releases, push it and open a pull request against main. Nothing is
+proposed when nothing was recorded, nor when the branch is on origin already: a set proposed once,
+merged or closed, is not proposed again. report.yml runs it as the release app, so the checks on
+the pull request run.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			d, err := recordsDir(*dir)
+			if err != nil {
+				return err
+			}
+			root, err := repo()
+			if err != nil {
+				return err
+			}
+			releases, err := recorded(c, root, d)
+			if err != nil {
+				return couldNot(err)
+			}
+			if len(releases) == 0 {
+				say(c, "nothing recorded in %s to propose", d)
+				return nil
+			}
+			branch := proposalBranch(releases)
+			if exec.CommandContext(c.Context(), "git", "-C", root, "ls-remote", "--exit-code", "--heads", "origin", branch).Run() == nil { //nolint:gosec // a branch this names
+				say(c, "%s was proposed already", branch)
+				return nil
+			}
+			body := "Measured on the bench fleet by report.yml (spin-machine-dev releases measure), each release alone.\n\n"
+			for _, rel := range releases {
+				r, err := lab.ReadRecord(filepath.Join(d, rel+".json"))
+				if err != nil {
+					return couldNot(err)
+				}
+				body += "### " + rel + "\n\n" + r.Table() + "\n"
+			}
+			page, err := os.ReadFile(d + ".md") //nolint:gosec // the repository's own page
+			if err != nil {
+				return couldNot(fmt.Errorf("reading the page: %w", err))
+			}
+			body += "### " + filepath.Base(d) + ".md, as it reads now\n\n" + string(page)
+			title := "releases: " + strings.Join(releases, ", ") + ", measured"
+			for _, step := range [][]string{
+				{"git", "switch", "-c", branch},
+				{"git", "add", "--", d, d + ".md"},
+				{"git", "commit", "-q", "-m", title},
+				{"git", "push", "origin", branch},
+			} {
+				if err := command(c.Context(), c, root, step[0], step[1:]...); err != nil {
+					return err
+				}
+			}
+			url, err := gh(c.Context(), "pr", "create", "--base", "main", "--head", branch, "--title", title, "--body", body)
+			if err != nil {
+				return couldNot(err)
+			}
+			say(c, "%s", url)
+			return summary(url + "\n")
+		},
+	}
+}

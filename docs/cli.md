@@ -113,6 +113,8 @@ compat.yml   task boot:buildkit ; spin-machine-dev vsock ;
 release.yml  spin-machine-dev release version ; release ; release notes ; release provenance ;
              release sign ; release tag ; then the publish action
 refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|builders
+report.yml   task bin ; task vsock ; spin-machine-dev releases measure TAG... ;
+             task git:app ; spin-machine-dev releases propose
 osv.yml      spin-machine-dev osv --issues ; spin-machine-dev cves
 ```
 
@@ -162,18 +164,38 @@ spin-machine-dev lab show RUN_ID|DIR                     a lab run's result.json
 spin-machine-dev lab dispatch PROBE --tree NAME=SPEC... [--reps N] [--opt K=V]... [--host bench|bench-metal]
 spin-machine-dev lab check TARGET [--tree NAME=SPEC]     boot:TARGET on one tree
 spin-machine-dev lab ladder [--releases N] [--newest vX] the newest releases measured together: ladder.json
-spin-machine-dev lab publish DIR                         DIR/ladder.json up to its newest release, its table in the notes
 spin-machine-dev lab compat [--here DIR] [--releases N]  a checkpoint of every release since the contract moved, resumed
 ```
 
-A release is measured against the ones before it by `lab ladder`, not by comparing two reports
-taken apart: the newest releases (five unless told), each a tree with `--spin-machine release`, every
-goal probe over the releases whose spin-machine can run it (a probe says which commands and flags
-it needs; v20261119.01's has no `boot --restore`), interleaved on one host. Its table is the
-release notes': the two goal numbers release by release, each against the release above and the
-newest against 100 ms, the prestarted ones, and save, state, the kernel and QEMU's RSS as
-diagnostics. report.yml runs it after every release (`lab publish` puts it on the release), and by hand (its
-artifact, read by `lab show RUN_ID`).
+Two releases are compared by `lab ladder`, not by comparing two runs taken apart: the newest
+releases up to `--newest` (five unless told), each a tree with `--spin-machine release`, every goal
+probe over the releases whose spin-machine can run it (a probe says which commands and flags it
+needs; v20261119.01's has no `boot --restore`), interleaved on one host. Its table is the goal's two
+numbers release by release, each against the release above and the newest against 100 ms, the
+prestarted ones, and save, state, the kernel and QEMU's RSS as diagnostics.
+
+Each release's own numbers are kept in the repository, one record a release in `docs/releases/`,
+and `docs/releases.md` is the page written from them (docs/releasing.md, "The record"):
+
+```
+spin-machine-dev releases measure [TAG...] [--reps N] [--run URL]  each release alone, here: its record and the page
+spin-machine-dev releases record LADDER_JSON [--run URL]          the record of a ladder's newest release, and the page
+spin-machine-dev releases missing                                 the published releases with no record, oldest first
+spin-machine-dev releases show RELEASE                            a record: its numbers, where and when
+spin-machine-dev releases compare A B                             two records side by side, and how to measure them together
+spin-machine-dev releases doc [--check]                           docs/releases.md from the records; --check exits 1 when it differs
+spin-machine-dev releases propose                                 the records this checkout wrote, as a pull request against main
+```
+
+`measure` runs a ladder of one for each release, so each record is a run of its own, as a release's
+is when report.yml measures it, and keeps each ladder.json in `_output/lab/releases/TAG` (`lab show`
+reads that directory). A record says where and when it was measured; two records are two runs, and
+`compare` says so and prints the `lab ladder` that measures them together. `record` takes a ladder
+measured some other way and keeps only its newest release: an older one beside it was measured
+interleaved, and a record of it would not read like the others. `propose` commits what `git status`
+shows changed under `docs/releases`, on a branch named for those releases; a branch already on
+origin is a set proposed once, and is not proposed again. Every verb takes `--dir` for the records'
+directory (default `docs/releases`, the page beside it as `DIR.md`).
 
 `lab compat` is boot:compat over every release since the fingerprint last moved, newest first: a
 host that skipped releases still resumes their checkpoints. A release is fetched checked against

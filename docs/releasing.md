@@ -20,8 +20,9 @@ workflow that produced it.
 CI calls the same targets a developer calls. A second definition of what the gate is, kept
 in a workflow file, goes out of step with the first exactly when a check is added.
 
-`spin-machine-dev lab ladder` is the end-to-end check, and `report.yml` runs it on every release:
-the newest releases, booted from their published tarballs to the first SSH login, side by side.
+`spin-machine-dev releases measure` is the end-to-end check, and `report.yml` runs it on every
+release: the release booted from its published tarball to the first SSH login, its numbers kept in
+the repository (`docs/releases.md`).
 
 ## Releases
 
@@ -79,34 +80,38 @@ publishes them and pins them, weekly from refresh.yml, with the packages that mo
 request. A part's build refuses a tree whose apk.list its pinned builder was not made with.
 `workflows/workflows_test.go` holds every workflow to attesting before it publishes.
 
-## The ladder
+## The record
 
-A release also says what it costs, against the releases before it. After it publishes, the
-`report` job measures the newest five releases on the bench fleet (spin-stack/ci: a c8id.4xlarge,
-nested, the host the goal is measured on), interleaved on that one host: the two goal numbers - a
-cold boot and a restore, each to the first SSH login - both again into a QEMU started ahead, and
-save, state, the kernel's time and QEMU's resident memory beside them as diagnostics
-(`spin-machine-dev lab ladder`, docs/cli.md). It writes `ladder.json` beside the tarball and ends
-the release's notes with the table: each release's p50/p95, its change against the release above,
-and the newest against the 100 ms goal.
+A release also says what it costs. After it publishes, the `report` job measures it alone on the
+bench fleet (spin-stack/ci: a c8id.4xlarge, nested, the host the goal is measured on): the two goal
+numbers - a cold boot and a restore, each to the first SSH login - both again into a QEMU started
+ahead, and save, state, the kernel's time and QEMU's resident memory beside them as diagnostics,
+twenty boots of each (`spin-machine-dev releases measure`, docs/cli.md). What it keeps is the
+release's record, `docs/releases/RELEASE.json`: each number's p50 and p95, the host, the date and
+the run whose artifact holds every sample (90 days). `docs/releases.md` is written from every
+record - a chart of each goal number release by release, the tables, and where each was measured -
+and the job proposes both as a pull request, as the release app, so the checks on it run. A test
+fails when the page is not what the records say, so it is never edited by hand.
 
-Interleaved, because that is the only comparison the bench leaves honest. The report before this
-measured each release alone and compared two files taken on different days: it said
-v20261119.02 accepted SSH 7.3% later than v20261119.01, and the two interleaved said they did not
-(labs 44583379559, 44600043625). Twenty boots of each, because at three a comparison of
-v20261001.01 with v20260930.02 flagged every row 5-11% slower, and twenty alternated on one host
-put them within 5 ms (2026-10-01).
+Alone, a ladder of one, so every record is read the same way: a run of its own. The page says
+what that costs a reader. The bench moves between runs by as much as a release does: two reports
+taken on different days said v20261119.02 accepted SSH 7.3% later than v20261119.01, and the two
+interleaved on one host said they did not (labs 44583379559, 44600043625). So a Δ on the page is a
+lead, and a decision between two releases is the two measured together: `spin-machine-dev lab
+ladder --newest B --releases N` boots the N releases up to B interleaved on one host. Twenty boots,
+because at three a comparison of v20261001.01 with v20260930.02 flagged every row 5-11% slower,
+and twenty alternated on one host put them within 5 ms (2026-10-01).
 
 Each release boots with the spin-machine of the commit it was made from (`--spin-machine release`):
 a release ships no spin-machine, and the machine it defined - devices, places, checkpoints - is
 that commit's `machine` package, which spin builds. A release whose spin-machine cannot run a
-probe (one from before `boot --restore`, v20261119.02) is a dash in the table with the reason, not
-a row left out.
+probe (one from before `boot --restore`, v20261119.02) has a dash for that number with the reason.
 
-`report.yml` runs by hand too - `gh workflow run report.yml -f version=<release> -f releases=N`
-measures the N releases up to that one and keeps `ladder.json` as the run's artifact, which
-`spin-machine-dev lab show RUN_ID` prints. The runner needs `/dev/kvm` and `/dev/vhost-vsock` usable by its user, `gh`, and
-`sudo -n` for `qemu-nbd`.
+`report.yml` runs by hand too, for releases from before records: `spin-machine-dev releases
+missing` lists them, and `gh workflow run report.yml -f versions="<release> <release>..." -f
+record=true` measures each alone, one after another on one host, and proposes their records
+together. The runner needs `/dev/kvm` and `/dev/vhost-vsock` usable by its user, `gh`, and `sudo
+-n` for `qemu-nbd`.
 
 ## What a release owes
 

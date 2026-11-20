@@ -255,7 +255,7 @@ func TestLabsHelpNamesEveryProbe(t *testing.T) {
 	for _, sub := range c.Commands() {
 		names = append(names, sub.Name())
 	}
-	if !slices.Equal(names, []string{"check", "compat", "dispatch", "ladder", "publish", "run", "show", "tree"}) {
+	if !slices.Equal(names, []string{"check", "compat", "dispatch", "ladder", "run", "show", "tree"}) {
 		t.Errorf("lab's verbs: %v", names)
 	}
 }
@@ -293,8 +293,7 @@ func TestLabCheckRunsABootTarget(t *testing.T) {
 }
 
 // A ladder is written as JSON and Markdown, printed and put on the run's summary, and a lost
-// measurement in it exits 1; lab show reads it back from its directory; publish refuses a ladder
-// it cannot read or one that measured nothing.
+// measurement in it exits 1; lab show reads it back from its directory.
 func TestALadderIsWrittenShownAndRefusedWhenEmpty(t *testing.T) {
 	t.Setenv("GITHUB_STEP_SUMMARY", filepath.Join(t.TempDir(), "summary"))
 	if err := os.WriteFile(os.Getenv("GITHUB_STEP_SUMMARY"), nil, 0o644); err != nil {
@@ -310,10 +309,10 @@ func TestALadderIsWrittenShownAndRefusedWhenEmpty(t *testing.T) {
 	if !strings.Contains(w.String(), "| v1 | 330 / 330 |") {
 		t.Errorf("printed:\n%s", w.String())
 	}
-	if b, _ := os.ReadFile(filepath.Join(out, "ladder.md")); string(b) != l.Markdown() {
+	if b, _ := os.ReadFile(filepath.Join(out, "ladder.md")); string(b) != lab.Tables(l.Records()) {
 		t.Errorf("ladder.md: %q", b)
 	}
-	if b, _ := os.ReadFile(os.Getenv("GITHUB_STEP_SUMMARY")); !strings.Contains(string(b), "### The goal, release by release") {
+	if b, _ := os.ReadFile(os.Getenv("GITHUB_STEP_SUMMARY")); !strings.Contains(string(b), "## The goal, release by release") {
 		t.Errorf("summary: %q", b)
 	}
 	if stdout, _, err := runLab(t, "show", out); err != nil || !strings.Contains(stdout, "| v1 | 330 / 330 |") {
@@ -336,24 +335,6 @@ func TestALadderIsWrittenShownAndRefusedWhenEmpty(t *testing.T) {
 	}
 	if _, _, err := runLab(t, "show", broken); !errors.As(err, &e) || e.code != 2 {
 		t.Errorf("show of a broken ladder exits %v, want 2", err)
-	}
-	empty := filepath.Join(t.TempDir(), "empty")
-	if err := writeLadder(io.Discard, &lab.Ladder{}, empty); err != nil {
-		t.Fatal(err)
-	}
-	for _, dir := range []string{empty, broken, t.TempDir()} {
-		if _, _, err := runLab(t, "publish", dir); !errors.As(err, &e) || e.code != 2 {
-			t.Errorf("publish %s exits %v, want 2", dir, err)
-		}
-	}
-	// A ladder goes to the newest release it measured; a repository that is not there says so.
-	two := filepath.Join(t.TempDir(), "two")
-	if err := writeLadder(io.Discard, &lab.Ladder{Releases: []string{"v1", "v2"}}, two); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GITHUB_REPOSITORY", "spin-stack/no-such-repository")
-	if _, _, err := runLab(t, "publish", two); !errors.As(err, &e) || e.code != 2 || !strings.Contains(err.Error(), "publishing the ladder to v2") {
-		t.Errorf("publish to a repository that is not there: %v", err)
 	}
 	if _, _, err := runLab(t, "ladder", "--newest", "v0.0.0-none", "--releases", "1"); !errors.As(err, &e) || e.code != 2 {
 		t.Errorf("a ladder up to a release that is not there exits %v, want 2", err)
