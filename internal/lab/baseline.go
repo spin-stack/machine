@@ -25,8 +25,6 @@ import (
 // its L0 hides features the silicon has - la57, TSX, fsrm - so a model chosen by the CPU's name
 // (GraniteRapids-v1 for a Xeon 6) is one QEMU refuses there, which cost a lab run 50 minutes of
 // boots timing out (44657973748, 2026-11-20).
-//
-// mutate-lane: TestEveryProbeMeasuresATree, with SPIN_LAB_LANE set and a tree asked for with --cpu baseline.
 func hostBaseline(dir string) (string, error) {
 	socks, err := shortDir()
 	if err != nil {
@@ -42,10 +40,26 @@ func hostBaseline(dir string) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("starting a held machine to ask which CPU models this host runs: %w", err)
 	}
-	defer func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() }()
-	if err := waitSocket(qmp, time.Now().Add(30*time.Second)); err != nil {
-		return "", fmt.Errorf("asking which CPU models this host runs: %w; spin-machine: %s", err, strings.TrimSpace(stderr.String()))
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	defer func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); <-exited }()
+	// Until the monitor is there, or the machine is gone saying why: a refusal is not waited out.
+	for deadline := time.Now().Add(30 * time.Second); !fileExists(qmp); time.Sleep(5 * time.Millisecond) {
+		select {
+		case <-exited:
+			return "", fmt.Errorf("the held machine asked which CPU models this host runs exited: %s", strings.TrimSpace(stderr.String()))
+		default:
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("the held machine asked which CPU models this host runs opened no monitor in 30s: %s", strings.TrimSpace(stderr.String()))
+		}
 	}
+	return baselineOn(qmp)
+}
+
+// baselineOn asks the machine on the monitor at qmp which named models it can run, and picks this
+// one host's baseline among them.
+func baselineOn(qmp string) (string, error) {
 	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: qmp, Net: "unix"})
 	if err != nil {
 		return "", fmt.Errorf("asking which CPU models this host runs: %w", err)
