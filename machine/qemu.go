@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // QEMU is a machine running under QEMU, reached through one of its monitors.
@@ -815,6 +817,9 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	default:
 		return fmt.Errorf("resuming: a checkpoint in format %q, and this machine reads %s and %s", saved.Format, FormatMappedRAM, FormatStream)
 	}
+	if saved.Format == FormatMappedRAM && !load.Fast {
+		prefetch(state)
+	}
 	var sm savedMachine
 	if len(saved.Machine) > 0 {
 		if err := json.Unmarshal(saved.Machine, &sm); err != nil {
@@ -880,6 +885,41 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 		return m.Continue(ctx)
 	}
 	return nil
+}
+
+// prefetch asks the kernel to start reading the state's data into the page cache, extent by
+// extent, while the machine is still being told what to load: the load reads every page of data
+// anyway, and from a state out of the page cache it waits on the disk. QEMU's channels share one
+// open file and its readahead, and each reads the pages it is handed in turn; asked for here, the
+// data is read in the file's order, in large requests, from the moment Resume starts.
+//
+// It is best effort and returns at once: data the kernel does not read ahead is read by the load
+// as before.
+func prefetch(state *os.File) {
+	const prefetchChunk = 128 << 10
+	f, err := os.Open(fmt.Sprintf("/proc/self/fd/%d", state.Fd()))
+	if err != nil {
+		return
+	}
+	go func() {
+		defer func() { _ = f.Close() }()
+		fd := int(f.Fd())
+		for off := int64(0); ; {
+			start, err := unix.Seek(fd, off, unix.SEEK_DATA)
+			if err != nil {
+				return
+			}
+			end, err := unix.Seek(fd, start, unix.SEEK_HOLE)
+			if err != nil {
+				return
+			}
+			// The kernel reads at most the device's readahead window of one request (128 KiB
+			// unless the disk says more) and drops the rest, so the extent is asked for in pieces.
+			for off = start; off < end; off += prefetchChunk {
+				_ = unix.Fadvise(fd, off, min(prefetchChunk, end-off), unix.FADV_WILLNEED)
+			}
+		}
+	}()
 }
 
 // Loaded returns once the load is complete.
