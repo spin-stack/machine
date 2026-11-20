@@ -3,26 +3,30 @@
 package main
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/spin-stack/spin-machine/internal/apklock"
+	"github.com/spin-stack/go-tools/versions"
+
+	"github.com/spin-stack/spin-machine/internal/build"
 	"github.com/spin-stack/spin-machine/internal/machinetype"
 	"github.com/spin-stack/spin-machine/machine"
 )
 
 func init() {
-	verbs = append(verbs, outdatedCmd, bumpCmd, lockCmd, refreshCmd)
+	verbs = append(verbs, outdatedCmd, bumpCmd, refreshCmd)
 }
 
 func outdatedCmd() *cobra.Command {
@@ -119,76 +123,26 @@ func qemuCompat(ctx context.Context, w workspace) (string, error) {
 	return out, err
 }
 
-func lockCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "lock",
-		Short: "Pin every package QEMU's and e2fsprogs' builders install at what the pinned Alpine's mirror has today",
-		Long: `Pin every package QEMU's and e2fsprogs' builders install (each part's apk.list) at what the pinned
-Alpine's mirror serves today, into its apk.lock: a fresh install of the list on the pinned Alpine,
-its database read back. A new lock is a new QEMU or e2fsprogs build: the release notes say what
-moved, and boot:compat that checkpoints still resume on it. Needs docker.`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			w, err := open()
-			if err != nil {
-				return err
-			}
-			if err := lockAPK(c.Context(), c, w); err != nil {
-				return couldNot(err)
-			}
-			return nil
-		},
-	}
-}
-
-// apkParts are the parts whose builders install from Alpine, each with an apk.list and an apk.lock.
-var apkParts = []string{"qemu", "e2fsprogs"}
-
-// lockAPK writes each part's apk.lock from a fresh install of its apk.list.
-func lockAPK(ctx context.Context, c *cobra.Command, w workspace) error {
-	alpine, err := w.pins.Get("alpine")
-	if err != nil {
-		return err
-	}
-	for _, part := range apkParts {
-		list := filepath.Join(w.root, part, "apk.list")
-		cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", list+":/apk.list:ro", alpine.Ref(), //nolint:gosec // the pinned image
-			"sh", "-c", `apk add --no-cache $(grep -v "^#" /apk.list) > /dev/null && cat /lib/apk/db/installed`)
-		var db, stderr bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &db, &stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("installing %s's apk.list: %w: %s", part, err, bytes.TrimSpace(stderr.Bytes()))
-		}
-		lock, err := apklock.Lock(db.String())
-		if err != nil {
-			return fmt.Errorf("%s's packages: %w", part, err)
-		}
-		if err := os.WriteFile(filepath.Join(w.root, part, "apk.lock"), []byte(lock), 0o644); err != nil { //nolint:gosec // a file of the tree
-			return fmt.Errorf("writing %s/apk.lock: %w", part, err)
-		}
-		say(c, "%s/apk.lock: %d packages", part, strings.Count(lock, "\n"))
-	}
-	return nil
-}
-
 func refreshCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:    "refresh kernel|systemd|apk",
-		Short:  "Propose what upstream moved as a pull request: the kernel's series, the systemd source, the apk locks",
+		Use:    "refresh kernel|systemd|builders",
+		Short:  "Propose what upstream moved as a pull request: the kernel's series, the systemd source, the builders",
 		Hidden: true,
 		Long: `Propose, as a pull request, what upstream moved since the pin:
 
   kernel   the newest release of the kernel's series, and never past it (versions.yaml's note);
            most of what a stable release fixes is fixed before it is called a CVE
   systemd  the systemd source package the archive publishes now
-  apk      the apk locks at what the pinned Alpine's mirror has today: the mirror serves only the
-           newest build of each package, so a lock that resolved yesterday fails a build today,
-           which a release found three times (6e7ba47, 8d495c5, run 43157106109)
+  builders QEMU's and e2fsprogs' builder images (builder/Dockerfile) made again from each apk.list
+           on the pinned Alpine, published, and pinned, when a package in them moved; the
+           pull request lists the packages that did. Run on a branch other than main, it
+           commits the pins to that branch instead: how a changed apk.list gets its builder.
+           Needs docker, logged in to ghcr.io with packages: write
 
 Each branch is named for what it proposes, so a set proposed once is not proposed again, closed or
 not: a person who closed it said no to it; a newer one closes the one it supersedes. Nothing is
 proposed when the pins are current. refresh.yml runs it every day, as the release app.`,
-		ValidArgs: []string{"kernel", "systemd", "apk"},
+		ValidArgs: []string{"kernel", "systemd", "builders"},
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE: func(c *cobra.Command, args []string) error {
 			w, err := open()
@@ -201,54 +155,109 @@ proposed when the pins are current. refresh.yml runs it every day, as the releas
 			case "systemd":
 				return versionsTool(c.Context(), c, w.root, "refresh", "-propose", "-label", "systemd", "systemd-source")
 			}
-			return proposeLocks(c.Context(), c, w)
+			return proposeBuilders(c.Context(), c, w)
 		},
 	}
 	return c
 }
 
-// locksBody is the apk locks' pull request's body.
-const locksBody = `The apk locks at what the pinned Alpine's mirror serves today, proposed by refresh.yml: the
-mirror drops the builds a lock names, and a build from a stale lock fails. qemu.yml and image.yml
-build it on this pull request; boot:compat after merge says checkpoints resume on the new QEMU.`
+// buildersBody is the builders' pull request's body, before the packages that moved.
+const buildersBody = `QEMU's and e2fsprogs' builder images made again from each apk.list on the pinned Alpine, proposed
+by refresh.yml (spin-machine-dev refresh builders). Nothing forces it: a pinned builder keeps its
+packages after Alpine's mirror drops them, so this is taken when its fixes are wanted. qemu.yml and
+image.yml compile on it here; boot:compat after merge says checkpoints resume on the new QEMU.
+`
 
-// proposeLocks writes the locks and proposes them, when they moved and were not proposed already.
-func proposeLocks(ctx context.Context, c *cobra.Command, w workspace) error {
-	if err := lockAPK(ctx, c, w); err != nil {
-		return couldNot(err)
-	}
-	locks := []string{"qemu/apk.lock", "e2fsprogs/apk.lock"}
-	diff := exec.CommandContext(ctx, "git", append([]string{"diff", "--quiet", "--"}, locks...)...)
-	diff.Dir = w.root
-	if diff.Run() == nil {
-		say(c, "the apk locks are current")
-		return summary("the apk locks are current\n")
-	}
-	h := sha256.New()
-	for _, l := range locks {
-		b, err := os.ReadFile(filepath.Join(w.root, l)) //nolint:gosec // a lock of the tree
+// proposeBuilders makes each builder again and, for the ones whose packages moved, publishes it and
+// pins it: as a pull request from main, or as a commit on any other branch.
+func proposeBuilders(ctx context.Context, c *cobra.Command, w workspace) error {
+	o := build.Options{Root: w.root, Pins: w.pins, Stdout: c.ErrOrStderr(), Stderr: c.ErrOrStderr()}
+	var moved []build.Builder
+	var tags []string
+	for _, part := range build.Builders {
+		b, err := build.MakeBuilder(ctx, o, part)
 		if err != nil {
 			return couldNot(err)
 		}
-		h.Write(b)
+		e, err := w.pins.Get(build.BuilderEntry(part))
+		if err != nil {
+			return couldNot(err)
+		}
+		if e.Version == b.Tag {
+			say(c, "%s is current (%s)", e.Name, b.Tag)
+			continue
+		}
+		moved = append(moved, b)
+		tags = append(tags, b.Tag)
 	}
-	branch := "refresh/apk-" + hex.EncodeToString(h.Sum(nil))[:12]
+	if len(moved) == 0 {
+		say(c, "the builders are current")
+		return summary("the builders are current\n")
+	}
+	branch := cmp.Or(os.Getenv("GITHUB_REF_NAME"), currentBranch(ctx, w.root))
+	onMain := branch == "main"
+	if onMain {
+		// Named for what it proposes, so a set proposed once is not proposed again, closed or
+		// not: a person who closed it said no to it.
+		branch = "refresh/builders-" + strings.Join(tags, "-")
+		if exec.CommandContext(ctx, "git", "-C", w.root, "ls-remote", "--exit-code", "--heads", "origin", branch).Run() == nil { //nolint:gosec // a branch this names
+			say(c, "%s was proposed already", branch)
+			return nil
+		}
+	}
+	pins := w.pins
+	var file []byte
+	body := buildersBody
+	for _, b := range moved {
+		changes := "no builder was pinned to compare with\n"
+		if old, err := build.PinnedPackages(ctx, o, b.Part); err == nil {
+			changes = packagesMoved(old, b.Packages)
+		}
+		pin, err := build.PublishBuilder(ctx, o, b)
+		if err != nil {
+			return couldNot(err)
+		}
+		entry := build.BuilderEntry(b.Part)
+		if file, err = pins.Set(entry, b.Tag, pin); err != nil {
+			return couldNot(err)
+		}
+		if pins, err = versions.Parse(file); err != nil {
+			return couldNot(err)
+		}
+		o.Pins = pins
+		body += "\n### " + entry + " " + b.Tag + "\n\n" + changes
+		say(c, "%s: %s@%s", entry, b.Tag, pin)
+	}
+	if err := os.WriteFile(filepath.Join(w.root, versions.File), file, 0o644); err != nil { //nolint:gosec // the tree's own file
+		return couldNot(fmt.Errorf("writing %s: %w", versions.File, err))
+	}
+	if err := summary(body); err != nil {
+		return couldNot(err)
+	}
 	run := func(name string, args ...string) error { return command(ctx, c, w.root, name, args...) }
-	if exec.CommandContext(ctx, "git", "-C", w.root, "ls-remote", "--exit-code", "--heads", "origin", branch).Run() == nil {
-		say(c, "%s was proposed already", branch)
+	title := "builders: QEMU's and e2fsprogs' packages at what Alpine has today"
+	if !onMain {
+		// A branch's own builder - what its apk.list asks for - committed where it was asked.
+		for _, step := range [][]string{
+			{"git", "commit", "-q", "-m", title + "\n\n" + body, "--", versions.File},
+			{"git", "push", "origin", "HEAD:refs/heads/" + branch},
+		} {
+			if err := run(step[0], step[1:]...); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
-	title := "apk: the locks at what the mirror has today"
 	for _, step := range [][]string{
 		{"git", "switch", "-c", branch},
-		append([]string{"git", "commit", "-q", "-m", title, "--"}, locks...),
+		{"git", "commit", "-q", "-m", title, "--", versions.File},
 		{"git", "push", "origin", branch},
 	} {
 		if err := run(step[0], step[1:]...); err != nil {
 			return err
 		}
 	}
-	url, err := gh(ctx, "pr", "create", "--base", "main", "--head", branch, "--title", title, "--body", locksBody)
+	url, err := gh(ctx, "pr", "create", "--base", "main", "--head", branch, "--title", title, "--body", body)
 	if err != nil {
 		return couldNot(err)
 	}
@@ -257,7 +266,7 @@ func proposeLocks(ctx context.Context, c *cobra.Command, w workspace) error {
 		return couldNot(err)
 	}
 	open, err := gh(ctx, "pr", "list", "--state", "open", "--json", "number,headRefName", "--jq",
-		`.[] | select((.headRefName | startswith("refresh/apk-")) and .headRefName != "`+branch+`") | .number`)
+		`.[] | select((.headRefName | startswith("refresh/builders-")) and .headRefName != "`+branch+`") | .number`)
 	if err != nil {
 		return couldNot(err)
 	}
@@ -267,4 +276,41 @@ func proposeLocks(ctx context.Context, c *cobra.Command, w workspace) error {
 		}
 	}
 	return nil
+}
+
+// packagesMoved is what moved from one builder's packages to another's, as name=version lines,
+// for a person deciding whether to take it.
+func packagesMoved(old, now string) string {
+	was := map[string]string{}
+	for line := range strings.Lines(old) {
+		name, version, _ := strings.Cut(strings.TrimSpace(line), "=")
+		was[name] = version
+	}
+	var lines []string
+	for line := range strings.Lines(now) {
+		name, version, _ := strings.Cut(strings.TrimSpace(line), "=")
+		switch before, ok := was[name]; {
+		case !ok:
+			lines = append(lines, "- "+name+" "+version+" (new)")
+		case before != version:
+			lines = append(lines, "- "+name+" "+before+" → "+version)
+		}
+		delete(was, name)
+	}
+	for _, name := range slices.Sorted(maps.Keys(was)) {
+		lines = append(lines, "- "+name+" (gone)")
+	}
+	if len(lines) == 0 {
+		return "no package moved: the Alpine or the list did\n"
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// currentBranch is the branch checked out in root, or "" when none is.
+func currentBranch(ctx context.Context, root string) string {
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "branch", "--show-current").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

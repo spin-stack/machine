@@ -85,7 +85,7 @@ var Parts = []Part{
 		make: makeQEMU, check: VerifyQEMU},
 	{Name: "kernel", Paths: []string{"kernel"}, Pins: strings.Fields("debian debian-snapshot kernel moby-check-config"),
 		make: makeKernel, check: VerifyKernel},
-	{Name: "e2fsprogs", Paths: []string{"e2fsprogs"}, Pins: strings.Fields("alpine e2fsprogs"),
+	{Name: "e2fsprogs", Paths: []string{"e2fsprogs"}, Pins: strings.Fields("e2fsprogs-builder e2fsprogs"),
 		make: makeE2fsprogs, check: VerifyE2fsprogs},
 	{Name: "systemd", Paths: []string{"image/systemd"}, Pins: strings.Fields("ubuntu systemd-source"),
 		make: makeSystemd, check: verifySystemd},

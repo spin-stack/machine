@@ -16,10 +16,11 @@
 # filesystem is populated with every file owned by root without building it as root. Upstream
 # would otherwise dlopen() libarchive.so at run time, and a static binary cannot.
 
-# The pins are versions.yaml's, handed in by e2fsprogs/Taskfile.yml, with no defaults here.
-# The Alpine is the one QEMU is built on: one musl to think about.
-ARG ALPINE_IMAGE
-FROM ${ALPINE_IMAGE} AS builder
+# The pins are versions.yaml's, handed in by spin-machine-dev build, with no defaults here. The
+# builder is Alpine with e2fsprogs/apk.list installed (builder/Dockerfile), on the Alpine QEMU's
+# is: one musl to think about.
+ARG E2FSPROGS_BUILDER_IMAGE
+FROM ${E2FSPROGS_BUILDER_IMAGE} AS builder
 
 ARG E2FSPROGS_VERSION
 ARG E2FSPROGS_SHA256
@@ -27,12 +28,11 @@ ARG JOBS=8
 
 SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
-# e2fsprogs/apk.list says what; e2fsprogs/apk.lock the version of everything installed, so the
-# libraries the static tools link are a commit's. A version the mirror no longer has fails here:
-# task apk:lock moves the lock.
-COPY e2fsprogs/apk.list e2fsprogs/apk.lock /tmp/apk/
-RUN --mount=type=cache,sharing=locked,id=e2fsprogs-apk,target=/var/cache/apk \
-    apk add --cache-dir /var/cache/apk $(grep -v '^#' /tmp/apk/apk.list) $(cat /tmp/apk/apk.lock)
+# e2fsprogs/apk.list says what the builder installs; a list the pinned builder was not made with
+# stops here (qemu/Dockerfile says why).
+COPY e2fsprogs/apk.list /tmp/apk.list
+RUN cmp -s /tmp/apk.list /usr/share/spin-machine/apk.list || \
+    { echo "e2fsprogs/apk.list is not the list versions.yaml's e2fsprogs-builder was made with: spin-machine-dev refresh builders" >&2; exit 1; }
 
 WORKDIR /build
 

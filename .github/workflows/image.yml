@@ -76,7 +76,7 @@ jobs:
         id: touches
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: spin-machine-dev changed --base "$BASE" --pins alpine,e2fsprogs,ubuntu,systemd-source,mkosi,task,git-lfs,buildkit image e2fsprogs go.mod cmd/spin-machine-dev internal/build .github/workflows/image.yml
+        run: spin-machine-dev changed --base "$BASE" --pins e2fsprogs-builder,e2fsprogs,ubuntu,systemd-source,mkosi,task,git-lfs,buildkit image e2fsprogs go.mod cmd/spin-machine-dev internal/build .github/workflows/image.yml
 
   build:
     needs: changed

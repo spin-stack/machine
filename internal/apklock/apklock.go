@@ -1,38 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package apklock writes the lock of an Alpine builder: every package an apk database says is
-// installed, as name=version, sorted - what the builder's `apk add` is then held to, so the static
-// libraries QEMU and e2fsprogs link are the versions a commit names, not whatever the mirror held
-// that day. spin-machine-dev lock runs it over a fresh install of the part's apk.list.
+// Package apklock reads what an Alpine builder image holds: every package its apk database says is
+// installed, as name=version, sorted. A builder's tag is a hash of it, and a proposed builder says
+// which of them moved (spin-machine-dev refresh builders).
 package apklock
 
 import (
 	"fmt"
-	"io"
-	"os"
 	"slices"
 	"strings"
 )
-
-// Run answers the exit status: 0 the lock written, 2 no database to read.
-func Run(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 {
-		_, _ = fmt.Fprintln(stderr, "apklock: <installed db>")
-		return 2
-	}
-	raw, err := os.ReadFile(args[0])
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "apklock:", err)
-		return 2
-	}
-	lock, err := Lock(string(raw))
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "apklock:", err)
-		return 2
-	}
-	_, _ = io.WriteString(stdout, lock)
-	return 0
-}
 
 // Lock is an apk installed database's packages as name=version lines, sorted.
 func Lock(db string) (string, error) {
@@ -60,15 +37,4 @@ func Lock(db string) (string, error) {
 	}
 	slices.Sort(pins)
 	return strings.Join(pins, "\n") + "\n", nil
-}
-
-// Listed is the package names of an apk.list: one or more a line, # comments and blank lines left
-// out.
-func Listed(list string) []string {
-	var names []string
-	for _, line := range strings.Split(list, "\n") {
-		line, _, _ = strings.Cut(line, "#")
-		names = append(names, strings.Fields(line)...)
-	}
-	return names
 }

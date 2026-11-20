@@ -428,6 +428,8 @@ Checked against the probe it replaced on the bench fleet, `lab dispatch ssh-firs
 
 ---
 
+**11-20 · CI · the builders are images, and the apk locks are gone (this change).** The daily apk-lock refresh (`c6c29b5`) kept the locks buildable, at a price: Alpine's mirror serves only the newest build of each package, so a lock moved every two or three days (11-09, two on 11-12, 11-19, #308 on 11-20), and the lock is the first layer of QEMU's build, so each move compiled QEMU cold on its pull request (17-21 min) and again on main (12 min), the export being main's alone - #308 was libxml2 r2 → r3, which nothing links. QEMU's and e2fsprogs' builders are now images, Alpine with the part's apk.list installed (`builder/Dockerfile`), published to ghcr and pinned by digest (`qemu-builder`, `e2fsprogs-builder`). An image keeps its packages after the mirror drops them, so nothing forces a move: refresh.yml makes them again weekly and proposes the ones whose packages moved, with the list of what did; the tag is a hash of the Alpine, the list and every package installed, so it never names two images. A part's build stops at its first step when the tree's apk.list is not the builder's. In place.
+
 ## 3. Rework cycles
 
 Each cycle: the sequence, what each step measured, and the lesson.
@@ -545,9 +547,9 @@ Also the reusable builder, added and reverted on 10-13.
 **Lesson:** each move was taken without checking that the cache was actually hit. A cache-hit assertion would have caught `c767cd5` and `1666cb5` on day one.
 
 ### 3.12 apk locks broke three times
-`6e7ba47` (11-03), `8d495c5` (11-09), release run 43157106109 / `ec2c7fb` (11-12); fixed structurally by a daily refresh (`c6c29b5`).
+`6e7ba47` (11-03), `8d495c5` (11-09), release run 43157106109 / `ec2c7fb` (11-12); fixed by a daily refresh (`c6c29b5`), which then compiled QEMU cold twice every move; fixed structurally on 11-20 by pinning builder images instead of packages.
 
-**Lesson:** pinning to a mirror that serves only the newest build needs a refresh loop from the start.
+**Lesson:** a mirror that serves only the newest build cannot be pinned; pin something that keeps its contents - an image - and move it when the move is wanted.
 
 ---
 

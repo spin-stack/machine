@@ -18,7 +18,7 @@ import (
 const PublishedQEMU = "ghcr.io/spin-stack/spin-machine/qemu"
 
 // qemuPins are the entries qemu/Dockerfile is handed, for the build and the published image alike.
-var qemuPins = strings.Fields("alpine qemu debian debian-snapshot qboot")
+var qemuPins = strings.Fields("qemu-builder alpine qemu debian debian-snapshot qboot")
 
 // QEMUVersion is the pinned QEMU's version.
 func QEMUVersion(o Options) (string, error) {

@@ -243,29 +243,6 @@ func TestABumpIsOneEntryAndAtMostAVersion(t *testing.T) {
 	}
 }
 
-func TestTheLocksAreProposedFromAnywhereInTheCheckout(t *testing.T) {
-	dir := checkout(t)
-	put(t, filepath.Join(dir, "qemu/apk.list"), "musl\n", 0o644)
-	put(t, filepath.Join(dir, "e2fsprogs/apk.list"), "musl\n", 0o644)
-	put(t, filepath.Join(dir, "qemu/apk.lock"), "musl=1\n", 0o644)
-	put(t, filepath.Join(dir, "e2fsprogs/apk.lock"), "musl=1\n", 0o644)
-	gitRepo(t, dir)
-	t.Setenv("GIT_AUTHOR_NAME", "t")
-	t.Setenv("GIT_AUTHOR_EMAIL", "t@t")
-	t.Setenv("GIT_COMMITTER_NAME", "t")
-	t.Setenv("GIT_COMMITTER_EMAIL", "t@t")
-	fakes(t, map[string]string{"docker": `printf 'P:musl\nV:2\n'`, "gh": ""})
-	t.Chdir(filepath.Join(dir, "qemu"))
-	// No origin: the branch is made and committed, and the push fails.
-	if _, _, status := verb(t, "refresh", "apk"); status != 2 {
-		t.Errorf("moved locks from a subdirectory exited %d", status)
-	}
-	branch, _ := os.ReadFile(filepath.Join(dir, ".git", "HEAD"))
-	if !regexp.MustCompile(`^ref: refs/heads/refresh/apk-[0-9a-f]{12}\n$`).Match(branch) {
-		t.Errorf("the branch is %q", branch)
-	}
-}
-
 func TestAnOSVScanThatFailsIsNotAFinding(t *testing.T) {
 	checkout(t)
 	fakes(t, map[string]string{"gh": ghRelease, "cosign": "", "go": `echo '{"results":[]}'; exit 2`})

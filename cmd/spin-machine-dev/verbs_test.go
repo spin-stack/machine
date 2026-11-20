@@ -793,34 +793,8 @@ func TestAQEMUBumpSaysWhatNewerTypesChange(t *testing.T) {
 	}
 }
 
-func TestLockPinsEachBuildersPackages(t *testing.T) {
-	dir := checkout(t)
-	put(t, filepath.Join(dir, "qemu/apk.list"), "musl\n", 0o644)
-	put(t, filepath.Join(dir, "e2fsprogs/apk.list"), "musl\n", 0o644)
-	calls := fakes(t, map[string]string{"docker": `printf 'P:musl\nV:1.2.5-r10\n\nP:zlib\nV:1.3-r0\n'`})
-	if _, stderr, status := verb(t, "lock"); status != 0 || !strings.Contains(stderr, "qemu/apk.lock: 2 packages") {
-		t.Fatalf("exit %d: %s", status, stderr)
-	}
-	if got := read(t, filepath.Join(dir, "e2fsprogs/apk.lock")); got != "musl=1.2.5-r10\nzlib=1.3-r0\n" {
-		t.Errorf("e2fsprogs/apk.lock holds %q", got)
-	}
-	w, _ := open()
-	a, _ := w.pins.Get("alpine")
-	if !strings.Contains(read(t, calls), "docker run --rm -v "+filepath.Join(dir, "qemu/apk.list")+":/apk.list:ro "+a.Ref()+" sh -c") {
-		t.Errorf("docker ran %q", read(t, calls))
-	}
-	fakes(t, map[string]string{"docker": "exit 1"})
-	if _, _, status := verb(t, "lock"); status != 2 {
-		t.Errorf("an install that failed exited %d", status)
-	}
-	fakes(t, map[string]string{"docker": "echo nothing"})
-	if _, _, status := verb(t, "lock"); status != 2 {
-		t.Errorf("a database with no packages exited %d", status)
-	}
-}
-
-func TestRefreshProposesThroughVersionsOrTheLocks(t *testing.T) {
-	dir := checkout(t)
+func TestRefreshProposesThroughVersionsOrTheBuilders(t *testing.T) {
+	checkout(t)
 	calls := fakes(t, map[string]string{"go": ""})
 	for _, what := range []string{"kernel", "systemd"} {
 		if _, _, status := verb(t, "refresh", what); status != 0 {
@@ -833,71 +807,115 @@ func TestRefreshProposesThroughVersionsOrTheLocks(t *testing.T) {
 	if _, _, status := verb(t, "refresh", "nope"); status == 0 {
 		t.Error("refresh took what it does not refresh")
 	}
+}
+
+// fakeDocker is a docker whose every image holds musl at version, and whose pushed builders have
+// the digests aaaa… and bbbb….
+func fakeDocker(version string) string {
+	return `case "$1" in
+run) printf 'P:musl\nV:` + version + `\n';;
+inspect) case "$4" in
+  *builder-qemu*) echo ghcr.io/spin-stack/spin-machine/builder-qemu@sha256:` + strings.Repeat("a", 64) + `;;
+  *) echo ghcr.io/spin-stack/spin-machine/builder-e2fsprogs@sha256:` + strings.Repeat("b", 64) + `;;
+  esac;;
+esac`
+}
+
+// builderCheckout is a checkout with both apk.lists, committed on main, with a bare origin.
+func builderCheckout(t *testing.T) string {
+	t.Helper()
+	dir := checkout(t)
 	put(t, filepath.Join(dir, "qemu/apk.list"), "musl\n", 0o644)
 	put(t, filepath.Join(dir, "e2fsprogs/apk.list"), "musl\n", 0o644)
-	put(t, filepath.Join(dir, "qemu/apk.lock"), "musl=1.2.5-r10\n", 0o644)
-	put(t, filepath.Join(dir, "e2fsprogs/apk.lock"), "musl=1.2.5-r10\n", 0o644)
 	gitRepo(t, dir)
-	fakes(t, map[string]string{"docker": `printf 'P:musl\nV:1.2.5-r10\n'`})
-	if _, stderr, status := verb(t, "refresh", "apk"); status != 0 || !strings.Contains(stderr, "the apk locks are current") {
-		t.Errorf("current locks: exit %d, %q", status, stderr)
-	}
-	fakes(t, map[string]string{"docker": `printf 'P:musl\nV:1.2.6-r0\n'`, "gh": ""})
-	if _, stderr, status := verb(t, "refresh", "apk"); status != 2 {
-		// No origin to look the branch up on, so it is proposed; the push to no origin fails.
-		t.Errorf("moved locks with no origin: exit %d, %q", status, stderr)
-	}
-	// With an origin: the branch is pushed, proposed, and the one it supersedes closed.
 	bare := t.TempDir()
-	for _, args := range [][]string{{"init", "-q", "--bare", bare}, {"-C", dir, "checkout", "-q", "-f", "-"}, {"-C", dir, "remote", "add", "origin", bare}} {
+	for _, args := range [][]string{{"init", "-q", "--bare", bare}, {"-C", dir, "branch", "-M", "main"}, {"-C", dir, "remote", "add", "origin", bare}} {
 		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
-	calls = fakes(t, map[string]string{"docker": `printf 'P:musl\nV:1.2.7-r0\n'`, "gh": `case "$1 $2" in
-"pr create") echo https://x/pull/8;;
-"pr list") echo 7;;
-esac`})
-	t.Setenv("GIT_AUTHOR_NAME", "t")
-	t.Setenv("GIT_AUTHOR_EMAIL", "t@t")
-	t.Setenv("GIT_COMMITTER_NAME", "t")
-	t.Setenv("GIT_COMMITTER_EMAIL", "t@t")
-	if _, stderr, status := verb(t, "refresh", "apk"); status != 0 || !strings.Contains(stderr, "https://x/pull/8") {
-		t.Fatalf("moved locks: exit %d, %q", status, stderr)
+	for _, k := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
+		t.Setenv(k, "t")
+	}
+	for _, k := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(k, "t@t")
+	}
+	return dir
+}
+
+// On a branch, a builder made again is published and its pin committed there; made again with
+// the same packages, it is the one pinned.
+func TestRefreshBuildersPinsABranchsOwnBuilder(t *testing.T) {
+	dir := builderCheckout(t)
+	t.Setenv("GITHUB_REF_NAME", "work")
+	calls := fakes(t, map[string]string{"docker": fakeDocker("1.2.5-r10")})
+	if _, stderr, status := verb(t, "refresh", "builders"); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	w, _ := open()
+	q, _ := w.pins.Get("qemu-builder")
+	e, _ := w.pins.Get("e2fsprogs-builder")
+	if q.Pin != "sha256:"+strings.Repeat("a", 64) || e.Pin != "sha256:"+strings.Repeat("b", 64) || len(q.Version) != 12 {
+		t.Errorf("pinned %s and %s", q.Ref(), e.Ref())
 	}
 	got := read(t, calls)
-	if !strings.Contains(got, "gh pr create --base main --head refresh/apk-") || !strings.Contains(got, "gh pr close 7 --delete-branch --comment Superseded by https://x/pull/8.") {
-		t.Errorf("gh ran %q", got)
-	}
-	if !strings.Contains(read(t, os.Getenv("GITHUB_STEP_SUMMARY")), "https://x/pull/8") {
-		t.Error("the proposal is not on the run's summary")
-	}
-	if out, err := exec.Command("git", "-C", dir, "checkout", "-q", "-").CombinedOutput(); err != nil {
-		t.Fatalf("%v: %s", err, out)
-	}
-	if _, stderr, status := verb(t, "refresh", "apk"); status != 0 || !strings.Contains(stderr, "was proposed already") {
-		t.Errorf("the same locks again: exit %d, %q", status, stderr)
-	}
-	base, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, failing := range []string{`[ "$2" = create ] && exit 1; exit 0`, `[ "$2" = list ] && exit 1; echo u`, `[ "$2" = close ] && exit 1; echo 7`} {
-		if out, err := exec.Command("git", "-C", dir, "checkout", "-q", "-f", strings.TrimSpace(string(base))).CombinedOutput(); err != nil {
-			t.Fatalf("%v: %s", err, out)
-		}
-		// Each a lock never proposed, so each reaches gh.
-		fakes(t, map[string]string{"docker": `printf 'P:musl\nV:9-r` + string(rune('0'+i)) + `\n'`, "gh": failing})
-		if _, _, status := verb(t, "refresh", "apk"); status != 2 {
-			t.Errorf("gh failing (%s) exited %d", failing, status)
+	for _, want := range []string{
+		"docker buildx build --no-cache --load --platform linux/amd64 --file builder/Dockerfile",
+		"--build-arg PART=qemu",
+		"docker push --quiet ghcr.io/spin-stack/spin-machine/builder-qemu:" + q.Version,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("docker ran %q, without %q", got, want)
 		}
 	}
-	fakes(t, map[string]string{"docker": "exit 1"})
-	if _, _, status := verb(t, "refresh", "apk"); status != 2 {
-		t.Errorf("locks that could not be made exited %d", status)
+	if out, err := exec.Command("git", "-C", dir, "ls-remote", "--exit-code", "--heads", "origin", "work").CombinedOutput(); err != nil {
+		t.Errorf("nothing pushed to work: %v: %s", err, out)
+	}
+	if !strings.Contains(read(t, os.Getenv("GITHUB_STEP_SUMMARY")), "### qemu-builder "+q.Version) {
+		t.Error("the builders are not on the run's summary")
+	}
+	if _, stderr, status := verb(t, "refresh", "builders"); status != 0 || !strings.Contains(stderr, "the builders are current") {
+		t.Errorf("the same builders again: exit %d, %q", status, stderr)
 	}
 }
 
+// From main, the builders are proposed, the proposal they supersede closed, and a set proposed
+// once is not proposed again.
+func TestRefreshBuildersProposesFromMain(t *testing.T) {
+	dir := builderCheckout(t)
+	t.Setenv("GITHUB_REF_NAME", "main")
+	calls := fakes(t, map[string]string{"docker": fakeDocker("1.2.6-r0"), "gh": `case "$1 $2" in
+"pr create") echo https://x/pull/8;;
+"pr list") echo 7;;
+esac`})
+	if _, stderr, status := verb(t, "refresh", "builders"); status != 0 || !strings.Contains(stderr, "https://x/pull/8") {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	got := read(t, calls)
+	if !strings.Contains(got, "gh pr create --base main --head refresh/builders-") || !strings.Contains(got, "gh pr close 7 --delete-branch --comment Superseded by https://x/pull/8.") {
+		t.Errorf("gh ran %q", got)
+	}
+	if out, err := exec.Command("git", "-C", dir, "checkout", "-q", "-f", "main").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if _, stderr, status := verb(t, "refresh", "builders"); status != 0 || !strings.Contains(stderr, "was proposed already") {
+		t.Errorf("the same builders again: exit %d, %q", status, stderr)
+	}
+	fakes(t, map[string]string{"docker": "exit 1"})
+	if _, _, status := verb(t, "refresh", "builders"); status != 2 {
+		t.Errorf("a builder that could not be made exited %d", status)
+	}
+}
+
+func TestPackagesMovedSaysWhatMoved(t *testing.T) {
+	got := packagesMoved("a=1\nb=1\nc=1\n", "a=1\nb=2\nd=1\n")
+	if got != "- b 1 → 2\n- d 1 (new)\n- c (gone)\n" {
+		t.Errorf("moved %q", got)
+	}
+	if got := packagesMoved("a=1\n", "a=1\n"); !strings.Contains(got, "no package moved") {
+		t.Errorf("nothing moved, said %q", got)
+	}
+}
 func TestShellBootsTheBaseAndChecksItAfter(t *testing.T) {
 	dir := checkout(t)
 	out := filepath.Join(dir, "_output")

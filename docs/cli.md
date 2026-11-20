@@ -64,7 +64,6 @@ version. `verify --help` says each.
 ```
 spin-machine-dev outdated             which pins are behind their upstream (exits 1 when any is)
 spin-machine-dev bump <entry> [ver]   move one pin; a QEMU bump prints what newer machine types change
-spin-machine-dev lock                 the apk locks at what the pinned Alpine's mirror has today
 spin-machine-dev osv [--issues]       OSV against the newest release's SBOM; an issue per package with findings
 spin-machine-dev cves [--local]       the kernel CNA's CVEs against the newest release's kernel, or _output's
 ```
@@ -112,7 +111,7 @@ compat.yml   task boot:buildkit ; spin-machine-dev vsock ;
              spin-machine-dev build qemu kernel spin-machine ; task boot:here, boot:roms, ...
 release.yml  spin-machine-dev release version ; release ; release notes ; release provenance ;
              release sign ; release tag ; then the publish action
-refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|apk
+refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|builders
 osv.yml      spin-machine-dev osv --issues ; spin-machine-dev cves
 ```
 

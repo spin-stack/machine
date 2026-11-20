@@ -48,14 +48,19 @@
 #   --without-default-features       then every device q35 needs is ours to enumerate, and
 #                                    a missing one is a link error or an unusable machine.
 
-# The pins - the Alpine image by digest, QEMU's version and its tarball's sha256 - are
-# versions.yaml's, handed in by qemu/Taskfile.yml. None has a default here: a build that was not
-# handed one fails rather than building something the file does not say.
+# The pins - the builder and the Alpine image by digest, QEMU's version and its tarball's sha256 -
+# are versions.yaml's, handed in by spin-machine-dev build. None has a default here: a build that
+# was not handed one fails rather than building something the file does not say.
+#
+# The builder is Alpine with qemu/apk.list installed (builder/Dockerfile): the static libraries
+# QEMU links are that image's, which keeps them after Alpine's mirror drops them.
+ARG QEMU_BUILDER_IMAGE
+# The runtime image's base: see the runtime stage.
 ARG ALPINE_IMAGE
 # qboot's toolchain: see the qboot stage.
 ARG DEBIAN_IMAGE
 
-FROM ${ALPINE_IMAGE} AS builder
+FROM ${QEMU_BUILDER_IMAGE} AS builder
 
 ARG QEMU_VERSION
 # The tarball this build is made of, by content.
@@ -81,12 +86,12 @@ ARG QEMU_CONFIG_REV=8
 
 SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
-# qemu/apk.list says what, and why; qemu/apk.lock the version of everything installed, so the
-# libraries a static QEMU links are a commit's and not the mirror's of the day. A version the
-# mirror no longer has fails here: spin-machine-dev lock moves the lock, which is a new machine.
-COPY qemu/apk.list qemu/apk.lock /tmp/apk/
-RUN --mount=type=cache,sharing=locked,id=qemu-apk,target=/var/cache/apk \
-    apk add --cache-dir /var/cache/apk $(grep -v '^#' /tmp/apk/apk.list) $(cat /tmp/apk/apk.lock)
+# qemu/apk.list says what the builder installs, and why. A list changed in the tree and not in
+# the pinned builder is a build of packages it does not have: it stops here, before the compile
+# fails on a missing .a or links one nobody asked for.
+COPY qemu/apk.list /tmp/apk.list
+RUN cmp -s /tmp/apk.list /usr/share/spin-machine/apk.list || \
+    { echo "qemu/apk.list is not the list versions.yaml's qemu-builder was made with: spin-machine-dev refresh builders" >&2; exit 1; }
 
 WORKDIR /build
 
@@ -217,7 +222,7 @@ ENV QEMU_FLAGS="\
 #                        of a binary without. The protector is -strong, the first one tried.
 #   -fstack-clash-protection   the one property nothing gave us: a stack that grows past its
 #                        guard page into another mapping now touches each page on the way.
-#   _FORTIFY_SOURCE=3    musl has no _chk functions; fortify-headers (qemu/apk.lock) wraps
+#   _FORTIFY_SOURCE=3    musl has no _chk functions; fortify-headers (qemu/apk.list) wraps
 #                        libc's calls in checks that trap. 3 sizes buffers that are known
 #                        only at run time, which 2 skips. -U first: gcc defines 2, and the
 #                        warning a redefinition prints is an error in meson's -Werror probes.

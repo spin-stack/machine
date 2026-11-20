@@ -76,7 +76,7 @@ jobs:
         id: touches
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: spin-machine-dev changed --base "$BASE" --pins alpine,qemu,debian,debian-snapshot,qboot qemu go.mod cmd/spin-machine-dev internal/build .github/workflows/qemu.yml
+        run: spin-machine-dev changed --base "$BASE" --pins qemu-builder,alpine,qemu,debian,debian-snapshot,qboot qemu go.mod cmd/spin-machine-dev internal/build .github/workflows/qemu.yml
 
   build:
     needs: changed
