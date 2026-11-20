@@ -2,7 +2,7 @@
 # (spin-machine-dev refresh kernel). A stable release is mostly fixes that were never called CVEs, or were
 # called one after the fix was out, so taking them is the cheapest security this machine has:
 # within the series the configuration does not change (kernel/config-<series>-x86_64) and
-# checkpoints keep resuming, so a stable release is one versions.yaml line. kernel.yml builds it
+# checkpoints keep resuming, so a stable release is one versions.yaml line. parts.yml builds it
 # on the pull request; a person boots it and merges it. Nothing here publishes.
 #
 # And the systemd source package the image rebuilds (spin-machine-dev refresh systemd), which the archive
@@ -10,7 +10,7 @@
 #
 # And, weekly, QEMU's and e2fsprogs' builder images (spin-machine-dev refresh builders): Alpine with
 # each part's apk.list installed, made again, published, and proposed when a package in them moved.
-# qemu.yml and image.yml build the pull request.
+# parts.yml builds the pull request.
 #
 # The pull request is the release app's (spin-stack-release), so the checks on it run: one opened
 # with this run's own token would start none.
@@ -82,7 +82,7 @@ jobs:
 
   # Its own job, as apk's: the refresh leaves the checkout on the branch it proposed. Ubuntu's
   # archive serves only the systemd source resolute publishes now, so image/systemd fails to build
-  # from the day it moves until the pin follows; this proposes the move that day. image.yml builds
+  # from the day it moves until the pin follows; this proposes the move that day. parts.yml builds
   # the pull request.
   systemd:
     if: github.ref == 'refs/heads/main' && github.event.schedule != '17 7 * * 1'

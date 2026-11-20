@@ -88,8 +88,8 @@ vYYYYMMDD.NN), `notes` (what changed since the release before, and the fingerpri
 never fails: changing the machine is allowed, being quiet about it is not), `provenance` (SLSA),
 `sign` (cosign over every file, each bundle checked, then attestgate), `tag` (through the API, as
 GITHUB_TOKEN cannot push a ref over a workflow change), and `pack` (pack what `_output` holds,
-building nothing). So are `publish qemu` (main's qemu.yml), `changed` (whether a change can reach
-a part) and `refresh` (refresh.yml's proposals).
+building nothing). So are `publish qemu` (main's parts.yml), `changed` (whether a change can reach
+a part), `needs` (whether every job a summary job needs passed) and `refresh` (refresh.yml's proposals).
 
 ## How GitHub Actions composes it
 
@@ -102,11 +102,12 @@ PATH: `go run` would exit 1 whatever the verb's status. taskgate (`-command spin
 ci.yml       task lint ; task test ; task coverage ; task mutate ; task bin ;
              spin-machine-dev build spin-machine ; spin-machine-dev fetch qemu ;
              spin-machine-dev vsock ; spin-machine-dev verify args
-qemu.yml     changed: spin-machine-dev changed --base $BASE --pins alpine,qemu,... qemu ...
-             build:   spin-machine-dev build qemu --cache-registry ; vsock ; verify args ;
+parts.yml    changed: spin-machine-dev changed --base $BASE --pins ... <paths>, once a part
+             qemu:    spin-machine-dev build qemu --cache-registry ; vsock ; verify args ;
                       publish qemu (main)
-kernel.yml   changed ; spin-machine-dev build kernel --cache-registry
-image.yml    changed ; spin-machine-dev build e2fsprogs ; spin-machine-dev build image
+             kernel:  spin-machine-dev build kernel --cache-registry
+             image:   spin-machine-dev build e2fsprogs ; spin-machine-dev build image
+             parts:   spin-machine-dev needs
 compat.yml   task boot:buildkit ; spin-machine-dev vsock ;
              spin-machine-dev build qemu kernel spin-machine ; task boot:here, boot:roms, ...
 release.yml  spin-machine-dev release version ; release ; release notes ; release provenance ;
@@ -141,8 +142,8 @@ bench fleet, where a number decides something (AGENTS.md, "The goal"). Its code 
 | experiment | a probe over trees, repetitions of each, interleaved, written as `result.json`: every sample, the options, each tree's manifest, the host | `_output/lab/results/`, or a lab run's artifact |
 
 A tree starts from a release (`--from release`, `--from release:v20261119.01`) or a directory laid
-out as one (`--from _output`), and replaces what is asked for: `--kernel run:N` (a Kernel workflow
-run's bzImage; a run from before 2026-11-19 has none and is refused by name), `--qemu run:N`,
+out as one (`--from _output`), and replaces what is asked for: `--kernel run:N` (a parts.yml run's
+bzImage, or a Kernel workflow run's from before parts.yml; a run from before 2026-11-19 has none and is refused by name), `--qemu run:N`,
 `--spin-machine here` (built from this checkout; a release ships none, so a tree from one always
 gets this checkout's, as the `boot:` targets' `:tools` dependency gave the probes before),
 `--spin-machine release` (built, through the module proxy, from the commit the release's

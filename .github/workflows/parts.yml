@@ -1,0 +1,331 @@
+name: Parts
+
+# The machine's parts built from source: QEMU, the guest kernel, and e2fsprogs with the base image.
+# Each takes from a minute (cached) to tens of minutes (cold), far too slow for ci.yml's gate, so
+# each is a job here that runs only when the change reaches it, and `parts` at the end says
+# whether every one that ran passed: one check, which a ruleset can require, where three
+# path-filtered workflows each reported only when its paths matched and could not be.
+#
+# Each job ends in the verification that belongs to it, so a configuration that lost a device,
+# a kernel at a fixed address or an image with an identity baked in fails here rather than in a
+# VM that will not start weeks later.
+
+on:
+  # No paths: `parts` has to report on every change, and `changed` below is the filter. A path
+  # filter cannot tell a QEMU bump from an e2fsprogs one in versions.yaml; `changed` compares
+  # what each build is handed at the base and here.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The BuildKit cache: main writes it, everything else reads it (internal/build.CacheRegistry);
+  # and QEMU's runtime image, published from main.
+  packages: write
+
+concurrency:
+  group: parts-${{ github.head_ref || github.ref_name }}
+  # Never on main: a cancelled run there is a commit nobody proved.
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+# As ci.yml: go-tools' downloads, and the image's own from GitHub releases, ask with it: GitHub
+# sheds anonymous ones first.
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  # Whether this change can reach each part: what each build is handed (its pins in
+  # versions.yaml) at the base and here, and the paths it is built from. It errs towards
+  # building. The root Taskfile is deliberately not among the paths: it holds only how many jobs
+  # to compile with and which cache to use, so it would rebuild every part for an edit that
+  # cannot change any of them.
+  changed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      qemu: ${{ steps.qemu.outputs.build }}
+      kernel: ${{ steps.kernel.outputs.build }}
+      image: ${{ steps.image.outputs.build }}
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base commit has to be here to be compared against.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Does the change reach QEMU
+        id: qemu
+        run: spin-machine-dev changed --base "$BASE" --pins qemu-builder,alpine,qemu,debian,debian-snapshot,qboot qemu go.mod cmd/spin-machine-dev internal/build .github/workflows/parts.yml
+
+      - name: Does the change reach the kernel
+        id: kernel
+        run: spin-machine-dev changed --base "$BASE" --pins debian,debian-snapshot,kernel,moby-check-config kernel go.mod cmd/spin-machine-dev internal/build .github/workflows/parts.yml
+
+      - name: Does the change reach e2fsprogs or the image
+        id: image
+        run: spin-machine-dev changed --base "$BASE" --pins e2fsprogs-builder,e2fsprogs,ubuntu,systemd-source,mkosi,task,git-lfs,buildkit image e2fsprogs go.mod cmd/spin-machine-dev internal/build .github/workflows/parts.yml
+
+  qemu:
+    needs: changed
+    if: needs.changed.outputs.qemu == 'true'
+    runs-on: ubuntu-latest
+    # A cold build is tens of minutes and a warm one is a cache restore, so the spread is
+    # wide and the ceiling has to sit above the cold case. What it is really for is the
+    # other end: a `configure` that stops on a prompt would hold a runner for six hours
+    # without ever printing a failure.
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # For the acceptance check at the end, which is a Go test. The runner's own Go is
+      # whatever the image happens to carry, and go.mod names the one this builds with.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      # A builder of its own (the docker-container driver): Docker's default one cannot export its
+      # cache. What it reads and writes is the cache image in GitHub's registry that the build
+      # names (--cache-registry, internal/build.CacheRegistry), so the runner itself keeps nothing between runs.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # The cache is one of this repository's packages, and reading it takes a login as much as
+      # writing it does. Without one BuildKit says it could not import the cache, carries on
+      # without it, and the build passes at the cold time.
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # It writes the pinned version to the step's outputs (qemu_version), which names the
+      # artifact below: from versions.yaml, never a literal here - two places to bump is how CI
+      # and production end up on different QEMUs. And what it built, on the run's summary.
+      - name: Build QEMU and verify what came out
+        id: qemu
+        env:
+          # main's lanes write the cache back; everything else only reads it.
+          CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: spin-machine-dev build qemu --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+
+      # vhost-vsock is a kernel module, and the machine's vsock device cannot be created
+      # without /dev/vhost-vsock. The runner has the node and gives the user no access to
+      # it, which is why the chmod is not decoration: without it QEMU says "Could not open
+      # '/dev/vhost-vsock': Permission denied" and the device goes unchecked. Loaded rather than
+      # stood in for: there is no backend that keeps the device line and drops the requirement,
+      # and a runner without it is told what went unchecked instead of being shown a pass.
+      - name: Load vhost_vsock
+        run: spin-machine-dev vsock
+
+      # The other half of what a device allowlist decides. The build ends in
+      # verify qemu, which asks this binary which accelerators and firmware files it has;
+      # this asks whether it accepts the command line the machine package builds, which is
+      # where a device removed from qemu/devices.mak actually surfaces — as a VM that does
+      # not start, weeks later, reading like a fault in whatever launched it.
+      #
+      # ci.yml runs the same check on every push, against the published binary. This is the
+      # lane that catches a change made on *this* side, before the binary it would break is
+      # published at all.
+      - name: Check the built QEMU accepts the machine's arguments
+        run: spin-machine-dev verify args
+
+      # The build said what it produced, and whether it still offers the machine type every
+      # checkpoint is saved on, on the run's summary. A changed QEMU binary is a new emulator of
+      # the same machine (machine.MachineType stays): it is not in the fingerprint, and whether a
+      # checkpoint the released QEMU saved resumes on it is compat's to say, on the KVM runner
+      # (compat.yml). lab tree --qemu run:<id> finds it by this name.
+      - name: Upload the extracted binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qemu-${{ steps.qemu.outputs.qemu_version }}-linux-amd64
+          path: |
+            _output/bin/
+            _output/qemu/
+          retention-days: 30
+          if-no-files-found: error
+
+      # Publishing is for main only: a fork's token cannot write packages, and an unreviewed
+      # branch - a pull request, or one dispatched to build a QEMU for the lab - has no
+      # business claiming the version tag. The login is the one made for the cache.
+      #
+      # The runtime image, tagged with the pinned QEMU version: what `spin-machine-dev fetch qemu` pulls,
+      # so CI's argument check runs main's QEMU in seconds instead of compiling it. The
+      # binaries are static, so the image around them carries nothing they need. It reads the
+      # builder stage the step above compiled from the `qemu` cache, and writes no cache: that
+      # cache holds these layers already.
+      - name: Publish the runtime image
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: spin-machine-dev publish qemu
+
+  # A changed kernel is every guest's next boot. It does not strand checkpoints - a resumed guest
+  # runs the kernel in its saved memory, and the fingerprint is the machine's contract, not this
+  # binary - but the job prints the checksum of what it produced, so a config change is something
+  # somebody looked at.
+  kernel:
+    needs: changed
+    if: needs.changed.outputs.kernel == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # spin-machine-dev is Go, and reads the build's pins from versions.yaml.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      # As the qemu job's: a builder that can export its cache, and the login that reads it.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Ends in verifying it (spin-machine-dev verify kernel), which reads the bzImage's setup header (a relocatable
+      # bzImage, or KASLR is off) and checks vmlinux's Xen PVH notes survived the strip.
+      # Without either, the failure is a VM that does not start or a kernel at a fixed
+      # address, in whichever lane boots one next.
+      #
+      # And what it produced, by sha256, on the run's summary: a pull request that changes the
+      # config, or bumps the Debian toolchain the kernel is compiled with, changes every guest's
+      # next boot, and the change that does it need not look like much. Checkpoints are not
+      # affected: the kernel is not in the fingerprint (machine.Spec.Fingerprint).
+      - name: Build the kernel
+        env:
+          # main's lanes write the cache back; everything else only reads it.
+          CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: spin-machine-dev build kernel --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+
+      # Still named vmlinux-<sha>: lab tree --kernel run:<id> finds a kernel run's artifact by that name.
+      - name: Upload the kernel
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vmlinux-${{ github.sha }}
+          path: |
+            _output/kernel/bzImage
+            _output/kernel/vmlinux
+            _output/kernel/kernel-config
+          retention-days: 30
+          if-no-files-found: error
+
+  # The base image: ~1.5 GB of apt against a live archive. The build runs `docker run --cap-add
+  # SYS_ADMIN` and not `docker buildx build`, because mkosi assembles a root filesystem by
+  # unsharing a user and mount namespace and BuildKit forbids it. See image/Dockerfile — the
+  # alternative was a buildkitd started with an entitlement flag, which would make the build
+  # depend on how the runner's builder was created.
+  image:
+    needs: changed
+    if: needs.changed.outputs.image == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # spin-machine-dev is Go, and reads the builds' pins from versions.yaml.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      # As the qemu job's: a builder that can export its cache, and the login that reads it.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The image is made and checked with the static e2fsprogs this repository builds, not
+      # the build container's, and image/build.sh stops when it is not there.
+      - name: Build e2fsprogs
+        env:
+          # main's lanes write the cache back; everything else only reads it.
+          CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: spin-machine-dev build e2fsprogs --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+
+      # image/build.sh asserts what came out on the finished filesystem rather than
+      # trusting the build that made it: that there is an /sbin/init and a /bin/sh, that
+      # the directories the guest mounts over exist, that no identity is baked in, and
+      # that the units masked for measured reasons are still masked. A package upgrade
+      # that undoes one of those fails here.
+      #
+      # mkosi's own package cache is deliberately not restored between runs. It is ~1.5 GB
+      # of .debs, and saving and restoring that costs about what downloading it costs — so
+      # it would buy minutes of cache traffic in exchange for minutes of archive traffic,
+      # and a cache entry large enough to push others out of the repository's 10 GB.
+      #
+      # It builds the systemd the image installs first, and says what the image is, by sha256,
+      # on the run's summary. Not uploaded as an artifact: it is ~860 MB and the release
+      # workflow rebuilds it from the same inputs.
+      - name: Build the base image
+        env:
+          # main's lanes write the cache back; everything else only reads it.
+          CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: spin-machine-dev build image --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+
+  # Every part the change reaches built and verified: the one check of this workflow a ruleset
+  # can require. A part the change does not reach is skipped, which is a pass; one that failed or
+  # was cancelled, or a `changed` that could not say, is not.
+  parts:
+    needs: [changed, qemu, kernel, image]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Every part the change reaches passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: spin-machine-dev needs

@@ -1023,3 +1023,27 @@ func TestEmitWritesJSONOnlyWhenAsked(t *testing.T) {
 		t.Errorf("--json wrote %q", b.String())
 	}
 }
+
+// A workflow's summary passes on jobs that passed or were skipped, and on nothing else - not on a
+// failure, a cancellation, or a NEEDS it cannot read.
+func TestNeedsPassesOnlyWhatPassedOrWasSkipped(t *testing.T) {
+	checkout(t)
+	for needs, want := range map[string]int{
+		`{"changed":{"result":"success"},"qemu":{"result":"skipped"},"kernel":{"result":"success"}}`: 0,
+		`{"changed":{"result":"success"},"qemu":{"result":"failure"}}`:                               1,
+		`{"changed":{"result":"success"},"image":{"result":"cancelled"}}`:                            1,
+		`{"changed":{"result":"failure"},"qemu":{"result":"skipped"}}`:                               1,
+		`{}`:       2,
+		``:         2,
+		`not json`: 2,
+	} {
+		t.Setenv("NEEDS", needs)
+		if _, stderr, status := verb(t, "needs"); status != want {
+			t.Errorf("NEEDS=%s: exit %d, want %d: %s", needs, status, want, stderr)
+		}
+	}
+	t.Setenv("NEEDS", `{"qemu":{"result":"failure"},"kernel":{"result":"success"}}`)
+	if _, stderr, _ := verb(t, "needs"); !strings.Contains(stderr, "kernel: success") || !strings.Contains(stderr, "not every job passed: qemu failure") {
+		t.Errorf("said %q", stderr)
+	}
+}

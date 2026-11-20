@@ -223,7 +223,7 @@ tasks:
         esac
 
   # A pull request opened with a workflow run's own token starts no checks; one the release app
-  # (spin-stack-release) opens does, and kernel.yml is the check a kernel bump needs.
+  # (spin-stack-release) opens does, and parts.yml is the check a kernel bump needs.
   git:app:
     desc: Make git commit and push as the GitHub App whose token is GH_TOKEN (APP_SLUG= its slug) - a workflow's step, as it writes git's global configuration.
     requires:

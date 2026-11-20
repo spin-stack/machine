@@ -3,7 +3,10 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -16,7 +19,7 @@ import (
 )
 
 func init() {
-	verbs = append(verbs, buildCmd, fetchCmd, verifyCmd, publishCmd, changedCmd)
+	verbs = append(verbs, buildCmd, fetchCmd, verifyCmd, publishCmd, changedCmd, needsCmd)
 }
 
 // buildFlags are the choices a build takes.
@@ -254,7 +257,7 @@ func publishCmd() *cobra.Command {
 		Short:  "Build and push QEMU's runtime image, tagged with the pinned version, which fetch pulls",
 		Hidden: true,
 		Long: `Build and push the runtime image, tagged with the pinned QEMU version, under GITHUB_REPOSITORY:
-what fetch qemu pulls. main's qemu.yml runs it, with a docker login that can write packages.`,
+what fetch qemu pulls. main's parts.yml runs it, with a docker login that can write packages.`,
 		ValidArgs: []string{"qemu"},
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -305,4 +308,52 @@ base, a base this clone lacks, or a versions.yaml there it cannot read is true.`
 	c.Flags().StringVar(&base, "base", "", "the commit the change is to; none builds")
 	c.Flags().StringSliceVar(&pins, "pins", nil, "the versions.yaml entries the part's Dockerfile is handed")
 	return c
+}
+
+func needsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "needs",
+		Short:  "Say whether every job a workflow's last job needs passed or was skipped (exits 1 when one did not)",
+		Hidden: true,
+		Long: `Say whether every job a workflow's last job needs passed or was skipped, from $NEEDS, the
+job's toJSON(needs). A skipped job is one the change did not reach (parts.yml's changed), which is
+a pass; a job that failed or was cancelled is not, and neither is $NEEDS empty or unreadable: a
+summary that passes on nothing is the check a ruleset trusts saying yes to a run it did not see.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			results, err := needsResults(os.Getenv("NEEDS"))
+			if err != nil {
+				return couldNot(err)
+			}
+			var failed []string
+			for _, job := range slices.Sorted(maps.Keys(results)) {
+				say(c, "%s: %s", job, results[job])
+				if r := results[job]; r != "success" && r != "skipped" {
+					failed = append(failed, job+" "+r)
+				}
+			}
+			if len(failed) > 0 {
+				return exitError{code: 1, err: fmt.Errorf("not every job passed: %s", strings.Join(failed, ", "))}
+			}
+			return nil
+		},
+	}
+}
+
+// needsResults is each needed job's result, from a job's toJSON(needs).
+func needsResults(raw string) (map[string]string, error) {
+	var needs map[string]struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(raw), &needs); err != nil {
+		return nil, fmt.Errorf("reading NEEDS, the job's toJSON(needs): %w", err)
+	}
+	if len(needs) == 0 {
+		return nil, errors.New("NEEDS names no job: set it to the job's toJSON(needs)")
+	}
+	results := map[string]string{}
+	for job, n := range needs {
+		results[job] = n.Result
+	}
+	return results, nil
 }
