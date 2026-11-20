@@ -129,11 +129,7 @@ RUN --mount=type=cache,sharing=locked,id=kernel-src-${KERNEL_VERSION},target=/va
 # master's scripts/checkpatch.pl --strict clean. A tool-assisted patch says so with
 # Assisted-by: (coding-assistants.rst) and carries no Signed-off-by a tool added: that
 # certifies the DCO, which only the human who takes the patch on can do.
-COPY kernel/patches/ /usr/src/patches/
-RUN cd /usr/src/linux && \
-    for p in /usr/src/patches/*.patch; do \
-        patch -p1 --forward --fuzz=0 < "$p" || { echo "ERROR: $p does not apply to ${KERNEL_VERSION}"; exit 1; }; \
-    done
+# (experiment: no patches)
 
 COPY kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH} /usr/src/linux/.config
 
@@ -145,11 +141,6 @@ RUN <<EOT
 
     make ARCH=${KERNEL_ARCH} olddefconfig
 
-    # What patches/0001 is for: objtool records the fentry sites and writes them as NOPs, so
-    # ftrace_init does not rewrite ~41k call sites at every boot (7 ms, measured 2026-09-29).
-    grep -q '^CONFIG_FTRACE_MCOUNT_USE_OBJTOOL=y' .config || { echo "ERROR: objtool does not record the fentry sites (patches/0001)"; grep MCOUNT .config; exit 1; }
-    # --mnop and CC_USING_NOP_MCOUNT follow from these two together (Makefile, scripts/Makefile.lib).
-    grep -q '^CONFIG_HAVE_OBJTOOL_NOP_MCOUNT=y' .config || { echo "ERROR: objtool cannot write the fentry sites as NOPs here (patches/0001)"; exit 1; }
 
     echo "Verifying critical kernel configs after olddefconfig..."
     grep -q "CONFIG_VIRTIO_NET=y" .config || (echo "ERROR: CONFIG_VIRTIO_NET not enabled after olddefconfig!" ; grep VIRTIO_NET .config ; exit 1)
@@ -443,7 +434,7 @@ RUN <<EOT
     cd linux
     mkdir -p /build/patches
     cp .config /build/kernel-config
-    cp /usr/src/patches/*.patch /build/patches/
+    : no patches in this experiment
 
     if [ "${KERNEL_ARCH}" != "x86_64" ]; then
         echo "ERROR: Only x86_64 architecture is supported, got: ${KERNEL_ARCH}"
