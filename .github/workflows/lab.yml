@@ -28,6 +28,7 @@ on:
           - restore-first
           - prestart
           - initcalls
+          - density
           - check:firmware
           - check:firmware-stages
           - check:waits
