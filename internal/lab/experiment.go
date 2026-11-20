@@ -91,10 +91,19 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 			m.Phase = phase
 			err := e.Probe.Measure(ctx, m)
 			var miss *MissError
+			var refused *RefusedError
 			switch {
 			case errors.As(err, &miss):
 				m.missed = miss.Why
 				m.Logf("lost: %s", miss.Why)
+			case errors.As(err, &refused):
+				// Every measurement of the tree still to come is lost with this one, said once.
+				for _, o := range ms {
+					if o.Tree == m.Tree && o.missed == "" {
+						o.missed = "refused: " + refused.Why
+					}
+				}
+				m.Logf("refused, and its measurements still to come with it: %s", refused.Why)
 			case err != nil:
 				return nil, fmt.Errorf("%s, %s, repetition %d: %w", m.Tree.Name(), m.Row, m.Rep+1, err)
 			}

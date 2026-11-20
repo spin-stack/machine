@@ -193,6 +193,47 @@ func (e *MissError) Error() string { return e.Why }
 // Miss is a lost measurement and why.
 func Miss(format string, args ...any) error { return &MissError{Why: fmt.Sprintf(format, args...)} }
 
+// RefusedError is a tree this host will not run - QEMU refusing its machine - and not one lost
+// measurement: every measurement of the tree still to come is lost with it, in one line, instead
+// of each waiting out its own timeout. A named CPU model the host cannot show cost the bench 50
+// minutes that way, 20 boots a tree each given 60 s to log in (lab run 44657973748, 2026-11-20).
+type RefusedError struct{ Why string }
+
+func (e *RefusedError) Error() string { return e.Why }
+
+// Refuse is a tree this host will not run, and why.
+func Refuse(format string, args ...any) error {
+	return &RefusedError{Why: fmt.Sprintf(format, args...)}
+}
+
+// refusedHere is what QEMU says when it will not make the machine on this host: enforce=on, a CPU
+// model naming a feature the host cannot show (Spec.Shape).
+const refusedHere = "Host doesn't support requested features"
+
+// Exited says why a machine that should still be running is not, once it has exited: a refusal of
+// the tree when QEMU would not make it on this host, else a lost measurement. It is nil while the
+// machine runs.
+func (mc *Machine) Exited() error {
+	select {
+	case <-mc.done:
+	default:
+		return nil
+	}
+	said := strings.TrimSpace(mc.Stderr.String())
+	if strings.Contains(said, refusedHere) {
+		return Refuse("QEMU will not make this tree's machine on this host: %s", lastLine(said))
+	}
+	return Miss("the machine exited before it could be logged into: %s", lastLine(said))
+}
+
+// lastLine is s's last line, what a failing program usually says last.
+func lastLine(s string) string {
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return s[i+1:]
+	}
+	return s
+}
+
 // Machine is one `spin-machine boot`, in a process group of its own so that QEMU goes with it.
 type Machine struct {
 	cmd    *exec.Cmd
