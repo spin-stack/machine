@@ -343,7 +343,7 @@ experiment can at most say.
 | 5 | The no-systemd floor on today's kernel and QEMU, in the ladder's shape and spin's | a bound | none: it says how much of the cold number is systemd's to give back. Last read 209 ms on 2026-11-13, on an 87 ms kernel (lab 43506390106) | measured once, on an older kernel | **measured** (lab 44750322384): the ladder's shape 322 → 219, Δ −103.5 [−108.6, −100.5]; spin's 445 → 240, Δ −204.8. Without systemd sshd accepts at 173 and 189 ms, so the cold number needs the phases before PID 1 as well |
 
 | 6 | A bound on starting the login early on spin's path: `ssh.service`, the forwarder, logind, dbus and spin's supervisor ordered before `basic.target` together | cold | sshd accepts at ~410-430 ms on spin's path (lab 44788216590), ~280 ms after PID 1 | on a laptop `ssh.service` alone with `DefaultDependencies=no` opened its socket at 70 ms against 145 and the first login did not move (317 against 314): the login waits for logind (11-21 entry, `docs/log.md`). A bound first; the ordering is spin's, and its side effects (`sysinit.target` not reached, `Conflicts=shutdown.target` lost) are why | not started |
-| 7 | Restores in a burst: 8 at once take ~330-400 ms each whatever the channels (lab 44792429636) | restore | the burst's ~230-300 ms over one restore alone | where the time goes is not known: the evicted reads of 8 states, 8 guests on 16 host CPUs, or QEMU's start | not started |
+| 7 | Restores in a burst: 8 at once take ~330-400 ms each whatever the channels (lab 44792429636) | restore, as a host sees it: spin restores workspaces concurrently, one goroutine each, no host-wide limit | the burst's ~230-300 ms over one restore alone | the run recorded no host counters. Its samples: the first three bursts of 8 read ~210 ms (running ~165-177) at 1, 8 and 16 channels, every later one 285-480, and the extra is before running (1 channel: running 168 → 369, the login after it ~44 both); one and four at once (8 and 16 channels) stay flat, and no restore is slower for its place in the order. Laptop leads (11-21, `docs/log.md`): with the states in the page cache 8 at once read 440-445 ms with QEMU's huge pages and the host's default defrag (`madvise`), ~3000 failed compactions and ~2.4 GiB of direct reclaim a burst, 133 without huge pages and 150 under `defer`, against 75-110 alone; from the laptop's disk the burst is bound by the disk (~2.7 GB/s) either way | **diagnosis ready** (`states`, `defrag` and the host counters in `restore-together`): one bench run, 8 rows, `together=1 8` × `states=evicted cached` × `defrag=madvise defer`, 8 channels, 30 bursts. The disk is the part a cached row gains on the evicted one under `madvise`; the huge pages' compaction is `defer` against `madvise` on the evicted rows, and is a host setting for spin when it gains at 8 and costs one restore alone nothing (its interval includes 0 or is below) |
 
 The floor is a bound and never a candidate: systemd stays (AGENTS.md, "What must not break").
 
@@ -354,8 +354,8 @@ The floor is a bound and never a candidate: systemd stays (AGENTS.md, "What must
 - **virtio-rng removal.** −13.6 ms to the console prompt (lab 43321809471), never measured on
   either goal number. It was set aside because the fingerprint would move, which AGENTS.md now
   allows. What seeds the guest's RNG without it is the question to answer before a run.
-- **The restore under load.** Not measured: concurrent restores on one host, and RAM above
-  2 GiB (#242's checklist). Channel counts are rank 1 above.
+- **The restore under load.** RAM above 2 GiB is not measured (#242's checklist). Concurrent
+  restores on one host are rank 7 above, channel counts rank 1.
 - **PID 1 time.** The ~25 ms in the BPF verifier for systemd's socket-bind program (#240) is
   gone with the image/systemd builds (11-19). The ~32 ms gap after the unit load is loading 192
   units, ~21 ms of CPU (11-19, image/systemd/experiments/pid1-marks.patch), not building the

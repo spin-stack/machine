@@ -267,6 +267,13 @@ evicts every state from the page cache, as `restore-first`'s evicted row does, a
 its slowest; under the table every restore's first login is pooled, one sample each, with each
 row's p50 against the same number at once with the first count. Restores let go together are not
 independent, so that interval is narrower than the truth. A restore lost loses its measurement.
+`states=cached` (with `evicted`, the default, for both) reads every state into the page cache
+instead, which takes the disk out of the burst; `defrag` names the host's THP defrag policies
+(`/sys/kernel/mm/transparent_hugepage/defrag`, set through sudo for each burst and put back after
+it), each the rows over again. Under the pooled logins the table prints, for each row, what the
+host counted during its bursts: the memory free and cached going in, CPU busy, MiB read, the PSI
+stall time of CPU, I/O and memory, and the page allocations that waited on reclaim or compaction
+or went without a huge page. Each burst's are in `result.json`, with every restore's `running`.
 
 `lab dispatch` starts lab.yml once no other lab run is queued or running - the bench fleet
 measures one at a time, and two runs side by side measure each other - waits for it, and prints
