@@ -164,8 +164,8 @@ proposed when the pins are current. refresh.yml runs it every day, as the releas
 // buildersBody is the builders' pull request's body, before the packages that moved.
 const buildersBody = `QEMU's and e2fsprogs' builder images made again from each apk.list on the pinned Alpine, proposed
 by refresh.yml (spin-machine-dev refresh builders). Nothing forces it: a pinned builder keeps its
-packages after Alpine's mirror drops them, so this is taken when its fixes are wanted. qemu.yml and
-image.yml compile on it here; boot:compat after merge says checkpoints resume on the new QEMU.
+packages after Alpine's mirror drops them, so this is taken when its fixes are wanted. parts.yml
+compiles on it here; boot:compat after merge says checkpoints resume on the new QEMU.
 `
 
 // proposeBuilders makes each builder again and, for the ones whose packages moved, publishes it and

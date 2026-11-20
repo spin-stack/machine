@@ -23,10 +23,10 @@ func TestEveryUploadIsAttested(t *testing.T) {
 		AttestTasks: []string{"spin-machine-dev release sign"},
 		NotPublished: map[string]string{
 			"ci.yml/gate/Upload Go coverage HTML":                                              "a coverage page for a person, kept seven days",
-			"kernel.yml/build/Upload the kernel":                                               "a lane's kernel for a person to fetch; a release builds its own",
+			"parts.yml/kernel/Upload the kernel":                                               "a lane's kernel for a person to fetch; a release builds its own",
 			"lab.yml/lab/Keep the result":                                                      "a measurement's result.json, which lab show reads; nothing installs or verifies it",
-			"qemu.yml/build/Upload the extracted binaries":                                     "a lane's QEMU for a person to fetch; a release builds its own",
-			"qemu.yml/build/Publish the runtime image":                                         "what ci.yml's argument check pulls (spin-machine-dev fetch qemu); a release compiles QEMU, it never takes this",
+			"parts.yml/qemu/Upload the extracted binaries":                                     "a lane's QEMU for a person to fetch; a release builds its own",
+			"parts.yml/qemu/Publish the runtime image":                                         "what ci.yml's argument check pulls (spin-machine-dev fetch qemu); a release compiles QEMU, it never takes this",
 			"refresh.yml/builders/Make the builders and propose the ones whose packages moved": "a build's input, pinned by digest in the pull request that takes it; a release ships what is compiled on it, attested",
 			"release.yml/trace/Keep the trace":                                                 "where the release's time went, for a person: nothing installs or verifies it",
 			"report.yml/report/Keep the ladder":                                                "the run's ladder.json, which lab show reads; for a person",

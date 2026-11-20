@@ -9,7 +9,7 @@ name: Lab
 # and 61 ms against 105 ms minutes apart on 2026-09-29, a hybrid CPU putting the vCPU on an
 # efficiency core. The runner is the host report.yml measures releases on.
 #
-# trees is `NAME=SPEC; NAME=SPEC`, each SPEC lab tree's flags - a release, a Kernel or QEMU run's
+# trees is `NAME=SPEC; NAME=SPEC`, each SPEC lab tree's flags - a release, a parts.yml run's
 # build in it, this checkout's spin-machine, an edit of every overlay - made on the runner, every
 # part of each named in its manifest and in the result. The probe boots them interleaved, the only
 # comparison this runner's minute-to-minute drift leaves honest. check:TARGET runs boot:TARGET, a

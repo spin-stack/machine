@@ -44,8 +44,8 @@ fleet, through lab dispatch. Here, lab run finds leads.`,
 // treeFlags are a tree spec's flags, the same for lab tree and inside a --tree NAME=SPEC.
 func treeFlags(fs *pflag.FlagSet, s *lab.TreeSpec) {
 	fs.StringVar(&s.From, "from", "release", "what the tree starts from: release, release:vYYYYMMDD.NN, or a directory laid out as one (_output)")
-	fs.StringVar(&s.Kernel, "kernel", "", "the kernel instead: run:N (a Kernel workflow run) or a bzImage")
-	fs.StringVar(&s.QEMU, "qemu", "", "QEMU and its firmware instead: run:N (a QEMU workflow run) or a directory with bin/ and qemu/")
+	fs.StringVar(&s.Kernel, "kernel", "", "the kernel instead: run:N (a parts.yml run) or a bzImage")
+	fs.StringVar(&s.QEMU, "qemu", "", "QEMU and its firmware instead: run:N (a parts.yml run) or a directory with bin/ and qemu/")
 	fs.StringVar(&s.SpinMachine, "spin-machine", "", "here: built from this checkout; release: built from the commit the --from release was made from, the machine it defined; left out, the --from tree's own when it has one, else this checkout's (a release ships none)")
 	fs.StringVar(&s.Append, "append", "", "added to the kernel command line of every boot")
 	fs.StringArrayVar(&s.Boot, "boot", nil, "a spin-machine boot flag for every boot of the tree, e.g. --boot --cpu=Skylake-Server-v4")

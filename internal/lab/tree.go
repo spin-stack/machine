@@ -165,7 +165,7 @@ type TreeSpec struct {
 	// From is the tree the rest is laid over: "release" (the newest), "release:vYYYYMMDD.NN", or
 	// a directory laid out as a release (_output after `task build`).
 	From string
-	// Kernel and QEMU replace those parts: "run:N" for a Kernel or QEMU workflow run, or a path
+	// Kernel and QEMU replace those parts: "run:N" for a parts.yml run (or a Kernel or QEMU workflow run from before it), or a path
 	// (a bzImage; a directory holding bin/qemu-system-x86_64 and qemu/).
 	Kernel, QEMU string
 	// SpinMachine is "here" for this checkout's, built; "release" for the one built from the
