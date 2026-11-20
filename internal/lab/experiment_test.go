@@ -26,6 +26,7 @@ type recorder struct {
 	cleaned []string
 	miss    string // tree/row/rep/phase whose measurement is lost
 	fail    string // tree/row/rep/phase whose measurement stops the experiment
+	refuse  string // tree/row/rep/phase whose measurement refuses its tree
 }
 
 func (r *recorder) Name() string  { return "recorder" }
@@ -50,6 +51,8 @@ func (r *recorder) Measure(_ context.Context, m *Measurement) error {
 		return Miss("never answered: %d", 7)
 	case r.fail:
 		return errors.New("broke")
+	case r.refuse:
+		return Refuse("QEMU will not make it: %s", "Host doesn't support requested features")
 	}
 	if fi, err := os.Stat(m.Dir); err != nil || !fi.IsDir() || len(m.Socks) > 40 || m.Key == nil {
 		return fmt.Errorf("the measurement's own directory %s, sockets %s, key %v", m.Dir, m.Socks, m.Key)
@@ -116,6 +119,25 @@ func TestAnExperimentInterleavesAndFinishesEachPhaseBeforeTheNext(t *testing.T) 
 	// Last registered, first run: a machine is stopped before the directory under it goes.
 	if len(p.cleaned) != 16 || p.cleaned[0] != "A/x/0/0 second" || p.cleaned[1] != "A/x/0/0 first" {
 		t.Errorf("cleaned up in the order %v", p.cleaned)
+	}
+}
+
+// A tree QEMU refuses is refused once: its measurements still to come are lost with the reason and
+// not measured, and the other trees go on.
+func TestARefusedTreeLosesItsMeasurementsStillToComeAtOnce(t *testing.T) {
+	p := &recorder{phases: 1, rows: []string{"x"}, refuse: "A/x/0/0"}
+	r, err := Experiment{Probe: p, Trees: trees("A", "B"), Reps: 3, Scratch: t.TempDir(), Log: io.Discard}.Run(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"A/x/0/0", "B/x/0/0", "B/x/1/0", "B/x/2/0"}; !slices.Equal(p.calls, want) {
+		t.Errorf("measured %v, want %v: a refused tree is not measured again", p.calls, want)
+	}
+	for _, s := range r.Samples {
+		refused := strings.HasPrefix(s.Missed, "refused: QEMU will not make it")
+		if (s.Tree == "A") != refused {
+			t.Errorf("sample %s rep %d missed %q", s.Tree, s.Rep, s.Missed)
+		}
 	}
 }
 

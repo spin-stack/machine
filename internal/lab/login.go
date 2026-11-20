@@ -136,12 +136,16 @@ func (k *Key) Run(cid uint32, kex, command string) (time.Duration, string, error
 	return time.Since(t0), string(out), nil
 }
 
-// LoggedIn waits for sshd to accept on cid, then logs in, and returns how long after t0 the login
-// was done. A machine that never accepts, or accepts and is never logged into, is a Miss.
+// LoggedIn waits for sshd to accept on mc's cid, then logs in, and returns how long after t0 the
+// login was done. A machine that never accepts, or accepts and is never logged into, is a Miss; one
+// that exits first says why at once (Machine.Exited), not when the wait runs out.
 // mutate-lane: TestEveryProbeMeasuresATree
-func (k *Key) LoggedIn(cid uint32, t0 time.Time) (time.Duration, error) {
+func (k *Key) LoggedIn(mc *Machine, cid uint32, t0 time.Time) (time.Duration, error) {
 	deadline := t0.Add(60 * time.Second)
 	for !VsockAccepts(cid, 22) {
+		if err := mc.Exited(); err != nil {
+			return 0, err
+		}
 		if time.Now().After(deadline) {
 			return 0, Miss("sshd never accepted on vsock")
 		}
@@ -151,6 +155,9 @@ func (k *Key) LoggedIn(cid uint32, t0 time.Time) (time.Duration, error) {
 	for time.Now().Before(deadline) {
 		if _, last = k.Login(cid, xssh.KeyExchangeMLKEM768X25519); last == nil {
 			return time.Since(t0), nil
+		}
+		if err := mc.Exited(); err != nil {
+			return 0, err
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

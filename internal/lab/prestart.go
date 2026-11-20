@@ -86,7 +86,7 @@ func bootAhead(m *Measurement) error {
 			return err
 		}
 		defer mc.Stop()
-		login, err := m.Key.LoggedIn(c.cid, t0)
+		login, err := m.Key.LoggedIn(mc, c.cid, t0)
 		if err != nil {
 			return err
 		}
@@ -106,7 +106,7 @@ func bootAhead(m *Measurement) error {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
-	login, err := m.Key.LoggedIn(c.cid, t0)
+	login, err := m.Key.LoggedIn(mc, c.cid, t0)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func restoreAhead(m *Measurement) error {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
-	login, err := m.Key.LoggedIn(c.cid, t0)
+	login, err := m.Key.LoggedIn(mc, c.cid, t0)
 	if err != nil {
 		return err
 	}

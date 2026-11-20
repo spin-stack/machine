@@ -48,6 +48,9 @@ type Manifest struct {
 	// experiment's: a machine the release defines but does not default to, such as a named CPU
 	// model (--cpu Skylake-Server-v4).
 	Boot []string `json:"boot,omitempty"`
+	// CPU is the named model a tree asked for as --cpu baseline, as the host that made the tree
+	// chose it: the newest QEMU says it can run there (machine.Models, machine.Baseline).
+	CPU string `json:"cpu,omitempty"`
 	// Edits are made to every boot's own overlay, in order.
 	Edits []NamedEdit `json:"edits,omitempty"`
 }
@@ -173,7 +176,10 @@ type TreeSpec struct {
 	SpinMachine string
 	Append      string
 	Boot        []string
-	Edits       []string
+	// CPU is "baseline" for the newest named CPU model the host making the tree can run, chosen
+	// there: a model picked on another machine is one a nested host may not show (#222).
+	CPU   string
+	Edits []string
 	// Systemd is an image/systemd/experiments patch: systemd built with it, put into every overlay.
 	Systemd string
 }
@@ -254,6 +260,18 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 		if err := src.addSystemd(&m, spec.Systemd, dir); err != nil {
 			return nil, err
 		}
+	}
+	switch spec.CPU {
+	case "":
+	case "baseline":
+		model, err := hostBaseline(dir)
+		if err != nil {
+			return nil, err
+		}
+		m.CPU = model
+		m.Boot = append(m.Boot, "--cpu="+model)
+	default:
+		return nil, fmt.Errorf("--cpu is baseline or left out, not %q: a named model is --boot --cpu=NAME", spec.CPU)
 	}
 	for _, name := range []string{"kernel", "qemu", "spin-machine"} {
 		p := m.Parts[name]

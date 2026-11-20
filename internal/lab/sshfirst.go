@@ -87,6 +87,9 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 			accepts = time.Since(t0)
 			break
 		}
+		if err := mc.Exited(); err != nil {
+			return err
+		}
 		time.Sleep(2 * time.Millisecond)
 	}
 	if accepts == 0 {

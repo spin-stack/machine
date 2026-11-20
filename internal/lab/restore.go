@@ -123,7 +123,7 @@ func restore(m *Measurement, cached, fast bool) error {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
-	login, err := m.Key.LoggedIn(c.cid, t0)
+	login, err := m.Key.LoggedIn(mc, c.cid, t0)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func coldSave(m *Measurement) error {
 		return err
 	}
 	defer mc.Stop()
-	login, err := m.Key.LoggedIn(c.cid, t0)
+	login, err := m.Key.LoggedIn(mc, c.cid, t0)
 	if err != nil {
 		return err
 	}
