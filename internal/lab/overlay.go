@@ -196,8 +196,78 @@ func namedEdit(name, checkout string) (Edit, error) {
 		return noLingerEdit, nil
 	case "forwarder-early":
 		return forwarderEarlyEdit, nil
+	case "carry-masks":
+		return carryMasksEdit, nil
+	case "carry-generators":
+		return carryGeneratorsEdit, nil
+	case "carry-logging":
+		return carryLoggingEdit, nil
+	case "carry-coldplug":
+		return carryColdplugEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger, forwarder-early", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-logging, carry-coldplug", name)
+}
+
+// The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
+// time alone and was never measured on a goal number in spin's shape (docs/lab.md, "What we carry,
+// and what it earns"), one group each, as image/mkosi.extra/usr/local/lib/spin-base/
+// optimize-systemd.sh and the coldplug filter do it. What the script does for a function (the time
+// sync, the first boot's prompt, the machine-id commit, journald's storage, the timeouts, docker's
+// socket activation) is not in any of them, and neither are the masks of the five units of
+// ConditionNeedsUpdate (ldconfig, sysusers, hwdb-update, journal-catalog-update, update-done): the
+// image has no /etc/.updated or /var/.updated, so unmasked they rebuild hwdb.bin, the linker cache
+// and the catalog in every boot, the first login +260 ms and QEMU's RSS +90 MiB on a laptop (2
+// boots, 2026-11-21). Each step checks what it undoes, so a release that no longer carries one
+// fails the tree rather than measuring it twice.
+
+// carryMasksEdit unmasks the units optimize-systemd.sh masks for boot time that the image has.
+var carryMasksEdit = Edit{
+	Setup: `for u in systemd-journal-flush.service systemd-fsck-root.service systemd-modules-load.service \
+	systemd-hibernate-clear.service systemd-pstore.service systemd-random-seed.service \
+	modprobe@configfs.service modprobe@drm.service modprobe@fuse.service modprobe@efi_pstore.service \
+	sys-kernel-debug.mount sys-kernel-tracing.mount \
+	systemd-tmpfiles-setup-dev.service systemd-tmpfiles-setup-dev-early.service \
+	dev-hugepages.mount dev-mqueue.mount; do
+	test "$(readlink "$MNT/etc/systemd/system/$u")" = /dev/null
+	rm "$MNT/etc/systemd/system/$u"
+done
+`,
+}
+
+// carryGeneratorsEdit enables the generators and tmpfiles rules optimize-systemd.sh disables.
+var carryGeneratorsEdit = Edit{
+	Setup: `for g in systemd-debug-generator systemd-factory-reset-generator systemd-fstab-generator \
+	systemd-gpt-auto-generator systemd-hibernate-resume-generator systemd-rc-local-generator \
+	systemd-system-update-generator systemd-sysv-generator; do
+	test "$(readlink "$MNT/etc/systemd/system-generators/$g")" = /dev/null
+	test -e "$MNT/usr/lib/systemd/system-generators/$g"
+	rm "$MNT/etc/systemd/system-generators/$g"
+done
+for c in systemd-pstore.conf systemd-network.conf x11.conf; do
+	test "$(readlink "$MNT/etc/tmpfiles.d/$c")" = /dev/null
+	rm "$MNT/etc/tmpfiles.d/$c"
+done
+`,
+}
+
+// carryLoggingEdit is the manager's logging and status as systemd's defaults, and the printk sysctl
+// gone; the timeouts in fast-boot.conf stay.
+var carryLoggingEdit = Edit{
+	Setup: `f="$MNT/etc/systemd/system.conf.d/fast-boot.conf"
+grep -qx 'LogLevel=err' "$f" && grep -qx 'ShowStatus=no' "$f"
+sed -i -e '/^LogLevel=/d' -e '/^LogTarget=/d' -e '/^ShowStatus=/d' -e '/^StatusUnitFormat=/d' "$f"
+rm "$MNT/etc/sysctl.d/99-quiet-boot.conf"
+`,
+}
+
+// carryColdplugEdit is udev's coldplug unfiltered, as the distribution runs it: the release's
+// systemd-udev-trigger.service.d/10-coldplug.conf removed. It was kept on the lane in
+// 2 vCPUs (lab 43518915618, 436 -> 402 ms); spin's path and one vCPU have not measured it.
+var carryColdplugEdit = Edit{
+	Setup: `f="$MNT/etc/systemd/system/systemd-udev-trigger.service.d/10-coldplug.conf"
+grep -q -- '--subsystem-match=block' "$f"
+rm "$f"
+`,
 }
 
 // forwarderEarlyEdit starts login=spin's forwarder, which stands for spin's supervisor, without

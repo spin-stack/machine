@@ -245,6 +245,95 @@ An idea already here needs a new reason, not a new run.
 | The decompressor without `X86_VERBOSE_BOOTUP` (no VGA cursor writes) | Exits to the kernel's clock 168 → 12, time 35.1 → 32.4 ms: under the 3 ms set before the run, and a first-login comparison would need ~80 boots an arm | #328, lab 44787878809 | 11-20 |
 | An uncompressed bzImage payload, KASLR kept | Laptop lead: to the kernel's clock −3 ms, but the image 16.7 → 40 MB costs +3.3 ms in qboot's copy and +6-7 in QEMU's start. Not benched | #326 | 11-20 |
 
+## What we carry, and what it earns
+
+Every change this tree makes to its parts for boot time, with what it was kept on and whether
+that still holds in spin's shape (1 vCPU of 16, 128 MiB plugged to 2048, 4 hotplug disks, spin's
+login). The reverse of "What has been kept": a change measured in another shape, on another
+host, or never on a goal number is a candidate for deletion, decided as anything else here
+(rule 4, AGENTS.md "The goal"). Functional changes (security, correctness, a consumer's contract,
+the fingerprint) are listed and left out of the ablation. Inventory of 2026-11-21.
+
+Shapes: *runner* the lab runner (Ryzen 9 5900X, 2026-09); *laptop* a lead; *ladder* the bench in
+2 vCPUs and 2 GiB, no ceilings; *spin* the bench in spin's shape; *lane* the login as `spin`
+through the vsock socket and an `sshd@` a connection; *PVH* before the bzImage (11-19). A group
+names the arm that removes it (below); "-" is out of the ablation.
+
+| Item | Where | For | Kept on | Holds in spin's shape? | Group |
+|---|---|---|---|---|---|
+| 0001 objtool writes the fentry NOPs | kernel/patches | boot | kernel −7.0 ms, runner, 1 vCPU (run 36651858261, 09-29) | yes by mechanism: ~41k sites rewritten at every boot, CPU | A |
+| 0002 no weak-function scan after sorttable | kernel/patches | boot | 11.9 ms of a kworker, inside acpi_init on 1 vCPU, runner | yes, and more so on 1 vCPU | A |
+| 0003 event formats' eval map on first use | kernel/patches | boot | 9.0 ms of a kworker, runner | yes, as 0002 | A |
+| 0004 ECAM before type 1 | kernel/patches | boot | kernel −4.5 ms, runner | yes: nested exits cost more | A |
+| 0005 a device's capability list walked once | kernel/patches | boot | kernel 95.1 → 88.9, ladder (lab 43327612594) | yes: spin's shape has more devices | A |
+| 0006 vmlinux BTF parsed in the background | kernel/patches | boot | with 0005 and the deferred page init, kernel 96.3 → 87.1, ladder (lab 43505126131) | **in doubt**: it moves the parse to a second CPU, and spin boots one | A, A1 |
+| 0007 ORC's table in one pass | kernel/patches | boot | 3.5 ms nested and metal, PVH; 0007-0011 kernel 96.4 → 86.6, spin's shape at 128 MiB (lab 44587603255) | yes: CPU, not shape | A |
+| 0008 init's ftrace records in one memmove | kernel/patches | boot | 2.6 ms, as 0007 | yes, as 0007 | A |
+| 0009 a booting AP polled by local_clock() | kernel/patches | boot | 4.1 ms nested in 2 vCPUs (lab 44563496308); never moved on a laptop | **no**: one vCPU brings up no AP at boot | A, A1 |
+| 0010 no early-quirks PCI scan under KVM | kernel/patches | boot | 2.1 ms of exits nested (lab 44563496308) | yes: the same bus | A |
+| 0011 queue_select written only on a change | kernel/patches | boot | 84 → 22 writes; `virtio_pci_driver_init` 8.57 → 8.59 nested (lab 44587603255) | **in doubt**: no time was ever seen | A, A1 |
+| `DEFERRED_STRUCT_PAGE_INIT=y` | kernel/config | boot | with 0005, 0006 (lab 43505126131), 2 GiB at boot | **in doubt**: 128 MiB at boot; plugged memory is not deferred | A, A1 |
+| `BLK_DEV_LOOP_MIN_COUNT=0`, `SERIAL_8250_RUNTIME_UARTS=1` | kernel/config | boot | read 0 on 09-26 ("Measured and rejected"), back on 11-19 on a laptop lead | **in doubt** | A, A1 |
+| `KERNEL_LZ4` | kernel/config | boot | the alternatives measured 11-20 (#326, #328) | yes: no better candidate | - |
+| `VT=n`, `X86_MSR=n`, `X86_CPUID=n` | kernel/config | function: dead code, less surface | "not because it is slow" (kernel/Dockerfile) | - | - |
+| QEMU 0001, device creation in one memory transaction | qemu/patches | boot | 438 flat-view rebuilds counted, 09-30; no time ever recorded | **unmeasured** | B |
+| QEMU 0002, virtio-scsi `max_target` | qemu/patches | contract: main's spin-machine passes it | −8.9 [−15.5, −0.9], spin (lab 44788216590) | yes, measured in it | - |
+| qboot `pam.patch`, PAM in three writes | qemu/qboot | boot | ~0.5 ms a write, 09-30, runner | **unmeasured** on a goal number | B |
+| qboot `no-pci-walk.patch` | qemu/qboot | boot | 5.0 ms nested, 2.2 metal (`firmware-stages`, lab 44535161371) | yes: the same bus, before the kernel | - |
+| qboot `mtrr.patch`, `write-pointer.patch` | qemu/qboot | function: write-back mappings, vmgenid | - | - | - |
+| qboot instead of SeaBIOS | qemu, `machine.DefaultBIOS` | boot | 121.89 → 114.76, runner, PVH (run 36650049960) | **in doubt**: another host, another way in | F |
+| `pci=lastbus=0` | machine/cmdline.go | boot | kernel to init 87.6 → 51.1, 2026-09 | yes by mechanism: 8192 configuration reads, each an exit | - |
+| `rcupdate.rcu_expedited=1` | machine/cmdline.go | boot | nothing on record (09-07) | **unmeasured** | E |
+| `driver_async_probe=` rng, balloon, vsock | machine/cmdline.go | boot | 214 → 209 at the floor, 2 vCPUs, inside the noise (lab 43506390106) | **in doubt**: probes "on the second vCPU", and there is one | E |
+| `no_timer_check`, `tsc=reliable` | machine/cmdline.go | boot | nothing on record (09-07) | unmeasured; `--append` cannot take them back, a spin-machine change can | - |
+| `TERM=dumb` | machine/cmdline.go | boot | 687 → 19 ms to systemd's first line, 09-10 | yes while systemd queries the console | - |
+| `rootfstype=ext4` | machine/cmdline.go | boot | laptop lead (11-19, `ext4-mount`) | lead only; cannot be taken back by `--append` | - |
+| `quiet`, `loglevel=3`; `panic=1`, `net.ifnames=0`, cgroup v2, `memhp_default_state` | machine/cmdline.go | console; function | - | - | - |
+| `-O ^orphan_file` | image/build.sh | boot | laptop lead (11-19) | lead only; a filesystem feature needs an image build | D |
+| `lazy_itable_init=0` | image/build.sh | function: no 16 MiB of zeros in every overlay | - | - | - |
+| systemd's `stage1` profile | image/systemd | boot | first login −47, −38, −47, ladder (labs 44531842773, 44537549305, 44538877783) | yes by mechanism: the BPF verifier in PID 1, on one vCPU | D |
+| systemd's tools linked static | image/systemd | boot | −10 and −1, within the noise (same labs) | **in doubt** | D |
+| SELinux off, `pcre2` on | image/systemd | function | - | - | - |
+| Masks of 15 units and 1 generator the image does not have (timesyncd, pcrmachine, both tpm2-setups, boot-system-token, avahi, cups, bluetooth, smartd, e2scrub_reap and the timer, both multipathd, lvm2-monitor, run-lock.mount; tpm2-generator) | optimize-systemd.sh | nothing | they mask no file | **dead**: delete without a run | - |
+| Masks of the units of `ConditionNeedsUpdate` (ldconfig, sysusers, hwdb-update, journal-catalog-update, update-done) | optimize-systemd.sh | boot | nothing on record | yes: the image has no `/etc/.updated`, so unmasked they rebuild hwdb.bin and the linker cache at every boot, first login +260 ms (laptop, 2 boots, 11-21) | - |
+| Masks of 16 more units (journal-flush, fsck-root, modules-load, hibernate-clear, pstore, random-seed, four modprobe@, the debug and tracing mounts, both tmpfiles-setup-dev, hugepages, mqueue) | optimize-systemd.sh | boot | nothing on record for these | lead: +31 ms unmasked, ~2 ms a unit on one vCPU (laptop, 3 boots, 11-21) | C-masks |
+| 8 generators disabled, 3 tmpfiles rules masked | optimize-systemd.sh | boot | 1.0 ms of the unit load (`systemd --test`, 09-26) | lead: +9 ms enabled (laptop) | C-generators |
+| PID 1's `LogLevel=err`, `LogTarget`, `ShowStatus=no`, `StatusUnitFormat`; `kernel.printk` | optimize-systemd.sh | boot | nothing on record; `loglevel=3` already sets the console's | lead: 0 (laptop) | C-logging |
+| udev's coldplug filtered (`10-coldplug.conf`) | image drop-in | boot; keeps `cpu` for hot-added cores | lane, 2 vCPUs, 436 → 402 (lab 43518915618) | **in doubt** on spin's path; lead +8 removed (laptop, 2 boots) | C-coldplug |
+| timesyncd, timedated, firstboot, machine-id-commit masked; journald volatile; the timeouts; docker and containerd by socket; `nsswitch` | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity, memory and disk | - | - | - |
+| logind, its Varlink socket, `user-runtime-dir@`, `user@` without default dependencies; `dbus.socket` copied without sysinit | image drop-ins, configure-system.sh | boot | lane 478 → 402 (lab 43518915618); the socket 11-19 (labs 44558035927, 44558053261) | tied to rank 6: worth measuring when spin's forwarder order is decided, not before | - |
+| Sessions of class `user-early-light` | configure-system.sh | boot | lane 472 vs 436 (lab 43518044150) | yes by mechanism: a root session would start `user@0` | - |
+| ssh.socket, ssh.service, sshd-keygen early; logind and the broker without PrivateTmp; udev at `StartupCPUWeight=1` | image drop-ins | boot | spin's shape, −59.4 [−65.9, −56.2] with the forwarder early (lab 44805051310) | measured in it, 11-21 | - |
+| The host keys made from the boot's first dispatch | spin-machine-sshd-keygen.service | boot | lane 489 → 468 (lab 43483372488) | spin brings its own key; ordered with the row above and measured with it | - |
+| MOTD and `pam_motd` off; `mlkem768x25519-sha256` alone | configure-system.sh | boot and function | −12 first login (#240); 104 → 40 a login (lab 43479854381) | yes: a root login runs the same PAM and kex | - |
+| `10-seats.conf`, the getty's TERM, `/tmp`'s size | image drop-ins | function | - | - | - |
+
+**What only the lane uses.** spin turns systemd's vsock sshd off (`systemd.ssh_auto=0`) and logs
+in as root, so on its path `sshd-vsock.socket.d/10-lane.conf`, `sshd@.service.d/10-lane.conf`,
+`sshd@.service.d/keygen.conf` and the masked `systemd-nologin.conf` (pam_nologin admits root)
+earn nothing. The probes still offer `login=lane`, and the floor serves it. Whether the image
+keeps a vsock login of its own is the maintainer's question, not a measurement.
+
+### The groups, and how they are decided
+
+Each group is one arm against the image as main builds it (`--from release --edit lane`: v20261120.03
+with #339's drop-ins), in one `prestart` run, spin's shape, 20 boots each, interleaved:
+
+| Arm | Removes | Tree |
+|---|---|---|
+| A | every kernel patch, and the in-doubt options | `--kernel run:KA` (#346) |
+| A1 | 0006, 0009, 0011, `DEFERRED_STRUCT_PAGE_INIT`, the loop and 8250 counts | `--kernel run:K1` (#345) |
+| B | QEMU 0001 and qboot's `pam.patch` | `--qemu run:QQ` (#347) |
+| C-masks, C-generators, C-logging, C-coldplug | the image rows of that name | `--edit carry-masks` and so on, after `--edit lane` |
+| E | `rcu_expedited`, `driver_async_probe` | `--append 'driver_async_probe= rcupdate.rcu_expedited=0'` |
+| F | qboot, for SeaBIOS | `--boot --bios=bios-256k.bin` |
+
+**A group is deleted whole** when its removal's Δp50 of the first login, with its interval,
+includes 0 and has its upper bound under +5 ms in both the cold boot and the restored rows;
+otherwise it is split in halves for the next run. A is not expected to pass: it says what the
+patch stack is worth in spin's shape today, and A1 is the half chosen to delete. D needs an
+image build: `--systemd` builds only an experiment patch, and `orphan_file` is the filesystem's.
+
 ## Measurement pitfalls
 
 Each of these made a number say something it did not measure.
