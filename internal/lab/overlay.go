@@ -190,8 +190,35 @@ func namedEdit(name, checkout string) (Edit, error) {
 	switch name {
 	case "lane":
 		return laneEdit(checkout)
+	case "floor":
+		return floorEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor", name)
+}
+
+// floorEdit is the first login with no systemd before it, a bound on what systemd costs and never
+// a candidate (systemd stays: what runs in a workspace expects it). Its init mounts what sshd
+// needs, makes a host key and hands each vsock connection to `sshd -i`; it prints the getty echo's
+// prompt, so the probe's console column is the moment it starts listening. A tree boots it with
+// --append init=/usr/local/sbin/spin-floor, the kernel taking the last init= it is given.
+//
+// It is 11-13's floor (branch floor-kernel, 652fb3f): 220 ms to the first login against 467 as
+// built then (lab 43492686353).
+var floorEdit = Edit{
+	Files: map[string]string{"/usr/local/sbin/spin-floor": `#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev 2>/dev/null
+mkdir -p /dev/pts && mount -t devpts devpts /dev/pts
+mount -t tmpfs run /run
+mkdir -p -m 0755 /run/sshd
+ssh-keygen -q -t ed25519 -N "" -f /run/ssh_host_ed25519_key
+echo SPIN-READY-login: > /dev/ttyS0
+exec socat VSOCK-LISTEN:22,fork,reuseaddr EXEC:"/usr/sbin/sshd -i -h /run/ssh_host_ed25519_key"
+`},
+	Setup: `chmod 0755 "$MNT/usr/local/sbin/spin-floor"
+test -x "$MNT/usr/bin/socat" && test -x "$MNT/usr/sbin/sshd"
+`,
 }
 
 // laneEdit is the first login's lane as this checkout's image builds it, put into a published
