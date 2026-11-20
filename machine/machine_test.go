@@ -142,10 +142,11 @@ func TestArgs(t *testing.T) {
 			"netdev=net1,mac=52:54:00:00:00:02,romfile=,disable-legacy=on,addr=0x11 ",
 		},
 	}, {
-		// Disks that arrive later are added to one controller, whatever their number.
+		// Disks that arrive later are added to one controller, whatever their number, which
+		// tells the guest to scan as many targets as there are places.
 		name:   "hotplug disks",
-		set:    func(s *Spec) { s.HotplugDisks = 1 },
-		want:   []string{"-device virtio-scsi-pci,id=scsi0,disable-legacy=on,addr=0x1a "},
+		set:    func(s *Spec) { s.HotplugDisks = 4 },
+		want:   []string{"-device virtio-scsi-pci,id=scsi0,max_target=3,disable-legacy=on,addr=0x1a "},
 		absent: []string{"pcie-root-port"},
 	}, {
 		// Growing a VM is virtio-mem, not ACPI DIMM slots: -m carries the ceiling and
@@ -648,7 +649,7 @@ func TestTheContractIsTheDevicesPresentAtRestore(t *testing.T) {
 		{name: "a console by path", set: func(s *Spec) { s.Serial = "file:/log" }, want: []string{"serial isa-serial"}},
 		{name: "a console by descriptor", set: func(s *Spec) { s.SerialFDSet = 1 }, want: []string{"serial isa-serial"}},
 		{name: "a hotplug controller", set: func(s *Spec) { s.HotplugDisks = 1 },
-			want: []string{"device virtio-scsi-pci,disable-legacy=on,addr=0x1a"}},
+			want: []string{"device virtio-scsi-pci,max_target=0,disable-legacy=on,addr=0x1a"}},
 		{name: "a NIC, by its slot and MTU and not its MAC or backend", set: func(s *Spec) {
 			n := nic()
 			n.MTU, n.VhostFD = 1500, 15
