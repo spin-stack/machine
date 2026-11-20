@@ -916,9 +916,13 @@ func (s Spec) appendDevices(args []string) []string {
 
 	// The controller disks this machine is given while it runs are added to. See
 	// Spec.HotplugDisks: the root complex takes no device_add, and a SCSI bus does.
+	//
+	// max_target is the last target a disk can arrive at (hotplugDisk). The guest scans every
+	// target up to it at boot, one request each: all 256 were 10-11 ms of a 1-vCPU boot on
+	// nested KVM (boot:initcalls, lab 44587603255). qemu/patches/0002 adds the property.
 	if s.HotplugDisks > 0 {
-		args = append(args, "-device", fmt.Sprintf("virtio-scsi-pci,id=%s,%s,addr=0x%x",
-			hotplugController, virtioModern, slotHotplug))
+		args = append(args, "-device", fmt.Sprintf("virtio-scsi-pci,id=%s,max_target=%d,%s,addr=0x%x",
+			hotplugController, s.HotplugDisks-1, virtioModern, slotHotplug))
 	}
 	return args
 }
