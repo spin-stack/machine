@@ -90,6 +90,15 @@ lane has the CPU. On the bench fleet the first login went 478 -> 402 ms with all
 boot:ssh-first`, lab run 43518915618, 2026-11-13); `configure-system.sh` and the drop-ins say what
 each part did, and `build.sh` asserts each on the finished filesystem.
 
+spin's own path to the first login, ssh.socket and the one ssh.service behind it (spin's supervisor
+forwards vsock to 127.0.0.1:22), is in the lane as well: they and Ubuntu's `sshd-keygen.service`,
+which ssh.service is ordered after, have no default dependencies (`10-lane.conf`); logind and
+dbus-broker have no private /tmp, which would order them after the filesystems
+(`30-privatetmp.conf`); and udevd and its coldplug run at the lowest CPU weight while the boot
+runs (`20-startup.conf`), so the login started beside them gets the one vCPU first. Together, on
+the bench fleet in spin's shape, the cold first login came 59.4 ms sooner, the console prompt 51
+ms later (lab 44805051310, 2026-11-21).
+
 ## Looking inside
 
 ```

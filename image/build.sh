@@ -419,10 +419,34 @@ stat_in_image /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.
 # next, so a missing one costs the lane without failing anything.
 for f in sshd-vsock.socket.d/10-lane.conf sshd@.service.d/10-lane.conf systemd-logind.service.d/10-lane.conf \
          systemd-logind-varlink.socket.d/20-lane.conf user-runtime-dir@.service.d/10-lane.conf \
-         user@.service.d/10-lane.conf; do
+         user@.service.d/10-lane.conf ssh.socket.d/10-lane.conf ssh.service.d/10-lane.conf \
+         sshd-keygen.service.d/10-lane.conf; do
     "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
             grep -qx 'DefaultDependencies=no' || {
         echo "ERROR: ${f%%.d/*} is not in the first login's lane ($f)" >&2
+        exit 1; }
+done
+# spin's login path (ssh.socket, ssh.service, sshd-keygen.service) without default dependencies
+# must still be stopped at shutdown: DefaultDependencies=no took that away with the rest.
+for f in ssh.socket.d/10-lane.conf ssh.service.d/10-lane.conf sshd-keygen.service.d/10-lane.conf; do
+    "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
+            grep -qx 'Conflicts=shutdown.target' || {
+        echo "ERROR: ${f%%.d/*} has no default dependencies and is not stopped at shutdown ($f)" >&2
+        exit 1; }
+done
+# logind and the bus without a private /tmp, which would order them after
+# systemd-tmpfiles-setup.service and the filesystems (30-privatetmp.conf).
+for f in systemd-logind.service.d/30-privatetmp.conf dbus-broker.service.d/30-privatetmp.conf; do
+    "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
+            grep -qx 'PrivateTmp=no' || {
+        echo "ERROR: ${f%%.d/*} has a private /tmp and waits for systemd-tmpfiles-setup ($f)" >&2
+        exit 1; }
+done
+# udev at the lowest CPU weight while the boot runs, so the early login gets the one vCPU first.
+for f in systemd-udevd.service.d/20-startup.conf systemd-udev-trigger.service.d/20-startup.conf; do
+    "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
+            grep -qx 'StartupCPUWeight=1' || {
+        echo "ERROR: ${f%%.d/*} runs at the normal weight while the boot runs ($f)" >&2
         exit 1; }
 done
 dbus=$("$bin/debugfs" -R "cat /etc/systemd/system/dbus.socket" /work/base.raw 2>/dev/null)
