@@ -21,8 +21,9 @@ First SSH login, ms p50/p95. Δ is the p50 against the release before it, booted
 | v20261119.02 | 330 / 345 |  | 157 / 165 |  | 299 / 313 | 131 / 142 |
 | v20261120.01 | 338 / 351 |  | 159 / 166 |  | 309 / 317 | 131 / 138 |
 | v20261120.02 | 328 / 346 |  | 158 / 184 |  | 308 / 322 | 134 / 137 |
+| v20261120.03 | 487 / 501 | -37.6 [-39.7, -29.1] | 127 / 133 | -47.9 [-49.0, -44.9] | 444 / 456 | 101 / 104 |
 
-v20261120.02 against the goal: cold +228 ms, restore +58 ms.
+v20261120.03 against the goal: cold +387 ms, restore +27 ms.
 
 ## Diagnostics
 
@@ -39,6 +40,7 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | v20261119.02 | 160 | 156 | 64 | 207 |
 | v20261120.01 | 164 | 155 | 65.7 | 207 |
 | v20261120.02 | 162 | 156 | 65.9 | 207 |
+| v20261120.03 | 125 | 178 | 70.8 | 234 |
 
 ## Where each was measured
 
@@ -53,6 +55,7 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | [v20261119.02](releases/v20261119.02.json) | 2026-11-20 | c8id.4xlarge, nested | 2 vCPUs, 2048 MiB, no hotplug disks | 20 |  | [44737371130](https://github.com/spin-stack/spin-machine/actions/runs/44737371130) |
 | [v20261120.01](releases/v20261120.01.json) | 2026-11-20 | c8id.4xlarge, nested | 2 vCPUs, 2048 MiB, no hotplug disks | 20 |  | [44737371130](https://github.com/spin-stack/spin-machine/actions/runs/44737371130) |
 | [v20261120.02](releases/v20261120.02.json) | 2026-11-20 | c8id.4xlarge, nested | 2 vCPUs, 2048 MiB, no hotplug disks | 20 |  | [44737371130](https://github.com/spin-stack/spin-machine/actions/runs/44737371130) |
+| [v20261120.03](releases/v20261120.03.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.02 | [44800662338](https://github.com/spin-stack/spin-machine/actions/runs/44800662338) |
 
 A dash is a number that release has not:
 
