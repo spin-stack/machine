@@ -810,10 +810,14 @@ func TestRefreshProposesThroughVersionsOrTheBuilders(t *testing.T) {
 }
 
 // fakeDocker is a docker whose every image holds musl at version, and whose pushed builders have
-// the digests aaaa… and bbbb….
-func fakeDocker(version string) string {
+// the digests aaaa… and bbbb…; with noPinned, the pinned builders cannot be read.
+func fakeDocker(version string, noPinned ...bool) string {
+	pinned := ""
+	if len(noPinned) > 0 {
+		pinned = `case "$*" in *@sha256:*) exit 1;; esac; `
+	}
 	return `case "$1" in
-run) printf 'P:musl\nV:` + version + `\n';;
+run) ` + pinned + `printf 'P:musl\nV:` + version + `\n';;
 inspect) case "$4" in
   *builder-qemu*) echo ghcr.io/spin-stack/spin-machine/builder-qemu@sha256:` + strings.Repeat("a", 64) + `;;
   *) echo ghcr.io/spin-stack/spin-machine/builder-e2fsprogs@sha256:` + strings.Repeat("b", 64) + `;;
@@ -847,7 +851,11 @@ func builderCheckout(t *testing.T) string {
 // the same packages, it is the one pinned.
 func TestRefreshBuildersPinsABranchsOwnBuilder(t *testing.T) {
 	dir := builderCheckout(t)
-	t.Setenv("GITHUB_REF_NAME", "work")
+	// No GITHUB_REF_NAME, as on a person's machine: the branch is the one checked out.
+	t.Setenv("GITHUB_REF_NAME", "")
+	if out, err := exec.Command("git", "-C", dir, "switch", "-q", "-c", "work").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
 	calls := fakes(t, map[string]string{"docker": fakeDocker("1.2.5-r10")})
 	if _, stderr, status := verb(t, "refresh", "builders"); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
@@ -871,8 +879,9 @@ func TestRefreshBuildersPinsABranchsOwnBuilder(t *testing.T) {
 	if out, err := exec.Command("git", "-C", dir, "ls-remote", "--exit-code", "--heads", "origin", "work").CombinedOutput(); err != nil {
 		t.Errorf("nothing pushed to work: %v: %s", err, out)
 	}
-	if !strings.Contains(read(t, os.Getenv("GITHUB_STEP_SUMMARY")), "### qemu-builder "+q.Version) {
-		t.Error("the builders are not on the run's summary")
+	// The pinned builder holds what the new one does: what moved is said, and it is nothing.
+	if got := read(t, os.Getenv("GITHUB_STEP_SUMMARY")); !strings.Contains(got, "### qemu-builder "+q.Version+"\n\nno package moved") {
+		t.Errorf("the run's summary is %q", got)
 	}
 	if _, stderr, status := verb(t, "refresh", "builders"); status != 0 || !strings.Contains(stderr, "the builders are current") {
 		t.Errorf("the same builders again: exit %d, %q", status, stderr)
@@ -884,7 +893,7 @@ func TestRefreshBuildersPinsABranchsOwnBuilder(t *testing.T) {
 func TestRefreshBuildersProposesFromMain(t *testing.T) {
 	dir := builderCheckout(t)
 	t.Setenv("GITHUB_REF_NAME", "main")
-	calls := fakes(t, map[string]string{"docker": fakeDocker("1.2.6-r0"), "gh": `case "$1 $2" in
+	calls := fakes(t, map[string]string{"docker": fakeDocker("1.2.6-r0", true), "gh": `case "$1 $2" in
 "pr create") echo https://x/pull/8;;
 "pr list") echo 7;;
 esac`})
@@ -892,6 +901,9 @@ esac`})
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
 	got := read(t, calls)
+	if !strings.Contains(read(t, os.Getenv("GITHUB_STEP_SUMMARY")), "no builder was pinned to compare with") {
+		t.Error("a pinned builder that could not be read is not said")
+	}
 	if !strings.Contains(got, "gh pr create --base main --head refresh/builders-") || !strings.Contains(got, "gh pr close 7 --delete-branch --comment Superseded by https://x/pull/8.") {
 		t.Errorf("gh ran %q", got)
 	}
