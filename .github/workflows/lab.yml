@@ -30,6 +30,7 @@ on:
           - prestart
           - initcalls
           - density
+          - split
           - check:firmware
           - check:firmware-stages
           - check:waits
