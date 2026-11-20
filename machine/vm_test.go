@@ -36,6 +36,9 @@ type fakeQEMU struct {
 	mu     sync.Mutex
 	calls  []call
 	answer func(c call) string
+	// sharedRAM is a machine whose base memory is a shared file (Memory.File), as query-memdev
+	// answers it.
+	sharedRAM bool
 }
 
 // recorded is a copy of the calls so far.
@@ -142,8 +145,10 @@ func (f *fakeQEMU) serve(c *net.UnixConn) {
 				reply = ret(`{"name": "` + fingerprintName + testFingerprint + `"}`)
 			case "query-version":
 				reply = ret(`{"qemu": {"major": 11, "minor": 2, "micro": 0}}`)
+			case "query-memdev":
+				reply = ret(fmt.Sprintf(`[{"id": "pc.ram", "share": %t}]`, f.sharedRAM))
 			}
-			if cl.Command != "qmp_capabilities" && cl.Command != "query-name" && cl.Command != "query-version" {
+			if !slices.Contains([]string{"qmp_capabilities", "query-name", "query-version", "query-memdev"}, cl.Command) {
 				f.mu.Lock()
 				f.calls = append(f.calls, cl)
 				f.mu.Unlock()
@@ -462,6 +467,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 		map[string]any{"capability": "mapped-ram", "state": true},
 		map[string]any{"capability": "pause-before-switchover", "state": true},
 		map[string]any{"capability": "postcopy-ram", "state": false},
+		map[string]any{"capability": "x-ignore-shared", "state": false},
 	}
 	if !reflect.DeepEqual(caps, wantCaps) {
 		t.Errorf("capabilities %v, want %v", caps, wantCaps)
@@ -1232,5 +1238,56 @@ func TestAnAttachQEMURefusesIsUndone(t *testing.T) {
 	}
 	if got := f.sent("remove-fd"); !reflect.DeepEqual(got, []map[string]any{{"fdset-id": 9.0}}) {
 		t.Errorf("removed %v, want set 9", got)
+	}
+}
+
+// A machine whose base memory is a shared file is checkpointed without it (x-ignore-shared) and
+// says so in its format; only a machine on such a file resumes that format (#276).
+func TestASharedMemoryIsLeftOutOfTheCheckpointAndOnlyItsMachineResumesIt(t *testing.T) {
+	base := func(c call) string {
+		if r, ok := cpuAnswers(c); ok {
+			return r
+		}
+		switch c.Command {
+		case "query-hotpluggable-cpus", "qom-list":
+			return ret(`[]`)
+		case "add-fd":
+			return ret(`{"fdset-id": 3}`)
+		}
+		return ok
+	}
+	capability := func(f *fakeQEMU, name string) any {
+		for _, c := range f.sent("migrate-set-capabilities")[0]["capabilities"].([]any) {
+			if c := c.(map[string]any); c["capability"] == name {
+				return c["state"]
+			}
+		}
+		return nil
+	}
+	f := &fakeQEMU{sharedRAM: true, answer: migrations(base, "active", "pre-switchover", "completed")}
+	saved, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Format != FormatSharedRAM || capability(f, "x-ignore-shared") != true {
+		t.Errorf("format %q, x-ignore-shared %v: want %q and on", saved.Format, capability(f, "x-ignore-shared"), FormatSharedRAM)
+	}
+
+	inmigrate := func(c call) string {
+		if r, ok := cpuAnswers(c); ok {
+			return r
+		}
+		return machineAnswers("inmigrate", "root")(c)
+	}
+	// Into a machine with no such file there is nothing to load the memory from.
+	plain := &fakeQEMU{answer: inmigrate}
+	if err := plain.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatSharedRAM}, Load{}); err == nil ||
+		!strings.Contains(err.Error(), FormatSharedRAM) {
+		t.Errorf("Resume of a shared-memory checkpoint into a machine without the file = %v, want refused", err)
+	}
+	// Nor is there anything to fetch fast: the memory is mapped, not read.
+	shared := &fakeQEMU{sharedRAM: true, answer: inmigrate}
+	if err := shared.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatSharedRAM}, Load{Fast: true}); err == nil {
+		t.Error("a fast resume of a shared-memory checkpoint was not refused")
 	}
 }

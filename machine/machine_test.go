@@ -85,6 +85,12 @@ func TestArgs(t *testing.T) {
 		set:  func(s *Spec) { s.Disks = []DiskSlot{{Serial: "root"}} },
 		want: []string{"-object throttle-group,id=places "},
 	}, {
+		// The base memory in a shared file, under the RAM block's own name, so a state's block
+		// is the same block whatever holds it (#276).
+		name: "memory in a shared file",
+		set:  func(s *Spec) { s.Memory.File = "/var/m/ram" },
+		want: []string{",memory-backend=pc.ram ", "-object memory-backend-file,id=pc.ram,size=512M,mem-path=/var/m/ram,share=on "},
+	}, {
 		name: "fixed slots",
 		set: func(s *Spec) {
 			s.VsockCID = 7
@@ -513,6 +519,9 @@ func TestValidateRefuses(t *testing.T) {
 		// A ceiling below the boot size: memoryArg drops it, so without this the
 		// caller gets a machine that cannot grow having asked for one that can.
 		{"a memory ceiling below the boot size", func(s *Spec) { s.Memory.SizeMB, s.Memory.MaxMB = 2048, 512 }},
+		{"a memory file given relatively", func(s *Spec) { s.Memory.File = "ram" }},
+		// A comma would add options to the backend QEMU reads the path in.
+		{"a memory file whose path has a comma", func(s *Spec) { s.Memory.File = "/m/ram,share=off" }},
 		{"more disks than the slot range holds", func(s *Spec) {
 			s.Disks = make([]DiskSlot, maxDisks+1)
 			for i := range s.Disks {

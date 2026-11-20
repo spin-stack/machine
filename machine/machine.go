@@ -242,6 +242,12 @@ type Memory struct {
 	// Nothing is plugged at start-up. The caller sets requested-size over QMP when
 	// it wants more.
 	MaxMB int
+	// File, when set, is where the base memory lives: a memory-backend-file shared with the
+	// host (share=on), an absolute path that outlives QEMU. A checkpoint of such a machine
+	// leaves that memory out (x-ignore-shared, FormatSharedRAM) and a resume maps the same file
+	// back, so the host kernel serves the guest's pages from its page cache instead of QEMU
+	// copying them in. An experiment (#276): the restore's ~100 ms to running is that copy.
+	File string
 }
 
 // Monitor is one QMP monitor: a Unix socket QEMU creates and listens on, or one the
@@ -509,8 +515,14 @@ func (s Spec) Shape() Shape {
 	// model, so a CPU added later is given them too.
 	cpu += ",-vmx,-svm"
 
+	machine := machineOpts
+	if s.Memory.File != "" {
+		// pc.ram, the name QEMU gives the base memory's RAM block without a backend, so a
+		// state's RAM block is the same block whatever holds it.
+		machine += ",memory-backend=" + baseMemoryID
+	}
 	return Shape{
-		Machine: machineOpts,
+		Machine: machine,
 		Accel:   accel,
 		CPU:     cpu,
 		SMP:     smpArg(s.BootCPUs, s.MaxCPUs),
@@ -579,6 +591,10 @@ func (s Spec) accel() string {
 // kernel-irqchip=on stays under either accelerator. It names KVM's in-kernel interrupt
 // controller and TCG has none, but QEMU accepts the option and ignores it rather than
 // refusing — measured against 11.1.1 — so the shape is one string and not two.
+// baseMemoryID is the base memory's backend when it has one (Memory.File): pc.ram, the RAM
+// block's name either way.
+const baseMemoryID = "pc.ram"
+
 const machineOpts = MachineType + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,smbus=off"
 
 // MachineType is the versioned q35 this machine is, and never the bare "q35", which is an
@@ -661,6 +677,8 @@ func (s Spec) validate() error {
 	// ceiling below it would be a machine that cannot grow, handed without complaint to a
 	// caller that asked for one that can. Equal is not an error: it is how a machine says
 	// it has no room to grow.
+	case s.Memory.File != "" && (!filepath.IsAbs(s.Memory.File) || strings.ContainsRune(s.Memory.File, ',')):
+		return fmt.Errorf("memory file %q: an absolute path with no comma, which QEMU's options would split", s.Memory.File)
 	case s.Memory.MaxMB != 0 && s.Memory.MaxMB < s.Memory.SizeMB:
 		return fmt.Errorf("Memory.MaxMB %d is below Memory.SizeMB %d",
 			s.Memory.MaxMB, s.Memory.SizeMB)
@@ -899,6 +917,11 @@ func (s Spec) appendDevices(args []string) []string {
 			dev += fmt.Sprintf(",vhostfd=%d", s.VsockFD)
 		}
 		args = append(args, "-device", dev)
+	}
+
+	if s.Memory.File != "" {
+		args = append(args, "-object", fmt.Sprintf("memory-backend-file,id=%s,size=%dM,mem-path=%s,share=on",
+			baseMemoryID, s.Memory.SizeMB, s.Memory.File))
 	}
 
 	// virtio-mem, when this VM is allowed to grow: the region between its boot

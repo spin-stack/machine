@@ -221,6 +221,28 @@ func TestBootArgsAreTheTreesInTheExperimentsShape(t *testing.T) {
 	if got := c.bootFlags(m, "/s/q", "--held"); !slices.Equal(got, []string{"--vsock-cid", "42", "--qmp", "/s/q", "--console", "file:/s/q.console", "--append", "init=/sbin/init quiet", "--held"}) {
 		t.Errorf("bootFlags = %v", got)
 	}
+	// A shared row's checkpoint boots both times on its memory file, and a restore reads it too.
+	shared := &checkpoint{cid: 42, state: "/d/state", memory: "/d/memory"}
+	if got := shared.bootFlags(m, "/s/q"); !slices.Equal(got[len(got)-2:], []string{"--memory-file", "/d/memory"}) {
+		t.Errorf("a shared checkpoint's bootFlags = %v, want its memory file", got)
+	}
+	if got := shared.files(); !slices.Equal(got, []string{"/d/state", "/d/memory"}) {
+		t.Errorf("a shared checkpoint's files = %v", got)
+	}
+}
+
+// The shared rows are asked for, and a spin-machine without --memory-file cannot run them.
+func TestRestoreFirstsSharedRowsNeedAMemoryFile(t *testing.T) {
+	o := Options{"shared": "true"}
+	if got := (restoreFirst{}).Rows(o); !slices.Equal(got, []string{"evicted", "cached", "shared", "shared, cached"}) {
+		t.Errorf("rows = %v", got)
+	}
+	if !slices.Contains((restoreFirst{}).Needs(o), Need{"boot", "memory-file"}) {
+		t.Error("the shared rows do not need boot --memory-file")
+	}
+	if slices.Contains((restoreFirst{}).Needs(Options{}), Need{"boot", "memory-file"}) {
+		t.Error("without the shared rows, boot --memory-file is needed anyway")
+	}
 }
 
 func TestTheTableIsEachTreesP50AndP95AndItsDistanceFromTheFirst(t *testing.T) {

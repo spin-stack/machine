@@ -34,6 +34,12 @@ import (
 // can. The fast row is QEMU 11.2's fast snapshot load (mapped-ram and postcopy-ram), where the
 // guest runs once the device state is in; it needs userfaultfd for QEMU's user, and was slower to
 // the first login on the bench fleet, 293 ms against 152 (lab 44585840498).
+//
+// The shared rows keep the base memory in a file beside the state (spin-machine boot
+// --memory-file), which the save leaves out (x-ignore-shared) and the restore maps back: the host
+// kernel serves the guest's pages from that file instead of QEMU copying them in (#276). shared
+// restores with the file evicted, as a host that kept it on disk would; shared, cached with it read
+// back first.
 type restoreFirst struct{}
 
 func init() { register(restoreFirst{}) }
@@ -44,13 +50,18 @@ func (restoreFirst) About() string {
 }
 
 func (restoreFirst) Options() []Option {
-	return append(shape, Option{"fast", "false", "also restore each tree with the fast snapshot load (--fast)"})
+	return append(shape,
+		Option{"fast", "false", "also restore each tree with the fast snapshot load (--fast)"},
+		Option{"shared", "false", "also save and restore each tree with its base memory in a shared file (--memory-file)"})
 }
 
 func (restoreFirst) Rows(o Options) []string {
 	rows := []string{"evicted", "cached"}
 	if o.Bool("fast") {
 		rows = append(rows, "fast")
+	}
+	if o.Bool("shared") {
+		rows = append(rows, "shared", "shared, cached")
 	}
 	return rows
 }
@@ -62,6 +73,9 @@ func (restoreFirst) Needs(o Options) []Need {
 		Need{"save", "to"}, Need{"restore", "disk"})
 	if o.Bool("fast") {
 		needs = append(needs, Need{"restore", "fast"})
+	}
+	if o.Bool("shared") {
+		needs = append(needs, Need{"boot", "memory-file"})
 	}
 	return needs
 }
@@ -83,7 +97,7 @@ func (restoreFirst) Measure(_ context.Context, m *Measurement) error {
 	if m.Phase == 0 {
 		return coldSave(m)
 	}
-	return restore(m, m.Row == "cached", m.Row == "fast")
+	return restore(m, m.Row == "cached" || m.Row == "shared, cached", m.Row == "fast")
 }
 
 // restore resumes m's saved state - evicted from the page cache, or read back into it first when
@@ -91,15 +105,21 @@ func (restoreFirst) Measure(_ context.Context, m *Measurement) error {
 // mutate-lane: TestEveryProbeMeasuresATree
 func restore(m *Measurement, cached, fast bool) error {
 	c := m.State.(*checkpoint)
-	if err := evict(c.state); err != nil {
-		return err
-	}
-	if cached {
-		d, err := readWhole(c.state)
-		if err != nil {
+	var read time.Duration
+	for _, f := range c.files() {
+		if err := evict(f); err != nil {
 			return err
 		}
-		m.RecordMs("read", d)
+		if cached {
+			d, err := readWhole(f)
+			if err != nil {
+				return err
+			}
+			read += d
+		}
+	}
+	if cached {
+		m.RecordMs("read", read)
 	}
 	qmp := filepath.Join(m.Socks, "restored.qmp")
 	t0 := time.Now()
@@ -135,14 +155,29 @@ func restore(m *Measurement, cached, fast bool) error {
 // checkpoint is a machine booted cold, logged into and saved: what a restore resumes.
 type checkpoint struct {
 	overlay, state string
-	cid            uint32
+	// memory is the shared file the base memory lives in, for a shared row; empty otherwise.
+	memory string
+	cid    uint32
 }
 
-// bootFlags are the flags of a boot of m's tree for c: its vsock, monitor, console and command
-// line, the same for the boot that saves and the one that restores, and the given ones after them.
+// files are what a restore reads: the state, and the memory file when there is one.
+func (c *checkpoint) files() []string {
+	if c.memory == "" {
+		return []string{c.state}
+	}
+	return []string{c.state, c.memory}
+}
+
+// bootFlags are the flags of a boot of m's tree for c: its vsock, monitor, console, command line
+// and memory file, the same for the boot that saves and the one that restores, and the given ones
+// after them.
 func (c *checkpoint) bootFlags(m *Measurement, qmp string, extra ...string) []string {
-	return append([]string{"--vsock-cid", fmt.Sprint(c.cid), "--qmp", qmp, "--console", "file:" + qmp + ".console",
-		"--append", m.Tree.Cmdline()}, extra...)
+	flags := []string{"--vsock-cid", fmt.Sprint(c.cid), "--qmp", qmp, "--console", "file:" + qmp + ".console",
+		"--append", m.Tree.Cmdline()}
+	if c.memory != "" {
+		flags = append(flags, "--memory-file", c.memory)
+	}
+	return append(flags, extra...)
 }
 
 // coldSave boots a fresh overlay of the tree, logs in, saves - which ends the machine - and evicts
@@ -154,6 +189,9 @@ func coldSave(m *Measurement) error {
 		return err
 	}
 	c := &checkpoint{overlay: overlay, state: filepath.Join(m.Dir, "state"), cid: NewCID()}
+	if strings.HasPrefix(m.Row, "shared") {
+		c.memory = filepath.Join(m.Dir, "memory")
+	}
 	qmp := filepath.Join(m.Socks, "cold.qmp")
 	t0 := time.Now()
 	mc, err := m.Launch(nil, m.BootArgs(overlay, c.bootFlags(m, qmp)...)...)
@@ -176,8 +214,10 @@ func coldSave(m *Measurement) error {
 	case <-time.After(30 * time.Second):
 		return Miss("QEMU was still running 30s after its state was saved")
 	}
-	if err := evict(c.state); err != nil {
-		return err
+	for _, f := range c.files() {
+		if err := evict(f); err != nil {
+			return err
+		}
 	}
 	st, err := os.Stat(c.state)
 	if err != nil {

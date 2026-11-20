@@ -161,6 +161,15 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 			return s
 		},
 	}, {
+		// The base memory in a shared file beside virtio-mem's (#276): a backend on the machine
+		// option, which QEMU refuses if its id or size disagree with -m.
+		name: "memory in a shared file",
+		spec: func(s Spec) Spec {
+			s.Memory.MaxMB = 2048
+			s.Memory.File = filepath.Join(t.TempDir(), "ram")
+			return s
+		},
+	}, {
 		name:       "vsock",
 		needsVsock: true,
 		spec: func(s Spec) Spec {

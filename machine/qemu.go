@@ -609,6 +609,10 @@ const (
 	// FormatStream is the stream before it, every page in order: what a checkpoint saved by
 	// a spin-machine before mapped-ram is, which still loads, but only in full.
 	FormatStream = "qemu-stream"
+	// FormatSharedRAM is FormatMappedRAM without the base memory, which stayed in the machine's
+	// shared memory file (Memory.File, x-ignore-shared): it resumes only into a machine started
+	// on that same file.
+	FormatSharedRAM = "qemu-mapped-ram-shared-ram"
 )
 
 // savedMachine is what a QEMU checkpoint needs besides its state (Saved.Machine).
@@ -644,7 +648,12 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, seal func(context.Co
 	if err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	if err := m.setCapabilities(ctx, map[string]bool{"mapped-ram": true, "pause-before-switchover": true, "postcopy-ram": false}); err != nil {
+	format := FormatMappedRAM
+	if slices.Contains(target.Formats, FormatSharedRAM) {
+		format = FormatSharedRAM
+	}
+	if err := m.setCapabilities(ctx, map[string]bool{"mapped-ram": true, "pause-before-switchover": true, "postcopy-ram": false,
+		"x-ignore-shared": format == FormatSharedRAM}); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	if err := m.q.run(ctx, "migrate-set-parameters", map[string]any{"max-bandwidth": checkpointBandwidth}, nil); err != nil {
@@ -659,7 +668,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, seal func(context.Co
 		cancelErr := m.q.run(context.WithoutCancel(ctx), "migrate_cancel", nil, nil)
 		return Saved{}, errors.Join(fmt.Errorf("checkpointing: %w", err), cancelErr)
 	}
-	return Saved{Format: FormatMappedRAM, CPU: target.CPU, Fingerprint: target.Fingerprint, VMM: target.VMM, Machine: machine}, nil
+	return Saved{Format: format, CPU: target.CPU, Fingerprint: target.Fingerprint, VMM: target.VMM, Machine: machine}, nil
 }
 
 // Target is what this machine resumes: the formats it reads, the fingerprint Args gave QEMU as
@@ -674,6 +683,10 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 	fingerprint, ok := strings.CutPrefix(name.Name, fingerprintName)
 	if !ok {
 		return Target{}, fmt.Errorf("the machine is named %q, not by a fingerprint: was it started from Spec.Args?", name.Name)
+	}
+	formats, err := m.formats(ctx)
+	if err != nil {
+		return Target{}, err
 	}
 	var version struct {
 		QEMU struct {
@@ -691,7 +704,7 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 	}
 	v := version.QEMU
 	return Target{
-		Formats:     []string{FormatMappedRAM, FormatStream},
+		Formats:     formats,
 		Fingerprint: fingerprint,
 		VMM:         fmt.Sprintf("qemu %d.%d.%d", v.Major, v.Minor, v.Micro),
 		CPU:         cpu,
@@ -795,6 +808,11 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	case saved.Format == FormatMappedRAM:
 		caps["mapped-ram"] = true
 		caps["postcopy-ram"] = load.Fast
+	case saved.Format == FormatSharedRAM && !load.Fast:
+		caps["mapped-ram"] = true
+		caps["x-ignore-shared"] = true
+	case saved.Format == FormatSharedRAM:
+		return errors.New("resuming: a shared-memory checkpoint's memory is mapped from its file, and has nothing to fetch")
 	case saved.Format == FormatStream && !load.Fast:
 		caps["mapped-ram"] = false
 	case saved.Format == FormatStream:
@@ -876,4 +894,25 @@ func (m *QEMU) Loaded(ctx context.Context) error {
 			return fmt.Errorf("finishing the load: %w", err)
 		}
 	}
+}
+
+// memdev is one memory backend, as query-memdev reports it.
+type memdev struct {
+	ID    string `json:"id"`
+	Share bool   `json:"share"`
+}
+
+// formats are the checkpoint formats this machine reads: every machine the two whole ones, and a
+// machine whose base memory is a shared file (Memory.File) also one that left that memory out -
+// which only it can resume, since the pages are in its file.
+func (m *QEMU) formats(ctx context.Context) ([]string, error) {
+	var memdevs []memdev
+	if err := m.q.run(ctx, "query-memdev", nil, &memdevs); err != nil {
+		return nil, fmt.Errorf("listing the machine's memory: %w", err)
+	}
+	formats := []string{FormatMappedRAM, FormatStream}
+	if slices.ContainsFunc(memdevs, func(d memdev) bool { return d.ID == baseMemoryID && d.Share }) {
+		formats = append(formats, FormatSharedRAM)
+	}
+	return formats, nil
 }
