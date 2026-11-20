@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	xssh "golang.org/x/crypto/ssh"
+	"golang.org/x/sys/unix"
 )
 
 // restoreStall is an experiment, to be removed once its question is answered: why ~20% of
@@ -68,13 +70,15 @@ func (restoreStall) Metrics() []Metric {
 		{"psi_mem_some", "ms", "the guest's PSI memory some total"},
 		{"psi_mem_full", "ms", "the guest's PSI memory full total"},
 		{"memfree", "MiB", "the guest's MemFree after the login"},
+		{"guest_uptime", "ms", "the guest's uptime when its memory was read"},
+		{"diag_at", "ms", "when the guest's memory was read, from before QEMU's exec"},
 	}
 }
 
 // stallDiag is read as spin after the login, with the kernel's own account of each OOM kill.
 // Nothing in it reads much: under 128 MiB a `journalctl -b` here woke the OOM killer (a laptop,
 // 2026-11-20).
-const stallDiag = `cat /proc/pressure/memory; grep -E '^(pgscan_kswapd|pgscan_direct|pgsteal_kswapd|pgsteal_direct|workingset_refault_file|pgmajfault|allocstall_normal|allocstall_dma32|allocstall_movable|oom_kill) ' /proc/vmstat; grep '^MemFree:' /proc/meminfo; sudo -n dmesg | grep -E 'invoked oom-killer|Killed process' || true`
+const stallDiag = `cat /proc/pressure/memory; grep -E '^(pgscan_kswapd|pgscan_direct|pgsteal_kswapd|pgsteal_direct|workingset_refault_file|pgmajfault|allocstall_normal|allocstall_dma32|allocstall_movable|oom_kill) ' /proc/vmstat; grep '^MemFree:' /proc/meminfo; echo uptime $(cut -d' ' -f1 /proc/uptime) $(cat /sys/devices/system/clocksource/clocksource0/current_clocksource); sudo -n journalctl -b -o short-monotonic --no-pager -n 40 2>/dev/null | grep -E 'sshd|session|logind|Started|user@' | tail -25; sudo -n dmesg | grep -E 'invoked oom-killer|Killed process' || true`
 
 func (restoreStall) Measure(_ context.Context, m *Measurement) error {
 	pair, _, _ := strings.Cut(strings.TrimPrefix(m.Row, "saved "), ", restored ")
@@ -113,8 +117,9 @@ func (restoreStall) Measure(_ context.Context, m *Measurement) error {
 	var failed []string
 	for {
 		ta := time.Now()
-		_, err := m.Key.Login(c.cid, xssh.KeyExchangeMLKEM768X25519)
+		trace, err := m.Key.tracedLogin(c.cid, t0)
 		if err == nil {
+			m.Logf("login trace (ms from t0): %s", strings.Join(trace, " "))
 			break
 		}
 		failed = append(failed, fmt.Sprintf("+%v: %v after %v", ta.Sub(t0).Round(time.Millisecond), err, time.Since(ta).Round(time.Millisecond)))
@@ -127,7 +132,9 @@ func (restoreStall) Measure(_ context.Context, m *Measurement) error {
 	m.Record("vcpu_gap", float64(vcpuNs(mc.PID())-v0)/1e6)
 	m.Record("gap", m.values["login"]-m.values["running"])
 	m.Record("failed_logins", float64(len(failed)))
+	diagAt := time.Since(t0)
 	_, out, err := m.Key.Run(c.cid, xssh.KeyExchangeMLKEM768X25519, stallDiag)
+	m.RecordMs("diag_at", diagAt)
 	if err != nil {
 		return Miss("reading the guest's memory after the login: %v", err)
 	}
@@ -136,6 +143,68 @@ func (restoreStall) Measure(_ context.Context, m *Measurement) error {
 		m.values["save"], m.values["running"], m.values["accept"], m.values["login"], m.values["gap"], m.values["vcpu_gap"],
 		failed, strings.Join(strings.Fields(out), " "))
 	return nil
+}
+
+// tracedLogin is Key.Login with the time of each read and write on the connection, from t0: where
+// a slow login waited, the guest's reply or the client.
+func (k *Key) tracedLogin(cid uint32, t0 time.Time) ([]string, error) {
+	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("opening a vsock socket: %w", err)
+	}
+	if err := unix.Connect(fd, &unix.SockaddrVM{CID: cid, Port: 22}); err != nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("connecting to vsock %d:22: %w", cid, err)
+	}
+	tc := &tracedConn{vsockConn: vsockConn{os.NewFile(uintptr(fd), "vsock")}, t0: t0}
+	tc.note("connected", 0)
+	defer func() { _ = tc.Close() }()
+	c, chans, reqs, err := xssh.NewClientConn(tc, "vsock", &xssh.ClientConfig{
+		User: "spin", Auth: []xssh.AuthMethod{xssh.PublicKeys(k.Signer)},
+		HostKeyCallback: xssh.InsecureIgnoreHostKey(),
+		Config:          xssh.Config{KeyExchanges: []string{xssh.KeyExchangeMLKEM768X25519}},
+	})
+	if err != nil {
+		return tc.events, fmt.Errorf("ssh to vsock %d:22: %w", cid, err)
+	}
+	tc.note("authenticated", 0)
+	client := xssh.NewClient(c, chans, reqs)
+	defer func() { _ = client.Close() }()
+	sess, err := client.NewSession()
+	if err != nil {
+		return tc.events, fmt.Errorf("opening a session: %w", err)
+	}
+	tc.note("session", 0)
+	defer func() { _ = sess.Close() }()
+	if _, err := sess.Output("true"); err != nil {
+		return tc.events, fmt.Errorf("running true: %w", err)
+	}
+	tc.note("done", 0)
+	return tc.events, nil
+}
+
+type tracedConn struct {
+	vsockConn
+	t0     time.Time
+	mu     sync.Mutex
+	events []string
+}
+
+func (c *tracedConn) note(what string, n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, fmt.Sprintf("%s%d@%.1f", what, n, float64(time.Since(c.t0).Microseconds())/1000))
+}
+
+func (c *tracedConn) Read(b []byte) (int, error) {
+	n, err := c.vsockConn.Read(b)
+	c.note("r", n)
+	return n, err
+}
+
+func (c *tracedConn) Write(b []byte) (int, error) {
+	c.note("w", len(b))
+	return c.vsockConn.Write(b)
 }
 
 // vcpuNs is the time pid's vCPU threads have run on a host CPU, from their schedstat.
@@ -184,6 +253,8 @@ func readStallDiag(m *Measurement, out string) {
 			m.Record("refault", n)
 		case "pgmajfault", "oom_kill":
 			m.Record(f[0], n)
+		case "uptime":
+			m.Record("guest_uptime", n*1000)
 		case "MemFree:":
 			m.Record("memfree", n/1024)
 		}
