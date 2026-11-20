@@ -260,7 +260,7 @@ func TestTheLaneEditIsThisCheckoutsLane(t *testing.T) {
 	}
 	e := tr.Manifest.Edits[0].Edit
 	want := read(t, filepath.Join(checkoutRoot(t), "image/mkosi.extra/usr/local/lib/spin-base/rootfs/etc/systemd/system/sshd@.service.d/10-lane.conf"))
-	if e.Files["/etc/systemd/system/sshd@.service.d/10-lane.conf"] != want || len(e.Files) != 8 || len(e.Links) != 1 ||
+	if e.Files["/etc/systemd/system/sshd@.service.d/10-lane.conf"] != want || len(e.Files) != 15 || len(e.Links) != 1 ||
 		!strings.Contains(e.Setup, "class=user-early-light") {
 		t.Errorf("the lane edit: %d files, %d links, setup %q", len(e.Files), len(e.Links), e.Setup)
 	}

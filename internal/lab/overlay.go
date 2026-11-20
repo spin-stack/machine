@@ -194,8 +194,22 @@ func namedEdit(name, checkout string) (Edit, error) {
 		return floorEdit, nil
 	case "nolinger":
 		return noLingerEdit, nil
+	case "forwarder-early":
+		return forwarderEarlyEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger, forwarder-early", name)
+}
+
+// forwarderEarlyEdit starts login=spin's forwarder, which stands for spin's supervisor, without
+// systemd's default dependencies, as the image starts ssh.service: what spin would get if its
+// supervisor were ordered so (the proposal in docs/lab.md, "What is next", rank 6). It refuses a
+// tree booted without the forwarder.
+var forwarderEarlyEdit = Edit{
+	Files: map[string]string{
+		"/etc/systemd/system/spin-lab-forward.service.d/zz-early.conf": "[Unit]\nDefaultDependencies=no\nConflicts=shutdown.target\nBefore=shutdown.target\n",
+	},
+	Setup: `test -e "$MNT/etc/systemd/system/spin-lab-forward.service" || { echo "forwarder-early edits spin's path: boot it with login=spin" >&2; exit 1; }
+`,
 }
 
 // noLingerEdit is a published release's image as this checkout builds it: spin no longer lingers
@@ -268,7 +282,10 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 	for _, d := range []string{"sshd-vsock.socket.d/10-lane.conf", "sshd@.service.d/10-lane.conf",
 		"systemd-logind.service.d/10-lane.conf", "systemd-logind-varlink.socket.d/20-lane.conf",
 		"user-runtime-dir@.service.d/10-lane.conf",
-		"user@.service.d/10-lane.conf", "systemd-udev-trigger.service.d/10-coldplug.conf"} {
+		"user@.service.d/10-lane.conf", "systemd-udev-trigger.service.d/10-coldplug.conf",
+		"ssh.socket.d/10-lane.conf", "ssh.service.d/10-lane.conf", "sshd-keygen.service.d/10-lane.conf",
+		"systemd-logind.service.d/30-privatetmp.conf", "dbus-broker.service.d/30-privatetmp.conf",
+		"systemd-udevd.service.d/20-startup.conf", "systemd-udev-trigger.service.d/20-startup.conf"} {
 		b, err := os.ReadFile(filepath.Join(rootfs, "etc", "systemd", "system", d))
 		if err != nil {
 			return Edit{}, fmt.Errorf("reading the lane's %s from this checkout: %w", d, err)
