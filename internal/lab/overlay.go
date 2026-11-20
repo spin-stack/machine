@@ -194,8 +194,68 @@ func namedEdit(name, checkout string) (Edit, error) {
 		return floorEdit, nil
 	case "nolinger":
 		return noLingerEdit, nil
+	case "login-early":
+		return loginEarlyEdit, nil
+	case "udev-startup":
+		return udevStartupEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, floor, nolinger, login-early, udev-startup", name)
+}
+
+// early is a unit's drop-in without systemd's default dependencies - After=sysinit.target and,
+// for a service, basic.target - and with the one of them a running machine needs: being stopped
+// at shutdown.
+const early = "[Unit]\nDefaultDependencies=no\nConflicts=shutdown.target\nBefore=shutdown.target\n"
+
+// loginEarlyEdit is spin's path to the first login started as early as systemd can start it, a
+// bound and not a candidate: the order is spin's to choose (docs/lab.md, "What is next", rank 6).
+// It edits login=spin's forwarder, and refuses a tree booted without it.
+//
+// What held each unit back, read from `systemctl show -p After` and the critical chain on
+// v20261120.03 (laptop, 2026-11-21): ssh.socket waited for sysinit.target, ssh.service and the
+// forwarder for basic.target. ssh.service is also after Ubuntu's sshd-keygen.service, which waits
+// for basic.target although its ConditionFirstBoot never holds here, so ssh.service without
+// default dependencies of its own still started right after basic.target. logind and dbus-broker
+// had none (the lane, image/), but their PrivateTmp orders them after
+// systemd-tmpfiles-setup.service, which waits for local-fs.target: without it logind starts ~50
+// ms sooner. That is the edit's one change beyond the order: logind and the bus without a private
+// /tmp. ssh.service's own After= names network.target, nss-user-lookup.target and
+// auditd.service, which nothing in this boot starts.
+//
+// What is left in front of the forwarder is the host keys (spin-machine-sshd-keygen) and sshd's
+// own start. On the laptop (1 vCPU, 10 boots each) it accepted 27 ms sooner and the first login
+// did not move (-2.7 [-15.3, +8.9]): the login ran beside udev's coldplug on the one vCPU instead
+// of after it. With udev-startup as well it read -38.1 [-50.0, -31.3].
+var loginEarlyEdit = Edit{
+	Files: map[string]string{
+		"/etc/systemd/system/ssh.socket.d/zz-early.conf":               early,
+		"/etc/systemd/system/ssh.service.d/zz-early.conf":              early,
+		"/etc/systemd/system/sshd-keygen.service.d/zz-early.conf":      early,
+		"/etc/systemd/system/spin-lab-forward.service.d/zz-early.conf": early,
+		"/etc/systemd/system/systemd-logind.service.d/zz-early.conf":   "[Service]\nPrivateTmp=no\n",
+		"/etc/systemd/system/dbus-broker.service.d/zz-early.conf":      "[Service]\nPrivateTmp=no\n",
+	},
+	Setup: `for u in ssh.socket ssh.service sshd-keygen.service dbus-broker.service; do test -e "$MNT/usr/lib/systemd/system/$u"; done
+test -e "$MNT/etc/systemd/system/spin-lab-forward.service" || { echo "login-early edits spin's path: boot it with login=spin" >&2; exit 1; }
+for u in systemd-logind.service systemd-logind-varlink.socket user-runtime-dir@.service; do
+	grep -qx 'DefaultDependencies=no' "$MNT/etc/systemd/system/$u.d/"*.conf
+done
+if grep -q 'sysinit.target' "$MNT/etc/systemd/system/dbus.socket"; then echo "the image's dbus.socket waits for sysinit.target" >&2; exit 1; fi
+grep -qx 'DefaultDependencies=false' "$MNT/usr/lib/systemd/system/dbus-broker.service"
+`,
+}
+
+// udevStartupEdit puts udevd and its coldplug at the lowest CPU weight until the boot's jobs are
+// done (StartupCPUWeight), so a login started beside them gets the one vCPU first. A device
+// plugged after the boot is handled at the normal weight. Alone, on spin's path, it did nothing:
+// the login waits for basic.target, which waits for udev (#329, laptop, 308 against 307 ms).
+var udevStartupEdit = Edit{
+	Files: map[string]string{
+		"/etc/systemd/system/systemd-udevd.service.d/zz-startup.conf":        "[Service]\nStartupCPUWeight=1\n",
+		"/etc/systemd/system/systemd-udev-trigger.service.d/zz-startup.conf": "[Service]\nStartupCPUWeight=1\n",
+	},
+	Setup: `for u in systemd-udevd.service systemd-udev-trigger.service; do test -e "$MNT/usr/lib/systemd/system/$u"; done
+`,
 }
 
 // noLingerEdit is a published release's image as this checkout builds it: spin no longer lingers
