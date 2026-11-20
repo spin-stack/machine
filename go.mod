@@ -27,6 +27,7 @@ require (
 )
 
 tool (
+	github.com/spin-stack/go-tools/cmd/ghatrace
 	github.com/spin-stack/go-tools/cmd/task
 	github.com/spin-stack/go-tools/cmd/versions
 )
