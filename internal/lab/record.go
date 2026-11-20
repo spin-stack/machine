@@ -151,85 +151,75 @@ func apart(a, b string) string {
 		"`spin-machine-dev lab ladder --newest " + b + " --releases N`, N the releases from " + a + " to " + b + "."
 }
 
-// Doc is docs/releases.md: the goal's two numbers release by release, as charts and as tables, the
-// diagnostics, and the run each release was measured in.
-func Doc(records []Record) string {
-	var b strings.Builder
-	b.WriteString("<!-- Written by `spin-machine-dev releases doc` from docs/releases/*.json: edit those, never this. -->\n\n")
-	b.WriteString("# Releases, measured\n\n")
-	fmt.Fprintf(&b, "Each release is measured on the bench fleet once it is published (report.yml), booted by the "+
+// about is what the page and the site say first: where the records come from, the goal, and why a
+// Δ between two of them is read with care.
+func about() string {
+	return fmt.Sprintf("Each release is measured on the bench fleet once it is published (report.yml), booted by the "+
 		"spin-machine of its own commit; a release from before that by `spin-machine-dev releases measure`. "+
-		"The goal is %.0f ms (AGENTS.md). ", Goal)
-	b.WriteString(apart("A", "B") + " `spin-machine-dev releases compare A B` puts two side by side.\n\n")
-	for _, n := range numbers {
-		if n.kind == goalNumber {
-			chart(&b, records, n)
-		}
-	}
-	b.WriteString(Tables(records))
-	return b.String()
+		"The goal is %.0f ms (AGENTS.md). ", Goal) +
+		apart("A", "B") + " `spin-machine-dev releases compare A B` puts two side by side."
 }
 
-// chart is a line of n's p50 over the records that have it, and the goal beside it. Mermaid's
-// xychart draws no gap, so a release without the number is left off this chart's axis rather
-// than drawn as a zero; the cold boot's line goes back further than the restore's.
-func chart(b *strings.Builder, records []Record, n number) {
-	var names, values, goal []string
-	top := Goal
-	for _, r := range records {
-		v, ok := r.Numbers[n.key]
-		if !ok {
-			continue
-		}
-		names = append(names, fmt.Sprintf("%q", r.Release))
-		values = append(values, num(v.P50))
-		goal = append(goal, num(Goal))
-		top = max(top, v.P50)
-	}
-	if len(names) == 0 {
-		return
-	}
-	fmt.Fprintf(b, "```mermaid\nxychart-beta\n  title \"%s, p50 ms (flat: the goal)\"\n", n.title)
-	fmt.Fprintf(b, "  x-axis [%s]\n", strings.Join(names, ", "))
-	// The axis a tenth above the highest point, to the next 50 ms.
-	const tick = 50.0
-	fmt.Fprintf(b, "  y-axis \"ms\" 0 --> %.0f\n", math.Ceil(top*1.1/tick)*tick)
-	fmt.Fprintf(b, "  line [%s]\n  line [%s]\n```\n\n", strings.Join(values, ", "), strings.Join(goal, ", "))
+// chartTitle is what the chart shows, and its alternative text where it is an image.
+const chartTitle = "First SSH login, p50 and p95, release by release"
+
+// Doc is docs/releases.md: the goal's two numbers release by release, as a chart and as tables, the
+// diagnostics, and the run each release was measured in. kept is the records' directory beside
+// the page: the chart is kept.svg (Chart, which releases doc writes) and each record is linked as
+// kept/RELEASE.json.
+func Doc(records []Record, kept string) string {
+	return "<!-- Written by `spin-machine-dev releases doc` from docs/releases/*.json: edit those, never this. -->\n\n" +
+		"# Releases, measured\n\n" + about() + "\n\n" +
+		"![" + chartTitle + "](" + kept + ".svg)\n\n" +
+		markdown(tables(records, kept), dashes(records))
 }
 
-// Tables are records as tables: the goal's numbers, each goal number's Δ against the row above,
-// the newest's gap to the goal, the diagnostics, where each was measured, and why a number is not
-// there.
+// Tables are a ladder's records as tables (lab ladder's ladder.md): the page's, with no record to
+// link to.
 func Tables(records []Record) string {
-	var b strings.Builder
-	b.WriteString("## The goal, release by release\n\nFirst SSH login, ms p50/p95. Δ is the p50 against the row above.\n\n| release |")
-	for _, n := range numbers {
-		if n.kind == diagnostic {
-			continue
-		}
-		b.WriteString(" " + n.title + " |")
-		if n.kind == goalNumber {
-			b.WriteString(" Δ |")
-		}
-	}
-	b.WriteString("\n|---|")
+	return markdown(tables(records, ""), dashes(records))
+}
+
+// entry is one cell of a table, and where it links when it does.
+type entry struct{ Text, Link string }
+
+// table is one of the records' tables, as the Markdown page and the site both write it: its
+// heading, a line before the rows and one after, either of which may be empty.
+type table struct {
+	Title, Before string
+	Head          []string
+	Rows          [][]entry
+	After         string
+}
+
+// tables are records' tables in the order they are read: the goal's numbers, each goal number's Δ
+// against the row above and the newest's gap to the goal; the diagnostics; and where each was
+// measured, each release linked to its record at kept/RELEASE.json when kept is not empty.
+func tables(records []Record, kept string) []table {
+	goal := table{Title: "The goal, release by release",
+		Before: "First SSH login, ms p50/p95. Δ is the p50 against the row above.", Head: []string{"release"}}
+	diags := table{Title: "Diagnostics",
+		Before: "Not targets: what moves behind the goal's numbers (AGENTS.md, \"The goal\"). p50.", Head: []string{"release"}}
 	for _, n := range numbers {
 		switch n.kind {
 		case goalNumber:
-			b.WriteString("---|---|")
+			goal.Head = append(goal.Head, n.title, "Δ")
 		case besideGoal:
-			b.WriteString("---|")
+			goal.Head = append(goal.Head, n.title)
+		case diagnostic:
+			diags.Head = append(diags.Head, n.title)
 		}
 	}
-	b.WriteString("\n")
+	where := table{Title: "Where each was measured", Head: []string{"release", "measured", "host", "boots of each probe", "run"}}
 	for i, r := range records {
-		fmt.Fprintf(&b, "| %s |", r.Release)
+		g, d := []entry{{Text: r.Release}}, []entry{{Text: r.Release}}
 		for _, n := range numbers {
+			v, ok := r.Numbers[n.key]
 			if n.kind == diagnostic {
+				d = append(d, entry{Text: p50(v, ok)})
 				continue
 			}
-			v, ok := r.Numbers[n.key]
-			b.WriteString(" " + pair(v, ok) + " |")
+			g = append(g, entry{Text: pair(v, ok)})
 			if n.kind != goalNumber {
 				continue
 			}
@@ -237,13 +227,24 @@ func Tables(records []Record) string {
 			if i > 0 {
 				prev, had = records[i-1].Numbers[n.key]
 			}
+			delta := ""
 			if ok && had {
-				fmt.Fprintf(&b, " %+.1f |", v.P50-prev.P50)
-			} else {
-				b.WriteString(" |")
+				delta = fmt.Sprintf("%+.1f", v.P50-prev.P50)
 			}
+			g = append(g, entry{Text: delta})
 		}
-		b.WriteString("\n")
+		goal.Rows = append(goal.Rows, g)
+		diags.Rows = append(diags.Rows, d)
+		release := entry{Text: r.Release}
+		if kept != "" {
+			release.Link = kept + "/" + r.Release + ".json"
+		}
+		run := entry{}
+		if r.Run != "" {
+			run = entry{Text: r.Run[strings.LastIndex(r.Run, "/")+1:], Link: r.Run}
+		}
+		where.Rows = append(where.Rows, []entry{release, {Text: r.Measured.Format(time.DateOnly)}, {Text: r.Host},
+			{Text: itoa(r.Reps)}, run})
 	}
 	if len(records) > 0 {
 		newest := records[len(records)-1]
@@ -254,41 +255,42 @@ func Tables(records []Record) string {
 			}
 		}
 		if len(gaps) > 0 {
-			fmt.Fprintf(&b, "\n%s against the goal: %s.\n", newest.Release, strings.Join(gaps, ", "))
+			goal.After = newest.Release + " against the goal: " + strings.Join(gaps, ", ") + "."
 		}
 	}
-	b.WriteString("\n## Diagnostics\n\nNot targets: what moves behind the goal's numbers (AGENTS.md, \"The goal\"). p50.\n\n| release |")
-	diags := 0
-	for _, n := range numbers {
-		if n.kind == diagnostic {
-			b.WriteString(" " + n.title + " |")
-			diags++
+	return []table{goal, diags, where}
+}
+
+// markdown is tables as Markdown, and the dashes' reasons after them.
+func markdown(ts []table, dashed []string) string {
+	var b strings.Builder
+	for i, t := range ts {
+		if i > 0 {
+			b.WriteString("\n")
 		}
-	}
-	b.WriteString("\n|---|" + strings.Repeat("---|", diags) + "\n")
-	for _, r := range records {
-		fmt.Fprintf(&b, "| %s |", r.Release)
-		for _, n := range numbers {
-			if n.kind != diagnostic {
-				continue
+		b.WriteString("## " + t.Title + "\n\n")
+		if t.Before != "" {
+			b.WriteString(t.Before + "\n\n")
+		}
+		b.WriteString("| " + strings.Join(t.Head, " | ") + " |\n|" + strings.Repeat("---|", len(t.Head)) + "\n")
+		for _, row := range t.Rows {
+			b.WriteString("|")
+			for _, e := range row {
+				if e.Link != "" {
+					b.WriteString(" [" + e.Text + "](" + e.Link + ") |")
+				} else {
+					b.WriteString(" " + e.Text + " |")
+				}
 			}
-			if v, ok := r.Numbers[n.key]; ok {
-				b.WriteString(" " + num(v.P50) + " |")
-			} else {
-				b.WriteString(" - |")
-			}
+			b.WriteString("\n")
 		}
-		b.WriteString("\n")
-	}
-	b.WriteString("\n## Where each was measured\n\n| release | measured | host | boots of each probe | run |\n|---|---|---|---|---|\n")
-	for _, r := range records {
-		run := ""
-		if r.Run != "" {
-			run = "[" + r.Run[strings.LastIndex(r.Run, "/")+1:] + "](" + r.Run + ")"
+		if t.After != "" {
+			b.WriteString("\n" + t.After + "\n")
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s |\n", r.Release, r.Measured.Format(time.DateOnly), r.Host, r.Reps, run)
 	}
-	b.WriteString(dashes(records))
+	if len(dashed) > 0 {
+		b.WriteString("\n" + dashesBefore + "\n\n- " + strings.Join(dashed, "\n- ") + "\n")
+	}
 	return b.String()
 }
 
@@ -300,20 +302,28 @@ func pair(v Number, ok bool) string {
 	return num(v.P50) + " / " + num(v.P95)
 }
 
-// dashes says why each record has not the numbers it has not.
-func dashes(records []Record) string {
+// p50 is a number's p50 as a table cell, or a dash when there is none.
+func p50(v Number, ok bool) string {
+	if !ok {
+		return "-"
+	}
+	return num(v.P50)
+}
+
+// dashesBefore introduces the dashes' reasons.
+const dashesBefore = "A dash is a number that release has not:"
+
+// dashes are why each record has not the numbers it has not, one line each.
+func dashes(records []Record) []string {
 	var lines []string
 	for _, r := range records {
 		for _, n := range numbers {
 			if why, ok := r.Cannot[n.key]; ok {
-				lines = append(lines, fmt.Sprintf("- %s, %s: %s\n", r.Release, n.title, why))
+				lines = append(lines, r.Release+", "+n.title+": "+why)
 			}
 		}
 	}
-	if len(lines) == 0 {
-		return ""
-	}
-	return "\nA dash is a number that release has not:\n\n" + strings.Join(lines, "")
+	return lines
 }
 
 // header is where and when r was measured, as one line.
@@ -373,5 +383,5 @@ func side(records []Record) string {
 		}
 		b.WriteString("\n")
 	}
-	return b.String() + dashes(records)
+	return b.String() + markdown(nil, dashes(records))
 }
