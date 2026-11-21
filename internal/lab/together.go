@@ -211,7 +211,7 @@ func restoreAll(m *Measurement, cs []*checkpoint, b burst) (err error) {
 		wg.Go(func() {
 			<-start
 			t0 := time.Now()
-			args := append([]string{"restore", "--release", m.Tree.Dir, "--qmp", qmps[i], "--disk", c.overlay, "--from", c.state}, b.channels...)
+			args := c.restoreArgs(m, qmps[i], b.channels...)
 			if err := m.SpinMachine(args...); err != nil {
 				out[i].err = fmt.Errorf("restore %d of %d: %w", i+1, len(cs), err)
 				return

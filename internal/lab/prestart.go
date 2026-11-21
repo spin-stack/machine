@@ -142,7 +142,7 @@ func restoreAhead(m *Measurement, channels ...string) error {
 		return err
 	}
 	t0 := time.Now()
-	if err := m.SpinMachine(append([]string{"restore", "--release", m.Tree.Dir, "--qmp", qmp, "--disk", c.overlay, "--from", c.state}, channels...)...); err != nil {
+	if err := m.SpinMachine(c.restoreArgs(m, qmp, channels...)...); err != nil {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
