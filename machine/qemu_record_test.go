@@ -169,6 +169,18 @@ func TestTargetIsWhatTheMachineRuns(t *testing.T) {
 	}
 }
 
+// A bus's children are in the order QEMU put them on it, by the number in their names, which
+// names "device i8257/1" and "device i8257/2": a name with no number goes before the first one,
+// and one whose number is not one is a name like any other.
+func TestChildrenAreInTheirBussOrder(t *testing.T) {
+	order := []string{"child", "child[1]", "child[2]", "child[10]", "child[x]", "rtc"}
+	for i := range len(order) - 1 {
+		if a, b := order[i], order[i+1]; compareChildren(a, b) >= 0 || compareChildren(b, a) <= 0 {
+			t.Errorf("%s and %s compare %d and %d, want %s first", a, b, compareChildren(a, b), compareChildren(b, a), a)
+		}
+	}
+}
+
 // What Target refuses to make a record of: a machine it cannot read whole is not a machine whose
 // checkpoints it can vouch for.
 func TestTargetRefusesWhatItCannotRead(t *testing.T) {
@@ -193,6 +205,7 @@ func TestTargetRefusesWhatItCannotRead(t *testing.T) {
 		{"another RAM block table", ramblocks("Name Size\npc.ram 1\n"), `"Name Size", not its table`},
 		{"a line that is no block", ramblocks("Block Name PSize Offset Used Total HVA RO\npc.ram 4 KiB\n"), "is not a RAM block"},
 		{"a length that is not one", ramblocks("Block Name PSize Offset Used Total HVA RO\npc.ram 4 KiB 0x0 0x0 0xzz 0x0 rw\n"), "invalid syntax"},
+		{"a length not in hex", ramblocks("Block Name PSize Offset Used Total HVA RO\npc.ram 4 KiB 0x0 0x0 1000 0x0 rw\n"), "is not a RAM block"},
 		{"no block but fw_cfg's", ramblocks("Block Name PSize Offset Used Total HVA RO\n/rom@etc/x 4 KiB 0x0 0x0 0x1 0x0 ro\n"), "no RAM block"},
 		{"no vCPU", answer("query-cpus-fast", `[]`), "no vCPU"},
 		{"a vCPU of another architecture", path("/machine/unattached/device[0]", `[{"name": "type", "type": "string", "value": "cortex-a72-arm-cpu"}]`), "not an x86_64 CPU model"},
@@ -244,7 +257,9 @@ func path(p, props string) func(c call) (string, bool) {
 			}
 			objs = append(objs, `{"properties": `+o+`}`)
 		}
-		return ret("[" + strings.Join(objs, ",") + "]"), true
+		// On one line, as QEMU writes each message, with the space QEMU puts after each comma and
+		// colon, which a record's value does not keep.
+		return `{"return": [` + strings.Join(strings.Fields(strings.Join(objs, ", ")), " ") + `]}`, true
 	}
 }
 

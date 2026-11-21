@@ -178,7 +178,8 @@ func machineFacts(machine qomObject) ([]part, error) {
 	}
 	facts := []part{{"machine type", typ}}
 	opts := []string{"smp", "memory"}
-	for _, o := range strings.Split(machineOpts, ",")[1:] {
+	_, given, _ := strings.Cut(machineOpts, ",")
+	for _, o := range strings.Split(given, ",") {
 		if k, _, _ := strings.Cut(o, "="); k != "kernel-irqchip" {
 			opts = append(opts, k)
 		}
@@ -248,11 +249,8 @@ func compareChildren(a, b string) int {
 
 func childIndex(name string) (string, int) {
 	prefix, rest, ok := strings.Cut(name, "[")
-	if !ok {
-		return name, 0
-	}
 	n, err := strconv.Atoi(strings.TrimSuffix(rest, "]"))
-	if err != nil {
+	if !ok || err != nil {
 		return name, 0
 	}
 	return prefix, n
