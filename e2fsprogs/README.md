@@ -5,8 +5,9 @@ pinned upstream tarball, together with the `mke2fs.conf` from the same tarball. 
 is made with, its features and its block and inode sizes, is what the `mke2fs` that made it and
 its configuration file default to, so the same command line on two distributions makes two
 filesystems. The base image is made and checked with these and not the build container's,
-which carries no e2fsprogs. A release ships `mkfs.ext4` and its configuration, for anything
-else that makes a filesystem this kernel mounts. Set `MKE2FS_CONFIG` to the shipped file:
+which carries no e2fsprogs. A release ships all four and the configuration: `mkfs.ext4` and
+`mke2fs.conf` for anything else that makes a filesystem this kernel mounts, and the other three
+because the probes edit a copy of the base image with this `debugfs`. Set `MKE2FS_CONFIG` to the shipped file:
 the binary alone reads the host's `/etc/mke2fs.conf`.
 
 The shipped file is upstream's, and upstream and the Debian family differ in one place worth

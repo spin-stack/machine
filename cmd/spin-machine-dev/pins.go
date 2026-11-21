@@ -141,7 +141,8 @@ func refreshCmd() *cobra.Command {
 
 Each branch is named for what it proposes, so a set proposed once is not proposed again, closed or
 not: a person who closed it said no to it; a newer one closes the one it supersedes. Nothing is
-proposed when the pins are current. refresh.yml runs it every day, as the release app.`,
+proposed when the pins are current. refresh.yml runs it as the release app: kernel and systemd
+every day, builders every week.`,
 		ValidArgs: []string{"kernel", "systemd", "builders"},
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE: func(c *cobra.Command, args []string) error {

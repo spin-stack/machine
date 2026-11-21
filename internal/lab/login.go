@@ -19,8 +19,8 @@ import (
 type Key struct {
 	Signer xssh.Signer
 	public []byte
-	// SpinsPath is a login the way spin makes one (the login option's "spin") rather than the
-	// lane's, the default: see spinsPath.
+	// SpinsPath is a login the way spin makes one (the login option's "spin", the default) rather
+	// than the lane's: see spinsPath.
 	SpinsPath bool
 }
 

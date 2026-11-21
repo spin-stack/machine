@@ -6,9 +6,10 @@ verbs fit together. `spin-machine-dev --help` lists them, and `go tool task bin`
 into `_output/bin`.
 
 It is not `spin-machine`. `cmd/spin-machine` is the machine's own tool: it boots a machine, prints
-its fingerprint, attaches a disk, saves and restores. A release ships it, statically linked, for
-whoever runs the machine by hand. `cmd/spin-machine-dev` builds, measures and releases the
-machine, and is never shipped.
+its fingerprint, attaches a disk, saves and restores. `release` builds it to compute the
+fingerprint, and the tarball ships none: spin builds the `machine` package of the release it pins,
+and a person builds the tool with `spin-machine-dev build spin-machine`. `cmd/spin-machine-dev`
+builds, measures and releases the machine, and is never shipped.
 
 ## Principles
 
@@ -73,12 +74,12 @@ spin-machine-dev cves [--local]       the kernel CNA's CVEs against the newest r
 
 `outdated` and `bump` run go-tools' `versions` (go.mod's tool directive), which every spin-stack
 repository shares. `spin-machine-dev` adds what belongs to this repository: the QEMU machine types,
-the apk locks, OSV and the kernel's CVEs.
+the builder images, OSV and the kernel's CVEs.
 
 ## Releasing
 
 ```
-spin-machine-dev release [--version v]   build every part and spin-machine, then pack them; refuses a tree with anything missing
+spin-machine-dev release [--version v]   build every part and spin-machine, then pack the parts; refuses a tree with anything missing
 ```
 
 The release is one tarball. It holds QEMU and its firmware, the kernel, the base image, the
@@ -119,7 +120,8 @@ parts.yml    changed: spin-machine-dev changed --base $BASE --pins ... <paths>, 
              image:   spin-machine-dev build e2fsprogs ; spin-machine-dev build image
              parts:   spin-machine-dev needs
 compat.yml   task boot:buildkit ; spin-machine-dev vsock ;
-             spin-machine-dev build qemu kernel spin-machine ; task boot:here, boot:roms, ...
+             spin-machine-dev build qemu kernel spin-machine ; task boot:here ; task boot:roms ;
+             spin-machine-dev lab compat ; task boot:lockdown
 release.yml  compat.yml ; spin-machine-dev release version ; release ; release notes ;
              release provenance ; release sign ; release tag ; then the publish action ;
              report.yml ; task trace ; task ship-it:wake
@@ -231,8 +233,8 @@ one boot has no interval either, and the lab prints its Δ bare, saying so.
 ### The shape
 
 Every probe boots the machine spin boots a workspace in, unless a run asks for another: one vCPU
-of a ceiling of 16, 128 MiB of a ceiling of 8 GiB through virtio-mem, and four hotplug disks
-(spin-stack/spin's `internal/runner/vmm/vmm.go` and `internal/runner/qemu/spec.go`). The options
+of a ceiling of 16, 128 MiB of a ceiling of 8 GiB through virtio-mem, and 16 targets on the
+hotplug controller, 4 of them for disks (spin-stack/spin's `internal/runner/vmm/vmm.go` and `internal/runner/qemu/spec.go`). The options
 are `cpus`, `max-cpus`, `memory`, `max-memory`, `hotplug-disks` and `flags` (more spin-machine boot
 flags). `--opt cpus=2 --opt memory=2048 --opt max-cpus=0 --opt max-memory=0 --opt hotplug-disks=0
 --opt plugged=0 --opt login=lane` is the shape the probes booted before they booted spin's. Every
@@ -245,7 +247,7 @@ handing it its filesystem, to 2048 MiB unless the workspace asks for more. Left 
 `login=spin`, the default, logs in as spin does: as root, through a forwarder from vsock to
 `ssh.service` on 127.0.0.1:22 (`internal/lab/login.go`, `spinsPath`). `login=lane` logs in as the
 user spin through systemd's vsock socket and one `sshd@` for each connection. That is the path the
-probes took before 2026-11-21, and the one the `floor` edit's sshd serves, so a floor run passes
+probes took until 2026-11-20, and the one the `floor` edit's sshd serves, so a floor run passes
 `login=lane`.
 
 Each release's own numbers are kept in the repository, one record for each release in
@@ -286,7 +288,8 @@ inline so its points' tooltips show. `pages.yml` runs `site` on every merge to m
 record, and deploys the file to GitHub Pages. Every verb takes `--dir` for the records' directory
 (default `docs/releases`), with the page and its chart beside it as `DIR.md` and `DIR.svg`.
 
-`lab compat` runs boot:compat over every release since the fingerprint last moved, newest first. It
+`lab compat` runs boot:compat's test over every release since the fingerprint last moved, newest
+first, and `task boot:compat` is `lab compat` over a built release. It
 checks that a host that skipped releases still resumes their checkpoints. It checks each release it
 fetches against its sha256 and its signature, as the lab checks every release a tree is made from.
 It stops at the first release with another fingerprint. On the way, it holds `machine.CanResume` to
@@ -337,9 +340,10 @@ question is nested against metal. `--ref` names the branch whose lab.yml and pro
 the table's LOST) and 2 when the experiment could not run.
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
-`firmware`, `roms`, `compat` (one release; `lab compat` runs it over many), `hotadd`, `logind` and
-`lockdown`. Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
-`lab check TARGET` runs one on any tree, here or as lab.yml's `check:TARGET`.
+`firmware`, `roms`, `compat` (every release since the fingerprint moved, through `lab compat`),
+`hotadd`, `logind` and `lockdown`. Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
+`lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
+`firmware-stages`, `waits` and `roms`, the targets its `probe` input lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its
 `trees` input names (`NAME=SPEC; NAME=SPEC`), runs the probe, puts the table on the run's summary,

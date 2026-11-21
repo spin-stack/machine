@@ -1,11 +1,13 @@
 # Guest kernel
 
-This directory holds a version and a config file for its series (`config-<major>.<minor>-<arch>`),
-so a stable release within the series builds from the same file. The kernel is here because a kernel and the
+This directory holds a config file for the kernel's series (`config-<major>.<minor>-<arch>`) and
+the patches this tree carries. The version is `versions.yaml`'s `kernel` entry, and a stable release
+within the series builds from the same config. The kernel is here because a kernel and the
 machine that boots it are released together. A new kernel does not strand checkpoints: a
 resumed guest runs the kernel in its saved memory until it reboots, and boots this one then
 (`machine.Spec.Fingerprint` hashes the machine's contract, not the kernel). `spin-machine-dev build kernel`
-builds it. `spin-machine-dev verify kernel` reads the ELF notes out of the kernel it just stripped.
+builds it. `spin-machine-dev verify kernel` reads the setup header of the bzImage the machine boots
+(relocatable, so KASLR can move it) and the PVH notes of the stripped vmlinux beside it.
 
 ## Memory that moves
 
@@ -94,8 +96,8 @@ load 6-10, where the p95 was 342 ms.
 
 `kernel/patches` holds the changes this tree makes to the kernel's source, applied in name
 order. The gaps in their numbers are patches deleted once a run read nothing for them
-(0006, 0009 and 0011, #345). Each one's row in `docs/boot-time.md`, "What the machine carries",
-says what it earns.
+(0006, 0009 and 0011, #345). They share one row in `docs/boot-time.md`, "What the machine
+carries", which says what they earn together.
 
 A change to the config is a new kernel for every guest's next boot, and the release notes say
 what changed (`internal/releasenotes` lists the options turned on, off or changed). It does not

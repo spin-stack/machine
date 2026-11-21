@@ -34,17 +34,23 @@ cold boot cannot reach 100 ms by userspace work alone: QEMU, the firmware and th
 The probes boot and log in as spin does, unless a run asks otherwise (docs/cli.md, "Measuring"):
 
 - **The shape.** spin (spin-stack/spin, `internal/runner/vmm/vmm.go`) boots 1 vCPU and 128 MiB,
-  with ceilings of 16 vCPUs and 8 GiB, and 4 hotplug disks.
-- **The memory.** spin plugs every workspace up to 2048 MiB through virtio-mem right after it
-  starts (`plugged=2048`). A guest left at 128 MiB runs its OOM killer through every boot (lab
-  44784196287).
+  with ceilings of 16 vCPUs and 8 GiB. Its hotplug controller has 16 targets, 4 of them for disks
+  attached while it runs and the rest for the extensions it boots with
+  (`internal/runner/qemu/spec.go`, `controllerTargets`, since spin's c0ffbc0 of 2026-11-20). The
+  probes boot 16 too. Against the 4 they booted before, 16 read within noise: first login −3.8
+  [−11.1, +4.5] (lab 44847364468, 2026-11-21), so the budget's rows taken with 4 stand.
+- **The memory.** spin sizes every workspace through virtio-mem right after it starts, to 2048 MiB
+  unless the workspace asks for more (`installconfig.MinMemoryMB`, the least and the default). The
+  probes plug 2048 (`plugged=2048`). A guest left at 128 MiB runs its OOM killer through every boot
+  (lab 44784196287).
 - **The login.** spin turns off systemd's vsock sshd (`systemd.ssh_auto=0`). It reaches a
   long-running `ssh.service` as root through its supervisor's forwarder to 127.0.0.1:22
   (`login=spin`). The image's own vsock lane is `login=lane`.
 - **Checkpoints.** A checkpoint is mapped-ram, saved and loaded on 8 multifd channels
   (`machine.DefaultChannels`). Before the RAM load, the resume reads the state ahead.
-- **The host.** spin's host sets THP defrag to `defer` (`docs/memory-and-disk.md`, "What the host
-  must set").
+- **The host.** spin's host must set THP defrag to `defer`, and spin does not set it
+  (`docs/memory-and-disk.md`, "What the host must set"). The probes leave the bench host's policy
+  as it is, unless `restore-together` is given `defrag=`.
 - **Still not spin's.** spin boots `/sbin/vminitd` from its own initrd before systemd. Its
   supervisor starts `ssh.service` when it installs the user CA. The probes boot the image's init.
 
@@ -89,7 +95,7 @@ started ahead. Each phase from the first row to the fourth has to shrink to reac
 
 | Phase | p50 | Source | How well known | For 100 ms |
 |---|---|---|---|---|
-| spin-machine's exec and its dial | 2.3 | `split`, lab 44809015139 (v20261120.03) | measured, one run | 1 |
+| spin-machine's exec and its dial | 2.3 | `split` (a probe on branch `restore-split-lab`, not on main), lab 44809015139 (v20261120.03) | measured, one run | 1 |
 | QMP round trips to `migrate-incoming` (~20 of them) | 8.3 | the same | measured, one run | 3 |
 | The RAM load (8 channels, 181 MiB of data, evicted) | 38.8 before the read-ahead; ~27 after it | the same; the read-ahead −11.9 to running (lab 44809512339) | measured, then by difference | 25 |
 | Device state and `cont` | 4.5 | the same | measured, one run | 3 |
@@ -121,14 +127,15 @@ them for boot time.
 | Item | Where | Earns (Δp50 of taking it back) | Evidence | Run |
 |---|---|---|---|---|
 | Kernel patches 0001-0005, 0007, 0008, 0010 | kernel/patches | cold +67.5 [+62.5, +72.4], with 0006, 0009 and 0011 (since deleted, worth nothing) | group A | lab 44818953987 |
-| `BLK_DEV_LOOP_MIN_COUNT=0`, `SERIAL_8250_RUNTIME_UARTS=1` | kernel/config | cold +5.3 [−3.2, +15.0]: inside the noise, but the upper bound does not rule out its ~2-4 ms ceiling | measured, 40 a side | lab 44839538785 |
-| `KERNEL_LZ4` | kernel/config | the alternatives lost: an uncompressed payload +9 ms in copies (laptop) | laptop | #326 |
-| `VT=n`, `X86_MSR=n`, `X86_CPUID=n` | kernel/config | function: dead code, less surface | - | kernel/Dockerfile |
+| `BLK_DEV_LOOP_MIN_COUNT=0`, `SERIAL_8250_RUNTIME_UARTS=1` | kernel/config-7.3-x86_64 | cold +5.3 [−3.2, +15.0]: inside the noise, but the upper bound does not rule out its ~2-4 ms ceiling | measured, 40 a side | lab 44839538785 |
+| `KERNEL_LZ4` | kernel/config-7.3-x86_64 | the alternatives lost: an uncompressed payload +9 ms in copies (laptop) | laptop | #326 |
+| `VT=n`, `X86_MSR=n`, `X86_CPUID=n` | kernel/config-7.3-x86_64 | function: dead code, less surface | - | kernel/Dockerfile |
 | qboot instead of SeaBIOS | qemu, `machine.DefaultBIOS` | cold +68.5 [+62.7, +71.7] | group F | lab 44818953987 |
 | QEMU 0001 (device creation in one memory transaction) with qboot's `pam.patch` | qemu/patches, qemu/qboot | cold +11.5 [+6.7, +20.2] together; neither is measured alone | group B | lab 44818953987 |
 | QEMU 0002, virtio-scsi `max_target`, which spin-machine passes | qemu/patches, machine | cold −8.9 [−15.5, −0.9] when it came in | measured | lab 44788216590 |
 | qboot `no-pci-walk.patch` | qemu/qboot | 5.0 ms nested in `firmware-stages`, not on a goal number | mechanism | lab 44535161371 |
 | qboot `mtrr.patch`, `write-pointer.patch` | qemu/qboot | function: write-back mappings, vmgenid | - | - |
+| `hpet=off` | machine | nothing on record: a timer the guest would enumerate and then not use | unmeasured | - |
 | ICH9 `sata=off`, `smbus=off` | machine | kernel to init 62.3 → 60.6 (09-08) | laptop, 400 boots | `fa1803f` |
 | Hotplug disks on virtio-scsi, not PCIe root ports | machine | boot −31, attach 135 → 1.5 (09-29) | runner | #25 |
 | Every machine started held, so QEMU can start ahead | machine | the "QEMU started ahead" rows: ~28 ms cold, ~25 restored | measured | report 44811347183 |
@@ -138,7 +145,7 @@ them for boot time.
 | `no_timer_check`, `tsc=reliable` | machine/cmdline.go | nothing on record (09-07) | unmeasured | - |
 | `TERM=dumb` | machine/cmdline.go | 687 → 19 ms to systemd's first line (09-10), while systemd queries the console | laptop, mechanism | `b5f361f` |
 | `rootfstype=ext4` | machine/cmdline.go | lead (11-19) | laptop | - |
-| `quiet`, `loglevel=3`, `panic=1`, `net.ifnames=0`, cgroup v2, `memhp_default_state` | machine/cmdline.go | console, function | - | - |
+| `quiet`, `loglevel=3`, `panic=1`, `net.ifnames=0`, `biosdevname=0`, cgroup v2, `memhp_default_state` | machine/cmdline.go | console, function | - | - |
 | systemd built from Ubuntu's source with the `stage1` profile | image/systemd | first login −47, −38, −47: no BPF verifier in PID 1 | ladder | labs 44531842773, 44537549305, 44538877783 |
 | systemd's tools linked static | image/systemd | −10 and −1, inside the noise | ladder | the same |
 | SELinux off, `pcre2` on | image/systemd | function | - | - |
@@ -153,7 +160,7 @@ them for boot time.
 | Sessions of class `user-early-light` | configure-system.sh | lane 472 vs 436 | lane, mechanism: a root session would start `user@0` | lab 43518044150 |
 | Host keys made from the boot's first dispatch | spin-machine-sshd-keygen.service | lane 489 → 468 | lane | lab 43483372488 |
 | MOTD and `pam_motd` off; `mlkem768x25519-sha256` alone | configure-system.sh | −12 on the first login; 104 → 40 a login against sntrup761 | ladder, mechanism: a root login runs the same PAM and kex | #240, lab 43479854381 |
-| timesyncd, timedated, firstboot, machine-id-commit masked; volatile journald; the timeouts; docker and containerd by socket; `nsswitch` | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity | - | - |
+| timedated, firstboot, machine-id-commit masked; volatile journald; the timeouts; docker and containerd by socket; `nsswitch` | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity | - | - |
 | `10-seats.conf`, the getty's TERM, `/tmp`'s size | image drop-ins | function | - | - |
 
 **What only the lane uses.** spin's path earns nothing from `sshd-vsock.socket.d/10-lane.conf`,
@@ -256,7 +263,7 @@ and a row measured in another shape than spin's has such a reason.
 | Keygen wanted by multi-user.target | 518 vs 514 | ladder | lab 43312419007 | 11-12 |
 | Mask sshd-socket- and run-generators | login 489, no change | ladder | lab 43483372488 | 11-13 |
 | Mask 11 always-failing units | 484, no change | ladder | lab 43483372488 | 11-13 |
-| Mask `modprobe@drm` (logind is ordered after it) | 327/345 vs 328/337 | ladder | lab 44558035927 | 11-19 |
+| Mask `modprobe@drm` (logind is ordered after it) | 327/345 vs 328/337. It is masked all the same, since 09-07, one of the 16 masks of group C-masks | ladder | lab 44558035927 | 11-19 |
 | Mask `systemd-udev-load-credentials` | −8 then −6 ms, p95 unchanged: not separable at 20 boots | ladder | labs 44537549305, 44538877783 | 11-19 |
 | systemd with `-Db_lto=true` | Ubuntu already passes `-flto=auto`: the same packages | - | image/systemd/Dockerfile | 11-19 |
 | Masks of 15 units and a generator the image does not have | they masked nothing. Deleted without a run; image/build.sh refuses such a mask | - | #352 | 11-21 |
@@ -267,7 +274,7 @@ and a row measured in another shape than spin's has such a reason.
 | Idea | Result | Shape | Source | Date |
 |---|---|---|---|---|
 | sntrup761 (OpenSSH's default kex) | 104 vs 40 ms a login | ladder | #245, lab 43479854381 | 11-13 |
-| The vsock socket and sshd@ without default dependencies | no sooner; dropped 7 of 22 first connections | laptop | `c3c0fd1` | 11-13 |
+| The vsock socket and sshd@ without default dependencies | no sooner; dropped 7 of 22 first connections. Carried since with the lane's other drop-ins (`sshd-vsock.socket.d`, `sshd@.service.d`), which the lane kept together (lab 43518915618) | laptop | `c3c0fd1` | 11-13 |
 | CPUWeight/IOWeight/Nice on the first login's lane | −2 ms over the filtered coldplug; second login 63 vs 45 | lane | lab 43518915618 | 11-13 |
 | One sshd for every connection (vsock `Accept=no`, `sshd -D` early) | first login 382 vs 381; second 40 vs 48 | lane | lab 43524721490 | 11-13 |
 | A login without pam_systemd (a bound) | 380 vs 436, but no session and no XDG_RUNTIME_DIR | lane | lab 43518044150 | 11-13 |
@@ -305,8 +312,8 @@ The rows are ranked by ceiling. A row stays here until it is decided, and then m
 | spin's forwarder started without default dependencies, as the image starts ssh.service | cold | −51 more than the image's half alone (−68.5 against −17.4, lab 44807457606) | `prestart` with `--edit forwarder-early`, cold and both restore rows | blocked: restore p95 tails of 430-545 ms with it (lab 44808050222), unexplained. A proposal for spin's supervisor once explained |
 | A login without OpenSSH's exec per connection and PAM | both | a warm login, ~25-43 ms, is in both numbers | a bound first: `prestart` with the login replaced | lead (log.md, 11-20, "spin's login, spin's memory"). spin's path already runs one sshd, and PAM and pam_systemd are what spin's sessions are made of |
 | The budget's PID 1 to sshd: unit loading | cold | ~32 ms of loading 192 units, ~21 ms of CPU (11-19, image/systemd/experiments/pid1-marks.patch) | `ssh-first`, an arm per unit set reached at boot | open: it shrinks only with fewer units reached at boot |
-| Carried items never measured alone: QEMU 0001 and qboot's `pam.patch` apart; `no_timer_check`, `tsc=reliable`; systemd's static tools; `-O ^orphan_file`; `rootfstype=ext4`; the lane's drop-ins on spin's path | cold | each ≤ a few ms; B together +11.5 | rule 5, an arm each, 40 boots | open. The static tools and `orphan_file` need an image build (`--systemd` builds only an experiment patch) |
-| The no-systemd floor, each release | a bound | how much of the cold number is systemd's to give back: 445 → 240 in spin's shape | `floor` on the release | last measured 11-20 (lab 44750322384), before the early login |
+| Carried items never measured alone: QEMU 0001 and qboot's `pam.patch` apart; `no_timer_check`, `tsc=reliable`; `hpet=off`; systemd's static tools; `-O ^orphan_file`; `rootfstype=ext4`; the lane's drop-ins on spin's path | cold | each ≤ a few ms; B together +11.5 | rule 5, an arm each, 40 boots | open. The static tools and `orphan_file` need an image build (`--systemd` builds only an experiment patch) |
+| The no-systemd floor, each release | a bound | how much of the cold number is systemd's to give back: 445 → 240 in spin's shape | `ssh-first` on the release with `--edit floor --append init=/usr/local/sbin/spin-floor` and `login=lane` | last measured 11-20 (lab 44750322384), before the early login |
 | The restore with more than 2 GiB of RAM | restore | unmeasured (#242's checklist) | `restore-first` with `plugged` above 2048 | open |
 
 The floor is a bound and never a candidate: systemd stays (AGENTS.md, "What must not break").

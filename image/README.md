@@ -74,8 +74,9 @@ read before it wins, because sshd keeps the first value it reads.
 
 What a first SSH login goes through starts from the boot's first dispatch, ordered only by what
 it needs: the vsock socket and the per-connection sshd (after the host keys), dbus, logind, and
-spin's runtime directory and manager. None of them waits for `sysinit.target` or `basic.target`
-(`etc/systemd/system/*.d/10-lane.conf`). Two settings make that worth it:
+the user's runtime directory and manager. None of them waits for `sysinit.target` or `basic.target`
+(`etc/systemd/system/*.d/10-lane.conf`, and a copy of `dbus.socket` without its
+`After=sysinit.target`, which a drop-in cannot take back). Two settings make that worth it:
 
 - **No `/run/nologin` at boot.** Until `systemd-user-sessions` removes it late in the boot,
   `pam_nologin` refuses every user, and in the lane the first login arrives before that. Shutting
@@ -107,7 +108,7 @@ console prompt 51 ms later (lab 44805051310, 2026-11-21).
 ## Looking inside
 
 ```
-spin-machine-dev shell                   # systemd; the console autologins as root
+spin-machine-dev shell                   # systemd, to a console login prompt
 spin-machine-dev shell --init /bin/bash   # a bare shell, for when systemd is the broken thing
 ```
 
@@ -145,8 +146,9 @@ from outside:
   including the per-connection `sshd@.service` that `systemd-ssh-generator` starts for vsock
   and `ssh .host`: without that, those connections found no host keys and were dropped. It
   starts from the boot's first dispatch, wanted by `sysinit.target` without default
-  dependencies, so the keys exist before the vsock socket listens and the first login does not
-  wait for them. A guest checkpointed after it has booted therefore carries its host keys, and
+  dependencies, so the keys are made while the rest of the boot runs and not inside the first
+  login. The vsock socket listens from the first dispatch too (the lane, above), and a
+  connection that arrives before the keys exist waits for them. A guest checkpointed after it has booted therefore carries its host keys, and
   whoever restores it hands each VM its own.
 - **Two thirds of the boot was systemd asking the console questions.** The kernel execs
   `/sbin/init` at 59 ms and systemd's first log line arrived at 852, with nothing running in

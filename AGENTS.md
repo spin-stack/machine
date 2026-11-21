@@ -21,14 +21,16 @@ such as the console prompt, a phase, an initcall or a unit's time, is a tool for
 of the two moved, never a target of its own. `docs/log.md` shows what optimising the others cost.
 
 `docs/boot-time.md` says where both stand and what each of their phases costs, and
-`docs/measuring.md` says how a number is taken and read. It also says why the cold number cannot reach 100 ms by userspace work alone:
-QEMU, the firmware and the kernel spend ~140 ms before PID 1 runs (its cold budget).
+`docs/measuring.md` says how a number is taken and read. `docs/boot-time.md` also says why the
+cold number cannot reach 100 ms by userspace work alone: QEMU, the firmware and the kernel spend
+~140 ms before PID 1 runs (its cold budget, 2026-11-20).
 
 **Every part of the machine may be changed, without limit.** The kernel, systemd, QEMU and qboot
 are all ours to patch when a patch serves the goal. Carry a patch where the tree keeps that
 part's patches today: the kernel's in `kernel/patches`, QEMU's in `qemu/patches`, qboot's beside
 its README in `qemu/qboot`, and systemd's in `image/systemd`, whose Dockerfile rebuilds Ubuntu's
-source package. An experiment's systemd patch goes in `image/systemd/experiments`.
+source package. systemd carries no patch yet, so the first one also adds the step that applies it,
+as `kernel/Dockerfile` does. An experiment's systemd patch goes in `image/systemd/experiments`.
 
 ## What must not break
 
@@ -127,9 +129,9 @@ full method. These are its rules.
 - **Accept interfaces, return structs**, and only introduce an interface when there is a
   second implementation or a test that genuinely needs one.
 - **Make the zero value useful** where it is cheap to do so, and validate where it is not.
-  `Spec.validate`, which `Args` runs, exists because a disk with no format is a guest that
-  boots and finds a disk full of nothing. That is worth a check at the boundary, not a
-  sensible default.
+  `Disk.validate`, which every bind runs, refuses an image with no format because a guessed
+  format is how an image the guest can write gets read as another one. That is worth a check
+  at the boundary, not a sensible default.
 - **Name things for what they are** to the reader, not for their type. `Shape`, `Spec`,
   `Fingerprint` are the words used when talking about this machine. Use those.
 
@@ -198,8 +200,9 @@ same thing.
   a change to `machine/` is invisible until the tool is rebuilt. `spin-machine args` shows
   the command line that will actually run.
 - **The base is safe by default.** Without `--disk`, `boot` puts the base image under a
-  throwaway overlay (QEMU's `-snapshot`), and root is `/dev/vda`. `--disk` opens the named
-  file as given, so point it at an overlay and never at `rootfs.qcow2`.
+  throwaway qcow2 overlay, made in a directory of its own and deleted once it is open, and
+  root is `/dev/vda`. `--disk` opens the named file as given, so point it at an overlay and
+  never at `rootfs.qcow2`.
 - **Driving a guest.** `--init /bin/sh` gives a shell with nothing mounted. Its console is
   on stdin/stdout, or on a socket with `--console unix:PATH,server=on,wait=off`. `--qmp
   PATH` opens the socket that `attach`, `detach`, `save` and the others talk to.

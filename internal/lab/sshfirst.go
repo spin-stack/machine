@@ -51,6 +51,9 @@ func (sshFirst) Metrics() []Metric {
 		{"console_prompt", "ms", "the serial console's prompt, the getty an echo"},
 		{"curve25519_in", "count", "1 when a client offering only curve25519 got in, which the image refuses"},
 		{"qemu_rss", "MiB", "QEMU's resident memory after the second login: a diagnostic, not a target"},
+		{"qemu_rss_anon", "MiB", "of qemu_rss, anonymous memory: each machine's own"},
+		{"qemu_rss_file", "MiB", "of qemu_rss, mapped files: shared between the machines that map them"},
+		{"qemu_rss_shmem", "MiB", "of qemu_rss, shared memory, such as guest RAM in a memfd"},
 	}
 }
 
@@ -122,8 +125,11 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	}
 	// spin-machine boot execs QEMU in its own process, so the machine's pid is QEMU's.
 	if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", mc.PID())); err == nil {
-		if mib, ok := rssMiB(string(b)); ok {
-			m.Record("qemu_rss", mib)
+		for metric, field := range map[string]string{"qemu_rss": "VmRSS", "qemu_rss_anon": "RssAnon",
+			"qemu_rss_file": "RssFile", "qemu_rss_shmem": "RssShmem"} {
+			if mib, ok := statusMiB(string(b), field); ok {
+				m.Record(metric, mib)
+			}
 		}
 	}
 	// Whether sshd turns away a client with no ML-KEM, as the image's drop-in has it do. A release

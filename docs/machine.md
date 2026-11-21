@@ -10,7 +10,7 @@ spec := rel.Spec()                                        // QEMU, Kernel, Firmw
 spec.Initrd = …                                           // the caller's: a release carries none
 spec.BootCPUs = 2
 spec.Memory = machine.Memory{SizeMB: 2048}
-spec.Disks = []machine.Disk{{Path: overlay, Format: "qcow2"}}
+spec.Disks = []machine.DiskSlot{{Serial: "root"}}         // a place: the images come at Boot
 spec.VsockCID = 7
 spec.Monitors = []machine.Monitor{{Socket: "/run/vm/qmp.sock"}}
 spec.Cmdline = machine.DefaultCmdline()
@@ -19,9 +19,10 @@ args, err := spec.Args()          // the QEMU command line
 fp, err := spec.Fingerprint()     // which checkpoints this machine may resume
 ```
 
-`Args` validates first. Each spec it refuses would otherwise boot and be subtly wrong: a disk
-with no format, a monitor that is both a path and a descriptor, or a kernel command line the
-kernel would truncate.
+`Args` validates first. Each spec it refuses would otherwise boot and be subtly wrong: two disk
+places with one serial, a monitor that is both a path and a descriptor, or a kernel command line
+the kernel would truncate. A disk's images arrive later, at `VM.Boot`, `VM.Resume` or
+`VM.AttachDisk`, and each refuses an image whose format is not qcow2 or raw rather than guess it.
 
 ## What is load-bearing and invisible from outside
 
