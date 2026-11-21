@@ -265,6 +265,13 @@ the probes' targets in `boot/`. CI calls what a developer calls. A second defini
 the gate is, kept in a workflow file, goes out of step with the first exactly when a check
 is added.
 
+Before pushing, run `go tool task lint test mutate` after `git fetch origin`. It gives CI's
+verdict whatever the checkout has built. `test` and `mutate` hide the release tree, as CI has
+none when they run. A test keeps its state in a directory of its own, never in the checkout's
+`_output`. `task mutate` links that directory into every copy it runs tests in at once, so two
+tests writing there fail each other and refuse edits CI lets survive (#413). `task test` fails
+on a test that makes `_output` in a checkout that had none.
+
 ## Licence and third-party source
 
 Apache-2.0. New Go files carry `// SPDX-License-Identifier: Apache-2.0`.

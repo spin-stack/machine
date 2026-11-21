@@ -132,6 +132,18 @@ func runLab(t *testing.T, args ...string) (string, string, error) {
 	return out.String(), errOut.String(), err
 }
 
+// outOfTheCheckout points --out at a directory of the test's own, never the checkout's _output.
+// `task mutate` links an ignored directory into every copy it runs tests in, side by side, so
+// the checkout's _output is one directory for all of them: two lab runs making labtest-a there
+// failed each other, and the failure refused edits CI let survive (#413).
+func outOfTheCheckout(t *testing.T) string {
+	t.Helper()
+	was := globals.out
+	t.Cleanup(func() { globals.out = was })
+	globals.out = t.TempDir()
+	return globals.out
+}
+
 func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
 	base := fakeRelease(t)
 	t.Setenv("TMPDIR", "")
@@ -141,11 +153,7 @@ func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
 	if err := os.WriteFile(os.Getenv("GITHUB_STEP_SUMMARY"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	trees := filepath.Join("..", "..", "_output", "trees")
-	t.Cleanup(func() {
-		_ = os.RemoveAll(filepath.Join(trees, "labtest-a"))
-		_ = os.RemoveAll(filepath.Join(trees, "lost"))
-	})
+	state := outOfTheCheckout(t)
 	out := t.TempDir()
 
 	stdout, _, err := runLab(t, "run", "counter", "--tree", "labtest-a=--from "+base, "--reps", "2", "--opt", "cpus=1", "--out", out)
@@ -174,24 +182,17 @@ func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
 		t.Errorf("show: %v\n%s", err, stdout)
 	}
 
-	// With no --out, the result goes under _output/lab/results, named for when and what; with no
-	// --reps, ten of each.
-	results := filepath.Join("..", "..", "_output", "lab", "results")
-	before, _ := filepath.Glob(filepath.Join(results, "*-counter"))
+	// With no --out of its own, the result goes under the verbs' state in lab/results, named for
+	// when and what; with no --reps, ten of each.
 	if _, _, err := runLab(t, "run", "counter", "labtest-a"); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := filepath.Glob(filepath.Join(results, "*-counter"))
-	for _, d := range after {
-		if !slices.Contains(before, d) {
-			t.Cleanup(func() { _ = os.RemoveAll(d) })
-			if r, err := lab.ReadResult(filepath.Join(d, "result.json")); err != nil || r.Reps != 10 || len(r.Samples) != 10 {
-				t.Errorf("the default run's result: %v reps, %v", r, err)
-			}
-		}
+	made, _ := filepath.Glob(filepath.Join(state, "lab", "results", "*-counter"))
+	if len(made) != 1 {
+		t.Fatalf("results named *-counter: %v, want one", made)
 	}
-	if len(after) != len(before)+1 {
-		t.Errorf("results named *-counter: %d before, %d after", len(before), len(after))
+	if r, err := lab.ReadResult(filepath.Join(made[0], "result.json")); err != nil || r.Reps != 10 || len(r.Samples) != 10 {
+		t.Errorf("the default run's result: %v reps, %v", r, err)
 	}
 	if _, _, err := runLab(t, "run", "nope", "labtest-a"); err == nil || !strings.Contains(err.Error(), `no probe "nope"`) {
 		t.Errorf("an unknown probe: %v", err)
@@ -218,13 +219,11 @@ func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
 
 func TestLabTreeMakesANamedTreeAndSaysWhere(t *testing.T) {
 	base := fakeRelease(t)
-	dir := filepath.Join("..", "..", "_output", "trees", "labtest-tree")
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	abs := filepath.Join(outOfTheCheckout(t), "trees", "labtest-tree")
 	stdout, _, err := runLab(t, "tree", "labtest-tree", "--from", base, "--append", "quiet")
 	if err != nil {
 		t.Fatal(err)
 	}
-	abs, _ := filepath.Abs(dir)
 	if strings.TrimSpace(stdout) != abs {
 		t.Errorf("tree printed %q, want %q", stdout, abs)
 	}

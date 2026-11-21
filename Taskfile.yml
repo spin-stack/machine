@@ -103,13 +103,28 @@ tasks:
   test:
     desc: Test the machine definition, under the race detector, with its coverage in coverage.out and held to a floor.
     vars:
-      # Below today's 84.7% - what CI measures, where `task test` runs before any QEMU is in
-      # _output and the tests that ask one skip; a checkout that has one reads about a point more.
-      # Raise it when the number has moved up and stayed; never lower it to let a change through,
-      # or it is a gate that reports whatever it is given.
+      # Below today's number. Raise it when the number has moved up and stayed; never lower it to
+      # let a change through, or it is a gate that reports whatever it is given.
       COVERAGE_FLOOR: 80
+    # No release tree, as CI has none when it runs this: the tests that ask for a QEMU skip, and
+    # a checkout that has one built gives CI's verdict and CI's coverage, not a point more
+    # (09-28's floor broke main that way). `spin-machine-dev verify args` is where they run. The
+    # boot/ Taskfile's own SPIN_MACHINE_OUTPUT reaches every task, and this one wins over it.
+    env:
+      SPIN_MACHINE_OUTPUT: /nonexistent
     cmds:
-      - go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      # A test's state in the checkout's _output is shared: `task mutate` links that ignored
+      # directory into every copy it runs tests in at once, and two tests colliding there refused
+      # edits CI let survive (#413). Only a checkout with none, as CI's is here, sees one made.
+      - |
+        set -eu
+        had=$([ -e _output ] && echo yes || echo no)
+        go test -race -covermode=atomic -coverprofile=coverage.out ./...
+        if [ "$had" = no ] && [ -e _output ]; then
+          echo "a test wrote into the checkout's _output; give it a directory of its own:" >&2
+          find _output >&2
+          exit 1
+        fi
       # The anchor makes it the total line, not a function with "total" in its name.
       - |
         total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}' | tr -d '%')
@@ -178,6 +193,9 @@ tasks:
       Break what the change against BASE touched and fail on an edit no test refuses
       (task mutate BASE=origin/main, the default). In CI the base is what the change is to: a
       pull request's target branch, or on a push what the push replaced (BEFORE).
+    # As test's: the verdict is CI's, whatever this checkout has built.
+    env:
+      SPIN_MACHINE_OUTPUT: /nonexistent
     cmds:
       - |
         set -euo pipefail
