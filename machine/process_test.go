@@ -66,7 +66,9 @@ func fakeQEMUMain(mode string, args []string) int {
 		}
 		switch args[i-1] {
 		case "-chardev":
-			if m := regexp.MustCompile(`^socket,id=\w+,fd=(\d+),server=on`).FindStringSubmatch(a); m != nil {
+			// A QEMU that panics never serves its monitors: one served first would answer the
+			// handshake before the console is written.
+			if m := regexp.MustCompile(`^socket,id=\w+,fd=(\d+),server=on`).FindStringSubmatch(a); m != nil && mode != "panics" {
 				n, _ := strconv.Atoi(m[1])
 				l, err := net.FileListener(os.NewFile(uintptr(n), "monitor"))
 				if err != nil {
