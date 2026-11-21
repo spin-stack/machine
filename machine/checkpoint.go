@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -176,6 +177,22 @@ type migrationState struct {
 type migrationInfo struct {
 	Status    migrationStatus `json:"status"`
 	ErrorDesc string          `json:"error-desc"`
+	// Downtime and TotalTime are in milliseconds.
+	Downtime  int64 `json:"downtime"`
+	TotalTime int64 `json:"total-time"`
+	RAM       struct {
+		Transferred int64 `json:"transferred"`
+	} `json:"ram"`
+}
+
+// Cost is what a checkpoint cost the guest.
+type Cost struct {
+	// Paused is how long the guest was stopped.
+	Paused time.Duration
+	// Total is how long the save took, from its start to its end.
+	Total time.Duration
+	// RAM is how many bytes of the guest's memory were written.
+	RAM int64
 }
 
 // migrationNews is MIGRATION's data.
@@ -241,30 +258,33 @@ func loadEnded(st migrationStatus) error {
 // added while the machine ran are read before the migration starts, because QEMU refuses a query
 // of some of them once one is under way. The machine's record is read while it runs: QEMU answers
 // its monitors while it writes the guest's RAM.
-func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, seal func(context.Context) error) (Saved, error) {
+//
+// Its Cost is what QEMU reports of the migration once it has completed, asked once after it: the
+// state still says what the save cost. A checkpoint is not on either goal number's clock.
+func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, seal func(context.Context) error) (Saved, Cost, error) {
 	var a added
 	var err error
 	if a.CPUs, err = m.addedCPUs(ctx); err != nil {
-		return Saved{}, fmt.Errorf("checkpointing: %w", err)
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	if a.Disks, err = m.hotDisks(ctx); err != nil {
-		return Saved{}, fmt.Errorf("checkpointing: %w", err)
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	again, err := json.Marshal(a)
 	if err != nil {
-		return Saved{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
 	}
 	channels := save.channels()
 	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1, events: true}
 	if err := m.setCapabilities(ctx, caps); err != nil {
-		return Saved{}, fmt.Errorf("checkpointing: %w", err)
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	params := migrationParameters{MaxBandwidth: checkpointBandwidth}
 	if channels > 1 {
 		params.MultifdChannels = channels
 	}
 	if _, err := qmp.Do(ctx, m.c, migrateSetParameters, params); err != nil {
-		return Saved{}, fmt.Errorf("checkpointing: %w", err)
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	at := m.expectMigration(preSwitchover, completed)
 	defer at.Stop()
@@ -280,13 +300,18 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		// A migration left at pre-switchover holds the guest paused with nobody to continue
 		// it; a cancel with none running succeeds.
 		_, cancelErr := qmp.Do(context.WithoutCancel(ctx), m.c, migrateCancel, qmp.None{})
-		return Saved{}, errors.Join(fmt.Errorf("checkpointing: %w", err), cancelErr)
+		return Saved{}, Cost{}, errors.Join(fmt.Errorf("checkpointing: %w", err), cancelErr)
 	}
 	from, err := m.Target(ctx)
 	if err != nil {
-		return Saved{}, fmt.Errorf("checkpointing: %w", err)
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	return Saved{Format: FormatMappedRAM, From: from, Added: again}, nil
+	info, err := qmp.Do(ctx, m.c, queryMigrate, qmp.None{})
+	if err != nil {
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: reading what it cost: %w", err)
+	}
+	cost := Cost{Paused: time.Duration(info.Downtime) * time.Millisecond, Total: time.Duration(info.TotalTime) * time.Millisecond, RAM: info.RAM.Transferred}
+	return Saved{Format: FormatMappedRAM, From: from, Added: again}, cost, nil
 }
 
 // switchover runs seal at pre-switchover and waits for the migration to complete. at is the wait
@@ -399,11 +424,11 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 			return fmt.Errorf("resuming: reading what the checkpoint says was added: %w", err)
 		}
 	}
-	st, err := m.status(ctx)
+	st, err := m.Status(ctx)
 	if err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	if st != inmigrate {
+	if st != Inmigrate {
 		return fmt.Errorf("resuming into a machine that is %s: only one started with Spec.Restore takes a checkpoint", st)
 	}
 	if err := m.bindAll(ctx, disks, again.Disks); err != nil {
@@ -436,10 +461,10 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		return fmt.Errorf("resuming: %w", err)
 	}
 	// A machine saved stopped comes back stopped: QEMU carries the source's run state across.
-	if st, err = m.status(ctx); err != nil {
+	if st, err = m.Status(ctx); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	if st == paused {
+	if st == Paused {
 		return m.Continue(ctx)
 	}
 	return nil

@@ -313,6 +313,15 @@ func (m *QEMU) cpuSlots(ctx context.Context) ([]cpuSlot, error) {
 	return slots, nil
 }
 
+// CPUs is how many vCPUs the machine has: the ones it was started with and the ones added since.
+func (m *QEMU) CPUs(ctx context.Context) (int, error) {
+	cpus, err := qmp.Do(ctx, m.c, queryCPUsFast, qmp.None{})
+	if err != nil {
+		return 0, fmt.Errorf("listing the machine's vCPUs: %w", err)
+	}
+	return len(cpus), nil
+}
+
 // SetCPUs adds vCPUs into the first free slots, or removes the last ones added, until there are
 // n. A removal returns once QEMU has let the vCPU go, which waits on the guest offlining it.
 func (m *QEMU) SetCPUs(ctx context.Context, n int) error {

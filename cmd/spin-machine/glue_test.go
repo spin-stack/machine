@@ -106,6 +106,8 @@ var readRecordAsked = []string{"query-cpus-fast", "qom-list-get", "query-cpu-mod
 // what it asks, and what it makes of a refusal.
 func TestCommandsOverTheMonitor(t *testing.T) {
 	no := `{"error": {"class": "GenericError", "desc": "no"}}`
+	// virtio-mem's block and the 1 GiB it may plug, as qom-list-get answers them.
+	growth := `{"return": [{"properties": [{"name": "block-size", "type": "size", "value": 2097152}]}, {"properties": [{"name": "size", "type": "uint64", "value": 1073741824}]}]}`
 	var out bytes.Buffer
 	for _, tc := range []struct {
 		name    string
@@ -144,23 +146,23 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		wantErr: `no disk "ext"`,
 	}, {
 		name: "memory reached",
-		replies: []string{ok, `{"return": {"base-memory": 536870912}}`, `{"return": 1073741824}`, ok,
-			`{"return": {"base-memory": 536870912, "plugged-memory": 536870912}}`},
+		replies: []string{ok, `{"return": {"base-memory": 536870912}}`, growth, ok,
+			`{"return": {"base-memory": 536870912, "plugged-memory": 536870912}}`, growth},
 		do: func(_ *testing.T, sock string) error {
 			return memory(memoryFlags{qmp: sock, totalMB: 1024, timeout: time.Minute}, &out)
 		},
-		asked:   []string{"query-memory-size-summary", "qom-get", "qom-set", "query-memory-size-summary"},
+		asked:   []string{"query-memory-size-summary", "qom-list-get", "qom-set", "query-memory-size-summary", "qom-list-get"},
 		printed: "1024 MiB in",
 	}, {
 		name:    "memory above the ceiling",
-		replies: []string{ok, `{"return": {"base-memory": 536870912}}`, `{"return": 1073741824}`},
+		replies: []string{ok, `{"return": {"base-memory": 536870912}}`, growth},
 		do: func(_ *testing.T, sock string) error {
 			return memory(memoryFlags{qmp: sock, totalMB: 4096, timeout: time.Minute}, &out)
 		},
 		wantErr: "512 MiB to 1536 MiB",
 	}, {
 		name:    "memory that cannot be read back",
-		replies: []string{ok, `{"return": {"base-memory": 536870912}}`, `{"return": 1073741824}`, ok, no},
+		replies: []string{ok, `{"return": {"base-memory": 536870912}}`, growth, ok, no},
 		do: func(_ *testing.T, sock string) error {
 			return memory(memoryFlags{qmp: sock, totalMB: 1024, timeout: time.Minute}, &out)
 		},

@@ -6,6 +6,8 @@ import (
 	"context"
 	"path/filepath"
 	"time"
+
+	"github.com/spin-stack/machine/machine"
 )
 
 // prestart is whether a QEMU started ahead of the workspace moves either of the goal's numbers.
@@ -104,7 +106,7 @@ func bootAhead(m *Measurement) error {
 		return err
 	}
 	defer mc.Stop()
-	if err := settled(qmp, "prelaunch"); err != nil {
+	if err := settled(qmp, machine.Prelaunch); err != nil {
 		return err
 	}
 	t0 := time.Now()
@@ -138,7 +140,7 @@ func restoreAhead(m *Measurement, channels ...string) error {
 		return err
 	}
 	defer mc.Stop()
-	if err := settled(qmp, "inmigrate"); err != nil {
+	if err := settled(qmp, machine.Inmigrate); err != nil {
 		return err
 	}
 	t0 := time.Now()

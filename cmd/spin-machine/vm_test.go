@@ -27,7 +27,7 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 	completed := `{"event": "MIGRATION", "data": {"status": "completed"}, "timestamp": {"seconds": 1, "microseconds": 2}}` + "\n" + ok
 
 	saving := newMonitor(t, slices.Concat([]string{ok, `{"return": []}`, `{"return": []}`, ok, ok, `{"return": {"fdset-id": 1}}`, completed},
-		readRecord, []string{ok, ok})...)
+		readRecord, []string{ok, `{"return": {"status": "completed", "downtime": 12, "total-time": 345, "ram": {"transferred": 104857600}}}`, ok})...)
 	if err := save(saveFlags{qmp: saving.socket, to: state, channels: 4, timeout: time.Minute}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 		}
 	}
 	want := slices.Concat([]string{"qmp_capabilities", "query-hotpluggable-cpus", "qom-list", "migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate"},
-		readRecordAsked, []string{"remove-fd", "quit"})
+		readRecordAsked, []string{"remove-fd", "query-migrate", "quit"})
 	if !slices.Equal(asked, want) {
 		t.Errorf("save asked %v, want %v", asked, want)
 	}

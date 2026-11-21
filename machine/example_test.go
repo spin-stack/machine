@@ -95,12 +95,13 @@ func Example() {
 		log.Fatal(err)
 	}
 	defer to.Close()
-	saved, err = m.Checkpoint(ctx, to, machine.SaveOptions{}, func(context.Context) error {
+	saved, cost, err := m.Checkpoint(ctx, to, machine.SaveOptions{}, func(context.Context) error {
 		return nil // where the caller seals the disks to match the state
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("the guest paused %v", cost.Paused)
 	if err := m.Continue(ctx); err != nil {
 		log.Fatal(err)
 	}
