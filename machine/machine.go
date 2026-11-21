@@ -333,7 +333,7 @@ type Spec struct {
 	// Accel is what executes the guest's instructions. Empty is "kvm".
 	//
 	// "tcg" is software emulation, for a machine with no /dev/kvm: a CI runner, a laptop
-	// outside the kvm group. It runs the same guest perhaps fifty times slower, which is
+	// outside the kvm group. It reaches the first login ~17 times slower (lab 44848049631, 2026-11-21), which is
 	// the whole reason it is stated rather than fallen back to — a host that quietly
 	// emulated would present as a fleet that is inexplicably slow, not as one that failed.
 	//

@@ -312,7 +312,8 @@ The rows are ranked by ceiling. A row stays here until it is decided, and then m
 | spin's forwarder started without default dependencies, as the image starts ssh.service | cold | −51 more than the image's half alone (−68.5 against −17.4, lab 44807457606) | `prestart` with `--edit forwarder-early`, cold and both restore rows | blocked: restore p95 tails of 430-545 ms with it (lab 44808050222), unexplained. A proposal for spin's supervisor once explained |
 | A login without OpenSSH's exec per connection and PAM | both | a warm login, ~25-43 ms, is in both numbers | a bound first: `prestart` with the login replaced | lead (log.md, 11-20, "spin's login, spin's memory"). spin's path already runs one sshd, and PAM and pam_systemd are what spin's sessions are made of |
 | The budget's PID 1 to sshd: unit loading | cold | ~32 ms of loading 192 units, ~21 ms of CPU (11-19, image/systemd/experiments/pid1-marks.patch) | `ssh-first`, an arm per unit set reached at boot | open: it shrinks only with fewer units reached at boot |
-| Carried items never measured alone: QEMU 0001 and qboot's `pam.patch` apart; `no_timer_check`, `tsc=reliable`; `hpet=off`; systemd's static tools; `-O ^orphan_file`; `rootfstype=ext4`; the lane's drop-ins on spin's path | cold | each ≤ a few ms; B together +11.5 | rule 5, an arm each, 40 boots | open. The static tools and `orphan_file` need an image build (`--systemd` builds only an experiment patch) |
+| Carried items never measured alone: kernel patches 0005, 0007, 0008 and 0010 each (group A is +67.5 together); `pci=lastbus=0` (2026-09, before patches 0004 and 0010); logind's early varlink socket (measured on 2 vCPUs); QEMU 0001 and qboot's `pam.patch` apart; `no_timer_check`, `tsc=reliable`; `hpet=off`; systemd's static tools; `-O ^orphan_file`; `rootfstype=ext4`; the lane's drop-ins on spin's path | cold | each ≤ a few ms; B together +11.5 | rule 5, an arm each, 40 boots | open. The static tools and `orphan_file` need an image build (`--systemd` builds only an experiment patch) |
+| What functional items cost, last measured on another machine: BPF JIT and BTF (+21.4 ms to "Freeing", 09-07, a vmlinux through PVH, before the ftrace patches), lockdown at confidentiality (nothing told from noise, 10-01, a host at load 6-10) | cold | a few ms each, unknown in spin's shape | `ssh-first` with a `--kernel` built without each, 20 boots | open. They stay for function, so a number says what they cost and decides nothing |
 | The no-systemd floor, each release | a bound | how much of the cold number is systemd's to give back: 445 → 240 in spin's shape | `ssh-first` on the release with `--edit floor --append init=/usr/local/sbin/spin-floor` and `login=lane` | last measured 11-20 (lab 44750322384), before the early login |
 | The restore with more than 2 GiB of RAM | restore | unmeasured (#242's checklist) | `restore-first` with `plugged` above 2048 | open |
 
@@ -328,7 +329,9 @@ No lab run answers these questions.
 - **What seeds the guest's RNG without virtio-rng?** It has to be answered before the removal is
   measured.
 - **Host keys in checkpoints.** A guest checkpointed after boot carries host keys, so the restorer
-  must re-key (`image/README.md`, #248). This is a consumer contract to confirm in spin.
+  must re-key (`image/README.md`, #248). spin's vminitd writes a host key of its own at every boot
+  it hands off (`internal/guest/vminit/handoff/handoff.go`, `HostKeyPath`, spin's d4f62bd). A
+  restored guest runs no vminitd, so whether a restore gets a new key is still to confirm in spin.
 - **musl under long-running load.** No run has measured it (`31a57e7`).
 - **`page_reporting_order`.** Revisit only if memory per host becomes the limit
   (`docs/memory-and-disk.md`).

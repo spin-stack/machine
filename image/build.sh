@@ -41,20 +41,20 @@ export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
 bin=/out/bin
 for tool in mkfs.ext4 e2fsck dumpe2fs debugfs; do
     test -x "$bin/$tool" || {
-        echo "ERROR: $bin/$tool is missing — task e2fsprogs:build" >&2
+        echo "ERROR: $bin/$tool is missing — spin-machine-dev build e2fsprogs" >&2
         exit 1; }
 done
 export MKE2FS_CONFIG=/out/e2fsprogs/mke2fs.conf
-test -f "$MKE2FS_CONFIG" || { echo "ERROR: $MKE2FS_CONFIG is missing — task e2fsprogs:build" >&2; exit 1; }
+test -f "$MKE2FS_CONFIG" || { echo "ERROR: $MKE2FS_CONFIG is missing — spin-machine-dev build e2fsprogs" >&2; exit 1; }
 
 mkdir -p "$(dirname "$OUT")" "$SHARE" /work/out /cache
 cd /work
 
 echo "==> mkosi: assembling the userland"
-# The systemd this repository builds (image/systemd, task image:systemd), mounted at /debs: a
+# The systemd this repository builds (image/systemd, `spin-machine-dev build systemd`), mounted at /debs: a
 # local repository apt prefers by version (+spin1) for everything the tree installs from it.
 compgen -G '/debs/systemd_*+spin[0-9]*_*.deb' > /dev/null ||
-    { echo "ERROR: /debs has no systemd package of ours - task image:systemd" >&2; exit 1; }
+    { echo "ERROR: /debs has no systemd package of ours - spin-machine-dev build systemd" >&2; exit 1; }
 mkosi --force --package-directory=/debs build
 tree=/work/out/rootfs
 test -d "$tree" || { echo "ERROR: mkosi produced no tree at $tree" >&2; exit 1; }
@@ -135,7 +135,7 @@ done < "$SHARE/packages.txt"
 # minimum from the inode tables mkfs laid out for the larger size, and on this image that
 # estimate was the size it already had.
 #
-# The margin is for a machine booted from this image with nothing grown — `task shell`, the
+# The margin is for a machine booted from this image with nothing grown — `spin-machine-dev shell`, the
 # boot benchmarks — whose writes at boot land in whatever the image has free.
 #
 # -b 4096, stated rather than left to the profile. mke2fs picks a "small" profile under

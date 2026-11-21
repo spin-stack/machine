@@ -118,7 +118,7 @@ in it replies *"System has not been booted with systemd as init system (PID 1)"*
 true and useless.
 
 It is `spin-machine boot` with no `--disk`: this QEMU and this kernel over `rootfs.qcow2`
-under a throwaway overlay (QEMU's `-snapshot`), with the serial console on stdio.
+under a throwaway qcow2 overlay in a temporary directory, with the serial console on stdio.
 
 It boots with no initrd at all: `root=/dev/vda rw rootfstype=ext4 init=/sbin/init`, which the
 kernel can serve because virtio-blk and ext4 are built in and `build.sh` writes a partitionless

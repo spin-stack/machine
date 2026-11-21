@@ -6,7 +6,7 @@
 # hack/release read from here; versions/gate_test.go fails on a digest or a commit written
 # anywhere else, and on a Dockerfile ARG that falls back to a default of its own.
 #
-# `task versions` says what is behind, and `task bump NAME=<name> [TO=...]` resolves the
+# `spin-machine-dev outdated` says what is behind, and `spin-machine-dev bump <name> [version]` resolves the
 # pin of a version and rewrites that entry's two lines and nothing else. Nothing is built by a
 # bump. What a bump is then checked with is the entry's note.
 #
@@ -98,8 +98,8 @@
     on the kernel it was saved with (machine.Spec.Fingerprint). The configuration
     is the series', kernel/config-<major>.<minor>-x86_64, so a release within the series moves
     this entry and nothing else: refresh.yml proposes it every day, and parts.yml builds it on
-    the pull request; before merging, boot it: `task kernel:build boot:ssh-first`. A new series
-    renames the configuration in the same commit, then `task kernel:build`, `task
+    the pull request; before merging, boot it: `spin-machine-dev build kernel`, then `task boot:ssh-first`. A new series
+    renames the configuration in the same commit, then `spin-machine-dev build kernel`, `task
     boot:ssh-first`. The series is a person's choice, the same as spin-ami's host kernel.
 
 - name: debian
@@ -111,7 +111,7 @@
   note: >-
     the kernel's toolchain (and qboot's), with its packages from
     debian-snapshot. A new toolchain is a new vmlinux: bump it together
-    with debian-snapshot, then `task kernel:build`, and check the vmlinux is still reproducible
+    with debian-snapshot, then `spin-machine-dev build kernel`, and check the vmlinux is still reproducible
     (kernel/Dockerfile, two --no-cache builds) before `task boot:ssh-first`.
 
 - name: moby-check-config
@@ -125,7 +125,7 @@
     which is what runs in these guests. It only reads the config, so a bump cannot change
     vmlinux; it can fail the build on an option it has started to require, and that is the
     point. Pinned to a commit of master because moby's last tag, v28.5.2, predates checks
-    master has (sysctl, MEMCG_SWAP on 5.8+, IP_SCTP). After the bump: `task kernel:build`.
+    master has (sysctl, MEMCG_SWAP on 5.8+, IP_SCTP). After the bump: `spin-machine-dev build kernel`.
 
 - name: debian-snapshot
   kind: date
@@ -144,8 +144,8 @@
   note: >-
     e2fsprogs/Dockerfile: mkfs.ext4 and the mke2fs.conf the base image's filesystem is made
     with. Not a new machine, but a new base image: a feature the new mke2fs.conf defaults to
-    is one the kernel has to read. After the bump: `task e2fsprogs:build image:build`, then
-    boot the image (`task shell`). The pin can be checked against sha256sums.asc beside the
+    is one the kernel has to read. After the bump: `spin-machine-dev build e2fsprogs image`, then
+    boot the image (`spin-machine-dev shell`). The pin can be checked against sha256sums.asc beside the
     tarball.
 
 - name: ubuntu
@@ -157,7 +157,7 @@
   note: >-
     image/Dockerfile: the container mkosi runs in, and where its apt and keyring come from.
     The base image's packages come from the archive, not from this image. After the bump:
-    `task image:build`.
+    `spin-machine-dev build image`.
 
 - name: systemd-source
   kind: download
@@ -169,8 +169,8 @@
     image/systemd/Dockerfile: Ubuntu's systemd source package as resolute publishes it, by its
     .dsc, which holds the tarballs' checksums dpkg-source checks; rebuilt with the stage1 profile
     and installed in place of the archive's. The archive serves only the current version, so the
-    build fails once Ubuntu moves it, and task refresh:systemd proposes the new one. After the
-    bump: `task image:build` (its checks: the meson options taken, the packages held), then
+    build fails once Ubuntu moves it, and `spin-machine-dev refresh systemd` proposes the new one. After the
+    bump: `spin-machine-dev build image` (its checks: the meson options taken, the packages held), then
     `task boot:ssh-first` and `task boot:lockdown`.
 
 - name: mkosi
@@ -182,7 +182,7 @@
   note: >-
     image/Dockerfile. Which mkosi assembles the tree decides what ends up in it. image/mkosi.conf's
     MinimumVersion says the same version, and a test holds the two together. After the bump:
-    `task image:build`, then `task shell` and `task boot:ssh-first`: a new mkosi can change the
+    `spin-machine-dev build image`, then `spin-machine-dev shell` and `task boot:ssh-first`: a new mkosi can change the
     tree without failing the build.
 
 - name: task
@@ -199,7 +199,7 @@
     The Task `go tool task` runs here (go-tools' task command), for every platform a person or a
     runner works on; and image/Dockerfile hands linux/amd64's to install-dev-tools.sh, which puts
     it in the base image's /usr/local/bin for whoever works inside a guest. The pins can be checked
-    against task_checksums.txt beside the tarballs. After the bump: `task image:build`.
+    against task_checksums.txt beside the tarballs. After the bump: `spin-machine-dev build image`.
 
 - name: git-lfs
   kind: download
@@ -209,7 +209,7 @@
   track: tags https://github.com/git-lfs/git-lfs.git
   note: >-
     image/Dockerfile hands it to install-dev-tools.sh, as task. The pin can be checked against
-    sha256sums.asc beside the tarball. After the bump: `task image:build`.
+    sha256sums.asc beside the tarball. After the bump: `spin-machine-dev build image`.
 
 - name: buildkit
   kind: download
@@ -220,7 +220,7 @@
   note: >-
     image/Dockerfile hands it to install-dev-tools.sh, as task: buildctl and buildkitd. The
     release publishes no checksums, only a provenance attestation beside the tarball. After the
-    bump: `task image:build`.
+    bump: `spin-machine-dev build image`.
 
 - name: qboot
   kind: git
@@ -248,7 +248,7 @@
   source: github.com/google/osv-scanner/v2/cmd/osv-scanner
   version: v2.7.0
   track: github-release https://github.com/google/osv-scanner
-  note: task osv, which osv.yml runs daily over the newest release's SBOM. A bump is checked with task osv.
+  note: spin-machine-dev osv, which osv.yml runs daily over the newest release's SBOM. A bump is checked with it.
 
 - name: cosign
   kind: module

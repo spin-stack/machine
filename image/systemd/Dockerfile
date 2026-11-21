@@ -68,7 +68,7 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
 # whether it took each, so a misspelt option is a failed build and not stage1 under another name.
 COPY image/systemd/meson-took.py /build/meson-took.py
 # An experiment's patch, applied only when SYSTEMD_EXPERIMENT names one: a build for the lab
-# (task lab:place), never the image's. Each says what it measures and is removed with its answer.
+# (`spin-machine-dev lab tree --systemd PATCH`), never the image's. Each says what it measures and is removed with its answer.
 ARG SYSTEMD_EXPERIMENT=""
 COPY image/systemd/experiments/ /build/experiments/
 WORKDIR /build/src

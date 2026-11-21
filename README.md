@@ -84,8 +84,8 @@ spin-machine-dev release              # one tarball, one version
 
 `spin-machine-dev` builds, verifies, measures and releases the machine (`docs/cli.md`). Each
 part's build is its directory's Dockerfile, so building needs a container engine. Booting needs
-only read-write access to `/dev/kvm`. Without it, `--accel tcg` boots at about fifty times the
-cost, and nothing chooses TCG silently. Every version, digest and commit taken from outside is pinned in
+only read-write access to `/dev/kvm`. Without it, `--accel tcg` reaches the first login about 17 times
+slower (7.6 s against 455 ms, lab 44848049631, 2026-11-21), and nothing chooses TCG silently. Every version, digest and commit taken from outside is pinned in
 `versions.yaml`. `spin-machine-dev outdated` says what is behind, and `spin-machine-dev bump
 <entry>` moves one entry.
 

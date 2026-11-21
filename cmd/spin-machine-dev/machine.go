@@ -32,10 +32,10 @@ systemd is the thing that is broken.
 
 Booted through _output/bin/spin-machine, whose command line is the machine package's: a slot map or
 a kernel argument that stopped working stops working here first. With no --disk the base boots
-under a throwaway overlay (QEMU's -snapshot), so every write is gone when it ends, and the base -
+under a throwaway qcow2 overlay in a temporary directory, so every write is gone when it ends, and the base -
 which every VM maps read-only, many at once - is hashed before and after: a session that changed it
-fails. accel=kvm with no fallback: a host with no /dev/kvm gets an error, not a guest at a tenth of
-the speed. Leave with 'poweroff -f', or Ctrl-A then X.`,
+fails. accel=kvm with no fallback: a host with no /dev/kvm gets an error, not a guest ~17 times
+slower. Leave with 'poweroff -f', or Ctrl-A then X.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			w, err := open()
