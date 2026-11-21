@@ -41,7 +41,8 @@ func (r *recorder) Rows(o Options) []string {
 	}
 	return r.rows
 }
-func (r *recorder) Phases() int { return r.phases }
+func (r *recorder) Phases() int          { return r.phases }
+func (r *recorder) Needs(Options) []Need { return nil }
 
 func (r *recorder) Measure(_ context.Context, m *Measurement) error {
 	at := fmt.Sprintf("%s/%s/%d/%d", m.Tree.Name(), m.Row, m.Rep, m.Phase)
@@ -494,15 +495,10 @@ func TestEveryProbeInSpinsShapeSizesItsGuest(t *testing.T) {
 		if !slices.ContainsFunc(p.Options(), func(o Option) bool { return o.Name == "plugged" }) {
 			continue
 		}
-		n, ok := p.(Needer)
-		if !ok {
-			t.Errorf("%s takes plugged and says nothing of what it runs", name)
-			continue
-		}
-		if !slices.Contains(n.Needs(Options{"plugged": "2048"}), Need{"memory", "to"}) {
+		if !slices.Contains(p.Needs(Options{"plugged": "2048"}), Need{"memory", "to"}) {
 			t.Errorf("%s boots spin's shape and never sizes its guest", name)
 		}
-		if slices.Contains(n.Needs(Options{"plugged": "0"}), Need{"memory", "to"}) {
+		if slices.Contains(p.Needs(Options{"plugged": "0"}), Need{"memory", "to"}) {
 			t.Errorf("%s sizes a guest the options leave at its memory", name)
 		}
 	}
@@ -586,6 +582,10 @@ func TestTheProbesAreTheGoalsAndTheKernels(t *testing.T) {
 		o, err := settle(p, nil)
 		if err != nil || p.About() == "" || len(p.Metrics()) == 0 || len(p.Rows(o)) == 0 || p.Phases() < 1 {
 			t.Errorf("%s: %v", name, err)
+		}
+		// A result names its probe by Name, and lab show finds its detail by that name.
+		if p.Name() != name {
+			t.Errorf("Probes[%q] is named %q", name, p.Name())
 		}
 	}
 	rf := Probes["restore-first"]

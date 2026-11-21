@@ -23,10 +23,6 @@ import (
 	"github.com/spin-stack/spin-machine/internal/releasenotes"
 )
 
-func init() {
-	verbs = append(verbs, releaseCmd)
-}
-
 // oidcIssuer is who issues the token a release is signed with.
 const oidcIssuer = "https://token.actions.githubusercontent.com"
 

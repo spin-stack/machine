@@ -38,7 +38,7 @@ func TestARestoreTogetherRowIsANumberAtOnceAndItsChannels(t *testing.T) {
 	if got := p.Rows(o); !slices.Equal(got, []string{"2 at once"}) {
 		t.Errorf("rows with no channels = %v", got)
 	}
-	if slices.Contains(p.(Needer).Needs(o), Need{"restore", "channels"}) {
+	if slices.Contains(p.Needs(o), Need{"restore", "channels"}) {
 		t.Error("a run naming no channels needs restore --channels")
 	}
 }

@@ -42,8 +42,6 @@ import (
 // first login on the bench fleet, 293 ms against 152 (lab 44585840498).
 type restoreFirst struct{}
 
-func init() { register(restoreFirst{}) }
-
 func (restoreFirst) Name() string { return "restore-first" }
 func (restoreFirst) About() string {
 	return "ms from the moment before QEMU is exec'd to the first SSH login, booted cold and restored from a saved state"

@@ -42,8 +42,6 @@ import (
 // against ~110 for one alone, with ~3000 failed compactions a burst.
 type restoreTogether struct{}
 
-func init() { register(restoreTogether{}) }
-
 func (restoreTogether) Name() string { return "restore-together" }
 func (restoreTogether) About() string {
 	return "ms from `spin-machine restore` into a QEMU started ahead to the first SSH login, with the row's number of restores let go at once on one host"

@@ -24,8 +24,6 @@ import (
 // make the tree with --spin-machine here.
 type prestart struct{}
 
-func init() { register(prestart{}) }
-
 const (
 	rowCold          = "cold boot"
 	rowPrestarted    = "prestarted boot"

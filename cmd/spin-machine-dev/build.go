@@ -18,10 +18,6 @@ import (
 	"github.com/spin-stack/spin-machine/internal/build"
 )
 
-func init() {
-	verbs = append(verbs, buildCmd, fetchCmd, verifyCmd, publishCmd, changedCmd, needsCmd)
-}
-
 // buildFlags are the choices a build takes.
 type buildFlags struct {
 	jobs       int

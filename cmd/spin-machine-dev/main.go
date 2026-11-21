@@ -19,6 +19,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"github.com/spin-stack/spin-machine/internal/lab"
 )
 
 func main() {
@@ -73,7 +75,7 @@ func run() error {
 	return root().ExecuteContext(ctx)
 }
 
-// root is the command and its verbs. Each verb lives in a file of its own and adds itself here.
+// root is the command and its verbs, each made fresh so that its flags start at their defaults.
 func root() *cobra.Command {
 	c := &cobra.Command{
 		Use:           "spin-machine-dev",
@@ -84,13 +86,14 @@ func root() *cobra.Command {
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	}
 	addGlobals(c)
-	for _, v := range verbs {
-		c.AddCommand(v())
-	}
+	c.AddCommand(
+		buildCmd(), fetchCmd(), verifyCmd(), publishCmd(), changedCmd(), needsCmd(),
+		labCommand(lab.Probes),
+		shellCmd(), vsockCmd("/dev/vhost-vsock"), menuconfigCmd(), cleanCmd(),
+		outdatedCmd(), bumpCmd(), refreshCmd(),
+		releaseCmd(),
+		releasesCommand(),
+		osvCmd(), cvesCmd(),
+	)
 	return c
 }
-
-// verbs makes every verb, each file's init adding its own: two people adding verbs at once touch
-// nothing in common. Constructors and not commands, so each root is made fresh, its flags at their
-// defaults.
-var verbs []func() *cobra.Command

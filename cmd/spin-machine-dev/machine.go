@@ -15,10 +15,6 @@ import (
 	"github.com/spin-stack/spin-machine/internal/build"
 )
 
-func init() {
-	verbs = append(verbs, shellCmd, vsockCmd, menuconfigCmd, cleanCmd)
-}
-
 func shellCmd() *cobra.Command {
 	var init string
 	var memory, cpus int
@@ -76,11 +72,8 @@ slower. Leave with 'poweroff -f', or Ctrl-A then X.`,
 	return c
 }
 
-// vsockDevice is the guests' vsock transport, which QEMU opens: a variable for a test, which has
-// no host's device to make usable.
-var vsockDevice = "/dev/vhost-vsock"
-
-func vsockCmd() *cobra.Command {
+// vsockCmd makes device, the guests' vsock transport that QEMU opens, usable by this user.
+func vsockCmd(device string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "vsock",
 		Short: "Make /dev/vhost-vsock usable by this user, so the machine's vsock device can be created",
@@ -95,12 +88,12 @@ it in has the device from boot, and modprobe there finds nothing. Needs sudo.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			_ = exec.CommandContext(c.Context(), "sudo", "modprobe", "vhost_vsock").Run()
 			_ = exec.CommandContext(c.Context(), "sudo", "udevadm", "settle").Run()
-			if fi, err := os.Stat(vsockDevice); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+			if fi, err := os.Stat(device); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
 				say(c, "no vhost_vsock here; verify args will name vhost-vsock-pci as unchecked")
 				return nil
 			}
-			if out, err := exec.CommandContext(c.Context(), "sudo", "chmod", "0666", vsockDevice).CombinedOutput(); err != nil {
-				return couldNot(fmt.Errorf("making %s usable: %w: %s", vsockDevice, err, strings.TrimSpace(string(out))))
+			if out, err := exec.CommandContext(c.Context(), "sudo", "chmod", "0666", device).CombinedOutput(); err != nil {
+				return couldNot(fmt.Errorf("making %s usable: %w: %s", device, err, strings.TrimSpace(string(out))))
 			}
 			return nil
 		},

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,10 +22,9 @@ import (
 	"github.com/spin-stack/spin-machine/internal/lab"
 )
 
-func init() { verbs = append(verbs, labCommand) }
-
 // labCommand is measuring: trees, the probes that boot them, and the bench fleet that runs them.
-func labCommand() *cobra.Command {
+// probes are the probes it knows by name: lab.Probes, or a test's own.
+func labCommand(probes map[string]lab.Probe) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "lab",
 		Short: "Measure the machine: make trees, run probes over them, here or on the bench fleet",
@@ -32,13 +33,17 @@ a release, with a kernel or a QEMU from a CI run, this checkout's spin-machine, 
 boot's overlay. A probe boots trees and records numbers; an experiment is a probe over trees,
 repetitions of each, interleaved, written to result.json.
 
-Probes: ` + strings.Join(lab.ProbeNames(), ", ") + `.
+Probes: ` + probeNames(probes) + `.
 
 A number is only worth comparing on a quiet host of the kind the goal is measured on: the bench
 fleet, through lab dispatch. Here, lab run finds leads.`,
 	}
-	c.AddCommand(labTree(), labRun(), labShow(), labDispatch(), labCheck(), labLadder(), labCompat())
+	c.AddCommand(labTree(), labRun(probes), labShow(probes), labDispatch(probes), labCheck(), labLadder(), labCompat())
 	return c
+}
+
+func probeNames(probes map[string]lab.Probe) string {
+	return strings.Join(slices.Sorted(maps.Keys(probes)), ", ")
 }
 
 // treeFlags are a tree spec's flags, the same for lab tree and inside a --tree NAME=SPEC.
@@ -209,7 +214,7 @@ func options(pairs []string) (lab.Options, error) {
 	return o, nil
 }
 
-func labRun() *cobra.Command {
+func labRun(probes map[string]lab.Probe) *cobra.Command {
 	var specs, opts []string
 	var reps int
 	var out string
@@ -222,9 +227,9 @@ OUT/result.json and its table to stdout. Trees are names in _output/trees, or ma
 several in one value. Exits 1 when a measurement was lost, 2 when the experiment could not run.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			p, ok := lab.Probes[args[0]]
+			p, ok := probes[args[0]]
 			if !ok {
-				return couldNot(fmt.Errorf("no probe %q; the probes are: %s", args[0], strings.Join(lab.ProbeNames(), ", ")))
+				return couldNot(fmt.Errorf("no probe %q; the probes are: %s", args[0], probeNames(probes)))
 			}
 			root, err := repo()
 			if err != nil {
@@ -255,7 +260,7 @@ several in one value. Exits 1 when a measurement was lost, 2 when the experiment
 			if err := r.Write(filepath.Join(out, "result.json")); err != nil {
 				return couldNot(err)
 			}
-			return report(c.OutOrStdout(), r)
+			return report(c.OutOrStdout(), r, probes)
 		},
 	}
 	c.Flags().StringArrayVar(&specs, "tree", nil, "a tree made for this run, NAME=SPEC")
@@ -267,9 +272,9 @@ several in one value. Exits 1 when a measurement was lost, 2 when the experiment
 
 // report prints r's table and the probe's detail, on the run's summary too in a workflow, and
 // says 1 when a measurement was lost.
-func report(w io.Writer, r *lab.Result) error {
+func report(w io.Writer, r *lab.Result, probes map[string]lab.Probe) error {
 	text := r.Table()
-	if d, ok := lab.Probes[r.Probe].(lab.Detailer); ok {
+	if d, ok := probes[r.Probe].(lab.Detailer); ok {
 		text += d.Detail(r)
 	}
 	_, _ = fmt.Fprintln(w, text)
@@ -423,7 +428,7 @@ Exits 1 when one did not resume.`,
 	return c
 }
 
-func labShow() *cobra.Command {
+func labShow(probes map[string]lab.Probe) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show RUN_ID|DIR",
 		Short: "Print the result of a lab.yml run, or of a result.json in DIR",
@@ -446,7 +451,7 @@ func labShow() *cobra.Command {
 			if err != nil {
 				return couldNot(err)
 			}
-			return report(c.OutOrStdout(), r)
+			return report(c.OutOrStdout(), r, probes)
 		},
 	}
 }
@@ -478,7 +483,7 @@ func exists(path string) bool {
 }
 
 // mutate-lane: TestLabDispatchMeasuresOnTheBench
-func labDispatch() *cobra.Command {
+func labDispatch(probes map[string]lab.Probe) *cobra.Command {
 	var specs, opts []string
 	var reps int
 	var host, ref string
@@ -490,8 +495,8 @@ the fleet measures one at a time, and two runs side by side measure each other -
 and print its result. Each --tree is NAME=SPEC, made on the runner.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			if _, ok := lab.Probes[args[0]]; !ok {
-				return couldNot(fmt.Errorf("no probe %q; the probes are: %s", args[0], strings.Join(lab.ProbeNames(), ", ")))
+			if _, ok := probes[args[0]]; !ok {
+				return couldNot(fmt.Errorf("no probe %q; the probes are: %s", args[0], probeNames(probes)))
 			}
 			if len(specs) == 0 {
 				return couldNot(errors.New("dispatch measures the trees it is given: --tree NAME=SPEC"))
@@ -524,7 +529,7 @@ and print its result. Each --tree is NAME=SPEC, made on the runner.`,
 			if err != nil {
 				return couldNot(err)
 			}
-			return report(c.OutOrStdout(), r)
+			return report(c.OutOrStdout(), r, probes)
 		},
 	}
 	c.Flags().StringArrayVar(&specs, "tree", nil, "a tree to measure, NAME=SPEC (lab tree's flags)")
