@@ -100,8 +100,9 @@ full method. These are its rules.
 - **Measure spin's shape.** That is the CPUs, memory, ceilings and disks spin boots a workspace
   with. Name the shape on every table. A gain in another shape is a lead.
 - **Decide on the end-to-end numbers in "The goal", interleaved in one run** against the
-  release, on the kind of host the goal is measured on, one run at a time. Two runs side by side
-  measure each other, and two runs taken apart are two machines. A laptop finds leads.
+  release, on the kind of host the goal is measured on. Two runs are two machines: never compare
+  a number with one from another run. Runs may go at once, each on its own bench instance. A
+  laptop finds leads.
 - **One acceptance rule.** A change is a gain only when the bootstrap 95% interval of its Δp50
   excludes 0. At 20 boots a side the interval is about ±7-9 ms (`docs/measuring.md`). A smaller
   effect needs more boots, not a second look.

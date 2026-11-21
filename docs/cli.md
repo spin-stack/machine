@@ -358,10 +358,9 @@ default `load=cpu`. A row such as `16:nice=10` runs the crowd's QEMUs at that ni
 gives the measured QEMU the share it would get at the same value below 0. The detail under its
 table lists each kind of thread's wait.
 
-`lab dispatch` starts lab.yml once no other lab run is queued or running, waits for it, and prints
-its result. The bench fleet measures one run at a time, because two runs side by side measure each
-other. `lab dispatch` is the way to compare. Use `--host bench` (nested, the default) unless the
-question is nested against metal. `--ref` names the branch whose lab.yml and probes run (default
+`lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
+instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
+compare. Use `--host bench` (nested, the default) unless the question is nested against metal. `--ref` names the branch whose lab.yml and probes run (default
 `main`). `lab run` exits 1 when a measurement was lost (a machine that never answered, counted in
 the table's LOST) and 2 when the experiment could not run.
 
