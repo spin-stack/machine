@@ -3,18 +3,14 @@
 package boot_test
 
 import (
-	"bytes"
 	"context"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spin-stack/machine/machine"
-	"github.com/spin-stack/machine/qmp"
 )
 
 // checkOnConsole boots a disposable 1 GiB guest of rel on root, whose unit prints ok or failed on
@@ -22,12 +18,13 @@ import (
 // Under TCG where there is no /dev/kvm: what it checks is behaviour, not time.
 func checkOnConsole(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed string) string {
 	t.Helper()
-	return checkGuest(t, rel, root, ok, failed, func(*machine.Spec) {}, func(string) {})
+	return checkGuest(t, rel, root, ok, failed, func(*machine.Spec) {}, func(*machine.QEMU, string) {})
 }
 
 // checkGuest is checkOnConsole for a check the host takes part in: shape changes the machine
-// before it starts, and said is given the console so far each time the guest has written to it.
-func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed string, shape func(*machine.Spec), said func(console string)) string {
+// before it starts, and said is given the machine and the console so far each time the guest has
+// written to it.
+func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed string, shape func(*machine.Spec), said func(m *machine.QEMU, console string)) string {
 	t.Helper()
 	accel := "kvm"
 	if _, err := os.Stat("/dev/kvm"); err != nil {
@@ -41,54 +38,46 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 	spec.BootCPUs = 2
 	spec.Memory.BaseMB = 1024
 	spec.Places = []machine.Place{{Serial: "root"}}
-	spec.Console = "stdio"
-	// The machine starts held, and is booted through this monitor once the disk is bound. In a
-	// short directory of its own: a socket's path fits in 108 bytes.
-	socks, err := os.MkdirTemp("/tmp", "con")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(socks) })
-	qmp := filepath.Join(socks, "q")
-	spec.Monitors = []machine.Monitor{{Socket: qmp}}
 	c := machine.DefaultCmdline()
 	c.Root = "/dev/vda"
 	c.Init = "/sbin/init"
 	spec.Cmdline = c
 	shape(&spec)
-	args, err := spec.Args()
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, spec.QEMU, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	stdout, err := cmd.StdoutPipe()
+	console := newScreen()
+	p, err := machine.Start(ctx, spec, machine.StartOptions{Console: console})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cmd.Start(); err != nil {
+	defer p.Kill()
+	f, err := os.OpenFile(root.path, os.O_RDWR, 0) // #nosec G304 -- the root this test made
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		cancel()
-		_ = cmd.Wait()
-	}()
-	bootOn(ctx, t, qmp, root.path)
-	var console bytes.Buffer
-	buf := make([]byte, 4096)
+	defer func() { _ = f.Close() }()
+	if err := p.Boot(ctx, machine.Disk{Serial: "root", Images: []machine.Image{{File: f, Format: "raw"}}}); err != nil {
+		t.Fatalf("booting: %v", err)
+	}
 	for {
-		n, err := stdout.Read(buf)
-		console.Write(buf[:n])
-		if strings.Contains(console.String(), ok) {
-			return console.String()
+		select {
+		case <-console.news:
+		case <-p.Exited():
+		case <-ctx.Done():
 		}
-		if err != nil || strings.Contains(console.String(), failed) {
-			t.Fatalf("guest check failed: %v\n%s\n%s", err, &console, &stderr)
+		text := console.String()
+		if strings.Contains(text, ok) {
+			return text
 		}
-		said(console.String())
+		if strings.Contains(text, failed) || ctx.Err() != nil {
+			t.Fatalf("guest check failed: %v\n%s\nQEMU %s", ctx.Err(), text, p.Kill())
+		}
+		select {
+		case <-p.Exited():
+			t.Fatalf("guest check failed: QEMU %s\n%s", p.Wait(), text)
+		default:
+		}
+		said(p.QEMU, text)
 	}
 }
 
@@ -116,36 +105,4 @@ OnBootSec=3s
 AccuracySec=100ms
 `)
 	root.link("/etc/systemd/system/timers.target.wants/"+name+".timer", "/etc/systemd/system/"+name+".timer")
-}
-
-// bootOn binds the raw image at path to the place for the root disk of the machine listening on
-// socket, and boots it.
-func bootOn(ctx context.Context, t *testing.T, socket, path string) {
-	t.Helper()
-	var conn *net.UnixConn
-	for {
-		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
-		if err == nil {
-			conn = c
-			break
-		}
-		if ctx.Err() != nil {
-			t.Fatalf("the machine never answered on %s: %v", socket, err)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := machine.Attach(c)
-	defer func() { _ = m.Close() }()
-	f, err := os.OpenFile(path, os.O_RDWR, 0) // #nosec G304 -- the root this test made
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-	if err := m.Boot(ctx, machine.Disk{Serial: "root", Images: []machine.Image{{File: f, Format: "raw"}}}); err != nil {
-		t.Fatalf("booting: %v", err)
-	}
 }

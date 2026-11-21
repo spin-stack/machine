@@ -4,6 +4,7 @@ package boot_test
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,9 +13,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
+
+	"github.com/spin-stack/machine/machine"
 )
 
 // Where the time before the kernel goes: QEMU's own start, and the firmware's steps, on the
@@ -36,10 +38,11 @@ import (
 // Tracing costs a little in every interval it measures - a formatted line per event - so the
 // numbers are where the time goes, not how much a boot without tracing takes.
 //
+// The machine is spin's shape, as spin's internal/runner/vmm/vmm.go boots a workspace, with no
+// disk, the probe's initrd and four hotplug targets.
+//
 //	SPIN_FIRMWARE_STAGES=1   run at all
 //	REPS=<n>                 boots (default 10)
-//	FLAGS=<flags>            spin-machine flags for the machine (default: spin's shape, as
-//	                         spin's internal/runner/vmm/vmm.go boots a workspace)
 //	SPIN_PROBE_INITRD=<cpio> as for boot:firmware; its /init must print what probeinit does
 //	SPIN_MACHINE_OUTPUT_B=<dir> another tree (`lab check`'s second), booted interleaved with it
 func TestFirmwareStages(t *testing.T) {
@@ -50,32 +53,34 @@ func TestFirmwareStages(t *testing.T) {
 	reps := envInt(t, "REPS", 10)
 	initrd := probeInitrd(t)
 
-	flags := strings.Fields(cmp.Or(os.Getenv("FLAGS"), "--cpus 1 --memory 128 --max-cpus 16 --max-memory 8192 --hotplug-disks 4"))
-	flags = append([]string{"--disk", "-", "--initrd", initrd, "--console", "file:/dev/stdout"}, flags...)
-	cli := filepath.Join(out, "bin", "spin-machine")
+	spec := func(release string) machine.Spec {
+		s := spinsShape(t, release, "")
+		s.HotplugDisks = 4
+		s.Places = nil
+		s.Cmdline.Root = ""
+		s.Initrd = initrd
+		return s
+	}
 	type variant struct {
 		name   string
-		args   []string
-		start  func(t *testing.T)
+		spec   machine.Spec
 		runs   []map[string]stage
 		spent  []map[string]float64
 		starts []map[string]float64
 	}
-	args, start := machineArgs(t, cli, out, flags)
-	vs := []*variant{{name: "release", args: args, start: start}}
+	vs := []*variant{{name: "release", spec: spec(out)}}
 	if b := os.Getenv("SPIN_MACHINE_OUTPUT_B"); b != "" {
-		args, start := machineArgs(t, cli, b, flags)
-		vs = append(vs, &variant{name: "B", args: args, start: start})
+		vs = append(vs, &variant{name: "B", spec: spec(b)})
 	}
 	// Interleaved, so the runner's drift lands on both alike.
 	for range reps {
 		for _, v := range vs {
-			st, w, qs := traceOneBoot(t, v.args, v.start)
+			st, w, qs := traceOneBoot(t, v.spec)
 			v.runs, v.spent, v.starts = append(v.runs, st), append(v.spent, w), append(v.starts, qs)
 		}
 	}
 	for _, v := range vs {
-		t.Logf("%s: %s", v.name, v.args[0])
+		t.Logf("%s: %s", v.name, v.spec.QEMU)
 		t.Log(stageTable(v.runs))
 		t.Log(waitTable("the firmware's largest waits", v.spent, 15))
 		t.Log(waitTable("QEMU's start, exec to the firmware's first instruction", v.starts, 15))
@@ -88,102 +93,44 @@ type stage struct {
 	exits int
 }
 
-// machineArgs is the command line `spin-machine args` prints, one argument per line: QEMU's
-// binary first. Split on lines and not on spaces, because -append's value has them.
-//
-// It is a held machine's (--held), on a monitor at a short socket of its own unless flags name
-// one: every machine starts held (machine.VM), and `spin-machine boot` boots it through a helper
-// it starts beside QEMU, which a probe running the line itself does not have. A probe that wants
-// the guest to run calls start once QEMU is up, which binds the disk and boots it as that helper
-// does; one that wants the machine held does not.
-func machineArgs(t *testing.T, cli, release string, flags []string) (args []string, start func(t *testing.T)) {
-	t.Helper()
-	sock, hasQMP := flagValue(flags, "--qmp")
-	if !hasQMP {
-		dir, err := os.MkdirTemp("/tmp", "ma")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.RemoveAll(dir) })
-		sock = filepath.Join(dir, "m")
-		flags = append([]string{"--qmp", sock}, flags...)
-	}
-	mode := []string{"args", "--release", release}
-	if !slices.Contains(flags, "--restore") {
-		mode = append(mode, "--held")
-	}
-	b, err := exec.Command(cli, append(mode, flags...)...).Output()
-	if err != nil {
-		t.Fatalf("spin-machine args: %v", err)
-	}
-	for _, l := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
-		args = append(args, strings.TrimSuffix(strings.TrimPrefix(l, "  "), " \\"))
-	}
-	startArgs := []string{"start", "--release", release, "--qmp", sock}
-	for _, f := range []string{"--disk", "--disk-format", "--disk-serial"} {
-		if v, ok := flagValue(flags, f); ok {
-			startArgs = append(startArgs, f, v)
-		}
-	}
-	if slices.Contains(flags, "--disk-readonly") {
-		startArgs = append(startArgs, "--disk-readonly")
-	}
-	return args, func(t *testing.T) {
-		t.Helper()
-		// #nosec G204 -- this tree's spin-machine
-		if o, err := exec.Command(cli, startArgs...).CombinedOutput(); err != nil {
-			t.Fatalf("spin-machine start: %v: %s", err, o)
-		}
-	}
-}
-
-// flagValue is the value flags give name, as "name value" or "name=value".
-func flagValue(flags []string, name string) (string, bool) {
-	for i, f := range flags {
-		if v, ok := strings.CutPrefix(f, name+"="); ok {
-			return v, true
-		}
-		if f == name && i+1 < len(flags) {
-			return flags[i+1], true
-		}
-	}
-	return "", false
-}
-
-// traceOneBoot boots once with QEMU tracing the firmware's selects, its PCI walk and every exit
-// to QEMU, waits for the diagnostic init, and returns each step's time, the firmware's waits and
-// QEMU's start.
-func traceOneBoot(t *testing.T, args []string, start func(t *testing.T)) (map[string]stage, map[string]float64, map[string]float64) {
+// traceOneBoot boots a machine of s once with QEMU tracing the firmware's selects, its PCI walk
+// and every exit to QEMU, waits for the diagnostic init, and returns each step's time, the
+// firmware's waits and QEMU's start.
+func traceOneBoot(t *testing.T, s machine.Spec) (map[string]stage, map[string]float64, map[string]float64) {
 	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "trace")
-	full := append(slices.Clone(args[1:]), "-msg", "timestamp=on", "-D", log)
+	trace := []string{"-msg", "timestamp=on", "-D", log}
 	for _, ev := range []string{
 		"fw_cfg_select", "pci_cfg_read", "pci_cfg_write", "kvm_run_exit",
 		// QEMU's start: what it allocates, creates and maps, then each ROM it copies at reset.
 		"fw_cfg_add_file", "qemu_anon_ram_alloc", "kvm_init_vcpu", "kvm_set_user_memory", "cpu_reset",
 		"loader_write_rom", "runstate_set",
 	} {
-		full = append(full, "-trace", "enable="+ev)
+		trace = append(trace, "-trace", "enable="+ev)
 	}
-	cmd := exec.Command(args[0], full...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd.Stdout, cmd.Stderr = w, w
+	s.Console = "stdio"
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	// Before Start, which execs QEMU: its start is a row of the table.
 	exec0 := time.Now()
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("launching QEMU: %v", err)
-	}
+	p, err := machine.Start(ctx, s, machine.StartOptions{Stdout: w,
+		Cmd: func(c *exec.Cmd) { c.Args = append(c.Args, trace...) }})
 	_ = w.Close()
-	start(t)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_ = cmd.Wait()
+		p.Kill()
 		_ = r.Close()
 	}()
+	if err := p.Boot(ctx); err != nil {
+		t.Fatalf("booting: %v", err)
+	}
 	var console strings.Builder
 	buf := make([]byte, 65536)
 	deadline := time.Now().Add(60 * time.Second)

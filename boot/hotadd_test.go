@@ -42,29 +42,17 @@ func TestACoreAttachedBeforeSystemdStartsComesOnline(t *testing.T) {
 	root.edit("sif /hotadd-init.sh mode 0100755")
 	oneshotAtBoot(t, root, "hotadd-check", "hotadd-check.sh", "")
 
-	// Its own short directory: a socket's path has 108 bytes.
-	dir, err := os.MkdirTemp("", "q")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	monitor := filepath.Join(dir, "q")
-
 	attached := false
 	t.Log(checkGuest(t, rel, root, "HOTADD_CHECK_OK", "HOTADD_CHECK_FAILED",
 		func(s *machine.Spec) {
 			s.BootCPUs, s.MaxCPUs = 1, 2
 			s.Cmdline.Init = "/hotadd-init.sh"
-			// Beside checkGuest's own, which boots the machine through it.
-			s.Monitors = append(s.Monitors, machine.Monitor{Socket: monitor})
 		},
-		func(console string) {
+		func(m *machine.QEMU, console string) {
 			if attached || !strings.Contains(console, "HOTADD_WAITING") {
 				return
 			}
 			attached = true
-			m := attachTo(t, monitor, func() string { return console })
-			defer func() { _ = m.Close() }()
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			if err := m.SetCPUs(ctx, 2); err != nil {

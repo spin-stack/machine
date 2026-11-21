@@ -5,6 +5,7 @@ package boot_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/spin-stack/machine/internal/lab"
 	"github.com/spin-stack/machine/machine"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // Whether the machine's firmware runs it, against a diagnostic initrd: qboot boots, publishes
@@ -70,6 +72,10 @@ func TestFirmwareRuns(t *testing.T) {
 		bios:     bios,
 		dir:      t.TempDir(),
 	}
+	if p.socks, err = os.MkdirTemp("/tmp", "fw"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(p.socks) })
 
 	// qboot boots the machine at all, with vmgenid off: a firmware that cannot do this is not
 	// slow, it is broken, and separating the two is why there are boots before any timing.
@@ -96,8 +102,10 @@ const (
 
 type probe struct {
 	out, firmware, kernel, initrd, dir string
-	bios                               map[string]string
-	n                                  int
+	// socks holds the monitors' sockets, apart from dir: a socket's path fits in 108 bytes.
+	socks string
+	bios  map[string]string
+	n     int
 }
 
 // vm is one QEMU.
@@ -115,19 +123,33 @@ func (p *probe) start(t *testing.T, variant string, gen, restore bool) *vm {
 	// Numbered: a probe starts dozens, and a reused path is a QMP connection to the previous
 	// one's corpse.
 	p.n++
-	qmp := filepath.Join(p.dir, fmt.Sprintf("qmp-%d.sock", p.n))
+	sock := filepath.Join(p.socks, fmt.Sprintf("qmp-%d.sock", p.n))
+	// Bound here and handed over, as machine.Start does, so the socket is there before QEMU
+	// runs and machine.Dial needs no wait for it.
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.SetUnlinkOnClose(false)
+	monitor, err := l.File()
+	_ = l.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = monitor.Close() }()
 
 	// The machine line is the probe's own, not machine.Spec's: this compares firmware, so
 	// the disks, NICs and vsock a real machine carries are absent on purpose — every device
 	// is work inside the interval, and work that is identical in both variants only adds
-	// variance. It is also why these numbers are not a machine's boot time.
+	// variance. It is also why these numbers are not a machine's boot time. So machine.Start,
+	// which starts a Spec, does not start it.
 	args := []string{
 		"-L", p.firmware,
 		"-machine", "q35,sata=off,smbus=off",
 		"-accel", "kvm", "-cpu", "host",
 		"-m", "2048", "-smp", "2",
 		"-nodefaults", "-display", "none", "-serial", "stdio", "-monitor", "none",
-		"-qmp", "unix:" + qmp + ",server=on,wait=off",
+		"-chardev", "socket,id=qmp,fd=3,server=on,wait=off", "-mon", "chardev=qmp,mode=control",
 		"-bios", p.bios[variant],
 		"-kernel", p.kernel,
 		"-initrd", p.initrd,
@@ -147,6 +169,7 @@ func (p *probe) start(t *testing.T, variant string, gen, restore bool) *vm {
 	}
 	cmd := exec.Command(filepath.Join(p.out, "bin", "qemu-system-x86_64"), args...)
 	cmd.Stdout, cmd.Stderr = w, w
+	cmd.ExtraFiles = []*os.File{monitor}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// t0 before Start, so exec'ing QEMU and the firmware are both inside the interval. They
@@ -156,7 +179,7 @@ func (p *probe) start(t *testing.T, variant string, gen, restore bool) *vm {
 		t.Fatalf("launching QEMU: %v", err)
 	}
 	_ = w.Close()
-	return &vm{cmd: cmd, stdout: r, t0: t0, qmp: qmp}
+	return &vm{cmd: cmd, stdout: r, t0: t0, qmp: sock}
 }
 
 // wait reads the console until marker appears, and returns when it did. A deadline on the
@@ -187,9 +210,6 @@ func (v *vm) close() {
 	_ = v.cmd.Wait()
 	_ = v.stdout.Close()
 }
-
-// said is what the console has shown so far.
-func (v *vm) said() string { return string(v.out) }
 
 func (p *probe) reach(t *testing.T, variant string, gen bool, marker string, timeout time.Duration) (float64, error) {
 	t.Helper()
@@ -239,7 +259,11 @@ func (p *probe) mustPublishVMGenID(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = state.Close() }()
-	src := attachTo(t, v.qmp, v.said)
+	src, err := machine.Dial(ctx, v.qmp, qmp.Observer{})
+	if err != nil {
+		v.close()
+		t.Fatal(err)
+	}
 	saved, _, err := src.Checkpoint(ctx, state, machine.SaveOptions{}, func(context.Context) error { return nil })
 	_ = src.Close()
 	v.close()
@@ -249,7 +273,11 @@ func (p *probe) mustPublishVMGenID(t *testing.T) {
 
 	r := p.start(t, "qboot", withVMGenID, incoming)
 	defer r.close()
-	dst := attachTo(t, r.qmp, r.said)
+	dst, err := machine.Dial(ctx, r.qmp, qmp.Observer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dst.Close() }()
 	here, err := dst.Target(ctx)
 	if err != nil {
 		t.Fatal(err)
