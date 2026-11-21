@@ -165,7 +165,7 @@ them for boot time.
 | MOTD and `pam_motd` off; `mlkem768x25519-sha256` alone | configure-system.sh | −12 on the first login; 104 → 40 a login against sntrup761 | ladder, mechanism: a root login runs the same PAM and kex | #240, lab 43479854381 |
 | timedated, firstboot, machine-id-commit masked; volatile journald; the timeouts; docker and containerd by socket; `nsswitch` | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity | - | - |
 | `10-seats.conf`, the getty's TERM, `/tmp`'s size | image drop-ins | function | - | - |
-| The pressure probe's sender, after multi-user.target, at the lowest priority | spin-machine-pressure.service | function (docs/machine.md, "Pressure"); adding it: first login +0.5 [−2.6, +6.7], restored +0.2 [−3.0, +2.7] | measured | labs 44921602512, 44921841077 |
+| The pressure probe's sender, started by a timer 10 s after the boot, at the lowest priority | spin-machine-pressure.timer and .service | function (docs/machine.md, "Pressure"); adding it: first login −0.5 [−3.6, +2.9], restored +1.8 [−2.0, +5.2] evicted and +0.9 [−2.5, +3.4] cached at 40 boots, the sender not yet started when the state was saved. After multi-user.target instead, beside the first login, sshd accepting to login +2.6 to +3.3 in three runs | measured | labs 44926664003, 44926917170; 44921602512, 44924252325, 44924755505 |
 
 **What only the lane uses.** spin's path earns nothing from `sshd-vsock.socket.d/10-lane.conf`,
 `sshd@.service.d/10-lane.conf`, `sshd@.service.d/keygen.conf` or the masked
