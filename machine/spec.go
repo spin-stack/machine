@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/spin-stack/machine/qmp"
 )
 
 // cpuFeature is what a CPU feature's name is made of in QEMU: "avx512f", "sse4.1", "kvm-pv-eoi".
@@ -710,17 +712,8 @@ const placeGroup = "places"
 // child, QEMU answered "'slot0' and image file are not in the same chain" (QEMU 11.2.0-rc0,
 // 2026-11-19). copy-on-read, compress and preallocate are filters too, and each changes what
 // is written; throttle with no limits changes nothing.
-type placeNodeOptions struct {
-	Driver        string `json:"driver"`
-	NodeName      string `json:"node-name"`
-	File          string `json:"file"`
-	ThrottleGroup string `json:"throttle-group"`
-	ReadOnly      bool   `json:"read-only"`
-	Discard       string `json:"discard"`
-}
-
-func placeNode(i int, file string, readonly bool) placeNodeOptions {
-	return placeNodeOptions{Driver: "throttle", NodeName: slotNodePrefix + fmt.Sprint(i), File: file,
+func placeNode(i int, file string, readonly bool) qmp.ThrottleNode {
+	return qmp.ThrottleNode{NodeName: slotNodePrefix + fmt.Sprint(i), File: qmp.NodeRef(file),
 		ThrottleGroup: placeGroup, ReadOnly: readonly, Discard: "unmap"}
 }
 
