@@ -108,7 +108,7 @@ func TestBootBecomesQEMU(t *testing.T) {
 	if qemu := os.Getenv("SPIN_MACHINE_TEST_QEMU"); qemu != "" {
 		dir := filepath.Dir(qemu)
 		// Held, so that nothing is started beside QEMU to boot it.
-		err := boot(machine.Spec{QEMU: qemu, Kernel: qemu, Firmware: dir, BootCPUs: 1,
+		err := boot(machine.Spec{QEMU: qemu, Kernel: filepath.Join(dir, "bzImage"), Firmware: dir, BootCPUs: 1,
 			Memory: machine.Memory{SizeMB: 64}, Monitors: []machine.Monitor{{Socket: "/q"}}},
 			machineFlags{held: true, qmp: "/q"}, nil)
 		// Reached only if the exec failed.
@@ -117,6 +117,7 @@ func TestBootBecomesQEMU(t *testing.T) {
 	}
 
 	dir := withBIOS(t, t.TempDir())
+	kernelIn(t, dir)
 	qemu := filepath.Join(dir, "qemu")
 	pidFile := filepath.Join(dir, "pid")
 	script := "#!/bin/sh\necho $$ > " + pidFile + "\nexit 7\n"

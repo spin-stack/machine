@@ -110,11 +110,6 @@ type Disk struct {
 	// Locking has the VMM hold an image lock on the top image, for a caller outside it that
 	// takes the same lock to find out whether a VM has the image open.
 	Locking bool
-	// DirectOverBacking reads and writes the top image around the host's page cache and the
-	// images under it through it: the top is this VM's alone, cached in the guest already, and
-	// the images under it are shared by every VM on the host and worth one copy there. Only
-	// for a disk of more than one image, and not on tmpfs, which has no O_DIRECT.
-	DirectOverBacking bool
 }
 
 // Image is one image of a Disk.

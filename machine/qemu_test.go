@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -234,36 +233,6 @@ func bzImageStub(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-// diskDir is a directory that supports O_DIRECT. The test's temporary directory does
-// not when it is on tmpfs, which it is on hosts that mount /tmp that way, and QEMU then
-// refuses cache.direct=on with EINVAL — a failure about the host, not the options. So a
-// tmpfs one is swapped for one under this module's _output, which is on disk.
-func diskDir(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(dir, &st); err != nil {
-		t.Fatal(err)
-	}
-	const tmpfsMagic = 0x01021994
-	if st.Type != tmpfsMagic {
-		return dir
-	}
-	if err := os.MkdirAll(filepath.Join("..", "_output"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	dir, err := os.MkdirTemp(filepath.Join("..", "_output"), "direct-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return abs
 }
 
 // qcow2In creates a qcow2 in dir, over backing when it is not empty.

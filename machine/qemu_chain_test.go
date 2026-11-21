@@ -26,7 +26,7 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 	qemu, firmware := qemuTCG(t)
 	kernel := bzImageStub(t)
 
-	dir := diskDir(t)
+	dir := t.TempDir()
 	base := qcow2In(t, qemu, dir, "base.qcow2", "")
 	top := qcow2In(t, qemu, dir, "top.qcow2", base)
 	next := qcow2In(t, qemu, dir, "next.qcow2", top)

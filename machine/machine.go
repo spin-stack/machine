@@ -76,9 +76,9 @@ const (
 	maxDisks = slotDiskMax - slotDiskBase + 1
 	maxNICs  = slotNICMax - slotNICBase + 1
 
-	// MaxHotplugDisks bounds Spec.HotplugDisks: the targets a virtio-scsi controller
+	// maxHotplugDisks bounds Spec.HotplugDisks: the targets a virtio-scsi controller
 	// addresses, 0 to 255.
-	MaxHotplugDisks = 256
+	maxHotplugDisks = 256
 )
 
 const (
@@ -165,13 +165,8 @@ type fileNode struct {
 	Discard  string `json:"discard"`
 	ReadOnly bool   `json:"read-only"`
 	// DropCache is always false; see addImages. Not omitempty: false is the point.
-	DropCache bool       `json:"drop-cache"`
-	Locking   string     `json:"locking,omitempty"`
-	Cache     *nodeCache `json:"cache,omitempty"`
-}
-
-type nodeCache struct {
-	Direct bool `json:"direct"`
+	DropCache bool   `json:"drop-cache"`
+	Locking   string `json:"locking,omitempty"`
 }
 
 type formatNode struct {
@@ -672,9 +667,12 @@ func (s Spec) validate() error {
 		return errors.New("no monitor: the machine starts held, and is booted or resumed over one")
 	case len(s.NICs) > maxNICs:
 		return fmt.Errorf("%d NICs, and the slot range holds %d", len(s.NICs), maxNICs)
-	case s.HotplugDisks < 0 || s.HotplugDisks > MaxHotplugDisks:
+	case s.HotplugDisks < 0 || s.HotplugDisks > maxHotplugDisks:
 		return fmt.Errorf("%d disks arriving later, and the controller addresses %d",
-			s.HotplugDisks, MaxHotplugDisks)
+			s.HotplugDisks, maxHotplugDisks)
+	}
+	if err := isBzImage(s.Kernel); err != nil {
+		return err
 	}
 	if err := s.Cmdline.validate(); err != nil {
 		return fmt.Errorf("kernel command line: %w", err)
@@ -1119,7 +1117,7 @@ func (s Spec) Fingerprint() (string, error) {
 	// pc.bios, which a saved machine carries whole and a resume refuses at another length. Its
 	// contents travel with the checkpoint, so a rebuilt qboot of the same size is the same
 	// machine. Every other read-only block is the machine type's or the chipset's own, and
-	// boot:roms fails when one appears that is neither (BIOSBlock, MachineBlocks).
+	// boot:roms fails when one appears that is neither (boot/roms_test.go).
 	size, err := fileSize(filepath.Join(s.Firmware, s.bios()))
 	if err != nil {
 		return "", fmt.Errorf("fingerprinting the BIOS: %w", err)
@@ -1199,18 +1197,6 @@ func withoutTheVMs(dev string) string {
 
 // fingerprintName is how Args names the machine: this, then its fingerprint.
 const fingerprintName = "spin-machine:"
-
-// BIOSBlock is the RAM block the BIOS is mapped as, the read-only block whose size is a file's
-// (Fingerprint).
-const BIOSBlock = "pc.bios"
-
-// MachineBlocks are the read-only RAM blocks besides the BIOS that this machine maps, each sized
-// by the machine type or by the chipset and not by a file: the option ROM area (a fixed 128 KiB),
-// and the ACPI tables, their loader and the RSDP, which QEMU builds and resizes on a resume.
-// The kernel and the option ROM QEMU adds for it (linuxboot_dma.bin) reach the guest through fw_cfg and are no block of their own, and a
-// NIC loads no option ROM (romfile=). boot:roms holds a booted machine to this list, so a
-// QEMU or a device that maps another ROM fails there rather than in a resume.
-var MachineBlocks = []string{"pc.rom", "/rom@etc/acpi/tables", "/rom@etc/table-loader", "/rom@etc/acpi/rsdp"}
 
 func fileSize(path string) (int64, error) {
 	fi, err := os.Stat(path)

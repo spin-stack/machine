@@ -28,7 +28,7 @@ func spec(t *testing.T) Spec {
 	write("linuxboot_dma.bin", "linuxboot")
 	return Spec{
 		QEMU:     write("qemu-system-x86_64", "qemu"),
-		Kernel:   write("bzImage", "kernel"),
+		Kernel:   write("bzImage", strings.Repeat("\x00", 0x202)+"HdrS"),
 		Firmware: dir,
 		BootCPUs: 2,
 		Memory:   Memory{SizeMB: 512},
@@ -503,6 +503,9 @@ func TestValidateRefuses(t *testing.T) {
 	}{
 		{"no QEMU", func(s *Spec) { s.QEMU = "" }},
 		{"no kernel", func(s *Spec) { s.Kernel = "" }},
+		// QEMU tries anything else as a multiboot or an ELF kernel, and this machine enters neither.
+		{"a kernel that is not a bzImage", func(s *Spec) { s.Kernel = s.QEMU }},
+		{"a kernel that is not there", func(s *Spec) { s.Kernel += ".absent" }},
 		{"no firmware", func(s *Spec) { s.Firmware = "" }},
 		{"a BIOS given as a path", func(s *Spec) { s.BIOS = "/elsewhere/qboot.bin" }},
 		{"no boot CPUs", func(s *Spec) { s.BootCPUs = 0 }},
@@ -523,7 +526,7 @@ func TestValidateRefuses(t *testing.T) {
 				s.NICs[i] = nic()
 			}
 		}},
-		{"more hotplug disks than the controller addresses", func(s *Spec) { s.HotplugDisks = MaxHotplugDisks + 1 }},
+		{"more hotplug disks than the controller addresses", func(s *Spec) { s.HotplugDisks = maxHotplugDisks + 1 }},
 		{"a negative number of hotplug disks", func(s *Spec) { s.HotplugDisks = -1 }},
 		// A disk is bound to its place by serial, and the serial names its nodes.
 		{"a place for a disk with no serial", func(s *Spec) { s.Disks = []DiskSlot{{}} }},
@@ -583,9 +586,16 @@ func TestValidateRefuses(t *testing.T) {
 		})
 	}
 
+	// A kernel refused is named, for whoever reads the error and not the code.
+	s := spec(t)
+	s.Kernel = s.QEMU
+	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), s.QEMU+" is not a bzImage") {
+		t.Errorf("Args of a kernel that is not a bzImage: %v", err)
+	}
+
 	// And the specs the cases above are made from have to pass, or every one of them
 	// would pass for the wrong reason.
-	s := spec(t)
+	s = spec(t)
 	if err := s.validate(); err != nil {
 		t.Fatalf("the minimal spec does not validate: %v", err)
 	}

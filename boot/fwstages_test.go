@@ -125,10 +125,8 @@ func machineArgs(t *testing.T, cli, release string, flags []string) (args []stri
 			startArgs = append(startArgs, f, v)
 		}
 	}
-	for _, f := range []string{"--disk-readonly", "--disk-direct-over-backing"} {
-		if slices.Contains(flags, f) {
-			startArgs = append(startArgs, f)
-		}
+	if slices.Contains(flags, "--disk-readonly") {
+		startArgs = append(startArgs, "--disk-readonly")
 	}
 	return args, func(t *testing.T) {
 		t.Helper()

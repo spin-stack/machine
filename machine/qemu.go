@@ -204,10 +204,6 @@ func (d Disk) validate() error {
 		return fmt.Errorf("serial %q is not 1-20 of A-Z, a-z, 0-9, '-' and '_'", d.Serial)
 	case len(d.Images) == 0:
 		return errors.New("no image")
-	case d.DirectOverBacking && len(d.Images) < 2:
-		// QEMU refuses backing options on an image with no backing ("Could not open backing
-		// file"), and there is nothing to keep cached.
-		return errors.New("direct over backing, and no image under the top")
 	}
 	for j, img := range d.Images {
 		switch {
@@ -284,9 +280,6 @@ func (m *QEMU) addImages(ctx context.Context, d Disk) (string, error) {
 		if j == 0 && d.Locking {
 			file.Locking = "on"
 		}
-		if d.DirectOverBacking {
-			file.Cache = &nodeCache{Direct: j == 0}
-		}
 		format := formatNode{Driver: img.Format, NodeName: node, File: node + "-f", ReadOnly: readOnly, Discard: "unmap"}
 		switch {
 		case j < len(d.Images)-1:
@@ -331,8 +324,8 @@ func (m *QEMU) AttachDisk(ctx context.Context, d Disk) error {
 }
 
 func (m *QEMU) attachAt(ctx context.Context, target int, d Disk) error {
-	if target < 0 || target >= MaxHotplugDisks {
-		return fmt.Errorf("disk %q: target %d, and the controller addresses 0 to %d", d.Serial, target, MaxHotplugDisks-1)
+	if target < 0 || target >= maxHotplugDisks {
+		return fmt.Errorf("disk %q: target %d, and the controller addresses 0 to %d", d.Serial, target, maxHotplugDisks-1)
 	}
 	top, err := m.addImages(ctx, d)
 	if err != nil {

@@ -11,8 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/spin-stack/spin-machine/machine"
 )
 
 // from is the tree a spec starts from and how a manifest names it.
@@ -170,7 +168,7 @@ func (s Sources) placeKernel(what, dir string) (string, error) {
 		}
 		source = "run " + id
 	}
-	if err := machine.IsBzImage(bz); err != nil {
+	if err := isBzImage(bz); err != nil {
 		return "", err
 	}
 	if err := replace(bz, filepath.Join(dir, "kernel", "bzImage"), 0o644); err != nil {
@@ -319,4 +317,20 @@ func (s Sources) systemd(patch, dir string) (NamedEdit, error) {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// isBzImage refuses a kernel that is not a bzImage, "HdrS" at 0x202, when the tree is made: the
+// machine refuses it too (machine.Spec.Args), but only once the tree boots, and a tree is made to
+// be booted many times somewhere else.
+func isBzImage(path string) error {
+	f, err := os.Open(path) //nolint:gosec // the kernel the tree spec names
+	if err != nil {
+		return fmt.Errorf("opening kernel %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	magic := make([]byte, 4)
+	if _, err := f.ReadAt(magic, 0x202); err != nil || string(magic) != "HdrS" {
+		return fmt.Errorf("%s is not a bzImage (no HdrS at 0x202): the machine boots a bzImage, and nothing enters a vmlinux", path)
+	}
+	return nil
 }

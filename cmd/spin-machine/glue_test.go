@@ -121,12 +121,6 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		wantErr: "reading the machine's memory",
 		printed: "had not reached 1024 MiB",
 	}, {
-		name: "cpus",
-		replies: []string{ok, `{"return": [{"type": "host-x86_64-cpu", "props": {"core-id": 1}}, ` +
-			`{"type": "host-x86_64-cpu", "qom-path": "/machine/unattached/device[0]", "props": {"core-id": 0}}]}`, ok},
-		do:    func(_ *testing.T, sock string) error { return cpus(cpusFlags{qmp: sock, n: 2, timeout: time.Minute}) },
-		asked: []string{"query-hotpluggable-cpus", "device_add"},
-	}, {
 		name: "cpu",
 		replies: []string{ok, cpuFast, cpuType, cpuExpansion,
 			`{"return": [{"name": "Skylake-Client-v4", "unavailable-features": [], "migration-safe": true}]}`,
@@ -226,7 +220,6 @@ func TestCommandsThatCannotReachTheMachine(t *testing.T) {
 		},
 		"detach":     func() error { return detach(detachFlags{qmp: sock, serial: "ext"}) },
 		"memory":     func() error { return memory(memoryFlags{qmp: sock, totalMB: 1024}, &bytes.Buffer{}) },
-		"cpus":       func() error { return cpus(cpusFlags{qmp: sock, n: 2}) },
 		"cpu":        func() error { return cpuReport(sock, &bytes.Buffer{}) },
 		"start":      func() error { return start(startFlags{qmp: sock}) },
 		"the helper": func() error { return bindAndBoot(machineFlags{qmp: sock}) },
@@ -235,7 +228,6 @@ func TestCommandsThatCannotReachTheMachine(t *testing.T) {
 		"no state":   func() error { return restore(restoreFlags{qmp: sock, from: "/nonexistent/state"}) },
 		"no cpu qmp": func() error { return cpuReport("", &bytes.Buffer{}) },
 		"one MiB":    func() error { return memory(memoryFlags{qmp: sock, totalMB: 1}, &bytes.Buffer{}) },
-		"one vCPU":   func() error { return cpus(cpusFlags{qmp: sock, n: 1}) },
 		"a disk not there": func() error {
 			return attach(attachFlags{qmp: sock, disks: diskFlags{path: "/nonexistent/disk.raw", format: "raw", serial: "ext"}})
 		},
@@ -375,7 +367,7 @@ func TestBootRefusesBeforeStartingAnything(t *testing.T) {
 	if err := os.WriteFile(garbage, []byte{0, 1, 2, 3}, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	spec := machine.Spec{QEMU: garbage, Kernel: garbage, Firmware: dir, BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
+	spec := machine.Spec{QEMU: garbage, Kernel: kernelIn(t, dir), Firmware: dir, BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
 		Monitors: []machine.Monitor{{Socket: "/q"}}}
 	invalid := spec
 	invalid.Memory.SizeMB = 0
@@ -408,7 +400,7 @@ func TestBootCommandIsHeld(t *testing.T) {
 	if err := os.WriteFile(qemu, nil, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s := machine.Spec{QEMU: qemu, Kernel: qemu, Firmware: dir, BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
+	s := machine.Spec{QEMU: qemu, Kernel: kernelIn(t, dir), Firmware: dir, BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
 		Monitors: []machine.Monitor{{Socket: "/run/q"}}}
 	for _, tc := range []struct {
 		name         string
@@ -452,7 +444,7 @@ func TestBootCommandIsHeld(t *testing.T) {
 func TestBootExecsQEMUHeld(t *testing.T) {
 	if argv := os.Getenv("SPIN_MACHINE_TEST_ARGV"); argv != "" {
 		qemu := os.Getenv("SPIN_MACHINE_TEST_QEMU")
-		s := machine.Spec{QEMU: qemu, Kernel: qemu, Firmware: filepath.Dir(qemu), BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
+		s := machine.Spec{QEMU: qemu, Kernel: filepath.Join(filepath.Dir(qemu), "bzImage"), Firmware: filepath.Dir(qemu), BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
 			Monitors: []machine.Monitor{{Socket: "/run/q"}}}
 		o := machineFlags{qmp: "/run/q"}
 		if os.Getenv("SPIN_MACHINE_TEST_RESTORE") != "" {
@@ -463,6 +455,7 @@ func TestBootExecsQEMUHeld(t *testing.T) {
 	}
 	for _, restore := range []bool{false, true} {
 		dir := withBIOS(t, t.TempDir())
+		kernelIn(t, dir)
 		qemu, argv := filepath.Join(dir, "qemu"), filepath.Join(dir, "argv")
 		if err := os.WriteFile(qemu, []byte("#!/bin/sh\necho \"$@\" > "+argv+"\nexit 7\n"), 0o700); err != nil {
 			t.Fatal(err)
@@ -493,7 +486,7 @@ func TestBootExecsQEMUHeld(t *testing.T) {
 
 // The commands that take their flags through run.
 func TestRunPassesFlagsOn(t *testing.T) {
-	for _, argv := range [][]string{{bindCommand, "--nope"}, {"cpu", "--nope"}, {"start", "--nope"}, {"cpus", "--nope"}} {
+	for _, argv := range [][]string{{bindCommand, "--nope"}, {"cpu", "--nope"}, {"start", "--nope"}} {
 		if err := run(argv); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Errorf("run(%q) = %v", argv, err)
 		}
@@ -531,4 +524,15 @@ func withBIOS(t *testing.T, dir string) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// kernelIn writes dir/bzImage, a file with a bzImage's setup header magic, which Args asks of a
+// kernel, and returns its path.
+func kernelIn(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "bzImage")
+	if err := os.WriteFile(path, append(make([]byte, 0x202), "HdrS"...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
