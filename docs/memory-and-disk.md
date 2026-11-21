@@ -232,8 +232,11 @@ continued the guest, before it records the checkpoint. A filesystem where creati
 wait on another file's dirty pages would need this measured on it.
 
 QEMU's downtime (`Cost.Paused`) ends when the migration completes. In every arm the caller's
-clock read 200-250 ms more from the seal to `cont`'s return, the sync aside. That time was not
-traced to its cause.
+clock read 200-250 ms more from the seal to `cont`'s return, the sync aside. That was ext4
+writing the state back on the file's last close, which was Checkpoint's own, before it returned:
+QEMU truncates the file it writes, and ext4's `auto_da_alloc` flushes such a file when it is
+closed. Checkpoint now leaves that close to a goroutine, and the gap is 6 ms p50
+(docs/machine.md, "Phases", #399). The flush is then in the caller's sync after `Continue`.
 
 `Resume` has no bound of its own besides its context. A full load reads the state's written
 blocks, not its length, since a mapped-ram state is sparse. How long that may take depends on the
