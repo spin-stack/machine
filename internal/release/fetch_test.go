@@ -163,3 +163,36 @@ func TestASignedFileIsTheOneAskedForOnceItsSignatureIsTheReleases(t *testing.T) 
 		t.Errorf("Signed with a signature not the release's: %v", err)
 	}
 }
+
+// A release's kernel is its signed tarball's: the version its manifest names and the sources list
+// it carries, in a dir emptied first. A release from before either is refused by what it lacks.
+func TestAReleasesKernelIsItsSignedTarballs(t *testing.T) {
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, "stale"), "x", 0o644)
+	github(t, published(t, map[string]string{
+		"usr/share/spin-stack/machine.env":    "kernel_version=7.3.3\n",
+		"usr/share/spin-stack/kernel/sources": "a.c\n",
+	}, ""), "", "")
+	version, sources, err := Kernel(context.Background(), pins(t), "v1", dir)
+	if err != nil || version != "7.3.3" || read(t, sources) != "a.c\n" {
+		t.Fatalf("Kernel = %q, %q, %v", version, sources, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "stale")); err == nil {
+		t.Error("dir was not emptied first")
+	}
+	github(t, published(t, map[string]string{"usr/share/spin-stack/machine.env": "kernel_version=7.3.3\n"}, ""), "", "")
+	if _, _, err := Kernel(context.Background(), pins(t), "v1", dir); err == nil || !strings.Contains(err.Error(), "v1 carries no kernel/sources") {
+		t.Errorf("a release with no sources list: %v", err)
+	}
+	github(t, published(t, map[string]string{"usr/share/spin-stack/kernel/sources": "a.c\n"}, ""), "", "")
+	if _, _, err := Kernel(context.Background(), pins(t), "v1", dir); err == nil || !strings.Contains(err.Error(), "reading v1's manifest") {
+		t.Errorf("a release with no manifest: %v", err)
+	}
+	github(t, published(t, map[string]string{"usr/share/spin-stack/machine.env": "kernel_version=7.3.3\n"}, ""), "", "exit 1")
+	if _, _, err := Kernel(context.Background(), pins(t), "v1", dir); err == nil {
+		t.Error("a tarball not signed by the release: fetched")
+	}
+	if _, _, err := Kernel(context.Background(), pins(t), "v1", "/proc/version/x"); err == nil {
+		t.Error("a dir that cannot be made: fetched")
+	}
+}

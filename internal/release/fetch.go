@@ -98,3 +98,28 @@ func verify(ctx context.Context, pins *versions.Versions, file string) error {
 	}
 	return nil
 }
+
+// Kernel fetches the release tag into dir, emptied first (Fetch), and says its kernel's version and
+// where its sources list is: what spin-machine-dev cves judges CVEs against. The tarball and not a
+// file of its own, because the sources list is in what a release signs already.
+func Kernel(ctx context.Context, pins *versions.Versions, tag, dir string) (version, sources string, err error) {
+	if err := os.RemoveAll(dir); err != nil {
+		return "", "", fmt.Errorf("emptying %s: %w", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", fmt.Errorf("making %s: %w", dir, err)
+	}
+	share, err := Fetch(ctx, pins, tag, dir)
+	if err != nil {
+		return "", "", err
+	}
+	sources = filepath.Join(share, "kernel", "sources")
+	if _, err := os.Stat(sources); err != nil {
+		return "", "", fmt.Errorf("%s carries no kernel/sources: cves reads releases from the one after kernel/Dockerfile wrote it: %w", tag, err)
+	}
+	env, err := os.ReadFile(filepath.Join(share, "machine.env"))
+	if err != nil {
+		return "", "", fmt.Errorf("reading %s's manifest: %w", tag, err)
+	}
+	return ParseEnv(string(env))["kernel_version"], sources, nil
+}
