@@ -616,9 +616,6 @@ func TestResume(t *testing.T) {
 				if c.Command == "qom-list" {
 					return ret(`[]`)
 				}
-				if r, ok := recordAnswers(c); ok {
-					return r
-				}
 				return places(c)
 			}, tc.statuses...)
 			m := f.attach(t)
@@ -626,7 +623,7 @@ func TestResume(t *testing.T) {
 			if len(tc.saved.Added) > 0 {
 				disks = append(disks, Disk{Serial: "ext", Readonly: true, Images: []Image{image(t, "qcow2")}})
 			}
-			if err := m.Resume(ctx(t), image(t, "raw").File, tc.saved, tc.load, disks...); err != nil {
+			if err := m.Resume(ctx(t), image(t, "raw").File, tc.saved, from, tc.load, disks...); err != nil {
 				t.Fatal(err)
 			}
 			caps := map[string]bool{}
@@ -661,26 +658,30 @@ func TestResume(t *testing.T) {
 	}
 }
 
-// What a resume refuses before reading a byte of the state.
+// What a resume of a checkpoint of this machine refuses before reading a byte of the state.
 func TestResumeRefuses(t *testing.T) {
+	here := fakeTarget(t)
+	// A Target that says it reads a format QEMU's Resume does not: the caller's, trusted.
+	other := fakeTarget(t)
+	other.Formats = append(other.Formats, "firecracker-snapshot")
 	for _, tc := range []struct {
 		name   string
 		saved  Saved
+		here   Target
 		load   Load
 		status string
 		want   string
 	}{
-		{"a stream checkpoint, fast", Saved{Format: FormatStream}, Load{Fast: true}, "inmigrate", "loads only in full"},
-		{"a stream checkpoint, by channels", Saved{Format: FormatStream}, Load{Channels: 2}, "inmigrate", "which one thread reads"},
-		{"a format it does not read", Saved{Format: "firecracker-snapshot"}, Load{}, "inmigrate", `format "firecracker-snapshot"`},
-		{"no format", Saved{}, Load{}, "inmigrate", `format ""`},
-		{"a machine held for a boot", Saved{Format: FormatMappedRAM}, Load{}, "prelaunch", "is prelaunch"},
-		{"a record it cannot read", Saved{Format: FormatMappedRAM, Added: json.RawMessage(`[`)}, Load{}, "inmigrate", "what the checkpoint says"},
+		{"a stream checkpoint, fast", Saved{Format: FormatStream, From: here}, here, Load{Fast: true}, "inmigrate", "loads only in full"},
+		{"a stream checkpoint, by channels", Saved{Format: FormatStream, From: here}, here, Load{Channels: 2}, "inmigrate", "which one thread reads"},
+		{"a format QEMU does not read", Saved{Format: "firecracker-snapshot", From: here}, other, Load{}, "inmigrate", `format "firecracker-snapshot"`},
+		{"a machine held for a boot", Saved{Format: FormatMappedRAM, From: here}, here, Load{}, "prelaunch", "is prelaunch"},
+		{"a record it cannot read", Saved{Format: FormatMappedRAM, From: here, Added: json.RawMessage(`[`)}, here, Load{}, "inmigrate", "what the checkpoint says"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: machineAnswers(tc.status, "root")}
 			m := f.attach(t)
-			err := m.Resume(ctx(t), image(t, "raw").File, tc.saved, tc.load)
+			err := m.Resume(ctx(t), image(t, "raw").File, tc.saved, tc.here, tc.load)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Resume = %v, want %q", err, tc.want)
 			}
@@ -985,12 +986,9 @@ func TestResumeFailsWhereAHotDiskIsRefused(t *testing.T) {
 		if c.Command == "device_add" {
 			return refused("no")
 		}
-		if r, ok := recordAnswers(c); ok {
-			return r
-		}
 		return machineAnswers("inmigrate", "root")(c)
 	}}
-	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from, Added: again}, Load{},
+	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from, Added: again}, from, Load{},
 		Disk{Serial: "ext", Images: []Image{image(t, "qcow2")}})
 	if err == nil || !strings.Contains(err.Error(), "attaching it at target 2") {
 		t.Errorf("Resume = %v, want the refused disk's error", err)

@@ -269,8 +269,9 @@ func ramblocks(text string) func(c call) (string, bool) {
 	return answer("x-query-ramblock", string(b))
 }
 
-// A resume asks the machine what it is and refuses, before it reads a byte of the state, a
-// checkpoint taken on another, with every difference; one taken on this machine loads.
+// A resume holds a checkpoint to the Target it is handed, and never asks QEMU what the machine
+// is: one taken on another machine is refused, with every difference, before QEMU is asked
+// anything; one taken on this machine loads.
 func TestResumeRefusesAnotherMachine(t *testing.T) {
 	this := fakeTarget(t)
 	richer := fakeTarget(t)
@@ -285,13 +286,8 @@ func TestResumeRefusesAnotherMachine(t *testing.T) {
 		{"no record", Target{}, []Difference{{Part: "vmm", Here: "qemu 11.2.0", Rule: AsNew}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &fakeQEMU{answer: migrations(func(c call) string {
-				if r, ok := recordAnswers(c); ok {
-					return r
-				}
-				return machineAnswers("inmigrate")(c)
-			}, "completed")}
-			err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: tc.from}, Load{})
+			f := &fakeQEMU{answer: migrations(machineAnswers("inmigrate"), "completed")}
+			err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: tc.from}, this, Load{})
 			var r *Refusal
 			switch {
 			case tc.want == nil && err != nil:
@@ -299,8 +295,17 @@ func TestResumeRefusesAnotherMachine(t *testing.T) {
 			case tc.want != nil && (!errors.As(err, &r) || !reflect.DeepEqual(r.Differences, tc.want)):
 				t.Fatalf("Resume = %v, want a refusal of %+v", err, tc.want)
 			}
-			if read := slices.Contains(f.commands(), "migrate-incoming"); read != (tc.want == nil) {
+			asked := f.commands()
+			if tc.want != nil && len(asked) > 0 {
+				t.Errorf("a refused checkpoint asked QEMU %v", asked)
+			}
+			if read := slices.Contains(asked, "migrate-incoming"); read != (tc.want == nil) {
 				t.Errorf("the state was read: %t", read)
+			}
+			for _, c := range []string{"query-version", "query-cpus-fast", "qom-list-get", "query-kvm", "x-query-ramblock"} {
+				if slices.Contains(asked, c) {
+					t.Errorf("Resume asked QEMU %s, a part of the record it was handed", c)
+				}
 			}
 		})
 	}

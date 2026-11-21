@@ -214,6 +214,7 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 		{"a flag args does not take", []string{"args", "--nope"}, "flag provided but not defined"},
 		{"a command there is no more", []string{"fingerprint"}, `unknown command "fingerprint"`},
 		{"restore without its socket", []string{"restore", "--from", "x"}, "are required"},
+		{"target without its socket", []string{"target"}, "target: --qmp is required"},
 		{"detach without its socket", []string{"detach"}, "--qmp and --disk-serial are required"},
 		{"start without its socket", []string{"start"}, "--qmp is required"},
 		{"save without its socket", []string{"save", "--to", "x"}, "are required"},

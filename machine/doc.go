@@ -35,10 +35,11 @@
 //  3. Spec.Args is the QEMU command line. The caller execs QEMU with it and the descriptors the
 //     Spec names. QEMU starts held.
 //  4. Attach takes over a monitor and returns the QEMU it drives.
-//  5. QEMU.Boot binds the disks and starts the guest cold. Or, for a checkpoint, CanResume
-//     checks the Saved record against a machine's Target to choose where it resumes,
-//     QEMU.Resume checks it again and loads it, and QEMU.Loaded says when the state file is no
-//     longer read.
+//  5. QEMU.Boot binds the disks and starts the guest cold. Or, for a checkpoint: the caller holds
+//     its host's Target, read once (QEMU.Target) from a machine started held in the shape it
+//     resumes into; CanResume checks the Saved record against it to choose where the checkpoint
+//     resumes; QEMU.Resume, handed the same Target, checks it again without asking QEMU and loads
+//     the state; and QEMU.Loaded says when the state file is no longer read.
 //  6. QEMU.AttachDisk and QEMU.DetachDisk change the disks while the guest runs.
 //  7. QEMU.Checkpoint saves the guest and leaves it stopped, and QEMU.Continue runs it again.
 package machine

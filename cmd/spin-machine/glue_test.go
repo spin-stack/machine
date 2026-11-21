@@ -58,6 +58,20 @@ func checkpointFile(t *testing.T) string {
 	return p
 }
 
+// checkpointOn is a state whose record says it was taken on a machine, and that machine's record
+// as target prints one.
+func checkpointOn(t *testing.T) (state, target string) {
+	t.Helper()
+	const record = `{"vmm": "qemu 11.2.0", "formats": ["qemu-mapped-ram", "qemu-stream"], "cpu": {"vendor": "GenuineIntel", "model": "host"}, "machine": {"exact": [{"name": "accel", "value": "kvm"}]}}`
+	state = rawFile(t)
+	target = state + ".target"
+	if os.WriteFile(state+".json", []byte(`{"format": "qemu-mapped-ram", "from": `+record+`}`), 0o600) != nil ||
+		os.WriteFile(target, []byte(record), 0o600) != nil {
+		t.Fatal("writing the checkpoint's records")
+	}
+	return state, target
+}
+
 // ev is a reply with the event QEMU sends when a device has gone ahead of it.
 func ev(device, reply string) string {
 	return `{"event": "DEVICE_DELETED", "data": {"device": "` + device + `"}}` + "\n" + reply
@@ -212,9 +226,22 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		name:    "restore into a machine held for a boot",
 		replies: []string{ok, `{"return": {"status": "prelaunch"}}`},
 		do: func(t *testing.T, sock string) error {
-			return restore(restoreFlags{qmp: sock, from: checkpointFile(t), disks: diskFlags{path: "-"}, timeout: time.Minute})
+			state, target := checkpointOn(t)
+			return restore(restoreFlags{qmp: sock, from: state, target: target, disks: diskFlags{path: "-"}, timeout: time.Minute})
 		},
+		asked:   []string{"query-status"},
 		wantErr: "only one started with Spec.Restore",
+	}, {
+		name:    "target",
+		replies: append([]string{ok}, readRecord...),
+		do:      func(_ *testing.T, sock string) error { return targetReport(sock, &out) },
+		asked:   readRecordAsked,
+		printed: `"vmm": "qemu 11.2.0"`,
+	}, {
+		name:    "target, its version unreadable",
+		replies: []string{ok, no},
+		do:      func(_ *testing.T, sock string) error { return targetReport(sock, &out) },
+		wantErr: "asking the machine's QEMU version",
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			out.Reset()
@@ -251,16 +278,18 @@ func TestCommandsThatCannotReachTheMachine(t *testing.T) {
 		"attach": func() error {
 			return attach(attachFlags{qmp: sock, disks: diskFlags{path: rawFile(t), format: "raw", serial: "ext"}})
 		},
-		"detach":     func() error { return detach(detachFlags{qmp: sock, serial: "ext"}) },
-		"memory":     func() error { return memory(memoryFlags{qmp: sock, totalMB: 1024}, &bytes.Buffer{}) },
-		"cpu":        func() error { return cpuReport(sock, &bytes.Buffer{}) },
-		"start":      func() error { return start(startFlags{qmp: sock}) },
-		"the helper": func() error { return bindAndBoot(machineFlags{qmp: sock}) },
-		"save":       func() error { return save(saveFlags{qmp: sock, to: filepath.Join(t.TempDir(), "s")}) },
-		"restore":    func() error { return restore(restoreFlags{qmp: sock, from: checkpointFile(t)}) },
-		"no state":   func() error { return restore(restoreFlags{qmp: sock, from: "/nonexistent/state"}) },
-		"no cpu qmp": func() error { return cpuReport("", &bytes.Buffer{}) },
-		"one MiB":    func() error { return memory(memoryFlags{qmp: sock, totalMB: 1}, &bytes.Buffer{}) },
+		"detach":        func() error { return detach(detachFlags{qmp: sock, serial: "ext"}) },
+		"memory":        func() error { return memory(memoryFlags{qmp: sock, totalMB: 1024}, &bytes.Buffer{}) },
+		"cpu":           func() error { return cpuReport(sock, &bytes.Buffer{}) },
+		"start":         func() error { return start(startFlags{qmp: sock}) },
+		"the helper":    func() error { return bindAndBoot(machineFlags{qmp: sock}) },
+		"save":          func() error { return save(saveFlags{qmp: sock, to: filepath.Join(t.TempDir(), "s")}) },
+		"restore":       func() error { return restore(restoreFlags{qmp: sock, from: checkpointFile(t)}) },
+		"no state":      func() error { return restore(restoreFlags{qmp: sock, from: "/nonexistent/state"}) },
+		"no cpu qmp":    func() error { return cpuReport("", &bytes.Buffer{}) },
+		"target":        func() error { return targetReport(sock, &bytes.Buffer{}) },
+		"no target qmp": func() error { return targetReport("", &bytes.Buffer{}) },
+		"one MiB":       func() error { return memory(memoryFlags{qmp: sock, totalMB: 1}, &bytes.Buffer{}) },
 		"a disk not there": func() error {
 			return attach(attachFlags{qmp: sock, disks: diskFlags{path: "/nonexistent/disk.raw", format: "raw", serial: "ext"}})
 		},

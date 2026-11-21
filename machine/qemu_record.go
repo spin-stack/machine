@@ -20,8 +20,8 @@ import (
 // Read once and kept, because none of it changes for the life of the process: a device the
 // machine was started with cannot be unplugged from pcie.0, a device's properties are fixed once
 // it is realized, a RAM block keeps its maximum length, and a vCPU's features are fixed when it
-// is made. Resume asks it before loading, and a caller that asked when the machine started held -
-// spin's pool - has already paid for it there: one full read is 8 round trips (2026-11-21).
+// is made. One full read is 8 round trips (2026-11-21). Resume does not ask it: the caller hands
+// Resume the Target of the machine it resumes into, read once for its host.
 func (m *QEMU) Target(ctx context.Context) (Target, error) {
 	if m.record != nil {
 		return *m.record, nil

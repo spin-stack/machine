@@ -60,10 +60,7 @@ func Example() {
 
 	root, home := disk("root"), disk("home")
 	if resuming {
-		here, err := m.Target(ctx)
-		if err != nil {
-			log.Fatal(err)
-		}
+		here := hostTarget()
 		if err := machine.CanResume(saved, here); err != nil {
 			log.Fatal(err) // boot this workspace cold, or resume it on another host
 		}
@@ -72,7 +69,7 @@ func Example() {
 			log.Fatal(err)
 		}
 		defer state.Close()
-		if err := m.Resume(ctx, state, saved, machine.Load{Fast: true}, root, home); err != nil {
+		if err := m.Resume(ctx, state, saved, here, machine.Load{Fast: true}, root, home); err != nil {
 			log.Fatal(err)
 		}
 		if err := m.Loaded(ctx); err != nil { // the state file is free once this returns
@@ -106,6 +103,10 @@ func Example() {
 
 // previousCheckpoint is the caller's record of the last checkpoint, if there is one.
 func previousCheckpoint() (machine.Saved, bool) { return machine.Saved{}, false }
+
+// hostTarget is the caller's record of the machine its host resumes checkpoints into: asked once
+// (QEMU.Target) of a machine started held in that shape, when the caller starts, and kept.
+func hostTarget() machine.Target { return machine.Target{} }
 
 // tap is the caller's TAP device, already opened.
 func tap() *os.File { return nil }
