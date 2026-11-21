@@ -140,6 +140,13 @@ func TestThePressureProbeReportsEachPressure(t *testing.T) {
 			t.Errorf("setting %s to %q: %v", file, value, err)
 		}
 	}
+	// uncache drops the second disk from the host's cache, so that what QEMU reads of it it reads
+	// from the host's disk, in QEMU's cgroup.
+	uncache := func() {
+		if err := unix.Fadvise(int(lim.Fd()), 0, 0, unix.FADV_DONTNEED); err != nil {
+			t.Errorf("dropping the second disk from the host's cache: %v", err)
+		}
+	}
 	lift := func() {}
 	defer func() { lift() }()
 	defer func() {
@@ -190,13 +197,15 @@ func TestThePressureProbeReportsEachPressure(t *testing.T) {
 			set("cpu.max", "20000 100000")
 			lift = func() { set("cpu.max", "max 100000") }
 		case "memlimit":
+			// The test wrote the disk, so what of it the host still caches is charged to the
+			// test's cgroup, and QEMU's reads of it charge nothing to QEMU's: memory.high was never
+			// reached while the whole disk stayed cached (laptop, 2026-11-21, #429).
+			uncache()
 			set("memory.high", fmt.Sprint(u.Memory.Current+32<<20))
 			lift = func() { set("memory.high", "max") }
 		case "iolimit":
-			// What QEMU reads it reads through the host's cache, which has the disk from memlimit.
-			if err := unix.Fadvise(int(lim.Fd()), 0, 0, unix.FADV_DONTNEED); err != nil {
-				t.Errorf("dropping the second disk from the host's cache: %v", err)
-			}
+			// The disk memlimit read is cached, and a read the cache answers reaches no io.max.
+			uncache()
 			set("io.max", limDev+" rbps=4194304")
 			lift = func() { set("io.max", limDev+" rbps=max") }
 		case "disklimit":
