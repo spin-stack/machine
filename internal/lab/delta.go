@@ -50,8 +50,8 @@ func DeltaP50(a, b []float64) (Delta, bool) {
 	}
 	// Sorted, so the interval depends on the samples and not on the order they were taken in.
 	a, b = slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b))
-	pa, _ := Pct(a, .5)
-	pb, _ := Pct(b, .5)
+	pa, _ := Percentile(a, .5)
+	pb, _ := Percentile(b, .5)
 	rng := rand.New(rand.NewPCG(1, 2)) // mutate-exempt: the seed; any seed draws an interval, and a fixed one the same interval every time
 	ra, rb := make([]float64, len(a)), make([]float64, len(b))
 	ds := make([]float64, resamples)
@@ -62,11 +62,11 @@ func DeltaP50(a, b []float64) (Delta, bool) {
 		for j := range rb {
 			rb[j] = b[rng.IntN(len(b))]
 		}
-		ma, _ := Pct(ra, .5)
-		mb, _ := Pct(rb, .5)
+		ma, _ := Percentile(ra, .5)
+		mb, _ := Percentile(rb, .5)
 		ds[i] = mb - ma
 	}
-	lo, _ := Pct(ds, .025)
-	hi, _ := Pct(ds, .975)
+	lo, _ := Percentile(ds, .025)
+	hi, _ := Percentile(ds, .975)
 	return Delta{P50: tenth(pb - pa), Lo: tenth(lo), Hi: tenth(hi)}, true
 }

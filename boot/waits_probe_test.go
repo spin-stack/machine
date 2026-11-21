@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/boot"
+	"github.com/spin-stack/spin-machine/internal/lab"
 )
 
 // What waited on what between the kernel handing over and a login prompt, on one axis with
-// the host's clock: boot.Waits applied to REPS boots. See boot/waits.go for the rule.
+// the host's clock: Waits applied to REPS boots. See waits_model_test.go for the rule.
 //
 // The guest and the host share no clock, so the two are joined at one event both see: the
 // probe's unit writes SPIN-WAITS-ANCHOR as its first act, the host stamps the read it arrives
@@ -32,7 +32,7 @@ import (
 // one boot of five, which it cannot have. Read a difference smaller than that as none. What is
 // before that zero is QEMU and the firmware; task boot:firmware-stages splits it.
 //
-// The login is serial-getty@ttyS0 replaced by an echo (gettyEcho), so agetty's own second is not in it. The getty keeps Type=idle, so what is
+// The login is serial-getty@ttyS0 replaced by an echo (lab.GettyEcho), so agetty's own second is not in it. The getty keeps Type=idle, so what is
 // between its fork and the prompt is it waiting for the job queue to drain, and that is
 // printed as its own row because it is in no unit's timestamps.
 //
@@ -50,7 +50,7 @@ func TestBootWaits(t *testing.T) {
 		t.Skip("set SPIN_BOOT_WAITS=1: boots a VM and needs sudo to write into its overlay")
 	}
 	out := releaseDir(t)
-	if !canSudo() {
+	if !lab.CanSudo() {
 		t.Skip("this writes a unit into the boot's own overlay through qemu-nbd, which needs sudo")
 	}
 	reps := envInt(t, "REPS", 5)
@@ -83,6 +83,15 @@ func TestBootWaits(t *testing.T) {
 	}
 }
 
+// variant is one configuration to boot.
+type variant struct {
+	label, cpus, memory string
+	edit                lab.Edit // made in the boot's own overlay
+	// -device entries taken out of the machine, by prefix ("virtio-rng-pci"): a diagnostic row
+	// of another machine, one spin-machine deliberately has no flag for. See machineCommand.
+	without []string
+}
+
 // waitsVariant is the boot both probes take: the getty an echo, and spin-waits.service printing
 // every unit's timestamps once startup has finished.
 func waitsVariant(cpus string) variant {
@@ -109,20 +118,20 @@ ExecStart=/bin/sh -c "echo SPIN-WAITS-ANCHOR > /dev/ttyS0; i=0; while [ \"$$(sys
 [Install]
 WantedBy=multi-user.target
 `
-	files := gettyDropin(gettyEcho)
+	files := lab.GettyDropin(lab.GettyEcho)
 	files["/etc/systemd/system/spin-waits.service"] = dump
 	return variant{
-		label: "waits", cpus: cpus, memory: "2048", files: files,
-		links: map[string]string{
-			"/etc/systemd/system/multi-user.target.wants/spin-waits.service": "/etc/systemd/system/spin-waits.service",
-		},
+		label: "waits", cpus: cpus, memory: "2048", edit: lab.Edit{Files: files,
+			Links: map[string]string{
+				"/etc/systemd/system/multi-user.target.wants/spin-waits.service": "/etc/systemd/system/spin-waits.service",
+			}},
 	}
 }
 
 // waitsBoot is one boot, with its two clocks joined: kernel is guest monotonic zero on the
 // host's clock, and usable is the login prompt on the guest's.
 type waitsBoot struct {
-	w              boot.Waits
+	w              Waits
 	dump           string
 	console        string
 	pid1           []pid1Mark // PID 1's own marks, when its systemd was built with experiments/pid1-marks
@@ -137,7 +146,7 @@ type waitsBoot struct {
 // time only where the host has it in a huge page.
 type hostRAM struct{ residentMB, hugeMB float64 }
 
-func (x waitsBoot) target() boot.Unit { u, _ := x.w.Unit(x.login); return u }
+func (x waitsBoot) target() Unit { u, _ := x.w.Unit(x.login); return u }
 
 // machineCommand is `spin-machine boot` with args, or, for a variant that takes devices out
 // of the machine, the release's QEMU run with the command line `spin-machine args` prints for
@@ -180,7 +189,9 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 	overlay := filepath.Join(t.TempDir(), "overlay.qcow2")
 	mustRun(t, filepath.Join(out, "bin", "qemu-img"), "create", "-f", "qcow2",
 		"-F", "qcow2", "-b", filepath.Join(out, "image", "rootfs.qcow2"), overlay)
-	editOverlay(t, overlay, v)
+	if err := lab.EditOverlay(overlay, v.edit); err != nil {
+		t.Fatal(err)
+	}
 
 	// FLAGS, as the other probes take it: spin-machine boot flags after the rest.
 	cmd, start := machineCommand(t, out, v, append([]string{"--disk", overlay, "--memory", v.memory, "--cpus", v.cpus,
@@ -205,7 +216,7 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 		_ = r.Close()
 	}()
 
-	// Stamped per read, as boot.Watch does and for its reason: a harness that stamps lines
+	// Stamped per read, as lab.Watch does and for its reason: a harness that stamps lines
 	// slows the serial port it is timing.
 	stamps := map[string]time.Duration{}
 	marks := []string{"login:", "SPIN-WAITS-ANCHOR", "SPIN-WAITS-END", end}
@@ -249,11 +260,11 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 		t.Fatalf("no dump between SPIN-WAITS-BEGIN and -END; tail:\n%s", tail(console, 2000))
 	}
 	dump := s[begin+len("SPIN-WAITS-BEGIN") : stop]
-	m, us, err := boot.ParseWaits(dump)
+	m, us, err := ParseWaits(dump)
 	if err != nil {
 		t.Fatalf("reading the dump: %v\n%s", err, tail([]byte(dump), 1500))
 	}
-	wt := boot.NewWaits(m, us)
+	wt := NewWaits(m, us)
 	probe, ok := wt.Units["spin-waits.service"]
 	if !ok || probe.Start == 0 {
 		t.Fatalf("spin-waits.service has no start in its own dump")
@@ -273,8 +284,8 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 // set of gaps averaged across boots would be a path no boot took.
 func waitsReport(boots []waitsBoot, target string, top int, minGap time.Duration) string {
 	ms := func(d time.Duration) string { return fmt.Sprintf("%.1f", float64(d)/float64(time.Millisecond)) }
-	p50 := func(ds []time.Duration) time.Duration { d, _ := boot.Percentile(ds, 0.5); return d }
-	p95 := func(ds []time.Duration) time.Duration { d, _ := boot.Percentile(ds, 0.95); return d }
+	p50 := func(ds []time.Duration) time.Duration { d, _ := lab.Percentile(ds, 0.5); return d }
+	p95 := func(ds []time.Duration) time.Duration { d, _ := lab.Percentile(ds, 0.95); return d }
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nms on the host's clock from the moment before QEMU is exec'd, p50/p95 over %d boots\n\n", len(boots))
@@ -516,7 +527,7 @@ func pid1Report(boots []waitsBoot) string {
 		return ""
 	}
 	ms := func(ds []time.Duration) string {
-		p50, _ := boot.Percentile(ds, 0.5)
+		p50, _ := lab.Percentile(ds, 0.5)
 		return fmt.Sprintf("%.2f", float64(p50)/float64(time.Millisecond))
 	}
 	var b strings.Builder
@@ -524,7 +535,7 @@ func pid1Report(boots []waitsBoot) string {
 	fmt.Fprintf(&b, "  %-22s %9s %9s %12s %7s\n", "", "WALL ms", "CPU ms", "UNIT_LOAD ms", "UNITS")
 	for _, name := range order {
 		st := steps[name]
-		units, _ := boot.Percentile(st.units, 0.5)
+		units, _ := lab.Percentile(st.units, 0.5)
 		fmt.Fprintf(&b, "  %-22s %9s %9s %12s %7d\n", name, ms(st.wall), ms(st.cpu), ms(st.load), int(units))
 	}
 	return b.String()
@@ -539,9 +550,9 @@ func pid1Report(boots []waitsBoot) string {
 func withPackages(base variant, label, debs string) variant {
 	v := base
 	v.label = label
-	v.files = maps.Clone(base.files)
-	v.links = maps.Clone(base.links)
-	v.setup = base.setup + `debs=` + debs + `
+	v.edit.Files = maps.Clone(base.edit.Files)
+	v.edit.Links = maps.Clone(base.edit.Links)
+	v.edit.Setup = base.edit.Setup + `debs=` + debs + `
 replaced=0
 for deb in "$debs"/*.deb; do
 	pkg=$(dpkg-deb -f "$deb" Package)

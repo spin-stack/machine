@@ -13,8 +13,6 @@ import (
 	"time"
 
 	xssh "golang.org/x/crypto/ssh"
-
-	"github.com/spin-stack/spin-machine/boot"
 )
 
 // sshFirst is the goal's first number: when a workspace can first be logged into, from the host,
@@ -77,9 +75,9 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	var mu sync.Mutex
 	var prompt time.Duration
 	go func() {
-		run, _ := boot.Watch(console, t0, time.Now, boot.Usable)
+		run, _ := Watch(console, t0, time.Now, Usable)
 		mu.Lock()
-		prompt = run.At[boot.Usable]
+		prompt = run.At[Usable]
 		mu.Unlock()
 		_, _ = io.Copy(io.Discard, console)
 	}()

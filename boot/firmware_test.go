@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/boot"
+	"github.com/spin-stack/spin-machine/internal/lab"
 	"github.com/spin-stack/spin-machine/machine"
 )
 
@@ -405,8 +405,8 @@ func mustCwd(t *testing.T) string {
 	return d
 }
 
-// pct is boot.Percentile in the shape a format argument needs: one value, p in percent.
+// pct is lab.Percentile in the shape a format argument needs: one value, p in percent.
 func pct(v []float64, p int) float64 {
-	x, _ := boot.Percentile(v, float64(p)/100)
+	x, _ := lab.Percentile(v, float64(p)/100)
 	return x
 }

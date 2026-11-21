@@ -271,7 +271,7 @@ func restoreAll(m *Measurement, cs []*checkpoint, b burst) (err error) {
 		}
 		return err
 	}
-	median, _ := Pct(logins, .5)
+	median, _ := Percentile(logins, .5)
 	m.Record("login", median)
 	m.Record("slowest", slices.Max(logins))
 	m.Record("running", slices.Max(running))
@@ -292,12 +292,12 @@ func (restoreTogether) Detail(r *Result) string {
 	for _, t := range r.Trees {
 		for _, row := range r.Rows {
 			vs := pooledLogins(r, t.Name, row)
-			p50, ok := Pct(vs, .5)
+			p50, ok := Percentile(vs, .5)
 			if !ok {
 				fmt.Fprintf(&b, "  %-32s -\n", r.label(t.Name, row))
 				continue
 			}
-			p95, _ := Pct(vs, .95)
+			p95, _ := Percentile(vs, .95)
 			line := fmt.Sprintf("  %-32s %s/%s over %d", r.label(t.Name, row), num(p50), num(p95), len(vs))
 			if base := firstAtOnce(r.Rows, row); base != row {
 				line += fmt.Sprintf(", Δ p50 against %q %s", base, against(pooledLogins(r, t.Name, base), vs))
@@ -318,7 +318,7 @@ func (restoreTogether) Detail(r *Result) string {
 			}
 			var parts []string
 			for _, name := range slices.Sorted(maps.Keys(by)) {
-				p50, _ := Pct(by[name], .5)
+				p50, _ := Percentile(by[name], .5)
 				parts = append(parts, fmt.Sprintf("%s %s", name, num(p50)))
 			}
 			if len(parts) > 0 {

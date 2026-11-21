@@ -255,7 +255,7 @@ and a row measured in another shape than spin's has such a reason.
 | agetty tweaks (TTYReset, --noissue, --delay 0, …) | within the noise of agetty's sleep(1) | runner | `80f984b` | 09-10 |
 | chrony or another time daemon | 10 ms; cannot know it was restored | runner | `c7af4d3` | 09-10 |
 | systemd-timesyncd | SNTP only, no refclock | - | `c7af4d3` | 09-10 |
-| 19 udev rules masked; loop and 8250 counts as command-line parameters | 0 to the console prompt | runner | `e2f6b8f`, boot/harness_test.go | 09-26 |
+| 19 udev rules masked; loop and 8250 counts as command-line parameters | 0 to the console prompt | runner | `e2f6b8f` | 09-26 |
 | A console unit instead of serial-getty | +340 ms until TERM=dumb, then equal | runner | `c6e48de`, `7b08e5a` | 09-26 |
 | Fewer unit files | 300 extra: 236 vs 246 | runner | `9fab3f1` | 09-26 |
 | systemd-oomd | the kernel always beat it | runner | `337c08d` | 09-28 |

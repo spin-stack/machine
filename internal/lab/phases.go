@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package boot measures what a boot of this machine costs, from the host.
-//
-// It exists because the number a machine reports for itself — systemd's `Startup
+package lab
+
+import (
+	"bytes"
+	"cmp"
+	"fmt"
+	"io"
+	"math"
+	"slices"
+	"time"
+)
+
+// A boot's cost is measured from the host, on its console, in phases, because the number a machine reports for itself — systemd's `Startup
 // finished` — begins counting when the kernel hands over. Exec'ing QEMU, the firmware and
 // loading the kernel are all before it; a login prompt is after it. Neither end is in that
 // number, and both are part of what an operator waits for.
 //
-// The package is split so that the part that can be wrong is testable without a VM: Watch
-// turns a stream of console bytes into phase timings, and Percentile turns a set of runs
-// into a number. Booting is the part that needs KVM, and it is in the test that needs KVM.
+// Watch turns a stream of console bytes into phase timings, so the part that can be wrong is
+// testable without a VM.
 //
 // # Going below a phase, into the kernel
 //
@@ -36,18 +45,7 @@
 // confident, false conclusion about where ACPI's time goes. The check that catches it is
 // free: initcall_debug prints acpi_init's own cost in the same boot, so if that number has
 // moved from its untraced baseline, the trace is measuring itself.
-package boot
-
-import (
-	"bytes"
-	"cmp"
-	"fmt"
-	"io"
-	"math"
-	"slices"
-	"time"
-)
-
+//
 // Phase is a moment in a boot, named by what has just become true.
 type Phase int
 
@@ -199,17 +197,18 @@ var overlap = func() int {
 	return n
 }()
 
-// Run is what one boot cost, as durations from the moment before QEMU was exec'd.
+// Console is what one boot's console showed: when each phase appeared, as durations from the
+// moment before QEMU was exec'd, and the bytes.
 //
 // A phase that was never reached is absent from the map rather than zero, because the
 // difference matters: a machine that never offered a login has not offered one quickly.
-type Run struct {
+type Console struct {
 	At     map[Phase]time.Duration
 	Output []byte
 }
 
 // Reached says whether this boot got as far as p.
-func (r Run) Reached(p Phase) bool { _, ok := r.At[p]; return ok }
+func (c Console) Reached(p Phase) bool { _, ok := c.At[p]; return ok }
 
 // Watch reads a boot's console and records when each phase first appeared. It returns as
 // soon as until is reached, or when the console ends.
@@ -227,11 +226,11 @@ func (r Run) Reached(p Phase) bool { _, ok := r.At[p]; return ok }
 // line, in a `while read` loop, and that was slow enough to throttle QEMU's writes to the
 // serial port: it reported a boot at 1424 ms that systemd inside the same boot reported at
 // 190 ms. A harness on the critical path of what it measures reports the harness.
-func Watch(r io.Reader, t0 time.Time, now func() time.Time, until Phase) (Run, error) {
-	run := Run{At: make(map[Phase]time.Duration, numPhases)}
+func Watch(r io.Reader, t0 time.Time, now func() time.Time, until Phase) (Console, error) {
+	run := Console{At: make(map[Phase]time.Duration, numPhases)}
 
-	buf := make([]byte, 32*1024)
-	window := make([]byte, 0, overlap+len(buf))
+	buf := make([]byte, 32*1024)                // mutate-exempt: the read size; any buffer finds the same phases, the window carries a marker across reads
+	window := make([]byte, 0, overlap+len(buf)) // mutate-exempt: a NUL ahead of the first read completes no marker
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
