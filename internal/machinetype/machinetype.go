@@ -3,12 +3,12 @@
 // Package machinetype watches the versioned q35 the machine is pinned to (machine.MachineType)
 // against the QEMU it runs on.
 //
-// check asks a built QEMU for its machine types: it fails when the pinned one is missing or
+// Check reads a built QEMU's machine types: it fails when the pinned one is missing or
 // deprecated - QEMU deprecates a versioned type after three years and removes it after six, so
 // this fires years before a QEMU stops loading the checkpoints it saved - and says, without
 // failing, when QEMU offers a newer one, for the build log and the release's notes.
 //
-// compat prints what the newer types change, from QEMU's own source: the properties
+// Compat returns what the newer types change, from QEMU's own source: the properties
 // hw_compat_X_Y (hw/core/machine.c) and pc_compat_X_Y (hw/i386/pc.c) switch back off for the
 // pinned X.Y. That list is what moving the pin would change under every guest, and spin-machine-dev bump
 // NAME=qemu prints it from the tarball the pin names.
@@ -17,14 +17,10 @@ package machinetype
 import (
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/spin-stack/spin-machine/machine"
 )
 
 // Help is a QEMU binary's `-machine help`.
@@ -34,62 +30,6 @@ func Help(qemu string) (string, error) {
 		return "", fmt.Errorf("%s -machine help: %w: %s", qemu, err, out)
 	}
 	return string(out), nil
-}
-
-// Run answers the exit status: 0 the pin stands, 1 it does not, 2 the arguments are not a check.
-func Run(args []string, stdout, stderr io.Writer, help func(string) (string, error)) int {
-	if len(args) == 0 {
-		say(stderr, "machinetype: check -qemu <binary> | compat <machine.c> <pc.c>")
-		return 2
-	}
-	switch args[0] {
-	case "check":
-		if len(args) != 3 || args[1] != "-qemu" {
-			say(stderr, "machinetype: check -qemu <binary>")
-			return 2
-		}
-		text, err := help(args[2])
-		if err != nil {
-			say(stderr, "machinetype:", err)
-			return 1
-		}
-		notice, err := Check(text, machine.MachineType)
-		if err != nil {
-			say(stderr, "machinetype:", err)
-			return 1
-		}
-		if notice != "" {
-			say(stdout, notice)
-		}
-		return 0
-	case "compat":
-		if len(args) != 3 {
-			say(stderr, "machinetype: compat <machine.c> <pc.c>")
-			return 2
-		}
-		var src []string
-		for _, f := range args[1:] {
-			b, err := os.ReadFile(f) //nolint:gosec // a file of the QEMU source the bump unpacked
-			if err != nil {
-				say(stderr, "machinetype:", err)
-				return 1
-			}
-			src = append(src, string(b))
-		}
-		out, err := Compat(strings.Join(src, "\n"), machine.MachineType)
-		if errors.Is(err, ErrNoArray) {
-			say(stdout, "machinetype:", machine.MachineType, "is the newest type in this QEMU: nothing newer to differ from it")
-			return 0
-		}
-		if err != nil {
-			say(stderr, "machinetype:", err)
-			return 1
-		}
-		say(stdout, out)
-		return 0
-	}
-	say(stderr, "machinetype: no command", args[0])
-	return 2
 }
 
 // q35 is one line of `-machine help` that names a versioned q35: its X.Y and whether it is
@@ -184,5 +124,3 @@ func array(src, name string) (string, error) {
 	}
 	return src[start[0] : start[0]+end+2], nil
 }
-
-func say(w io.Writer, a ...any) { _, _ = fmt.Fprintln(w, a...) }
