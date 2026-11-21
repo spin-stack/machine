@@ -365,10 +365,10 @@ compare. Use `--host bench` (nested, the default) unless the question is nested 
 the table's LOST) and 2 when the experiment could not run.
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
-`firmware`, `record`, `compat` (every release whose machine is this one, through `lab compat`),
+`firmware`, `record`, `rollback`, `compat` (every release whose machine is this one, through `lab compat`),
 `hotadd`, `logind` and `lockdown`. Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
 `lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
-`firmware-stages`, `waits` and `record`, the targets its `probe` input lists.
+`firmware-stages`, `waits`, `record` and `rollback`, the targets its `probe` input lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its
 `trees` input names (`NAME=SPEC; NAME=SPEC`), runs the probe, puts the table on the run's summary,

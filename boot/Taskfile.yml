@@ -1,6 +1,6 @@
 # The checks of a booted machine - whether its firmware runs it, a checkpoint of the release before
-# resumes, lockdown, logind, a core hot-added - and the probes still Go tests: firmware-stages and
-# waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
+# resumes, a rollback brings back what a snapshot kept, lockdown, logind, a core hot-added - and
+# the probes still Go tests: firmware-stages and waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
 # unless its SPIN_* switch is set, which is what these targets do. Each boots the release tree
 # OUTPUT_DIR names; `spin-machine-dev lab check TARGET --tree NAME=SPEC` runs one on any tree, on the
 # bench fleet too (lab.yml's check:TARGET).
@@ -28,6 +28,21 @@ tasks:
     deps: [':tools']
     cmds:
       - SPIN_RECORD_TEST=1 go test ./boot/ -run '^(TestTheRecordRefusesWhatQEMULoadsSilently|TestACheckpointIsWaitedOnByItsEvents|TestTheMachineSaysHowItEnded|TestACheckpointedMachineIsHeldThenContinued)$' -count=1 -v -timeout 5m
+
+  rollback:
+    desc: >-
+      What a snapshot keeps, at spin's shape booted to systemd and logged into over SSH through
+      vsock: the terminal loop of #408 and a process holding random bytes go on through a
+      checkpoint with memory continued in place; a rollback with memory onto the sealed disk brings
+      back a file, read from memory and from the disk, the bytes and the process as they were at
+      the checkpoint, and reseeds the guest's RNG; a cold boot from the sealed disk has what was
+      synced before the seal and not what came after; a disk-only snapshot, stop and cont around
+      blockdev-snapshot, leaves the process running (rollback_test.go). Logs each pause's cost from
+      the guest's own output, the guest's clock against the host's, and what became of an SSH
+      session open at the checkpoint. Needs a built release, /dev/kvm and /dev/vhost-vsock.
+    deps: [':tools']
+    cmds:
+      - SPIN_ROLLBACK_TEST=1 go test ./boot/ -run '^TestARollbackBringsBackTheSameMemoryAndDisk$' -count=1 -v -timeout 10m
 
   buildkit:
     desc: >-
