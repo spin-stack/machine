@@ -108,6 +108,8 @@ st, err := m.Status(ctx)         // machine.Prelaunch, Inmigrate, Running, Pause
 saved, cost, err := m.Checkpoint(ctx, f, machine.SaveOptions{}, seal) // cost: Paused, Total, RAM
 err = m.Hold(ctx)                // a checkpointed machine takes its disks back and stays stopped
 err = m.Continue(ctx)            // and runs
+err = m.SetDiskLimit(ctx, "home", machine.DiskLimit{WriteBytes: 50 << 20}) // DiskLimit{} clears it
+l, err := m.DiskLimit(ctx, "home") // DiskLimit{ReadBytes, WriteBytes, Reads, Writes} a second, 0 none
 err = m.Shutdown(ctx)            // presses the ACPI power button
 <-m.Done()                       // the monitor's connection ended: QEMU exited, or Close
 <-m.Exited()                     // QEMU's process ended (a Process from Start)
@@ -156,7 +158,7 @@ u, err := p.Usage(ctx)              // counters; two Usages say what was used be
 | `OOMKill{Kills}` | the guest's OOM killer killed that many processes since the last report | the guest |
 | `SlowCommand{Command, Took, Baseline}` | a QMP command on Start's monitor took at least 100 ms and 4 times what it took before: `query-blockstats` took 536 ms against 14 while host hogs shared QEMU's one core (laptop, 2026-11-21) | the host, in the monitor's one client |
 | `GuestLost{Err}` | the guest's sender's connection ended, and the guest is blind until it dials again | the host |
-| `Limited{Limit, Device, Set, Used, Events, Since}` | in the last second, a limit on QEMU's own cgroup held the machine: `cpu.max`, `memory.high`, `memory.max` (and its OOM kill), or one key of `io.max` on one device | the host, from QEMU's cgroup each second |
+| `Limited{Limit, Device, Set, Used, Events, Since}` | in the last second, a limit spin set held the machine: on QEMU's own cgroup `cpu.max`, `memory.high`, `memory.max` (and its OOM kill), or one key of `io.max` on one device; inside QEMU one field of a disk's `DiskLimit`, `Device` its serial | the host, from QEMU's cgroup each second, and from `query-blockstats` while Start's monitor holds a disk |
 
 Each Stall carries `Total`, the resource's stall since the guest booted or the cgroup was made.
 Two Stalls of the same vantage and resource say how much stall fell between them.
@@ -200,8 +202,16 @@ Each limit is read from its own files:
   move, since io_uring leaves no thread of QEMU's waiting. The guest's own IO stalled each second.
   So a rate at the limit is the one sign there is.
 
-The limits are QEMU's own cgroup's. One a parent cgroup sets is counted in the parent's files, and
-a disk throttled by QEMU's throttle group (#395) is invisible to the cgroup. spin keeps the network
+- **A `DiskLimit`.** The disk's `query-blockstats` counter ran at 90% of the field's limit or more
+  over the second, as for `io.max`: QEMU counts nothing of what it held either. The cgroup never
+  sees this limit, so the watch reads it from QEMU. It asks only while a disk is held through the
+  monitor Start connected, one `query-blockstats` a second, so a machine with no limit pays no
+  command. A limit set through a second monitor is not reported. Held at 4 MiB/s, the guest's
+  direct reads brought a `Limited` each second with `Used` at 4.19-4.25 MB/s, and guest IO stalls
+  with it (task boot:pressure, laptop, 2026-11-21).
+
+The cgroup limits are QEMU's own cgroup's. One a parent cgroup sets is counted in the parent's
+files (#412). spin keeps the network
 limit and its signal (spin-stack/spin#1480). `Usage` carries the counters behind each: `CPU.Throttled`
 and `CPU.Throttles` from `cpu.stat`, and `Memory.High`, `Max`, `OOMs` and `OOMKills` from
 `memory.events`. The guest is never told. It does not know its limits exist.
@@ -248,11 +258,48 @@ handler then takes `Stall{Seen: Guest, Resource: MemoryPressure}` where its runn
 supervisor's `POST /v2/memory-pressure` on port 1027. The supervisor's notice, and the runner's
 handler for it, are then deleted: the trigger they arm is the same, 150 ms in 1 s.
 
-**Next, not here.** An actuator for each signal: a per-disk IO limit through the throttle group
-every disk place already sits under (#395), and CPU and memory through `SetCPUs` and `SetMemory`,
-with the signal, actuator and owner table (#396). Not yet explained: the 175-950 ms QMP stalls
-under small synced writes on a contended host disk (#391), and QMP's round trip during a load
-(#392).
+**Next, not here.** CPU and memory's rows of the actuators' table below (#396). Not yet explained:
+the 175-950 ms QMP stalls under small synced writes on a contended host disk (#391), and QMP's
+round trip during a load (#392).
+
+## Actuators
+
+The probe says which machine suffers and `Usage` says which causes it. An actuator is what holds
+the cause back while it runs, without a restart and without the guest being told. The machine
+offers the actuators that act inside QEMU. spin keeps the policy: which machine, how much, for how
+long, and when to let go.
+
+| Signal | Actuator | Owner | Cost |
+|---|---|---|---|
+| Host IO stalls on the runner, and one machine's `Usage.Disks` counters far ahead of the rest | `SetDiskLimit(serial, DiskLimit)` on that machine's busy disk; `DiskLimit{}` lets it go | machine's method, spin's policy | 1.8-5.5 ms a call, 2026-11-21. Nothing at boot, since the command line does not change |
+| `Limited{Limit: DiskReadBytes…}` | the limit holding: spin keeps it, raises it or lets it go | spin | none: read only while a disk is held |
+| `Limited{Limit: IOReadBytes…}` | `io.max` on QEMU's cgroup | spin, which owns the cgroup | |
+| CPU and memory | `SetCPUs`, `SetMemory`, and the cgroup's `cpu.max` and `memory.high` | #396 | |
+
+**A `DiskLimit` is the device's, not the place's.** `SetDiskLimit` sends `block_set_io_throttle` to
+the backend of the disk's device, a place's virtio-blk or a disk attached on the hotplug
+controller. Every place's node does sit under a throttle filter, but all of them are in one group,
+`places` (`machine/spec.go`, `placeGroup`). A group shares its limit among its members, so a limit
+set there would hold every disk of the machine together. The filter is there because
+`change-backing-file` needs a filter between the device and the image, not to limit anything. The
+backend's group is its device's alone, and a bind never replaces the backend. A per-place group
+would have moved the command line every machine boots with, for a limit few machines are ever given.
+
+**`io.max` and a `DiskLimit` hold different things.** `io.max` holds a block device of the host,
+so what the host serves from its page cache passes it: the probe's lane drops the disk from the
+host's cache before its `io.max` phase for that reason. A `DiskLimit` holds what the guest asks of
+one of its disks, wherever the host finds the data, and one disk apart from the others on the same
+host device. On a guest of spin's shape, 8 MiB/s held 32 MiB of direct reads to 3.78 s and
+50 writes a second held 150 writes to 2.88 s. The other disk read the same 32 MiB in 2-5 ms beside
+them, and the held one read it in 2-6 ms again once cleared (task boot:disk-limit, laptop,
+2026-11-21, 3 runs). QEMU lets a tenth of a second's worth through at once, so 32 MiB took a little
+under the 4 s its rate alone would.
+
+**A checkpoint carries no limit.** The limit is the running QEMU's, as `io.max` is its cgroup's: the
+guest's state does not hold it, and a resume starts a new QEMU. A machine resumed from a checkpoint
+taken under a limit reads `DiskLimit{}` and runs free until spin sets the limit again, which holds
+at once (task boot:disk-limit). Carrying it would have the machine keep policy that is spin's: a
+limit is set for a neighbour, and the resumed machine may have other neighbours, or none.
 
 ## Phases
 
