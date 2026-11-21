@@ -172,6 +172,11 @@ func TestADisksChainIsRefusedWhereItLeavesWhatItMayRead(t *testing.T) {
 	if err := os.Symlink(base, at("base-link.qcow2")); err != nil {
 		t.Fatal(err)
 	}
+	// A hard link to the base: the base under a path outside the places given, as spin's
+	// machine roots hold one.
+	if err := os.Link(base, at("base-hardlink.qcow2")); err != nil {
+		t.Fatal(err)
+	}
 	fifo := filepath.Join(shared, "fifo")
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
@@ -226,6 +231,9 @@ func TestADisksChainIsRefusedWhereItLeavesWhatItMayRead(t *testing.T) {
 		{"the base as a writable top, named by a link to it",
 			DiskPath{Path: at("base-link.qcow2"), Format: "qcow2", Under: []string{base}},
 			at("base-link.qcow2") + " (" + base + ") is one of the images a disk may only read"},
+		{"the base as a writable top, named by a hard link outside the places given",
+			DiskPath{Path: at("base-hardlink.qcow2"), Format: "qcow2", Under: under},
+			at("base-hardlink.qcow2") + " (" + at("base-hardlink.qcow2") + ") has 2 names, and a writable top has one"},
 		{"a backing file that is the top itself",
 			DiskPath{Path: overlay("self.qcow2", "self.qcow2", "qcow2"), Format: "qcow2", Under: under},
 			"names " + at("self.qcow2") + " (" + at("self.qcow2") + "), which is under none of"},

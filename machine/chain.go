@@ -147,6 +147,11 @@ func openImage(path, format string, writable, below bool, under []string) (_ *os
 		return nil, id, 0, link{}, fmt.Errorf("a disk's chain names %s (%s), which is under none of %v, where its images may be", path, real, under)
 	case writable && within(real, under):
 		return nil, id, 0, link{}, fmt.Errorf("%s (%s) is one of the images a disk may only read, %v, and was asked for as a writable top", path, real, under)
+	// A hard link to the base is the base under another path, which within cannot see, and spin
+	// hardlinks a release's files into each machine's root. A writable top is a machine's own
+	// overlay, and one name is all it has.
+	case writable && st.Nlink > 1:
+		return nil, id, 0, link{}, fmt.Errorf("%s (%s) has %d names, and a writable top has one: another name may be an image a disk may only read", path, real, st.Nlink)
 	}
 	access := unix.O_RDONLY
 	if writable {
