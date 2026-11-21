@@ -75,7 +75,8 @@ func verb(t *testing.T, args ...string) (stdout, stderr string, status int) {
 
 // execute runs c with args as the command line, as verb runs root.
 func execute(c *cobra.Command, args ...string) (stdout, stderr string, status int) {
-	c.SetArgs(args)
+	// Never nil: cobra reads os.Args when it is, which under the test runner are its own flags.
+	c.SetArgs(append([]string{}, args...))
 	var o, e bytes.Buffer
 	c.SetOut(&o)
 	c.SetErr(&e)
