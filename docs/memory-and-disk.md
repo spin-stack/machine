@@ -17,7 +17,7 @@ machine contributes and how it was measured.
 
 | Default | Why (measured) | Where |
 |---|---|---|
-| The overlay is opened writeback; the host keeps a copy of what the guest wrote | Without the host's copy, 16 384 small files read in random order take 1490 ms instead of 530 | Every image is opened through the host's page cache (`machine/qemu.go`, `addImages`) |
+| The overlay is opened writeback; the host keeps a copy of what the guest wrote | Without the host's copy, 16 384 small files read in random order take 1490 ms instead of 530 | Every image is opened through the host's page cache (`machine/disks.go`, `addImages`) |
 | `fstrim.timer` hourly in the image, up to 10 minutes' random delay | A trim takes the overlay from 657 to 21 MB on disk and from 657 to 20 MB in the host's cache; the distribution's weekly timer returned it days later | #76, `image/mkosi.extra/usr/local/lib/spin-base/configure-system.sh` |
 | QEMU counts virtio-blk discards | Without upstream's 331ce936, `query-blockstats` reports 0 unmap operations however much a guest trims | #79 carried it until QEMU 11.2.0-rc0 shipped it (3cafd28) |
 | qboot programs the MTRRs, write-back by default | Without MTRRs the guest maps device memory uncached-minus: a virtio-pmem region read at 8.3 MB/s, 1.1 GB/s with them | #75, `qemu/qboot/mtrr.patch` |
@@ -61,7 +61,7 @@ limit was added.
 ## How a guest's memory grows and shrinks
 
 A machine with a ceiling above its boot memory gets a virtio-mem device over the difference,
-with nothing plugged (`requested-size=0`, `appendDevices` in `machine/machine.go`). The machine
+with nothing plugged (`requested-size=0`, `appendDevices` in `machine/spec.go`). The machine
 sets no block size, so QEMU uses its default, the host's THP size: 2 MiB on x86-64
 (`virtio_mem_default_block_size` in QEMU's `hw/virtio/virtio-mem.c`). The guest onlines what
 is plugged as it arrives (`memhp_default_state=online`, `machine/cmdline.go`). The balloon is

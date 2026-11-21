@@ -337,7 +337,7 @@ No lab run answers these questions.
 - **`page_reporting_order`.** Revisit only if memory per host becomes the limit
   (`docs/memory-and-disk.md`).
 - **`MachineType` off pc-q35-11.1.** QEMU is 11.2 and the machine is still pc-q35-11.1
-  (`machine/machine.go`, `internal/build/machinetype.go`). It is a change of its own.
+  (`machine/fingerprint.go`, `internal/build/machinetype.go`). It is a change of its own.
 - **The kernel CVE judge.** 9 CVEs apply with a fix later in 7.3, and 1 has no fix (`0ce27ad`,
   against 7.3.1; the kernel is 7.3.5 on 2026-11-20).
 - **The min_ttl_ms evidence disagrees.** `47aa681` and the LRU_GEN comment in `kernel/Dockerfile`

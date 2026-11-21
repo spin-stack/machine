@@ -116,7 +116,7 @@ func (c Cmdline) String() string {
 	parts = append(parts, "panic=1")
 
 	// Interfaces named eth0 and not by their PCI path. The path is a function of
-	// the slot map in machine.go, so predictable naming here would make a NIC's name a
+	// the slot map in spec.go, so predictable naming here would make a NIC's name a
 	// consequence of how many disks the VM was given.
 	parts = append(parts, "net.ifnames=0", "biosdevname=0")
 

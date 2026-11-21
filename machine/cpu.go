@@ -186,3 +186,10 @@ func Baseline(hosts [][]Model) (Model, error) {
 	}
 	return best, nil
 }
+
+// derivedFromHost reports whether a CPU model takes its feature set from the
+// silicon it runs on, which is what makes a checkpoint saved with it unusable on
+// another machine — and what migratable=on applies to.
+func derivedFromHost(model string) bool {
+	return model == "host" || model == "max"
+}

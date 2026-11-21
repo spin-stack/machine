@@ -101,12 +101,12 @@ jobs:
       # `task test` proves the machine package agrees with itself. The steps below ask the
       # QEMU binary, which is the half that can disagree: the device set is decided in
       # qemu/devices.mak and the device and property names are written out by hand in
-      # machine/machine.go, and nothing connected the two. A dropped device, a property
+      # machine/spec.go, and nothing connected the two. A dropped device, a property
       # renamed at a version bump, or a typo all produced the same thing — a VM that does
       # not start, found days later by whoever booted one.
       #
       # Here and not only in parts.yml, which is the workflow that has a QEMU: its qemu job
-      # runs when a change reaches qemu/, so a change to machine/machine.go — the likeliest
+      # runs when a change reaches qemu/, so a change to machine/spec.go — the likeliest
       # way to get this wrong — never reaches it.
       - name: Log in to GitHub Packages
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
