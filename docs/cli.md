@@ -368,7 +368,7 @@ the last lines of its step from the job's log, and exits 1 when the run did not 
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
 `firmware`, `record`, `rollback`, `checkpoint-pause`, `compat` (every release whose machine is this one, through `lab compat`),
-`hotadd`, `logind` and `lockdown`. Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
+`hotadd`, `logind`, `lockdown` and `finish-migrate` (a checkpoint continued at once on two busy CPUs, which a qemu bump runs). Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
 `lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
 `firmware-stages`, `waits`, `record`, `rollback` and `checkpoint-pause`, the targets its `probe` input
 lists.

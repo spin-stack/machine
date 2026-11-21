@@ -1,5 +1,5 @@
 # The checks of a booted machine - whether its firmware runs it, a checkpoint of the release before
-# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short, lockdown, logind, a core hot-added - and
+# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, lockdown, logind, a core hot-added - and
 # the probes still Go tests: firmware-stages and waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
 # unless its SPIN_* switch is set, which is what these targets do. Each boots the release tree
 # OUTPUT_DIR names; `spin-machine-dev lab check TARGET --tree NAME=SPEC` runs one on any tree, on the
@@ -54,6 +54,18 @@ tasks:
     deps: [':tools']
     cmds:
       - SPIN_PAUSE_TEST=1 go test ./boot/ -run '^TestACheckpointPausesTheGuestBriefly$' -count=1 -v -timeout 15m
+
+  finish-migrate:
+    desc: >-
+      A Continue right after a checkpoint is never refused while QEMU is in finish-migrate (#421):
+      spin's shape plugged to 2 GiB with a writer in the guest, QEMU and the test on the host's
+      last two CPUs, which a spin loop each keeps busy, SPIN_FINISH_SAVES checkpoints (default
+      300), each continued at once (finish_test.go). Not in CI: an idle host does not reach the
+      window, and this takes minutes. It is how a qemu bump is checked for it (versions.yaml).
+      Needs a built release, /dev/kvm and taskset.
+    deps: [':tools']
+    cmds:
+      - SPIN_FINISH_TEST=1 taskset -c "$(($(nproc) - 2)),$(($(nproc) - 1))" go test ./boot/ -run '^TestACheckpointIsContinuedAtOnceOnABusyHost$' -count=1 -v -timeout 30m
 
   disk-limit:
     desc: >-
