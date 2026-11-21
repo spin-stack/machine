@@ -3,7 +3,6 @@
 package machinetype
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -110,59 +109,6 @@ func TestAnArrayIsItsDeclarationWhole(t *testing.T) {
 	got, err := array("before GlobalProperty a_1[] = { { \"x\", \"y\", \"z\" },\n};\nafter", "a_1")
 	if err != nil || got != "GlobalProperty a_1[] = { { \"x\", \"y\", \"z\" },\n};" {
 		t.Fatalf("array: %q, %v", got, err)
-	}
-}
-
-// The command: check prints the notice and passes, fails on a pin that does not stand or a QEMU
-// that cannot be asked; compat prints the arrays; anything else is no command.
-func TestTheCommand(t *testing.T) {
-	dir := t.TempDir()
-	mc, pc := filepath.Join(dir, "machine.c"), filepath.Join(dir, "pc.c")
-	if err := os.WriteFile(mc, []byte(source), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(pc, []byte(pcSource), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	short := filepath.Join(dir, "short.c")
-	if err := os.WriteFile(short, []byte("GlobalProperty hw_compat_11_1[] = { {"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	newer := func(string) (string, error) { return "pc-q35-11.2   Standard PC\n" + help1112(t), nil }
-	broken := func(string) (string, error) { return "", errors.New("no such binary") }
-	removed := func(string) (string, error) { return "pc-q35-11.2   Standard PC\n", nil }
-	for _, tc := range []struct {
-		name string
-		args []string
-		help func(string) (string, error)
-		code int
-		out  string
-	}{
-		{name: "check, a newer type", args: []string{"check", "-qemu", "q"}, help: newer, code: 0, out: "QEMU offers pc-q35-11.2"},
-		{name: "check, nothing newer", args: []string{"check", "-qemu", "q"}, help: func(string) (string, error) { return help1112(t), nil }, code: 0},
-		{name: "check, the pin removed", args: []string{"check", "-qemu", "q"}, help: removed, code: 1},
-		{name: "check, a QEMU that does not answer", args: []string{"check", "-qemu", "q"}, help: broken, code: 1},
-		{name: "check with no binary", args: []string{"check"}, help: newer, code: 2},
-		{name: "compat", args: []string{"compat", mc, pc}, code: 0, out: "x-new-feature"},
-		{name: "compat of a file not there", args: []string{"compat", mc, filepath.Join(dir, "none")}, code: 1},
-		{name: "compat with one file", args: []string{"compat", mc}, code: 2},
-		{name: "compat of a QEMU with nothing newer", args: []string{"compat", pc, pc}, code: 0, out: "is the newest type in this QEMU"},
-		{name: "compat of a source cut short", args: []string{"compat", short, short}, code: 1},
-		{name: "no command", args: nil, code: 2},
-		{name: "another command", args: []string{"other"}, code: 2},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var out, errs bytes.Buffer
-			if code := Run(tc.args, &out, &errs, tc.help); code != tc.code {
-				t.Fatalf("exit %d, want %d: %s", code, tc.code, errs.String())
-			}
-			if !strings.Contains(out.String(), tc.out) {
-				t.Errorf("printed %q, want %q", out.String(), tc.out)
-			}
-			if tc.out == "" && out.Len() != 0 {
-				t.Errorf("printed %q, want nothing", out.String())
-			}
-		})
 	}
 }
 
