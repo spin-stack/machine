@@ -81,7 +81,7 @@ func TestAMachineTakesItsDevicesAsDescriptors(t *testing.T) {
 				t.Logf("refused: %s", strings.TrimSpace(vm.out.String()))
 				return
 			}
-			dialQMP(t, socket, vm).do("query-status", nil)
+			askStatus(t, socket, vm)
 		})
 	}
 }

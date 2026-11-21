@@ -4,8 +4,8 @@ package machine
 
 import (
 	"cmp"
+	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spin-stack/machine/qmp"
 )
 
 // outputDir is the release tree the QEMU tests ask. The default is the tree beside this
@@ -80,25 +82,17 @@ func (vm *qemuVM) fail(t *testing.T, what string, err error) {
 	t.Fatal(b.String())
 }
 
-// rawMonitor is a monitor of a qemuVM, past the greeting and the capabilities handshake.
-type rawMonitor struct {
-	t   *testing.T
-	vm  *qemuVM
-	enc *json.Encoder
-	dec *json.Decoder
-}
-
-// dialQMP connects to one monitor of vm.
+// askStatus asks one monitor of vm query-status, through a client it keeps until the test ends.
 //
 // The socket exists as soon as the chardev is created, which is before the CPU is created
 // and long before any device is realized, so its existence proves nothing — a machine
 // whose CPU model the accelerator refused left a listening socket behind and had already
 // exited. An answer on it proves it, which is why the callers that ask whether a machine
 // started send query-status and not only read the greeting.
-func dialQMP(t *testing.T, socket string, vm *qemuVM) *rawMonitor {
+func askStatus(t *testing.T, socket string, vm *qemuVM) runState {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
-	var conn net.Conn
+	var conn *net.UnixConn
 	for {
 		select {
 		case <-vm.done:
@@ -106,7 +100,7 @@ func dialQMP(t *testing.T, socket string, vm *qemuVM) *rawMonitor {
 			vm.fail(t, "QEMU exited before answering on "+filepath.Base(socket), vm.exit)
 		default:
 		}
-		c, err := net.Dial("unix", socket)
+		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
 		if err == nil {
 			conn = c
 			break
@@ -116,64 +110,18 @@ func dialQMP(t *testing.T, socket string, vm *qemuVM) *rawMonitor {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Cleanup(func() { _ = conn.Close() })
-	if err := conn.SetDeadline(time.Now().Add(20 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	q := &rawMonitor{t: t, vm: vm, enc: json.NewEncoder(conn), dec: json.NewDecoder(conn)}
-	var greeting struct {
-		QMP *struct{} `json:"QMP"`
-	}
-	if err := q.dec.Decode(&greeting); err != nil {
-		vm.fail(t, "reading the QMP greeting", err)
-	}
-	if greeting.QMP == nil {
-		vm.fail(t, "the monitor did not greet", fmt.Errorf("no QMP field"))
-	}
-	q.do("qmp_capabilities", nil)
-	return q
-}
-
-// try sends one command and returns its reply, or QEMU's refusal as an error. Events in
-// between are skipped.
-func (q *rawMonitor) try(command string, args any) (json.RawMessage, error) {
-	q.t.Helper()
-	req := map[string]any{"execute": command}
-	if args != nil {
-		req["arguments"] = args
-	}
-	if err := q.enc.Encode(req); err != nil {
-		q.vm.fail(q.t, "sending "+command, err)
-	}
-	for {
-		var reply struct {
-			Return json.RawMessage `json:"return"`
-			Event  string          `json:"event"`
-			Error  *struct {
-				Desc string `json:"desc"`
-			} `json:"error"`
-		}
-		if err := q.dec.Decode(&reply); err != nil {
-			q.vm.fail(q.t, "reading the reply to "+command, err)
-		}
-		if reply.Event != "" {
-			continue
-		}
-		if reply.Error != nil {
-			return nil, fmt.Errorf("%s", reply.Error.Desc)
-		}
-		return reply.Return, nil
-	}
-}
-
-// do is try, failing the test on a refusal.
-func (q *rawMonitor) do(command string, args any) json.RawMessage {
-	q.t.Helper()
-	reply, err := q.try(command, args)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(20*time.Second))
+	defer cancel()
+	c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{})
 	if err != nil {
-		q.vm.fail(q.t, command+" was refused", err)
+		vm.fail(t, "the monitor's handshake", err)
 	}
-	return reply
+	t.Cleanup(func() { _ = c.Close() })
+	st, err := qmp.Do(ctx, c, queryStatus, qmp.None{})
+	if err != nil {
+		vm.fail(t, "query-status was refused", err)
+	}
+	return st.Status
 }
 
 // qemuTCG is the emulating build and the firmware beside it.

@@ -86,7 +86,7 @@ type slot struct {
 // slots are the machine's places for disks, read from QEMU: each is a device over a node named
 // slot<i> (appendDisks).
 func (m *QEMU) slots(ctx context.Context) ([]slot, error) {
-	blocks, err := do(ctx, m.q, qmp.QueryBlock, qmp.None{})
+	blocks, err := qmp.Do(ctx, m.c, qmp.QueryBlock, qmp.None{})
 	if err != nil {
 		return nil, fmt.Errorf("listing the machine's disks: %w", err)
 	}
@@ -159,10 +159,10 @@ func (m *QEMU) bind(ctx context.Context, s slot, d Disk) error {
 		return err
 	}
 	place := placeNode(s.index, top, s.readonly)
-	if _, err := do(ctx, m.q, qmp.BlockdevReopen, qmp.BlockdevReopenArgs{Options: []qmp.BlockNode{place}}); err != nil {
+	if _, err := qmp.Do(ctx, m.c, qmp.BlockdevReopen, qmp.BlockdevReopenArgs{Options: []qmp.BlockNode{place}}); err != nil {
 		return fmt.Errorf("disk %q: putting it in its place: %w", d.Serial, err)
 	}
-	if _, err := do(ctx, m.q, qmp.BlockdevDel, qmp.BlockdevDelArgs{NodeName: emptyNode(s.index)}); err != nil {
+	if _, err := qmp.Do(ctx, m.c, qmp.BlockdevDel, qmp.BlockdevDelArgs{NodeName: emptyNode(s.index)}); err != nil {
 		return fmt.Errorf("disk %q: deleting its place's placeholder: %w", d.Serial, err)
 	}
 	return nil
@@ -200,7 +200,7 @@ func (m *QEMU) addImages(ctx context.Context, d Disk) (string, error) {
 		// drops the writable copy, leaving QEMU the read-only one to reopen the layer with -
 		// QEMU takes from a set only a descriptor of the access mode it asks for.
 		opaque := img.File.Name()
-		set, err := do(ctx, m.q, qmp.AddFD, qmp.AddFDArgs{File: img.File, Opaque: opaque})
+		set, err := qmp.Do(ctx, m.c, qmp.AddFD, qmp.AddFDArgs{File: img.File, Opaque: opaque})
 		if err != nil {
 			return "", fmt.Errorf("disk %q: handing %s to QEMU: %w", d.Serial, opaque, err)
 		}
@@ -224,7 +224,7 @@ func (m *QEMU) addImages(ctx context.Context, d Disk) (string, error) {
 			format = qmp.Qcow2Node{NodeName: node, File: qmp.NodeRef(node + "-f"), ReadOnly: readOnly, Discard: "unmap", Backing: backing}
 		}
 		for _, n := range []qmp.BlockNode{file, format} {
-			if _, err := do(ctx, m.q, qmp.BlockdevAdd, n); err != nil {
+			if _, err := qmp.Do(ctx, m.c, qmp.BlockdevAdd, n); err != nil {
 				return "", fmt.Errorf("disk %q: adding image %d: %w", d.Serial, j, err)
 			}
 		}
@@ -239,7 +239,7 @@ func (m *QEMU) addReadOnlyCopy(ctx context.Context, set int, f *os.File, opaque 
 		return fmt.Errorf("reopening %s read-only: %w", opaque, err)
 	}
 	defer func() { _ = ro.Close() }() // QEMU holds its own copy
-	if _, err := do(ctx, m.q, qmp.AddFD, qmp.AddFDArgs{File: ro, Set: &set, Opaque: opaque}); err != nil {
+	if _, err := qmp.Do(ctx, m.c, qmp.AddFD, qmp.AddFDArgs{File: ro, Set: &set, Opaque: opaque}); err != nil {
 		return fmt.Errorf("handing a read-only copy of %s to QEMU: %w", opaque, err)
 	}
 	return nil
@@ -270,7 +270,7 @@ func (m *QEMU) attachAt(ctx context.Context, target int, d Disk) error {
 	if err != nil {
 		return err
 	}
-	if _, err := do(ctx, m.q, deviceAdd, hotplugDisk(target, top, d.Serial)); err != nil {
+	if _, err := qmp.Do(ctx, m.c, deviceAdd, hotplugDisk(target, top, d.Serial)); err != nil {
 		// What was added for a device that never came goes with it: its images open, and its
 		// node names taken for the next attach of the same serial.
 		return errors.Join(fmt.Errorf("disk %q: attaching it at target %d: %w", d.Serial, target, err),
@@ -313,7 +313,7 @@ type qomChild struct {
 
 // hotDisks are the disks attached while the machine ran: the devices named hd<target>.
 func (m *QEMU) hotDisks(ctx context.Context) ([]hotDisk, error) {
-	children, err := do(ctx, m.q, qomList, qomPath{Path: peripheral})
+	children, err := qmp.Do(ctx, m.c, qomList, qomPath{Path: peripheral})
 	if err != nil {
 		return nil, fmt.Errorf("listing the machine's devices: %w", err)
 	}
@@ -360,7 +360,7 @@ func (m *QEMU) DetachDisk(ctx context.Context, serial string) error {
 // a set until it is removed, and so keeps the image open: a detached disk whose sets stayed
 // would still be readable, or writable, by the machine it left (spin-stack/spin#1367's review).
 func (m *QEMU) releaseImages(ctx context.Context, serial string) error {
-	nodes, err := do(ctx, m.q, qmp.QueryNamedBlockNodes, qmp.QueryNamedBlockNodesArgs{Flat: true})
+	nodes, err := qmp.Do(ctx, m.c, qmp.QueryNamedBlockNodes, qmp.QueryNamedBlockNodesArgs{Flat: true})
 	if err != nil {
 		return fmt.Errorf("listing disk %q's nodes: %w", serial, err)
 	}
@@ -374,13 +374,13 @@ func (m *QEMU) releaseImages(ctx context.Context, serial string) error {
 			sets = append(sets, set)
 		}
 		for _, n := range []string{diskNode(serial, j), diskNode(serial, j) + "-f"} {
-			if _, err := do(ctx, m.q, qmp.BlockdevDel, qmp.BlockdevDelArgs{NodeName: n}); err != nil {
+			if _, err := qmp.Do(ctx, m.c, qmp.BlockdevDel, qmp.BlockdevDelArgs{NodeName: n}); err != nil {
 				return fmt.Errorf("deleting disk %q's node %s: %w", serial, n, err)
 			}
 		}
 	}
 	for _, set := range sets {
-		if _, err := do(ctx, m.q, qmp.RemoveFD, qmp.RemoveFDArgs{Set: set}); err != nil {
+		if _, err := qmp.Do(ctx, m.c, qmp.RemoveFD, qmp.RemoveFDArgs{Set: set}); err != nil {
 			return fmt.Errorf("letting go of disk %q's descriptor set %d: %w", serial, set, err)
 		}
 	}

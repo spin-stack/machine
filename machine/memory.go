@@ -37,7 +37,7 @@ type qomSetArgs struct {
 // readProperty is the value of the property of the object at path, as a T.
 func readProperty[T any](ctx context.Context, m *QEMU, path, property string) (T, error) {
 	var v T
-	raw, err := do(ctx, m.q, qomGet, qomGetArgs{Path: path, Property: property})
+	raw, err := qmp.Do(ctx, m.c, qomGet, qomGetArgs{Path: path, Property: property})
 	if err != nil {
 		return v, err
 	}
@@ -54,7 +54,7 @@ const mib = 1 << 20
 
 // SetMemory asks virtio-mem for what is above the memory the machine booted with.
 func (m *QEMU) SetMemory(ctx context.Context, mb int) error {
-	summary, err := do(ctx, m.q, queryMemorySizeSummary, qmp.None{})
+	summary, err := qmp.Do(ctx, m.c, queryMemorySizeSummary, qmp.None{})
 	if err != nil {
 		return fmt.Errorf("reading the machine's memory: %w", err)
 	}
@@ -67,7 +67,7 @@ func (m *QEMU) SetMemory(ctx context.Context, mb int) error {
 	if want < 0 || want > ceiling {
 		return fmt.Errorf("%d MiB, and the machine has %d MiB to %d MiB", mb, summary.Base/mib, (summary.Base+ceiling)/mib)
 	}
-	if _, err := do(ctx, m.q, qomSet, qomSetArgs{Path: memPath, Property: "requested-size", Value: want}); err != nil {
+	if _, err := qmp.Do(ctx, m.c, qomSet, qomSetArgs{Path: memPath, Property: "requested-size", Value: want}); err != nil {
 		return fmt.Errorf("asking for %d MiB: %w", mb, err)
 	}
 	return nil
@@ -75,7 +75,7 @@ func (m *QEMU) SetMemory(ctx context.Context, mb int) error {
 
 // Memory is the memory the guest boots with and what virtio-mem has plugged since.
 func (m *QEMU) Memory(ctx context.Context) (int, error) {
-	summary, err := do(ctx, m.q, queryMemorySizeSummary, qmp.None{})
+	summary, err := qmp.Do(ctx, m.c, queryMemorySizeSummary, qmp.None{})
 	if err != nil {
 		return 0, fmt.Errorf("reading the machine's memory: %w", err)
 	}

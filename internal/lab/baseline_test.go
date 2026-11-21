@@ -40,8 +40,9 @@ func serveQMP(l net.Listener) {
 	r := bufio.NewScanner(c)
 	for r.Scan() {
 		var req struct {
-			Execute   string         `json:"execute"`
-			Arguments map[string]any `json:"arguments"`
+			Execute   string          `json:"execute"`
+			Arguments map[string]any  `json:"arguments"`
+			ID        json.RawMessage `json:"id"`
 		}
 		_ = json.Unmarshal(r.Bytes(), &req)
 		var ret any = map[string]any{}
@@ -61,7 +62,7 @@ func serveQMP(l net.Listener) {
 			}
 			ret = map[string]any{"model": map[string]any{"name": "x", "props": props}}
 		}
-		_ = w.Encode(map[string]any{"return": ret})
+		_ = w.Encode(map[string]any{"return": ret, "id": req.ID})
 	}
 }
 

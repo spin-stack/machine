@@ -99,7 +99,7 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 	if err != nil {
 		vm.fail(t, "dialling the monitor", err)
 	}
-	m, err := Attach(conn)
+	m, err := connect(conn)
 	if err != nil {
 		vm.fail(t, "attaching", err)
 	}
@@ -111,13 +111,13 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 	// A bound image's backing file is rewritten through its place's node, as spin's storage
 	// compacts a chain: QEMU takes change-backing-file only on a root whose chain, followed by
 	// backing and filter links, contains the image - which a raw place's did not.
-	if _, err := do(ctx, m.q, qmp.ChangeBackingFile, qmp.ChangeBackingFileArgs{
+	if _, err := qmp.Do(ctx, m.c, qmp.ChangeBackingFile, qmp.ChangeBackingFileArgs{
 		Device: slotNodePrefix + "0", ImageNodeName: diskNode("root", 0), BackingFile: base,
 	}); err != nil {
 		t.Errorf("rewriting the top's backing file through its place: %v", err)
 	}
 	// Sealed through the same monitor: a socket chardev serves one client at a time.
-	set, err := do(ctx, m.q, qmp.AddFD, qmp.AddFDArgs{File: nextFile, Opaque: next})
+	set, err := qmp.Do(ctx, m.c, qmp.AddFD, qmp.AddFDArgs{File: nextFile, Opaque: next})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,22 +125,22 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 		qmp.FileNode{NodeName: "next-file", Filename: set.Path(), AIO: "io_uring", Locking: "on"},
 		qmp.Qcow2Node{NodeName: "next", File: qmp.NodeRef("next-file"), Backing: qmp.NoBacking},
 	} {
-		if _, err := do(ctx, m.q, qmp.BlockdevAdd, n); err != nil {
+		if _, err := qmp.Do(ctx, m.c, qmp.BlockdevAdd, n); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := do(ctx, m.q, qmp.BlockdevSnapshot, qmp.BlockdevSnapshotArgs{Node: qcow2NodeOf(ctx, t, m, top), Overlay: "next"}); err != nil {
+	if _, err := qmp.Do(ctx, m.c, qmp.BlockdevSnapshot, qmp.BlockdevSnapshotArgs{Node: qcow2NodeOf(ctx, t, m, top), Overlay: "next"}); err != nil {
 		t.Fatalf("sealing the top under an overlay: %v", err)
 	}
 
-	blocks, err := do(ctx, m.q, qmp.QueryBlock, qmp.None{})
+	blocks, err := qmp.Do(ctx, m.c, qmp.QueryBlock, qmp.None{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(blocks) != 1 || blocks[0].Inserted == nil || blocks[0].Inserted.NodeName != "slot0" {
 		t.Fatalf("query-block = %+v, want the one place, slot0", blocks)
 	}
-	sets, err := do(ctx, m.q, qmp.QueryFDSets, qmp.None{})
+	sets, err := qmp.Do(ctx, m.c, qmp.QueryFDSets, qmp.None{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,11 +165,11 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 // of the node's file, never by a node name, which is this package's own.
 func qcow2NodeOf(ctx context.Context, t *testing.T, m *QEMU, path string) string {
 	t.Helper()
-	sets, err := do(ctx, m.q, qmp.QueryFDSets, qmp.None{})
+	sets, err := qmp.Do(ctx, m.c, qmp.QueryFDSets, qmp.None{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	nodes, err := do(ctx, m.q, qmp.QueryNamedBlockNodes, qmp.QueryNamedBlockNodesArgs{Flat: true})
+	nodes, err := qmp.Do(ctx, m.c, qmp.QueryNamedBlockNodes, qmp.QueryNamedBlockNodesArgs{Flat: true})
 	if err != nil {
 		t.Fatal(err)
 	}

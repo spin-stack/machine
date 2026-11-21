@@ -17,7 +17,8 @@ spec.Cmdline = machine.DefaultCmdline()
 
 args, err := spec.Args()             // the QEMU command line
 // … exec QEMU with args and the descriptors the spec names, then over its monitor:
-m, err := machine.Attach(conn)
+c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{}) // ctx bounds the handshake alone
+m := machine.Attach(c)
 here, err := m.Target(ctx)           // what this machine is, as QEMU reports it: read once for a host
 err = machine.CanResume(saved, here) // nil, or a *machine.Refusal naming every difference
 err = m.Resume(ctx, state, saved, here, machine.LoadOptions{}, root) // trusts here: QEMU is not asked again

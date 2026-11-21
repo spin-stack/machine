@@ -109,7 +109,7 @@ type cpuDefinition struct {
 // and sse4_1 are one feature) and to switches that are no CPUID bit (migratable, check, pmu,
 // l3-cache), which the static expansion leaves out (QEMU 11.2.0-rc0, 2026-11-21).
 func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
-	cpus, err := do(ctx, m.q, queryCPUsFast, qmp.None{})
+	cpus, err := qmp.Do(ctx, m.c, queryCPUsFast, qmp.None{})
 	if err != nil {
 		return CPU{}, fmt.Errorf("listing the machine's vCPUs: %w", err)
 	}
@@ -141,7 +141,7 @@ func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
 
 // expand is the static expansion of model: its properties as QEMU would give a vCPU of it.
 func (m *QEMU) expand(ctx context.Context, model string) (map[string]any, error) {
-	r, err := do(ctx, m.q, queryCPUModelExpansion, expansionArgs{Type: "static", Model: cpuModelInfo{Name: model}})
+	r, err := qmp.Do(ctx, m.c, queryCPUModelExpansion, expansionArgs{Type: "static", Model: cpuModelInfo{Name: model}})
 	if err != nil {
 		return nil, fmt.Errorf("expanding the CPU model %s: %w", model, err)
 	}
@@ -173,7 +173,7 @@ type CPUModel struct {
 //
 // Each with its feature count, from its static expansion, which Baseline ranks them by.
 func (m *QEMU) CPUModels(ctx context.Context) ([]CPUModel, error) {
-	defs, err := do(ctx, m.q, queryCPUDefinitions, qmp.None{})
+	defs, err := qmp.Do(ctx, m.c, queryCPUDefinitions, qmp.None{})
 	if err != nil {
 		return nil, fmt.Errorf("listing the CPU models: %w", err)
 	}
@@ -304,7 +304,7 @@ func (c addedCPU) deviceArgs() (map[string]any, error) {
 }
 
 func (m *QEMU) cpuSlots(ctx context.Context) ([]cpuSlot, error) {
-	slots, err := do(ctx, m.q, queryHotpluggableCPUs, qmp.None{})
+	slots, err := qmp.Do(ctx, m.c, queryHotpluggableCPUs, qmp.None{})
 	if err != nil {
 		return nil, fmt.Errorf("listing the machine's vCPU slots: %w", err)
 	}
@@ -340,7 +340,7 @@ func (m *QEMU) SetCPUs(ctx context.Context, n int) error {
 		for k, v := range s.Props {
 			args[k] = v
 		}
-		if _, err := do(ctx, m.q, deviceAdd, args); err != nil {
+		if _, err := qmp.Do(ctx, m.c, deviceAdd, args); err != nil {
 			return fmt.Errorf("adding vCPU %d: %w", i, err)
 		}
 		have++

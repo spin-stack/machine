@@ -35,7 +35,8 @@
 //     Cmdline, and Restore when a checkpoint will be resumed.
 //  3. Spec.Args is the QEMU command line. The caller execs QEMU with it and the descriptors the
 //     Spec names. QEMU starts held.
-//  4. Attach takes over a monitor and returns the QEMU it drives.
+//  4. The caller connects to a monitor with qmp.New, and Attach takes over the client and
+//     returns the QEMU it drives.
 //  5. QEMU.Boot binds the disks and starts the guest cold. Or, for a checkpoint: the caller holds
 //     its host's Target, read once (QEMU.Target) from a machine started held in the shape it
 //     resumes into; CanResume checks the Saved record against it to choose where the checkpoint

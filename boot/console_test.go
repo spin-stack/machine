@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/machine/machine"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // checkOnConsole boots a disposable 1 GiB guest of rel on root, whose unit prints ok or failed on
@@ -118,25 +119,26 @@ AccuracySec=100ms
 }
 
 // bootOn binds the raw image at path to the place for the root disk of the machine listening on
-// qmp, and boots it.
-func bootOn(ctx context.Context, t *testing.T, qmp, path string) {
+// socket, and boots it.
+func bootOn(ctx context.Context, t *testing.T, socket, path string) {
 	t.Helper()
 	var conn *net.UnixConn
 	for {
-		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: qmp, Net: "unix"})
+		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
 		if err == nil {
 			conn = c
 			break
 		}
 		if ctx.Err() != nil {
-			t.Fatalf("the machine never answered on %s: %v", qmp, err)
+			t.Fatalf("the machine never answered on %s: %v", socket, err)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	m, err := machine.Attach(conn)
+	c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	m := machine.Attach(c)
 	defer func() { _ = m.Close() }()
 	f, err := os.OpenFile(path, os.O_RDWR, 0) // #nosec G304 -- the root this test made
 	if err != nil {

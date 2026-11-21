@@ -317,7 +317,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 			// once every device on the command line has been created and realized.
 			// That is the claim this check makes.
 			for _, socket := range sockets {
-				status := dialQMP(t, socket, vm).do("query-status", nil)
+				status := askStatus(t, socket, vm)
 				t.Logf("running, monitor %s answered query-status with %s", filepath.Base(socket), status)
 			}
 		})

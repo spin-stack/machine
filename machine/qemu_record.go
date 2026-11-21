@@ -58,7 +58,7 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 	if m.record != nil {
 		return *m.record, nil
 	}
-	version, err := do(ctx, m.q, queryVersion, qmp.None{})
+	version, err := qmp.Do(ctx, m.c, queryVersion, qmp.None{})
 	if err != nil {
 		return Target{}, fmt.Errorf("asking the machine's QEMU version: %w", err)
 	}
@@ -95,7 +95,7 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 //     parse_ramblock);
 //   - the at-least facts: a device property in mayHaveMore, as a count.
 func (m *QEMU) machine(ctx context.Context) (Hardware, error) {
-	accel, err := do(ctx, m.q, queryAccelerators, qmp.None{})
+	accel, err := qmp.Do(ctx, m.c, queryAccelerators, qmp.None{})
 	if err != nil {
 		return Hardware{}, fmt.Errorf("asking the machine's accelerator: %w", err)
 	}
@@ -121,7 +121,7 @@ func (m *QEMU) machine(ctx context.Context) (Hardware, error) {
 	if err != nil {
 		return Hardware{}, err
 	}
-	blocks, err := do(ctx, m.q, xQueryRAMBlock, qmp.None{})
+	blocks, err := qmp.Do(ctx, m.c, xQueryRAMBlock, qmp.None{})
 	if err != nil {
 		return Hardware{}, fmt.Errorf("listing the machine's RAM blocks: %w", err)
 	}
@@ -407,7 +407,7 @@ func qomValue(v json.RawMessage) string {
 
 // qomObjects are the objects at paths, in their order, from one qom-list-get.
 func (m *QEMU) qomObjects(ctx context.Context, paths ...string) ([]qomObject, error) {
-	objs, err := do(ctx, m.q, qomListGet, qomPaths{Paths: paths})
+	objs, err := qmp.Do(ctx, m.c, qomListGet, qomPaths{Paths: paths})
 	if err != nil {
 		return nil, err
 	}
