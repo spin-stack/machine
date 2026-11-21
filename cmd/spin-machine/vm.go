@@ -308,7 +308,7 @@ func save(o saveFlags) error {
 		return fmt.Errorf("recording the checkpoint: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "saved to %s: %d MiB of RAM in %d ms, the guest paused %d ms\n",
-		o.to, cost.RAM>>20, cost.Total.Milliseconds(), cost.Paused.Milliseconds())
+		o.to, cost.RAM>>20, cost.Total.Milliseconds(), cost.Paused.Milliseconds()) // mutate-exempt: a line for a person, whose MiB no caller reads
 	// The state is complete; what is left is a stopped VM nobody will resume in place.
 	return m.Quit(ctx)
 }
