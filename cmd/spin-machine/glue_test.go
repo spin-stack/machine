@@ -363,25 +363,34 @@ func TestDialWaitsOnlyForASocketThatMayStillCome(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "q")
+	// The monitor answers qmp_capabilities once it has read it, as QEMU does. An answer sent
+	// ahead of the question reached the client before it waited for one, and was dropped
+	// (#428).
+	done := make(chan served, 1)
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		l, err := net.Listen("unix", sock)
 		if err != nil {
+			done <- served{err: err}
 			return
 		}
+		defer func() { _ = l.Close() }()
 		c, err := l.Accept()
-		if err == nil {
-			_, _ = c.Write([]byte(`{"QMP": {}}` + "\n" + `{"return": {}, "id": 1}` + "\n"))
-			time.Sleep(100 * time.Millisecond)
-			_ = c.Close()
+		if err != nil {
+			done <- served{err: err}
+			return
 		}
-		_ = l.Close()
+		asked, err := serve(c, greeting, []string{ok})
+		done <- served{asked, err}
 	}()
 	m, err := dial(sock, 5*time.Second)
 	if err != nil {
 		t.Fatalf("a socket made 50 ms later was not waited for: %v", err)
 	}
 	_ = m.Close()
+	if s := <-done; s.err != nil || len(s.asked) != 1 || s.asked[0].Execute != "qmp_capabilities" {
+		t.Errorf("the monitor was asked %v (%v), want qmp_capabilities alone", s.asked, s.err)
+	}
 
 	start := time.Now()
 	if _, err := dial(filepath.Join(dir, "never"), 50*time.Millisecond); err == nil || time.Since(start) > 2*time.Second {
