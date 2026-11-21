@@ -20,7 +20,7 @@ import (
 type qmpClient struct {
 	c  *net.UnixConn
 	in *bufio.Reader
-	// removing is the device deviceDel is removing, and removed whether QEMU has reported it
+	// removing is the device deviceDel last removed, and removed whether QEMU has reported it
 	// gone. A DEVICE_DELETED for any other device is dropped: nothing can wait on it, and QEMU
 	// is not trusted to send a bounded number of them.
 	removing string
@@ -76,7 +76,7 @@ func (q *qmpClient) bound(ctx context.Context) (release func()) {
 	_ = q.c.SetDeadline(time.Time{})
 	interrupted := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
-		_ = q.c.SetDeadline(time.Unix(1, 0))
+		_ = q.c.SetDeadline(time.Unix(1, 0)) // mutate-exempt: any time in the past ends the read alike
 		close(interrupted)
 	})
 	return func() {
@@ -173,7 +173,6 @@ func (q *qmpClient) readLine() ([]byte, error) {
 // arrive with device_del's own reply, so it is looked for there first.
 func (q *qmpClient) deviceDel(ctx context.Context, id string) error {
 	q.removing, q.removed = id, false
-	defer func() { q.removing = "" }()
 	if err := q.run(ctx, "device_del", map[string]any{"id": id}, nil); err != nil {
 		return err
 	}
