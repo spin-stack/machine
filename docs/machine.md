@@ -29,6 +29,40 @@ places with one serial, a monitor that is both a path and a descriptor, or a ker
 the kernel would truncate. A disk's images arrive later, at `VM.Boot`, `VM.Resume` or
 `VM.AttachDisk`, and each refuses an image whose format is not qcow2 or raw rather than guess it.
 
+## Driving a running machine
+
+`machine.VM` is what any VMM behind the machine answers. `machine.QEMU` adds what spin's runner
+needs of a QEMU, so that the runner reaches QEMU through `machine.QEMU` alone:
+
+```go
+n, err := m.CPUs(ctx)            // vCPUs now; SetCPUs(ctx, n) plugs and unplugs, also before Boot
+size, err := m.Memory(ctx)       // MemorySize{Now, Base, Ceiling, Block} in MiB; SetMemory(ctx, mb)
+mem, err := m.GuestMemory(ctx)   // the guest's last balloon report; machine.ErrNoGuestStats until one
+st, err := m.Status(ctx)         // machine.Prelaunch, Inmigrate, Running, Paused, Postmigrate, …
+saved, cost, err := m.Checkpoint(ctx, f, machine.SaveOptions{}, seal) // cost: Paused, Total, RAM
+err = m.Hold(ctx)                // a checkpointed machine takes its disks back and stays stopped
+err = m.Continue(ctx)            // and runs
+err = m.Shutdown(ctx)            // presses the ACPI power button
+<-m.Done()                       // the monitor's connection ended: QEMU exited, or Close
+end, said := m.End()             // the last SHUTDOWN QEMU sent: End{Guest, Reason}
+```
+
+- **`Shutdown` presses the power button, never ctrl-alt-del.** The guest's kernel has no i8042 or
+  AT keyboard driver, so QEMU takes the keys and the guest never sees them. Booted to systemd, a
+  machine sent ctrl-alt-del ran on until it was killed, and one whose button was pressed powered
+  off 0.64 s later (laptop, 2026-11-21). `End` then says `GuestShutdown`.
+- **`End` is QEMU's word, not an explanation.** A guest that powers itself off ends as
+  `GuestShutdown`. A panic ends as `GuestReset`, because `panic=1` reboots the guest and
+  `-no-reboot` makes the reboot an end. The machine has no panic device, so QEMU never sends
+  `GUEST_PANICKED`, and only the console tells a panic from a reboot.
+- **`GuestMemory` turns the reports on at its first call**, one a second, by setting the
+  balloon's polling interval. Set on the command line, the interval would put a timer in every
+  boot from its first second. The balloon's id (`balloon0`) gives it a path. The record leaves
+  every id out and names the balloon by its slot, so the id did not move it.
+- **`Memory` is two round trips**: `query-memory-size-summary` and one `qom-list-get` of
+  virtio-mem and its backend. A machine started with no ceiling above its memory has no virtio-mem,
+  and its `Ceiling` is its `Base`.
+
 ## What is load-bearing and invisible from outside
 
 - **Every device on the command line sits at a fixed slot on bus 0.** A fixed slot makes
