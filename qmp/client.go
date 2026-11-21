@@ -406,7 +406,8 @@ func (c *Client) end(err error) {
 	}
 	c.err = err
 	c.mu.Unlock()
-	close(c.done)
 	// A line over the bound, or one that is not JSON, ends a connection the caller still holds.
+	// Closed before done, so whoever Done wakes finds the connection gone, not still open.
 	_ = c.conn.Close()
+	close(c.done)
 }
