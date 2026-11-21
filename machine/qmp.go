@@ -201,18 +201,3 @@ func sleep(ctx context.Context, d time.Duration) error {
 		return nil
 	}
 }
-
-// addFD hands f to QEMU as a descriptor set of its own, and returns the set's id. opaque is what
-// query-fdsets says the descriptor is.
-func (q *qmpClient) addFD(ctx context.Context, f *os.File, opaque string) (int, error) {
-	if f == nil {
-		return 0, errors.New("no file to hand over")
-	}
-	var r struct {
-		Set int `json:"fdset-id"`
-	}
-	if err := q.send(ctx, "add-fd", map[string]any{"opaque": opaque}, f, &r); err != nil {
-		return 0, fmt.Errorf("handing %s to QEMU: %w", opaque, err)
-	}
-	return r.Set, nil
-}
