@@ -63,16 +63,16 @@ func (d Disk) validate() error {
 
 // diskNode names the format node of image j of the disk with this serial, and its file node is
 // diskNode+"-f": named from the serial, so that a detach in another process finds them.
-func diskNode(serial string, j int) string { return fmt.Sprintf("d-%s-%d", serial, j) }
-
-// TopNode is the node of the disk's top image, for whatever seals it under a new overlay through
-// a monitor of its own (blockdev-snapshot): an external contract, with spin's storage.
 //
-// It is not the node the device reads. A disk bound to a place is under that place's raw node,
-// slot<i>, which stays: QEMU 11.2 has no command that replaces a realized device's node
-// (blockdev-replace is not in it), and raw passes every request through. blockdev-snapshot of
-// this node puts the overlay in its place under every parent, the raw node included.
-func TopNode(serial string) string { return diskNode(serial, 0) }
+// The names are this package's own. spin's storage, which seals a disk's top under a new overlay
+// (blockdev-snapshot) through a monitor of its own, finds the node it seals by what it reads and
+// not by its name (its qcow.topOf): the qcow2 node whose file is the descriptor set whose opaque
+// is the top image's path (addImages). That node is not the one the device reads. A disk bound
+// to a place stays under the place's node, slot<i>, a filter that is not qcow2 (placeNode),
+// because QEMU 11.2 has no command that replaces a realized device's node (blockdev-replace is
+// not in it); blockdev-snapshot of the top puts the overlay in its place under every parent, the
+// place included.
+func diskNode(serial string, j int) string { return fmt.Sprintf("d-%s-%d", serial, j) }
 
 // slot is one place for a disk the machine was started with (Spec.Disks).
 type slot struct {

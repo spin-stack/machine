@@ -262,9 +262,6 @@ func TestBootBindsEachDiskToItsPlaceThenRuns(t *testing.T) {
 	if !reflect.DeepEqual(nodes, wantNodes) {
 		t.Errorf("nodes\n%v\nwant\n%v", nodes, wantNodes)
 	}
-	if TopNode("root") != "d-root-0" {
-		t.Errorf("TopNode(root) = %s, want the node the place was reopened onto", TopNode("root"))
-	}
 	reopens := f.sent("blockdev-reopen")
 	wantReopens := []map[string]any{
 		{"options": []any{map[string]any{"driver": "throttle", "node-name": "slot0", "file": "d-root-0", "throttle-group": "places", "read-only": false, "discard": "unmap"}}},
