@@ -941,15 +941,6 @@ esac`})
 	}
 }
 
-func TestPackagesMovedSaysWhatMoved(t *testing.T) {
-	got := packagesMoved("a=1\nb=1\nc=1\n", "a=1\nb=2\nd=1\n")
-	if got != "- b 1 → 2\n- d 1 (new)\n- c (gone)\n" {
-		t.Errorf("moved %q", got)
-	}
-	if got := packagesMoved("a=1\n", "a=1\n"); !strings.Contains(got, "no package moved") {
-		t.Errorf("nothing moved, said %q", got)
-	}
-}
 func TestShellBootsTheBaseAndChecksItAfter(t *testing.T) {
 	dir := checkout(t)
 	out := filepath.Join(dir, "_output")

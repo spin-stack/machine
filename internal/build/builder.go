@@ -7,10 +7,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/spin-stack/go-tools/versions"
 )
 
 // Builders are the parts compiled on an Alpine builder image of their own (builder/Dockerfile),
@@ -142,4 +145,86 @@ func installedPackages(db string) (string, error) {
 // sourceRepo is the GitHub repository a ghcr.io image of it is under: ghcr.io/owner/repo/name.
 func sourceRepo(source string) string {
 	return filepath.Dir(strings.TrimPrefix(source, "ghcr.io/"))
+}
+
+// MovedBuilders makes each of Builders again and splits them by whether the tag made is the one
+// versions.yaml pins: moved, to publish and pin, and current.
+func MovedBuilders(ctx context.Context, o Options) (moved, current []Builder, err error) {
+	for _, part := range Builders {
+		b, err := MakeBuilder(ctx, o, part)
+		if err != nil {
+			return nil, nil, err
+		}
+		e, err := o.Pins.Get(BuilderEntry(part))
+		if err != nil {
+			return nil, nil, err
+		}
+		if e.Version == b.Tag {
+			current = append(current, b)
+		} else {
+			moved = append(moved, b)
+		}
+	}
+	return moved, current, nil
+}
+
+// Pinned is one builder published and pinned, and what moved in its packages against the builder
+// pinned before it, for a person deciding whether to take it.
+type Pinned struct {
+	Entry, Tag, Pin string
+	Changes         string
+}
+
+// PinBuilders publishes each of moved and pins it, and returns versions.yaml with every pin moved,
+// which it does not write.
+func PinBuilders(ctx context.Context, o Options, moved []Builder) ([]byte, []Pinned, error) {
+	pins := o.Pins
+	var file []byte
+	var pinned []Pinned
+	for _, b := range moved {
+		changes := "no builder was pinned to compare with\n"
+		if old, err := PinnedPackages(ctx, o, b.Part); err == nil {
+			changes = packagesMoved(old, b.Packages)
+		}
+		pin, err := PublishBuilder(ctx, o, b)
+		if err != nil {
+			return nil, nil, err
+		}
+		entry := BuilderEntry(b.Part)
+		if file, err = pins.Set(entry, b.Tag, pin); err != nil {
+			return nil, nil, err
+		}
+		if pins, err = versions.Parse(file); err != nil {
+			return nil, nil, err
+		}
+		pinned = append(pinned, Pinned{Entry: entry, Tag: b.Tag, Pin: pin, Changes: changes})
+	}
+	return file, pinned, nil
+}
+
+// packagesMoved is what moved from one builder's packages to another's, as name=version lines.
+func packagesMoved(old, now string) string {
+	was := map[string]string{}
+	for line := range strings.Lines(old) {
+		name, version, _ := strings.Cut(strings.TrimSpace(line), "=")
+		was[name] = version
+	}
+	var lines []string
+	for line := range strings.Lines(now) {
+		name, version, _ := strings.Cut(strings.TrimSpace(line), "=")
+		switch before, ok := was[name]; {
+		case !ok:
+			lines = append(lines, "- "+name+" "+version+" (new)")
+		case before != version:
+			lines = append(lines, "- "+name+" "+before+" → "+version)
+		}
+		delete(was, name)
+	}
+	for _, name := range slices.Sorted(maps.Keys(was)) {
+		lines = append(lines, "- "+name+" (gone)")
+	}
+	if len(lines) == 0 {
+		return "no package moved: the Alpine or the list did\n"
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
