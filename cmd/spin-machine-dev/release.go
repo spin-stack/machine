@@ -35,11 +35,11 @@ func releaseCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "release",
 		Short: "Build everything that is missing or stale and pack one versioned tarball, refusing one with anything missing",
-		Long: `Build every part and spin-machine (as build does), then pack them into _output/release: one
-tarball, one version - QEMU and its firmware, the kernel, the base image and the tools that make and
-read its filesystem - with LICENSE, NOTICE, every patch each part was built with, machine.env (the
-manifest, with the fingerprint that decides whether checkpoints resume), SOURCES (where every part
-came from) and a CycloneDX SBOM, inside the tarball and beside it.
+		Long: `Build every part (as build does), then pack them into _output/release: one tarball, one
+version - QEMU and its firmware, the kernel, the base image and the tools that make and read its
+filesystem - with LICENSE, NOTICE, every patch each part was built with, machine.env (the
+manifest: versions and checksums), SOURCES (where every part came from) and a CycloneDX SBOM,
+inside the tarball and beside it.
 
 A release missing a piece is worse than none: it installs, and what it left out fails somewhere
 else. So every file is required, and a patch directory ships whole, never as a list.
@@ -54,9 +54,6 @@ else. So every file is required, and a patch directory ships whole, never as a l
 			o := f.options(c, w)
 			if _, err := build.Make(c.Context(), o, build.Parts); err != nil {
 				return couldNot(err)
-			}
-			if err := build.Tools(c.Context(), o); err != nil {
-				return couldNot(fmt.Errorf("building spin-machine: %w", err))
 			}
 			packed, err := pack(c.Context(), c, w, version)
 			if err != nil {
@@ -114,12 +111,8 @@ func pack(ctx context.Context, c *cobra.Command, w workspace, version string) (r
 	if err != nil {
 		return release.Packed{}, err
 	}
-	spinMachine := filepath.Join(w.out, "bin", "spin-machine")
 	return release.Pack(ctx, release.Options{
 		Root: w.root, Out: w.out, Version: version, Pins: w.pins, Commit: commit, Epoch: epoch, Now: time.Now(),
-		Fingerprint: func(ctx context.Context, share string) (string, error) {
-			return release.FingerprintOf(ctx, spinMachine, share)
-		},
 		Stderr: c.ErrOrStderr(),
 	})
 }
@@ -198,13 +191,13 @@ func releaseNotesCmd() *cobra.Command {
 	var version string
 	c := &cobra.Command{
 		Use:    "notes --version <version>",
-		Short:  "Write the release's notes: what changed since the one before, and what it costs checkpoints",
+		Short:  "Write the release's notes: what changed since the one before",
 		Hidden: true,
 		Long: `Write the notes of the release packed in _output/release: what reached the machine since the
 newest release before it (the commits by part, the pins, the kernel options, the patches), whether
-its machine is that one's - the fingerprint verdict, which never fails: changing the machine is
-allowed, being quiet about it is not - whether the QEMU shipped offers a newer machine type, and its
-machine.env. On stdout, and as notes= on the step's outputs. Needs gh.`,
+the QEMU shipped offers a newer machine type, and its machine.env. Which releases' checkpoints
+resume on it is lab compat's to say, in the release's compat job. On stdout, and as notes= on the
+step's outputs. Needs gh.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			w, err := open()
@@ -247,17 +240,9 @@ func notesOf(ctx context.Context, w workspace, version string) (string, error) {
 			break
 		}
 	}
-	var verdict, changes string
-	if previous == "" {
-		verdict = release.Verdict("", nil, nil)
-		changes = "The first release: nothing before it to say what changed against.\n"
-	} else {
-		then, err := previousManifest(ctx, previous)
-		if err != nil {
-			return "", err
-		}
-		verdict = release.Verdict(previous, then, release.ParseEnv(string(raw)))
-		if changes, err = release.Changes(w.root, previous); err != nil {
+	notes := "The first release: nothing before it to say what changed against.\n"
+	if previous != "" {
+		if notes, err = release.Changes(w.root, previous); err != nil {
 			return "", fmt.Errorf("what changed since %s: %w", previous, err)
 		}
 	}
@@ -268,27 +253,9 @@ func notesOf(ctx context.Context, w workspace, version string) (string, error) {
 		return "", err
 	}
 	if offer != "" {
-		verdict += "\n" + offer + "\n"
+		notes += "\n" + offer + "\n"
 	}
-	return changes + "\n" + verdict + "\nThe machine as it stood on this date.\n\n```\n" + string(raw) + "```\n", nil
-}
-
-// previousManifest is the machine.env reference published beside its tarball; nil when it
-// published none, which the verdict says.
-func previousManifest(ctx context.Context, reference string) (map[string]string, error) {
-	dir, err := os.MkdirTemp("", "previous")
-	if err != nil {
-		return nil, fmt.Errorf("making a place for %s's manifest: %w", reference, err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	if _, err := gh(ctx, "release", "download", reference, "--pattern", "machine.env", "--dir", dir); err != nil {
-		return nil, nil //nolint:nilerr // a release with no machine.env is an answer, which the verdict says
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "machine.env"))
-	if err != nil {
-		return nil, fmt.Errorf("reading %s's manifest: %w", reference, err)
-	}
-	return release.ParseEnv(string(raw)), nil
+	return notes + "\nThe machine as it stood on this date.\n\n```\n" + string(raw) + "```\n", nil
 }
 
 func releaseProvenanceCmd() *cobra.Command {

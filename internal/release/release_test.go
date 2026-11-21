@@ -72,13 +72,10 @@ func tree(t *testing.T) (root, out string) {
 	return root, out
 }
 
-var fp = strings.Repeat("f", 64)
-
 func options(t *testing.T, root, out string) Options {
 	t.Helper()
 	return Options{Root: root, Out: out, Version: "v20261119.07", Pins: pins(t), Commit: "abc", Epoch: time.Unix(1, 0),
-		Now:         time.Date(2026, 11, 19, 1, 2, 3, 0, time.UTC),
-		Fingerprint: func(context.Context, string) (string, error) { return fp, nil }}
+		Now: time.Date(2026, 11, 19, 1, 2, 3, 0, time.UTC)}
 }
 
 // listing is the tarball's entries, and their modes, past its top directory.
@@ -154,7 +151,7 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	vm, _ := build.FileSHA256(filepath.Join(out, "kernel/vmlinux"))
 	q, _ := o.Pins.Get("qemu")
 	for k, v := range map[string]string{"version": o.Version, "source_commit": "abc", "built": "2026-11-19T01:02:03Z",
-		"fingerprint_sha256": fp, "kernel_sha256": vm, "qemu_version": q.Version} {
+		"kernel_sha256": vm, "qemu_version": q.Version} {
 		if m[k] != v {
 			t.Errorf("machine.env %s=%q, want %q", k, m[k], v)
 		}
@@ -244,28 +241,9 @@ func TestAReleaseMissingAnythingIsRefused(t *testing.T) {
 	}
 	root, out := tree(t)
 	o := options(t, root, out)
-	o.Fingerprint = func(context.Context, string) (string, error) { return "", errors.New("no machine") }
-	if _, err := Pack(context.Background(), o); err == nil || !strings.Contains(err.Error(), "fingerprint") {
-		t.Errorf("a fingerprint that failed: %v", err)
-	}
-	o = options(t, root, out)
 	o.Pins = &versions.Versions{}
 	if _, err := Pack(context.Background(), o); err == nil {
 		t.Error("a release with no pins packed")
-	}
-}
-
-func TestFingerprintOfIsSpinMachinesAnswer(t *testing.T) {
-	dir := t.TempDir()
-	put(t, filepath.Join(dir, "sm"), "#!/bin/sh\n[ \"$*\" = \"fingerprint --release /share --cpu "+FingerprintCPU+"\" ] || exit 9\necho '{\"fingerprint\": \""+fp+"\", \"shape\": {}}'\n", 0o755)
-	if got, err := FingerprintOf(context.Background(), filepath.Join(dir, "sm"), "/share"); err != nil || got != fp {
-		t.Errorf("FingerprintOf = %q, %v", got, err)
-	}
-	for _, body := range []string{"exit 1", "echo nope", `echo '{"fingerprint": "short"}'`} {
-		put(t, filepath.Join(dir, "bad"), "#!/bin/sh\n"+body+"\n", 0o755)
-		if _, err := FingerprintOf(context.Background(), filepath.Join(dir, "bad"), "/share"); err == nil {
-			t.Errorf("%q gave a fingerprint", body)
-		}
 	}
 }
 
@@ -334,53 +312,5 @@ func TestAVersionIsGivenOrTheNextOfToday(t *testing.T) {
 		if _, _, err := Version(bad, nil, day); err == nil {
 			t.Errorf("%q was taken as a version", bad)
 		}
-	}
-}
-
-func TestTheVerdictSaysWhatCheckpointsLose(t *testing.T) {
-	now := map[string]string{"fingerprint_sha256": "f1", "qemu_sha256": "q2", "kernel_sha256": "k1"}
-	for _, tc := range []struct {
-		name      string
-		reference string
-		then      map[string]string
-		now       map[string]string
-		want      []string
-		not       []string
-	}{
-		{"the first release", "", nil, now, []string{"this is the first published release"}, []string{"###"}},
-		{"a release with no manifest", "v1", nil, now, []string{"`v1` published no `machine.env`"}, []string{"###"}},
-		{"the fingerprint moved", "v1", map[string]string{"fingerprint_sha256": "f0", "qemu_sha256": "q2"}, now,
-			[]string{"### ⚠️ Every checkpoint taken against `v1` stops resuming", "- `fingerprint_sha256`\n  - was `f0` (v1)\n  - now `f1`"},
-			[]string{"still resume", "qemu_sha256"}},
-		{"only what a boot reads moved", "v1", map[string]string{"fingerprint_sha256": "f1", "qemu_sha256": "q1", "kernel_sha256": "k1"}, now,
-			[]string{"### Checkpoints taken against `v1` still resume", "Changed, and not part of the fingerprint", "- `qemu_sha256`\n  - was `q1` (v1)\n  - now `q2`"},
-			[]string{"kernel_sha256", "stops resuming"}},
-		{"nothing moved", "v1", map[string]string{"fingerprint_sha256": "f1", "qemu_sha256": "q2"}, now,
-			[]string{"still resume"}, []string{"Changed, and not"}},
-		{"the reference never recorded the fingerprint", "v1", map[string]string{"qemu_sha256": "q2"}, now,
-			[]string{"### Nothing compared here moves the fingerprint", "Unchanged since `v1`: nothing.", "Not compared, and therefore not vouched for: fingerprint_sha256."},
-			[]string{"still resume"}},
-		{"this build never said its fingerprint", "v1", map[string]string{"fingerprint_sha256": "f1", "qemu_sha256": "q1"}, map[string]string{"qemu_sha256": "q1"},
-			[]string{"Not compared, and therefore not vouched for: fingerprint_sha256"}, []string{"still resume"}},
-		{"an empty value is not compared", "v1", map[string]string{"fingerprint_sha256": ""}, now,
-			[]string{"Not compared"}, []string{"stops resuming"}},
-	} {
-		got := Verdict(tc.reference, tc.then, tc.now)
-		for _, w := range tc.want {
-			if !strings.Contains(got, w) {
-				t.Errorf("%s: the verdict lacks %q:\n%s", tc.name, w, got)
-			}
-		}
-		for _, n := range tc.not {
-			if strings.Contains(got, n) {
-				t.Errorf("%s: the verdict says %q:\n%s", tc.name, n, got)
-			}
-		}
-	}
-	if !isFingerprint("fingerprint_sha256") || isFingerprint("qemu_sha256") {
-		t.Error("isFingerprint")
-	}
-	if orNothing([]string{"a", "b"}) != "a b" || orNothing(nil) != "nothing" {
-		t.Error("orNothing")
 	}
 }

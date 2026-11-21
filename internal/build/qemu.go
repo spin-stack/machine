@@ -93,8 +93,8 @@ func PublishQEMU(ctx context.Context, o Options, repo string) error {
 	return docker(ctx, o, cmd...)
 }
 
-// Tools builds spin-machine into o.Out/bin, statically. A release does not ship it: release uses
-// it to compute the fingerprint, and the lab and the probes boot with it.
+// Tools builds spin-machine into o.Out/bin, statically. A release does not ship it: the lab and
+// the probes boot with it.
 func Tools(ctx context.Context, o Options) error {
 	if err := os.MkdirAll(filepath.Join(o.Out, "bin"), 0o755); err != nil {
 		return fmt.Errorf("making %s: %w", filepath.Join(o.Out, "bin"), err)

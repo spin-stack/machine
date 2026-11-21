@@ -2,38 +2,11 @@
 
 package machine
 
-import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
-)
+import "fmt"
 
-// Shape is the five arguments that decide what machine a guest sees: the chipset
-// and its options, the accelerator, the CPU model, the vCPU count with its hotplug
-// ceiling, and the memory size with its ceiling.
-//
-// It is one type with one constructor because it has two consumers that must
-// never disagree: the command line QEMU is given, and the fingerprint that
-// decides which checkpoints this machine may resume. If the fingerprint stopped
-// describing the command line, a VM would resume a checkpoint of another machine
-// and the failure would be silent. Args passes each field as it is; the only thing
-// it adds is where /dev/kvm came from (KVMFDSet), which is the host's business and
-// not the guest's.
-type Shape struct {
-	Machine string
-	Accel   string
-	CPU     string
-	SMP     string
-	Memory  string
-}
-
-// Shape returns the machine's shape, which is the one Args runs and Fingerprint hashes.
-func (s Spec) Shape() Shape {
+// cpuArg is -cpu: the model, the options that make it mean what it says, and the features taken
+// away from it.
+func (s Spec) cpuArg() string {
 	accel := s.accel()
 	cpu := s.CPU
 	if cpu == "" {
@@ -88,14 +61,10 @@ func (s Spec) Shape() Shape {
 	// vmx=1,0,0,0 before; no warning and vmx=0 on all four with it. Global properties of the
 	// model, so a CPU added later is given them too.
 	cpu += ",-vmx,-svm"
-
-	return Shape{
-		Machine: machineOpts,
-		Accel:   accel,
-		CPU:     cpu,
-		SMP:     smpArg(s.BootCPUs, s.MaxCPUs),
-		Memory:  memoryArg(s.Memory.SizeMB, s.Memory.MaxMB),
+	for _, f := range s.CPUWithout {
+		cpu += ",-" + f
 	}
+	return cpu
 }
 
 func (s Spec) accel() string {
@@ -108,8 +77,8 @@ func (s Spec) accel() string {
 // machineOpts is the -machine string. It never carries accel=: the accelerator is always
 // its own -accel, because that is the only form that can also carry the /dev/kvm
 // descriptor (KVMFDSet), and QEMU refuses the two together — "The -accel and
-// "-machine accel=" options are incompatible" (11.1.1). One form for every machine is
-// one string for the fingerprint to hash and the command line to carry.
+// "-machine accel=" options are incompatible" (11.1.1). One form for every machine is one string,
+// whose options a machine's record reads back (QEMU.machine).
 //
 // hpet=off: the HPET is a timer the guest would enumerate, initialise and
 // then not use, because a KVM guest reads the TSC and the KVM clock.
@@ -158,7 +127,7 @@ func (s Spec) accel() string {
 //
 // kernel-irqchip=on stays under either accelerator. It names KVM's in-kernel interrupt
 // controller and TCG has none, but QEMU accepts the option and ignores it rather than
-// refusing — measured against 11.1.1 — so the shape is one string and not two.
+// refusing — measured against 11.1.1 — so the string is one and not two.
 const machineOpts = MachineType + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,smbus=off"
 
 // MachineType is the versioned q35 this machine is, and never the bare "q35", which is an
@@ -169,7 +138,7 @@ const machineOpts = MachineType + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,
 // type's changes to defaults (hw_compat_X_Y in hw/core/machine.c, pc_compat_X_Y in
 // hw/i386/pc.c) are switched back off for the older one. Under the alias a QEMU bump to a new
 // minor is a new machine; under the version it is a new emulator of the same one, and a
-// checkpoint resumes across it (Fingerprint). Moving this is moving every guest to new
+// checkpoint resumes across it (CanResume). Moving this is moving every guest to new
 // hardware: a decision, made here, that every checkpoint taken before it stops resuming.
 // `spin-machine-dev verify qemu` says when the QEMU built offers a newer one, and fails once this one is
 // deprecated (QEMU deprecates a versioned type after three years and removes it after six).
@@ -206,128 +175,4 @@ func (s Spec) bios() string {
 		return DefaultBIOS
 	}
 	return s.BIOS
-}
-
-// Fingerprint is the machine's contract: what a checkpoint saved on it needs of the machine it
-// resumes into. Two machines with one fingerprint present the same hardware to a guest, and a
-// checkpoint saved on one resumes on the other. QEMU does not check it, so across two that
-// differ a resume is undefined rather than an error, and CanResume refuses it.
-//
-// It hashes the versioned machine type and the shape (Shape), the chipset's globals and every
-// device as the command line gives it with what is one VM's taken out (Contract), and the size of
-// the BIOS. Not the host's CPU: under model host, which CPU a checkpoint needs is in the
-// checkpoint (Saved.CPU) and checked against the machine it is resumed into (CanResume), which
-// is exact where a model name was not (hostCPU's removal, docs/log.md, 2026-11-19). Not the
-// QEMU binary, the kernel, the initrd or the option ROM that entered it (linuxboot_dma.bin):
-// QEMU's promise is per versioned machine type, so a newer QEMU of the same type is
-// the same machine; a resumed guest runs the kernel in its saved memory, and the
-// kernel, the initrd and the option ROM that entered it are read again only by a boot.
-// boot:compat holds the promise: a checkpoint the newest release saved resumes on this tree's.
-//
-// A change to any of what it does hash is a change of hardware under every guest, and every
-// checkpoint taken against the previous machine stops resuming. That is the design, and the
-// release notes say so (internal/release's verdict).
-func (s Spec) Fingerprint() (string, error) {
-	h := sha256.New()
-
-	// Length-prefixed, so that no two different machines can produce the same
-	// byte stream by moving a delimiter into a value. Every value here is
-	// something a caller supplies or a tool prints — a CPU model name, a device
-	// list, a line out of /proc/cpuinfo — and none of them is guaranteed to be
-	// free of the separator. Prefixing costs nothing and removes the question.
-	write := func(key, value string) {
-		_, _ = fmt.Fprintf(h, "%s=%d:%s\n", key, len(value), value)
-	}
-
-	// The BIOS by its size. It is the one ROM a file sizes: QEMU maps it as the RAM block
-	// pc.bios, which a saved machine carries whole and a resume refuses at another length. Its
-	// contents travel with the checkpoint, so a rebuilt qboot of the same size is the same
-	// machine. Every other read-only block is the machine type's or the chipset's own, and
-	// boot:roms fails when one appears that is neither (boot/roms_test.go).
-	size, err := fileSize(filepath.Join(s.Firmware, s.bios()))
-	if err != nil {
-		return "", fmt.Errorf("fingerprinting the BIOS: %w", err)
-	}
-	write("bios-size", strconv.FormatInt(size, 10)) // mutate-exempt: the base the size is written in; any base names each size once
-
-	shape := s.Shape()
-	write("machine", shape.Machine)
-	write("accel", shape.Accel)
-	write("cpu", shape.CPU)
-	write("smp", shape.SMP)
-	write("memory", shape.Memory)
-	for _, c := range s.Contract() {
-		write("contract", c)
-	}
-
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// Contract is the chipset's globals and every device of the machine, each as the command line
-// gives it (appendChipset, appendDevices, appendNICs) with what is one VM's taken out, and
-// whether it has a serial port.
-//
-// From the command line itself and not a description kept beside it, because a resume loads
-// device state into a machine that has to have the same devices with the same properties: a
-// balloon added at slot 0x04, free-page-reporting turned on, a NIC's MTU announced
-// (VIRTIO_NET_F_MTU, negotiated at probe and carried in the stream) are each a machine a
-// checkpoint of the other cannot be loaded into, and each moves this the moment Args changes.
-//
-// What is one VM's, and so taken out, is what a resume is known to be allowed to differ in:
-// an id, the backend a device is bound to (netdev, memdev), a NIC's MAC, the vsock's context
-// id, which the migration stream does not carry and the guest re-reads when QEMU resets the
-// transport, and a descriptor (vhostfd). The backends themselves (-netdev, -drive, -object,
-// -chardev) are files and descriptors on the host, never the guest's hardware; the memory
-// backend's size is the shape's.
-//
-// The disks are not here at all: they are the VM's and not the machine's. A host computes its
-// fingerprint before any VM exists to say how many disks it has, and a checkpoint is resumed
-// with the disks it was saved with, which is the resuming caller's part of the contract.
-func (s Spec) Contract() []string {
-	args := appendChipset(nil)
-	args = s.appendDevices(args)
-	args = s.appendNICs(args)
-	var out []string
-	for i := 0; i+1 < len(args); i++ {
-		switch args[i] {
-		case "-global":
-			out = append(out, "global "+args[i+1])
-			i++
-		case "-device":
-			out = append(out, "device "+withoutTheVMs(args[i+1]))
-			i++
-		}
-	}
-	if s.Serial != "" || s.SerialFDSet != 0 {
-		out = append(out, "serial isa-serial")
-	}
-	return out
-}
-
-// vmProperties are the device properties that are one VM's and not its machine's (Contract).
-var vmProperties = []string{"id", "netdev", "memdev", "mac", "guest-cid", "vhostfd"}
-
-// withoutTheVMs is a -device value with vmProperties taken out, the rest in the order Args
-// wrote them. The values Contract reads are Args' own, with no escaped comma among them: the
-// one that may carry one, a disk's serial, belongs to a disk, which is not in the contract.
-func withoutTheVMs(dev string) string {
-	parts := strings.Split(dev, ",")
-	kept := parts[:1]
-	for _, p := range parts[1:] {
-		if k, _, _ := strings.Cut(p, "="); !slices.Contains(vmProperties, k) {
-			kept = append(kept, p)
-		}
-	}
-	return strings.Join(kept, ",")
-}
-
-// fingerprintName is how Args names the machine: this, then its fingerprint.
-const fingerprintName = "spin-machine:"
-
-func fileSize(path string) (int64, error) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return 0, err
-	}
-	return fi.Size(), nil
 }

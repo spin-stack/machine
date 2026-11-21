@@ -20,8 +20,8 @@ import (
 // patches added, removed or changed. Everything is read from the repository at the two refs, so
 // it says what is in the tree, not what somebody remembered to write down.
 //
-// The fingerprint verdict (Verdict) and the boot report's comparison are the notes' other two
-// parts. This is the one that says why they moved.
+// The boot report's comparison is the notes' other part, and lab compat's table says which
+// releases' checkpoints resume here. This is the one that says why they moved.
 func Changes(repo, from string) (string, error) {
 	var b strings.Builder
 	if err := write(&b, repo, from, "HEAD"); err != nil {
