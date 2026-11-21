@@ -5,6 +5,7 @@ package machine
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -66,8 +67,11 @@ func TestOpenReleaseAcceptsAMachineWithoutTheOptionalParts(t *testing.T) {
 	if _, err := r.Rootfs(); err == nil {
 		t.Error("Rootfs returned a path for an image that is not there")
 	}
-	if _, err := r.QEMUTCG(); err == nil {
-		t.Error("QEMUTCG returned a path for a binary that is not there")
+	if _, err := r.Spec("tcg"); err == nil || !strings.Contains(err.Error(), qemuTCGName) {
+		t.Errorf("Spec(tcg) on a release without the TCG build returned %v, want an error naming %s", err, qemuTCGName)
+	}
+	if _, err := r.Spec("kvm"); err != nil {
+		t.Errorf("Spec(kvm) needs no TCG build: %v", err)
 	}
 }
 
@@ -124,25 +128,29 @@ func TestOpenReleaseReadsTheManifest(t *testing.T) {
 	}
 }
 
+// Release.Spec pairs each accelerator with the QEMU built for it: the ordinary build refuses
+// -accel tcg, and the TCG build is what a machine with no /dev/kvm runs.
 func TestSpecTakesItsPathsFromTheRelease(t *testing.T) {
-	dir := tree(t, append(whole, rootfsName)...)
+	dir := tree(t, append(whole, rootfsName, qemuTCGName)...)
 	r, err := OpenRelease(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	s := r.Spec()
-	for _, c := range []struct{ name, got, want string }{
-		{"QEMU", s.QEMU, filepath.Join(dir, qemuName)},
-		{"Kernel", s.Kernel, filepath.Join(dir, kernelName)},
-		{"Firmware", s.Firmware, filepath.Join(dir, firmwareDir)},
-	} {
-		if c.got != c.want {
-			t.Errorf("Spec().%s = %q, want %q", c.name, c.got, c.want)
+	for accel, qemu := range map[string]string{"": qemuName, "kvm": qemuName, "tcg": qemuTCGName} {
+		s, err := r.Spec(accel)
+		if err != nil {
+			t.Fatalf("Spec(%q): %v", accel, err)
 		}
-	}
-	// The rest of a machine is about one VM and is the caller's to fill in.
-	if s.Initrd != "" || s.Memory.SizeMB != 0 || len(s.Disks) != 0 {
-		t.Errorf("Spec() decided something a release does not know: %+v", s)
+		// The rest of a machine is about one VM and is the caller's to fill in.
+		want := Spec{
+			QEMU:     filepath.Join(dir, qemu),
+			Kernel:   filepath.Join(dir, kernelName),
+			Firmware: filepath.Join(dir, firmwareDir),
+			Accel:    accel,
+		}
+		if !reflect.DeepEqual(s, want) {
+			t.Errorf("Spec(%q)\n got %+v\nwant %+v", accel, s, want)
+		}
 	}
 }

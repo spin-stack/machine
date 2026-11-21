@@ -95,7 +95,10 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := rel.Spec()
+	base, err := rel.Spec("")
+	if err != nil {
+		t.Fatal(err)
+	}
 	// --kernel is a bzImage, and a file without its setup header is refused (Args) before QEMU sees it.
 	bz := filepath.Join(t.TempDir(), "k")
 	header := make([]byte, 0x206)

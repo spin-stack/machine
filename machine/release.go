@@ -62,7 +62,7 @@ type Release struct {
 // The TCG binary and the root filesystem are not required. A host that only ever
 // runs guests under KVM needs neither, and refusing to start for the want of a
 // 900 MB file it will not open would be a check that costs more than it saves —
-// Rootfs and QEMUTCG report their own absence to whoever asks for them.
+// Rootfs and Spec("tcg") report their own absence to whoever asks for them.
 func OpenRelease(dir string) (*Release, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -84,19 +84,8 @@ func OpenRelease(dir string) (*Release, error) {
 	return r, nil
 }
 
-// QEMU is the emulator every guest runs under: KVM only, no TCG.
-func (r *Release) QEMU() string { return filepath.Join(r.dir, qemuName) }
-
 // QEMUImg creates and rebases the qcow2 files a guest's disks are.
 func (r *Release) QEMUImg() string { return filepath.Join(r.dir, qemuImgName) }
-
-// Firmware is the directory QEMU loads option ROMs and BIOS blobs from, which is
-// what Spec.Firmware wants: the BIOS, and linuxboot_dma.bin, the option ROM QEMU adds for
-// the bzImage.
-func (r *Release) Firmware() string { return filepath.Join(r.dir, firmwareDir) }
-
-// Kernel is the guest kernel the machine boots, a bzImage.
-func (r *Release) Kernel() string { return filepath.Join(r.dir, kernelName) }
 
 // isBzImage refuses a file that is not a bzImage: its setup header's magic, "HdrS" at 0x202.
 // QEMU given anything else tries it as a multiboot or an ELF kernel, and this machine
@@ -113,16 +102,6 @@ func isBzImage(path string) error {
 	}
 	return nil
 }
-
-// QEMUTCG is the emulating build, for a machine with no /dev/kvm — a CI runner,
-// a laptop outside the kvm group. It is a different binary and not a flag
-// because a host serving tenants should not be able to fall back to software
-// emulation by accident: that failure presents as a VM ~17 times
-// slower (lab 44848049631, 2026-11-21), not as one that did not start.
-//
-// It is not part of a machine's identity and must never run one that a KVM guest
-// will later restore from.
-func (r *Release) QEMUTCG() (string, error) { return r.optional(qemuTCGName, "the TCG build of QEMU") }
 
 // Rootfs is the read-only base image every workspace overlays.
 //
@@ -148,17 +127,35 @@ func (r *Release) optional(name, what string) (string, error) {
 // on this string is evidence and not proof.
 func (r *Release) Version() string { return r.env["version"] }
 
-// Spec returns the parts of a machine this release supplies: the three paths
-// that come out of the tarball. The caller fills in everything that is about one
-// VM rather than about the machine — memory, CPU count, disks, vsock, console —
-// and an initrd, which a release does not carry because what runs as PID 1 is
-// the caller's business.
-func (r *Release) Spec() Spec {
-	return Spec{
-		QEMU:     r.QEMU(),
-		Kernel:   r.Kernel(),
-		Firmware: r.Firmware(),
+// Spec returns the parts of a machine this release supplies for the accelerator accel ("" or
+// "kvm", or "tcg"): the QEMU that runs under it, the kernel, a bzImage, the firmware directory
+// QEMU loads the BIOS and linuxboot_dma.bin from, and Accel. It is the one way to a Spec's
+// binaries, so that a binary and the accelerator it was built for cannot be paired wrong.
+//
+// Under "kvm" the QEMU is the ordinary build, which has no TCG compiled in. Under "tcg" it is
+// the emulating build, for a machine with no /dev/kvm: a CI runner, a laptop outside the kvm
+// group. It is a different binary and not a flag because a host serving tenants should not be
+// able to fall back to software emulation by accident: that failure presents as a VM ~17 times
+// slower (lab 44848049631, 2026-11-21), not as one that did not start. A release need not carry
+// it (OpenRelease), so "tcg" from a release without it is an error naming the file.
+//
+// Any other accel is left for Spec.Args to refuse. The caller fills in everything that is about
+// one VM rather than about the machine - memory, CPU count, disks, vsock, console - and an
+// initrd, which a release does not carry because what runs as PID 1 is the caller's business.
+func (r *Release) Spec(accel string) (Spec, error) {
+	qemu := filepath.Join(r.dir, qemuName)
+	if accel == "tcg" {
+		var err error
+		if qemu, err = r.optional(qemuTCGName, "the TCG build of QEMU"); err != nil {
+			return Spec{}, err
+		}
 	}
+	return Spec{
+		QEMU:     qemu,
+		Kernel:   filepath.Join(r.dir, kernelName),
+		Firmware: filepath.Join(r.dir, firmwareDir),
+		Accel:    accel,
+	}, nil
 }
 
 // readEnv parses machine.env: key=value lines, # comments, no quoting. A tree

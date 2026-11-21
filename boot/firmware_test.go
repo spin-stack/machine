@@ -55,6 +55,10 @@ func TestFirmwareRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	spec, err := rel.Spec("kvm")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	bios := map[string]string{
 		"seabios": filepath.Join(out, "qemu", "bios-256k.bin"),
@@ -62,8 +66,8 @@ func TestFirmwareRuns(t *testing.T) {
 	}
 	p := &probe{
 		out:      out,
-		firmware: filepath.Join(out, "qemu"),
-		kernel:   rel.Kernel(),
+		firmware: spec.Firmware,
+		kernel:   spec.Kernel,
 		initrd:   probeInitrd(t),
 		bios:     bios,
 		dir:      t.TempDir(),

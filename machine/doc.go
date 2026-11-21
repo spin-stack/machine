@@ -28,8 +28,9 @@
 //
 // spin runs one machine per workspace in this order (Example has it as code):
 //
-//  1. OpenRelease finds a release's files and says which is missing. spin takes QEMU, Kernel
-//     and Firmware from the Release for its Spec. Release.Spec fills the same three.
+//  1. OpenRelease finds a release's files and says which is missing. Release.Spec, given the
+//     accelerator, starts the Spec: QEMU (the TCG build under "tcg"), Kernel, Firmware and
+//     Accel.
 //  2. The caller fills in the rest of the Spec: CPUs, Memory, Disks, NICs, vsock, Monitors, the
 //     Cmdline, and Restore when a checkpoint will be resumed.
 //  3. Spec.Args is the QEMU command line. The caller execs QEMU with it and the descriptors the
