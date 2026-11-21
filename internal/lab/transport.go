@@ -52,7 +52,8 @@ func (transport) Metrics() []Metric {
 	return []Metric{
 		{"cold_login", "ms", "the traced cold boot's first login, from before the exec (a shell more than ssh-first's)"},
 		{"cold_ready", "ms", "from before the exec to QEMU's main loop taking its first QMP command: the machine made"},
-		{"cold_qmp", "ms", "from that to `cont` answered: the QMP the cold boot waits on"},
+		{"cold_queued", "ms", "how long spin-machine's first command waited for QEMU's main loop: above 0, its start and dial were off the path"},
+		{"cold_qmp", "ms", "from that command's taking to `cont` answered: the QMP the cold boot waits on"},
 		{"cold_cmds", "count", "the commands in cold_qmp, qmp_capabilities and cont among them"},
 		{"cold_client", "ms", "of cold_qmp, QEMU waiting for spin-machine's next command"},
 		{"qmp_rtt", "µs", "the median of `echoes` query-status round trips on the running machine's monitor"},
@@ -61,6 +62,7 @@ func (transport) Metrics() []Metric {
 		{"warm_login", "ms", "a login after the first, from its connect"},
 		{"login_turns", "count", "the warm login's round trips: each time the client wrote and then waited for the guest"},
 		{"login", "ms", "the restored guest's first login, from before the restoring QEMU's exec"},
+		{"restore_queued", "ms", "how long the restore's first command waited for QEMU's main loop"},
 		{"restore_qmp", "ms", "the restore's first command taken to migrate-incoming taken: the QMP before the load"},
 		{"restore_cmds", "count", "the commands in restore_qmp, migrate-incoming among them"},
 		{"restore_client", "ms", "of restore_qmp, QEMU waiting for spin-machine's next command"},
@@ -164,6 +166,7 @@ func transportCold(m *Measurement) error {
 		return Miss("QEMU's trace holds no cont")
 	}
 	m.RecordMs("cold_ready", t.Commands[0].Taken.Sub(t0))
+	m.RecordMs("cold_queued", conv[0].Taken.Sub(conv[0].Arrived))
 	m.RecordMs("cold_qmp", s.Took)
 	m.Record("cold_cmds", float64(s.Commands))
 	m.RecordMs("cold_client", s.Client)
@@ -214,6 +217,7 @@ func transportRestore(m *Measurement) error {
 	if !ok || t.Running.IsZero() {
 		return Miss("QEMU's trace holds no migrate-incoming, or no guest running")
 	}
+	m.RecordMs("restore_queued", conv[0].Taken.Sub(conv[0].Arrived))
 	m.RecordMs("restore_qmp", s.Took)
 	m.Record("restore_cmds", float64(s.Commands))
 	m.RecordMs("restore_client", s.Client)
