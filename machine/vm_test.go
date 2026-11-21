@@ -371,8 +371,8 @@ func migrations(then func(c call) string, statuses ...string) func(c call) strin
 	}
 }
 
-// A checkpoint records the machine it was taken on, the vCPUs and disks added since exec, writes
-// mapped-ram, seals at pre-switchover, and says its format.
+// A checkpoint records the vCPUs and disks added since exec before the migration and the machine
+// it was taken on while it runs, writes mapped-ram, seals at pre-switchover, and says its format.
 func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	sealed := 0
 	base := func(c call) string {
@@ -420,9 +420,9 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 		t.Errorf("added %+v, want %+v", again, wantAdded)
 	}
 	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get",
+		"migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate",
 		"query-version", "query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-kvm", "qom-list-get", "qom-list-get", "x-query-ramblock",
-		"migrate-set-capabilities", "migrate-set-parameters",
-		"add-fd", "migrate", "query-migrate", "query-migrate", "migrate-continue", "query-migrate", "remove-fd"}
+		"query-migrate", "query-migrate", "migrate-continue", "query-migrate", "remove-fd"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Errorf("commands\n%v\nwant\n%v", got, want)
 	}
@@ -519,6 +519,54 @@ func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
 		if multifd != (want > 1) || set != (want > 1) || set && count != float64(want) {
 			t.Errorf("%d channels: multifd %t, multifd-channels %v", channels, multifd, count)
 		}
+	}
+}
+
+// A record QEMU refuses while the migration runs is asked for again once the state is written,
+// and a checkpoint whose record QEMU never gives fails with what it could not read, its machine
+// left stopped.
+func TestACheckpointRecordsItsMachineOnceTheStateIsWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		after bool // QEMU answers the record once the migration has completed
+	}{
+		{"refused during the migration", true},
+		{"refused throughout", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			written := false
+			f := &fakeQEMU{}
+			f.answer = migrations(func(c call) string {
+				if c.Command == "query-version" && (!tc.after || !written) {
+					return refused("not during a migration")
+				}
+				if r, ok := recordAnswers(c); ok {
+					return r
+				}
+				switch c.Command {
+				case "query-hotpluggable-cpus", "qom-list":
+					return ret(`[]`)
+				case "add-fd":
+					return ret(`{"fdset-id": 3}`)
+				case "remove-fd":
+					written = true
+				}
+				return ok
+			}, "active", "completed")
+			saved, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, Save{}, func(context.Context) error { return nil })
+			if tc.after {
+				if want := fakeTarget(t); err != nil || !reflect.DeepEqual(saved.From, want) {
+					t.Fatalf("Checkpoint = %+v, %v, want one taken on %+v", saved.From, err, want)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "QEMU version") {
+				t.Fatalf("Checkpoint = %v, want the record it could not read", err)
+			}
+			if slices.Contains(f.commands(), "migrate_cancel") {
+				t.Error("a written state was cancelled")
+			}
+		})
 	}
 }
 
