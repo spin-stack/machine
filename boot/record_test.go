@@ -81,7 +81,7 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("the record of spin's shape: %d bytes of JSON, %d CPU features, read in %s", len(b), len(base.CPU.Features), took.Round(time.Microsecond))
+	t.Logf("the record of spin's shape: %d bytes of JSON, %d CPU features, a machine started, read and ended in %s", len(b), len(base.CPU.Features), took.Round(time.Microsecond))
 
 	t.Run("the BIOS block is the BIOS file's size", func(t *testing.T) {
 		bios, err := os.Stat(filepath.Join(out, "qemu", machine.DefaultBIOS))
@@ -180,24 +180,31 @@ func (r *recorder) overlay(t *testing.T, dir string) string {
 
 func (r *recorder) base() string { return filepath.Join(r.out, "image", "rootfs.qcow2") }
 
-// target is the record of a held machine of spin's shape changed by edit, and how long the read
-// took; the machine is ended once it has said.
+// target is the record of a machine of spin's shape changed by edit (machine.ReadTarget), and how
+// long ReadTarget took.
 func (r *recorder) target(edit func(*machine.Spec)) (machine.Target, time.Duration) {
 	t := r.t
 	t.Helper()
-	s, mac := r.next(t, "")
+	s := r.spec(t, "")
 	edit(&s)
-	g := startGuest(t, s, mac, nil)
-	defer g.Kill()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	start := time.Now()
-	tg, err := g.Target(ctx)
-	took := time.Since(start)
+	tg, err := machine.ReadTarget(ctx, s, machine.StartOptions{})
 	if err != nil {
-		t.Fatalf("the record: %v\n%s", err, g.said())
+		t.Fatalf("the record: %v", err)
 	}
-	return tg, took
+	return tg, time.Since(start)
+}
+
+// spec is the next machine as spin starts it, its NIC and console in the Spec: what ReadTarget is
+// handed. The console is the serial port the record names, which a machine without one lacks.
+func (r *recorder) spec(t *testing.T, init string) machine.Spec {
+	t.Helper()
+	s, mac := r.next(t, init)
+	s.NICs = []machine.NIC{{MAC: mac, MTU: spinsMTU}}
+	s.Console = "stdio"
+	return s
 }
 
 // selfResume boots a machine of spin's shape, does to it what a workspace's life does - memory
@@ -262,13 +269,17 @@ func (r *recorder) selfResume(t *testing.T) {
 	}
 	src.Kill()
 
-	s, mac = r.next(t, "/bin/sh")
+	// The record a runner reads once for its host, of a machine of the shape held for a checkpoint
+	// and its NIC in the Spec, is what the machine resumed into is held to.
+	s = r.spec(t, "/bin/sh")
 	s.Restore = true
-	dst := startGuest(t, s, mac, nil)
-	here, err := dst.Target(ctx)
+	here, err := machine.ReadTarget(ctx, s, machine.StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	mac = s.NICs[0].MAC
+	s.NICs = nil
+	dst := startGuest(t, s, mac, nil)
 	if err := machine.CanResume(saved, here); err != nil {
 		t.Fatalf("a machine refuses its own checkpoint: %v", err)
 	}
@@ -309,12 +320,15 @@ func rootDisk(overlay, base string) (machine.Disk, error) {
 	return machine.OpenDisk(machine.DiskPath{Serial: "root", Path: overlay, Format: "qcow2", Under: []string{base}})
 }
 
+// spinsMTU is the MTU spin announces to a workspace's NIC.
+const spinsMTU = 1450
+
 // spinsNIC is the NIC spin gives a workspace, as Spec.Args writes it (appendNICs) with spin's
 // MTU, on a hub port in place of spin's TAP, which needs CAP_NET_ADMIN.
 func spinsNIC(mac string) func(*exec.Cmd) {
 	return func(c *exec.Cmd) {
 		c.Args = append(c.Args, "-netdev", "hubport,id=net0,hubid=0",
-			"-device", "virtio-net-pci,netdev=net0,mac="+mac+",romfile=,disable-legacy=on,addr=0x10,host_mtu=1450")
+			"-device", fmt.Sprintf("virtio-net-pci,netdev=net0,mac=%s,romfile=,disable-legacy=on,addr=0x10,host_mtu=%d", mac, spinsMTU))
 	}
 }
 
