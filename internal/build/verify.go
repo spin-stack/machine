@@ -103,7 +103,7 @@ func MachineType(qemu string) (string, error) {
 
 // VerifyKernel asserts the kernel is one QEMU can enter and this machine can boot: a relocatable
 // bzImage, which is what the machine boots and where KASLR picks a base, and the same kernel as the
-// ELF it was linked as, which spin reads symbols from (hack/machine/place.go).
+// ELF it was linked as, which spin reads symbols from (spin-stack/spin's hack/machine/place.go).
 func VerifyKernel(o Options) error {
 	bz := filepath.Join(o.Out, "kernel", "bzImage")
 	if err := Relocatable(bz); err != nil {

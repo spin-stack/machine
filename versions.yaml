@@ -2,8 +2,8 @@
 # commit, the day a package archive is read as of.
 #
 # This file is the only place one is written. The Dockerfiles declare each as an ARG with no
-# default and are handed it (`versions args <name>...`, go-tools' command on Task's PATH); the Taskfiles and
-# hack/release read from here; versions/gate_test.go fails on a digest or a commit written
+# default and are handed it (`versions args <name>...`, go-tools' command on Task's PATH); internal/build and
+# internal/release read from here; versions/gate_test.go fails on a digest or a commit written
 # anywhere else, and on a Dockerfile ARG that falls back to a default of its own.
 #
 # `spin-machine-dev outdated` says what is behind, and `spin-machine-dev bump <name> [version]` resolves the

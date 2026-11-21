@@ -3,3 +3,6 @@ _output/
 .task/
 coverage.out
 coverage.html
+
+# Agent worktrees, made inside the repository by Claude Code.
+.claude/worktrees/
