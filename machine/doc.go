@@ -7,13 +7,14 @@
 // It lives here, next to the QEMU binary, the kernel and the base image, because
 // those four things are one thing. A VM resumed from a checkpoint loads device and
 // CPU state into a machine that has to be the same shape as the one the checkpoint
-// was saved from, and nothing checks that at run time. So the shape is not a
+// was saved from, and QEMU does not check all of it. So the shape is not a
 // detail of whoever launches a VM; it is part of what a release *is*, and it has
 // to move with the binary and the kernel it was written for.
 //
 // The rule that follows: Fingerprint is the machine's contract - its versioned machine
 // type, its shape, every device as the command line gives it, and the BIOS's size. A
-// checkpoint resumes only onto a machine with the fingerprint of the one it was saved on,
+// checkpoint resumes only onto a machine with the fingerprint of the one it was saved on
+// (CanResume refuses another),
 // and onto any release with that fingerprint: a new QEMU of the same machine type, or a
 // new kernel, is the same machine to a checkpoint (boot:compat holds a release to it).
 //
@@ -27,8 +28,8 @@
 //
 // spin runs one machine per workspace in this order (Example has it as code):
 //
-//  1. OpenRelease finds a release's files, and Release.Spec fills a Spec's QEMU, Kernel and
-//     Firmware. spin reads the same three paths from its host's configuration.
+//  1. OpenRelease finds a release's files and says which is missing. spin takes QEMU, Kernel
+//     and Firmware from the Release for its Spec. Release.Spec fills the same three.
 //  2. The caller fills in the rest of the Spec: CPUs, Memory, Disks, NICs, vsock, Monitors, the
 //     Cmdline, and Restore when a checkpoint will be resumed.
 //  3. Spec.Args is the QEMU command line. The caller execs QEMU with it and the descriptors the
