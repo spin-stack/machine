@@ -39,7 +39,7 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `kernel/sources` | every source and header the kernel compiled, which `spin-machine-dev cves` judges CVEs against |
 | `kernel/patches/` | the changes this tree makes to the kernel |
 | `image/rootfs.qcow2` | the base image, read-only (0444) |
-| `machine.env` | the version, the commit, the QEMU, kernel and e2fsprogs versions, the checksums of QEMU, `vmlinux`, `qboot.bin`, `pvh.bin` and the base image, and `fingerprint_sha256` |
+| `machine.env` | the version, the commit, the QEMU, kernel and e2fsprogs versions, the checksums of QEMU, `vmlinux`, `qboot.bin` and the base image, and `fingerprint_sha256` |
 | `SOURCES` | every upstream source by version, URL and SHA-256, and the written offer |
 | `packages.txt` | every package and exact version in the base image |
 | `licenses.txt` | the copyright and licence text of each package in the base image |
