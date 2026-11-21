@@ -4,8 +4,11 @@ package machine
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/spin-stack/machine/qmp"
 )
@@ -58,8 +61,12 @@ type GuestHeld struct{ At time.Time }
 // LoadStarted is QEMU having taken the state to load.
 type LoadStarted struct{ At time.Time }
 
-// StateLoaded is the whole state read.
-type StateLoaded struct{ At time.Time }
+// StateLoaded is the whole state read: Bytes, the data its file holds, which a load reads whole. It
+// is 0 where the file system does not say.
+type StateLoaded struct {
+	At    time.Time
+	Bytes int64
+}
 
 func (p SaveStarted) When() time.Time   { return p.At }
 func (p RAMWritten) When() time.Time    { return p.At }
@@ -91,6 +98,14 @@ func tell(p func(Phase), ph Phase) {
 	}
 }
 
+// written is how many bytes of data f holds, which a sparse mapped-ram state has fewer of than its
+// length, or 0 where the file system does not say.
+func written(f *os.File) int64 {
+	var st unix.Stat_t
+	_ = unix.Fstat(int(f.Fd()), &st) // a failed one leaves st's zero
+	return st.Blocks * 512
+}
+
 // progress tells p how much RAM the save has written, every progressEvery, until the returned
 // stop, which returns once nothing more will be told. With no p it asks QEMU nothing.
 func (m *QEMU) progress(ctx context.Context, p func(Phase)) (stop func()) {
@@ -109,7 +124,7 @@ func (m *QEMU) progress(ctx context.Context, p func(Phase)) (stop func()) {
 			case <-tick.C:
 			}
 			info, err := qmp.Do(ctx, m.c, queryMigrate, qmp.None{})
-			if err != nil || ctx.Err() != nil {
+			if err != nil {
 				continue
 			}
 			p(RAMWritten{At: time.Now(), Bytes: info.RAM.Transferred, Total: info.RAM.Total})

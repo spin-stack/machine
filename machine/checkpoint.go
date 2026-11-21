@@ -37,7 +37,8 @@ type LoadOptions struct {
 	Channels int
 	// Phases, when set, is told each Phase of the resume as it happens, on Resume's goroutine:
 	// LoadStarted, StateLoaded and GuestRunning. A fast load runs the guest before its state is
-	// all read, and Loaded tells StateLoaded. Nothing asks QEMU more for it.
+	// all read, and Loaded tells StateLoaded. It asks QEMU nothing more: StateLoaded's bytes are one
+	// fstat of the state.
 	Phases func(Phase)
 }
 
@@ -497,13 +498,17 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	}
 	running := m.expectMigration(until...)
 	defer running.Stop()
+	var data int64
+	if load.Phases != nil {
+		data = written(state)
+	}
 	loaded := func() error {
 		tell(load.Phases, LoadStarted{At: time.Now()})
 		if err := loading(ctx, running); err != nil {
 			return err
 		}
 		if !load.Fast {
-			tell(load.Phases, StateLoaded{At: time.Now()})
+			tell(load.Phases, StateLoaded{At: time.Now(), Bytes: data})
 		}
 		return nil
 	}
@@ -521,7 +526,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	}
 	tell(load.Phases, GuestRunning{At: time.Now()})
 	if load.Fast {
-		m.then = load.Phases
+		m.then, m.data = load.Phases, data
 	}
 	return nil
 }
@@ -583,7 +588,7 @@ func (m *QEMU) Loaded(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("finishing the load: %w", err)
 	}
-	tell(m.then, StateLoaded{At: time.Now()})
+	tell(m.then, StateLoaded{At: time.Now(), Bytes: m.data})
 	m.then = nil
 	return nil
 }
