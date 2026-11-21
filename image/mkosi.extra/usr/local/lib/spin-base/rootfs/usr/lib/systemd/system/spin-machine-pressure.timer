@@ -1,0 +1,16 @@
+# Starts the pressure sender (spin-machine-pressure.service) 10 s after the boot, well after the
+# first login. Ordered after multi-user.target alone, the sender started beside the first login:
+# 2.6-3.3 ms more between sshd accepting and the login in each of three runs ([+1.1, +4.7] at 20
+# boots, [+2.1, +4.9] and [+1.5, +4.2] at 40; labs 44921602512, 44924252325, 44924755505), the
+# last with Type=idle, which did not move it: the boot's jobs are done just before the login
+# arrives. A guest's pressure in its first 10 s is not reported. A restored guest has its sender
+# running already, with its triggers armed.
+[Unit]
+Description=Start the guest's pressure sender after the first login
+
+[Timer]
+OnBootSec=10s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

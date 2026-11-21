@@ -442,19 +442,23 @@ stat_in_image /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.
     echo "ERROR: spin-machine-sshd-keygen.service has default dependencies; it starts after sysinit.target" >&2
     exit 1; }
 # The pressure probe's guest half: the binary as it was built (static, which the build checked),
-# and its unit wanted by multi-user.target, after the first login's path.
+# and its timer wanted by timers.target, starting it 10 s after the boot, past the first login.
 "$bin/debugfs" -R "dump -p /usr/libexec/spin-machine-pressure /work/pressure.bin" /work/base.raw 2>/dev/null
 cmp -s /work/pressure.bin /out/guest/spin-machine-pressure && test -x /work/pressure.bin || {
     echo "ERROR: /usr/libexec/spin-machine-pressure is not in the image as built" >&2
     exit 1; }
 rm -f /work/pressure.bin
-stat_in_image /etc/systemd/system/multi-user.target.wants/spin-machine-pressure.service |
-        grep -qF '/usr/lib/systemd/system/spin-machine-pressure.service' || {
-    echo "ERROR: spin-machine-pressure.service is not wanted by multi-user.target" >&2
+stat_in_image /etc/systemd/system/timers.target.wants/spin-machine-pressure.timer |
+        grep -qF '/usr/lib/systemd/system/spin-machine-pressure.timer' || {
+    echo "ERROR: spin-machine-pressure.timer is not wanted by timers.target" >&2
+    exit 1; }
+"$bin/debugfs" -R "cat /usr/lib/systemd/system/spin-machine-pressure.timer" /work/base.raw 2>/dev/null |
+        grep -qx 'OnBootSec=10s' || {
+    echo "ERROR: spin-machine-pressure.timer does not start the sender 10 s after the boot, past the first login" >&2
     exit 1; }
 "$bin/debugfs" -R "cat /usr/lib/systemd/system/spin-machine-pressure.service" /work/base.raw 2>/dev/null |
-        grep -qx 'After=multi-user.target' || {
-    echo "ERROR: spin-machine-pressure.service is not ordered after multi-user.target, the first login's path" >&2
+        grep -q '^WantedBy=' && {
+    echo "ERROR: spin-machine-pressure.service is enabled itself, and would start beside the first login" >&2
     exit 1; }
 # The first SSH login's lane (configure-system.sh and the units' 10-lane.conf), read back from
 # the finished filesystem: each piece alone gains little and leaves the login waiting on the

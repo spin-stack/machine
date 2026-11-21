@@ -1,7 +1,8 @@
 # Each pressure in turn, on a guest of one vCPU and 1 GiB, for TestThePressureProbeReportsEachPressure.
 # Each phase is named on the console when it starts; the host reads which phase an event fell in.
 set -u
-for i in $(seq 100); do
+# Its timer starts it 10 s after the boot.
+for i in $(seq 200); do
     systemctl is-active --quiet spin-machine-pressure.service && break
     sleep 0.1
 done
@@ -29,8 +30,9 @@ wait; sleep 3
 echo PHASE memory
 mkdir -p /run/hold && mount -t tmpfs -o size=2G hold /run/hold
 head -c 700M /dev/zero > /run/hold/x
-end=$(($(date +%s) + 6))
-while [ "$(date +%s)" -lt "$end" ]; do dd if=/dev/vda of=/dev/null bs=1M count=400 status=none; done
+# Bounded by timeout and not by a clock read between reads: one read under the thrash took
+# 90 s once (laptop, 2026-11-21).
+timeout 12 sh -c 'while :; do dd if=/dev/vda of=/dev/null bs=1M count=400 status=none; done'
 rm /run/hold/x; umount /run/hold
 sleep 3
 echo PHASE oom
