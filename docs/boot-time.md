@@ -237,6 +237,7 @@ and a row measured in another shape than spin's has such a reason.
 | Idea | Result | Shape | Source | Date |
 |---|---|---|---|---|
 | `usb=off`, `vmport=off`, `smm=off`, `i8042=off` | 63.0/62.6/62.3/62.5 vs 62.9 ms | laptop | `fa1803f` | 09-08 |
+| A named CPU model instead of `host`, for memories that resume on any host (`--cpu baseline`) | the newest model a nested c8id runs is Cascadelake-Server-v5, not SapphireRapids or GraniteRapids; cold first login +27.2 [+13.0, +30.8], sshd accepting +23.1 [+9.7, +28.5], warm login and RSS unmoved; the cause is not measured. `host` with a pool's common features is the next candidate (spin-stack/spin#1417) | spin | lab 44855890737 | 11-21 |
 | Less guest RAM (512 MiB) | 1241 vs 1256 ms, nothing | runner | `80f984b` | 09-10 |
 | `cache=none` on disks | breaks the shared base's caching, fails on tmpfs | - | `8b7391a` | 09-07 |
 | Overlay O_DIRECT | small reads 1490 vs 530 ms | runner | docs/memory-and-disk.md | 10-01 |
