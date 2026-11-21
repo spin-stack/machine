@@ -33,8 +33,13 @@ func TestDeferAB(t *testing.T) {
 		t.Skip("set SPIN_AB_TEST=1")
 	}
 	pairs := envInt(t, "SPIN_AB_PAIRS", 20)
+	scratch, err := lab.Scratch(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", scratch)
 	var st syscall.Statfs_t
-	if err := syscall.Statfs(os.TempDir(), &st); err != nil {
+	if err = syscall.Statfs(os.TempDir(), &st); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("TMPDIR %s, file system magic %#x (ext4 0xef53, xfs 0x58465342, tmpfs 0x1021994)", os.TempDir(), st.Type)
@@ -82,7 +87,7 @@ func TestDeferAB(t *testing.T) {
 	}
 	writer := "dd if=/dev/urandom of=/mnt/src bs=1M count=64 2>/dev/null; dd if=/dev/urandom of=/mnt/ws bs=1M count=512 2>/dev/null; " +
 		"(i=0; while :; do dd if=/mnt/src of=/mnt/ws bs=1M count=64 seek=$(( (i*64) % 512 )) conv=notrunc 2>/dev/null; i=$((i+1)); sleep 0.1; done) &" +
-		" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 conv=fsync 2>/dev/null; sleep 0.1; done) &"
+		" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 oflag=direct conv=notrunc 2>/dev/null; sleep 0.1; done) &"
 	g.type_(t, "mount -t tmpfs -o size=3g tmpfs /mnt && dd if=/dev/urandom of=/mnt/fill bs=1M count=1024 2>/dev/null; "+writer+" echo FILLED-$((3+3))")
 	g.await(t, regexp.MustCompile(`FILLED-6\b`), 3*time.Minute)
 	time.Sleep(3 * time.Second)

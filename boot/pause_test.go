@@ -199,38 +199,44 @@ func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 // writeback queued and ext4's journal always has a commit waiting on it.
 func busyDisk(t *testing.T) {
 	t.Helper()
-	f, err := os.Create(filepath.Join(t.TempDir(), "busy"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	done, stopped := make(chan struct{}), make(chan error, 1)
-	go func() {
-		block := make([]byte, 4<<20)
-		for i := 0; ; i++ {
-			select {
-			case <-done:
-				stopped <- nil
-				return
-			default:
-			}
-			block[0] = byte(i)
-			if _, err := f.WriteAt(block, int64(i%512)*int64(len(block))); err != nil {
-				stopped <- fmt.Errorf("writing beside the test: %w", err)
-				return
-			}
-			if i%64 == 63 {
-				if err := f.Sync(); err != nil {
-					stopped <- fmt.Errorf("syncing beside the test: %w", err)
+	writers := envInt(t, "SPIN_BUSY_WRITERS", 1)
+	done := make(chan struct{})
+	stopped := make(chan error, writers)
+	for w := range writers {
+		f, err := os.Create(filepath.Join(t.TempDir(), fmt.Sprintf("busy%d", w)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			defer func() { _ = f.Close() }()
+			block := make([]byte, 4<<20)
+			for i := 0; ; i++ {
+				select {
+				case <-done:
+					stopped <- nil
+					return
+				default:
+				}
+				block[0] = byte(i)
+				if _, err := f.WriteAt(block, int64(i%512)*int64(len(block))); err != nil {
+					stopped <- fmt.Errorf("writing beside the test: %w", err)
 					return
 				}
+				if i%64 == 63 {
+					if err := f.Sync(); err != nil {
+						stopped <- fmt.Errorf("syncing beside the test: %w", err)
+						return
+					}
+				}
 			}
-		}
-	}()
+		}()
+	}
 	t.Cleanup(func() {
 		close(done)
-		if err := <-stopped; err != nil {
-			t.Error(err)
+		for range writers {
+			if err := <-stopped; err != nil {
+				t.Error(err)
+			}
 		}
-		_ = f.Close()
 	})
 }

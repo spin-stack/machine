@@ -59,7 +59,7 @@ tasks:
     desc: EXPERIMENT ONLY (#426), x-defer-disk-flush off against on beside a busy disk.
     deps: [':tools']
     cmds:
-      - SPIN_AB_TEST=1 go test ./boot/ -run '^TestDeferAB$' -count=1 -v -timeout 45m
+      - SPIN_AB_TEST=1 SPIN_BUSY_WRITERS=4 go test ./boot/ -run '^TestDeferAB$' -count=1 -v -timeout 45m
 
   disk-limit:
     desc: >-
