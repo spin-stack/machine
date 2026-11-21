@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/spin-stack/spin-machine/internal/build"
+	"github.com/spin-stack/spin-machine/internal/release"
 	"github.com/spin-stack/spin-machine/machine"
 )
 
@@ -552,7 +553,7 @@ func TestSignChecksEveryBundleAndThatNothingIsLeftUnattested(t *testing.T) {
 	got := read(t, calls)
 	for _, want := range []string{
 		"cosign sign-blob --yes --bundle " + filepath.Join(rel, "machine.env.sigstore.json"),
-		"cosign verify-blob --bundle " + filepath.Join(rel, "r.tar.gz.sigstore.json") + " --certificate-identity me --certificate-oidc-issuer " + oidcIssuer,
+		"cosign verify-blob --bundle " + filepath.Join(rel, "r.tar.gz.sigstore.json") + " --certificate-identity me --certificate-oidc-issuer " + release.OIDCIssuer,
 		"cosign attest-blob --yes --type cyclonedx --predicate " + filepath.Join(rel, "r.cdx.json"),
 		"cosign verify-blob-attestation --type slsaprovenance1",
 		"--digestAlg sha256 --certificate-identity me",
@@ -629,10 +630,14 @@ const ghRelease = `case "$1 $2" in
 "issue create") echo https://x/issues/1;;
 esac`
 
+// cosignPasses begins a fake go: release.Signed's go run of cosign says the signature is the
+// release's, and the rest of the body is what go does otherwise (osv-scanner).
+const cosignPasses = `case "$2" in github.com/sigstore/cosign/*) exit 0;; esac; `
+
 func TestOSVWritesTheFindingsOfTheNewestRelease(t *testing.T) {
 	dir := checkout(t)
 	report := `{"results":[{"packages":[{"package":{"name":"curl","version":"8.5"},"vulnerabilities":[{"id":"USN-1","summary":"s"}]}]}]}`
-	calls := fakes(t, map[string]string{"gh": ghRelease, "cosign": "", "go": "echo '" + report + "'; exit 1"})
+	calls := fakes(t, map[string]string{"gh": ghRelease, "go": cosignPasses + "echo '" + report + "'; exit 1"})
 	_, stderr, status := verb(t, "osv")
 	if status != 0 || !strings.Contains(stderr, "v20261119.01: 1 finding(s)") {
 		t.Fatalf("exit %d: %s", status, stderr)
@@ -640,30 +645,29 @@ func TestOSVWritesTheFindingsOfTheNewestRelease(t *testing.T) {
 	if got := read(t, filepath.Join(dir, "_output/osv.tsv")); got != "USN-1\tcurl@8.5\ts\n" {
 		t.Errorf("osv.tsv holds %q", got)
 	}
-	if got := read(t, calls); !strings.Contains(got, "cosign verify-blob --bundle") || !strings.Contains(got, "--certificate-identity "+releaseIdentity) ||
+	if got := read(t, calls); !strings.Contains(got, "/cmd/cosign@") || !strings.Contains(got, "--certificate-identity "+release.Identity) ||
 		!strings.Contains(got, "go run github.com/google/osv-scanner/v2/cmd/osv-scanner@") {
 		t.Errorf("ran %q", got)
 	}
 	if _, stderr, status := verb(t, "osv", "--issues"); status != 0 || !strings.Contains(read(t, calls), "gh issue create") {
 		t.Errorf("--issues: exit %d, %s", status, stderr)
 	}
-	fakes(t, map[string]string{"gh": ghRelease, "cosign": "", "go": "echo '{\"results\":[]}'"})
+	fakes(t, map[string]string{"gh": ghRelease, "go": cosignPasses + "echo '{\"results\":[]}'"})
 	if _, _, status := verb(t, "osv"); status != 0 || read(t, filepath.Join(dir, "_output/osv.tsv")) != "" {
 		t.Errorf("no findings: exit %d, %q", status, read(t, filepath.Join(dir, "_output/osv.tsv")))
 	}
-	for name, body := range map[string]string{"gh": "exit 1", "cosign": "exit 1", "go": "exit 2", "osv JSON": "echo nope"} {
-		p := map[string]string{"gh": ghRelease, "cosign": "", "go": "echo '{}'"}
-		if name == "osv JSON" {
-			p["go"] = body
-		} else {
-			p[name] = body
-		}
+	for name, p := range map[string]map[string]string{
+		"gh":          {"gh": "exit 1", "go": cosignPasses + "echo '{}'"},
+		"cosign":      {"gh": ghRelease, "go": "exit 1"},
+		"osv-scanner": {"gh": ghRelease, "go": cosignPasses + "exit 2"},
+		"osv JSON":    {"gh": ghRelease, "go": cosignPasses + "echo nope"},
+	} {
 		fakes(t, p)
 		if _, _, status := verb(t, "osv"); status != 2 {
 			t.Errorf("a %s that failed exited %d", name, status)
 		}
 	}
-	fakes(t, map[string]string{"gh": strings.Replace(ghRelease, `"issue list") echo '[]';;`, `"issue list") exit 1;;`, 1), "cosign": "", "go": "echo '" + report + "'"})
+	fakes(t, map[string]string{"gh": strings.Replace(ghRelease, `"issue list") echo '[]';;`, `"issue list") exit 1;;`, 1), "go": cosignPasses + "echo '" + report + "'"})
 	if _, _, status := verb(t, "osv", "--issues"); status != 1 {
 		t.Errorf("issues that could not be listed exited %d", status)
 	}
@@ -724,7 +728,7 @@ func TestCVEsOfAReleaseAreOfItsSignedTarball(t *testing.T) {
   cp ` + tarball + ` "$d"/; echo "SUM  spin-machine-v20261119.01-linux-x86_64.tar.gz" > "$d/spin-machine-v20261119.01-linux-x86_64.tar.gz.sha256";;
 esac`
 	records := `[ "$1" = clone ] && mkdir -p "$7/.git" "$7/cve/published/2026" && echo '` + cveRecord + `' > "$7/cve/published/2026/CVE-1.json"; exit 0`
-	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", sum, 1), "cosign": "", "git": records})
+	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", sum, 1), "go": "", "git": records})
 	stdout, stderr, status := verb(t, "cves")
 	if status != 0 || !strings.Contains(stdout, "| Apply") {
 		t.Fatalf("exit %d: %q %s", status, stdout, stderr)
@@ -732,13 +736,9 @@ esac`
 	if !strings.Contains(read(t, filepath.Join(dir, "_output/cves/summary.md")), "7.3.3") {
 		t.Error("the release's kernel version was not the one judged")
 	}
-	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", strings.Repeat("0", 64), 1), "cosign": "", "git": records})
-	if _, stderr, status := verb(t, "cves"); status != 2 || !strings.Contains(stderr, "does not have the sha256") {
-		t.Errorf("a tarball that is not its signed checksum's: exit %d, %q", status, stderr)
-	}
-	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", sum, 1), "cosign": "exit 1", "git": records})
+	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", sum, 1), "go": "exit 1", "git": records})
 	if _, stderr, status := verb(t, "cves"); status != 2 || !strings.Contains(stderr, "signature") {
-		t.Errorf("a checksum not signed by the release: exit %d, %q", status, stderr)
+		t.Errorf("a tarball not signed by the release: exit %d, %q", status, stderr)
 	}
 	fakes(t, map[string]string{"gh": "exit 1", "git": records})
 	if _, _, status := verb(t, "cves"); status != 2 {
@@ -750,9 +750,19 @@ esac`
 		t.Fatalf("%v: %s", err, out)
 	}
 	sum, _ = build.FileSHA256(tarball)
-	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", sum, 1), "cosign": "", "git": records})
+	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", sum, 1), "go": "", "git": records})
 	if _, stderr, status := verb(t, "cves"); status != 2 || !strings.Contains(stderr, "is not a kernel version") {
 		t.Errorf("a release with no kernel version: exit %d, %q", status, stderr)
+	}
+	// A release from before kernel/Dockerfile wrote the sources list has none to judge by.
+	_ = os.Remove(filepath.Join(share, "kernel/sources"))
+	if out, err := exec.Command("tar", "-czf", tarball, "-C", tar, "spin-machine-v20261119.01-linux-x86_64").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	sum, _ = build.FileSHA256(tarball)
+	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", sum, 1), "go": "", "git": records})
+	if _, stderr, status := verb(t, "cves"); status != 2 || !strings.Contains(stderr, "carries no kernel/sources") {
+		t.Errorf("a release with no sources list: exit %d, %q", status, stderr)
 	}
 }
 

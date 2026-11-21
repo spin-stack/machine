@@ -232,21 +232,9 @@ func TestABumpIsOneEntryAndAtMostAVersion(t *testing.T) {
 
 func TestAnOSVScanThatFailsIsNotAFinding(t *testing.T) {
 	checkout(t)
-	fakes(t, map[string]string{"gh": ghRelease, "cosign": "", "go": `echo '{"results":[]}'; exit 2`})
+	fakes(t, map[string]string{"gh": ghRelease, "go": cosignPasses + `echo '{"results":[]}'; exit 2`})
 	if _, _, status := verb(t, "osv"); status != 2 {
 		t.Errorf("osv-scanner failing with a report exited %d", status)
-	}
-}
-
-func TestAnEmptyChecksumIsNoChecksum(t *testing.T) {
-	checkout(t)
-	gh := `case "$1 $2" in
-"release view") echo v1;;
-"release download") d=""; while [ $# -gt 0 ]; do [ "$1" = -D ] && d=$2; shift; done; mkdir -p "$d"; : > "$d/spin-machine-v1-linux-x86_64.tar.gz"; : > "$d/spin-machine-v1-linux-x86_64.tar.gz.sha256";;
-esac`
-	fakes(t, map[string]string{"gh": gh, "cosign": "", "git": `[ "$1" = clone ] && mkdir -p "$7/.git"; exit 0`})
-	if _, stderr, status := verb(t, "cves"); status != 2 || !strings.Contains(stderr, "does not have the sha256") {
-		t.Errorf("an empty checksum file: exit %d, %q", status, stderr)
 	}
 }
 

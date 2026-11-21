@@ -26,35 +26,6 @@ tasks:
     cmds:
       - SPIN_RECORD_TEST=1 go test ./boot/ -run '^TestTheRecordRefusesWhatQEMULoadsSilently$' -count=1 -v -timeout 5m
 
-  previous:
-    desc: >-
-      Fetch the newest published release, or PREVIOUS=<version>, into _output/compat/<version>/,
-      checked against its sha256 and its signature, and write the path of its
-      usr/share/spin-stack to _output/compat/previous: the machine boot:compat resumes from.
-    vars:
-      PREVIOUS: '{{.PREVIOUS | default ""}}'
-    cmds:
-      - |
-        set -euo pipefail
-        tag='{{.PREVIOUS}}'
-        if [ -z "$tag" ]; then tag=$(gh release view -R spin-stack/spin-machine --json tagName -q .tagName); fi
-        dir={{.OUTPUT_ABS}}/compat/$tag
-        name="spin-machine-${tag}-linux-x86_64"
-        if [ ! -f "$dir/$name/usr/share/spin-stack/machine.env" ]; then
-          rm -rf "$dir" && mkdir -p "$dir"
-          gh release download "$tag" -R spin-stack/spin-machine -D "$dir" \
-            -p "$name.tar.gz" -p "$name.tar.gz.sha256" -p "$name.tar.gz.sigstore.json"
-          (cd "$dir" && sha256sum -c "$name.tar.gz.sha256")
-          # cosign by its pin, built rather than installed by the action: one pin for a laptop
-          # and a runner alike.
-          go run "github.com/sigstore/cosign/v3/cmd/cosign@$(versions version cosign)" verify-blob \
-            --bundle "$dir/$name.tar.gz.sigstore.json" \
-            --certificate-identity https://github.com/spin-stack/spin-machine/.github/workflows/release.yml@refs/heads/main \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com "$dir/$name.tar.gz"
-          tar -xzf "$dir/$name.tar.gz" -C "$dir"
-        fi
-        echo "$dir/$name/usr/share/spin-stack" > {{.OUTPUT_ABS}}/compat/previous
-
   buildkit:
     desc: >-
       Use the BuildKit builder named compat, made the first time: a docker-container builder,
@@ -64,29 +35,18 @@ tasks:
 
   here:
     desc: >-
-      The machine before (boot:previous) and this one: the newest release with this tree's QEMU,
-      kernel and spin-machine in place of its own, in _output/compat/here. Both are exported to
-      the steps after in CI (SPIN_COMPAT_PREVIOUS, SPIN_MACHINE_OUTPUT). Needs a built QEMU,
-      kernel and tools.
+      This change's machine: the newest release, fetched and checked against its sha256 and its
+      signature, with this tree's QEMU, firmware, kernel and spin-machine in place of its own
+      (spin-machine-dev lab tree here, in _output/trees/here). Exported to the steps after in CI
+      as SPIN_MACHINE_OUTPUT. Needs a built QEMU and kernel.
     # The base image is the release's: a checkpoint resumes with the disks it was saved with. So
-    # are the e2fsprogs tools that edit a copy of it (boot:lockdown's debugfs), which is why bin/
-    # loses only what this tree replaces; the release's TCG QEMU goes with its QEMU.
+    # are the e2fsprogs tools that edit a copy of it (boot:lockdown's debugfs) and qemu-img, which
+    # makes the overlays.
     cmds:
-      - task: previous
       - |
         set -euo pipefail
-        previous=$(cat {{.OUTPUT_ABS}}/compat/previous)
-        here={{.OUTPUT_ABS}}/compat/here
-        rm -rf "$here" && cp -as "$previous" "$here"
-        rm -rf "$here"/bin/qemu-* "$here/qemu" "$here/kernel"
-        mkdir -p "$here/kernel"
-        cp {{.OUTPUT_ABS}}/bin/qemu-system-x86_64 {{.OUTPUT_ABS}}/bin/qemu-img {{.OUTPUT_ABS}}/bin/spin-machine "$here/bin/"
-        cp -r {{.OUTPUT_ABS}}/qemu "$here/qemu"
-        cp {{.OUTPUT_ABS}}/kernel/bzImage {{.OUTPUT_ABS}}/kernel/vmlinux "$here/kernel/"
-        {
-          echo "SPIN_COMPAT_PREVIOUS=$previous"
-          echo "SPIN_MACHINE_OUTPUT=$here"
-        } >> "${GITHUB_ENV:-/dev/stdout}"
+        here=$(go run ./cmd/spin-machine-dev lab tree here --qemu {{.OUTPUT_ABS}} --kernel {{.OUTPUT_ABS}}/kernel/bzImage --spin-machine here)
+        echo "SPIN_MACHINE_OUTPUT=$here" >> "${GITHUB_ENV:-/dev/stdout}"
 
   compat:
     desc: >-
