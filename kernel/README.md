@@ -5,7 +5,7 @@ the patches this tree carries. The version is `versions.yaml`'s `kernel` entry, 
 within the series builds from the same config. The kernel is here because a kernel and the
 machine that boots it are released together. A new kernel does not strand checkpoints: a
 resumed guest runs the kernel in its saved memory until it reboots, and boots this one then
-(`machine.Spec.Fingerprint` hashes the machine's contract, not the kernel). `spin-machine-dev build kernel`
+(the machine's record, `machine.QEMU.Target`, leaves the kernel out). `spin-machine-dev build kernel`
 builds it. `spin-machine-dev verify kernel` reads the setup header of the bzImage the machine boots
 (relocatable, so KASLR can move it), and checks that the stripped vmlinux beside it opens as an
 ELF.
@@ -102,7 +102,7 @@ carries", which says what they earn together.
 
 A change to the config is a new kernel for every guest's next boot, and the release notes say
 what changed (`internal/release` lists the options turned on, off or changed). It does not
-move the fingerprint, and checkpoints keep resuming: each resumed guest goes on running the
+move the machine's record, and checkpoints keep resuming: each resumed guest goes on running the
 kernel it was saved with until it reboots.
 
 `Dockerfile` builds with a pinned toolchain, because a different compiler is a different

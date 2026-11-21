@@ -54,13 +54,16 @@ as `kernel/Dockerfile` does. An experiment's systemd patch goes in `image/system
    sessions, user managers. An init without systemd is never a candidate. Measured, such an init
    is only a bound on what systemd costs, and that cost is cut inside systemd.
 
-**The fingerprint says which checkpoints a machine resumes, nothing more.**
-`machine.Spec.Fingerprint` hashes what a resumed guest sees (`Spec.Contract`, the machine type,
-the shape, the BIOS's size). It does not hash the host's CPU: a checkpoint records the CPU its
-guest was shown (`Saved.CPU`), and `machine.CanResume` checks that this host can show it again.
-QEMU does not check a resume across two fingerprints, so `CanResume` refuses it. Changing the
-machine is allowed whenever it serves the goal. The fingerprint moves, the release notes say so,
-and checkpoints from before the change boot cold instead. `task boot:compat` and `task boot:roms` check that the fingerprint tells the truth.
+**The machine's record says which checkpoints a machine resumes, nothing more.**
+A checkpoint carries the record of the machine it was taken on (`machine.Saved`), which
+`machine.QEMU.Target` reads from the running QEMU: its version, the CPU its vCPU shows, every
+device it was started with and their properties, its `-machine` options and its RAM blocks.
+`machine.CanResume` compares it with the record of the machine it resumes into and refuses any
+difference, naming each. That includes the ones QEMU loads silently: an extra device, a larger
+BIOS block, more base RAM. Changing the machine is allowed whenever it serves the goal. The
+record moves, `task boot:compat` names the first release whose checkpoints it refuses, and
+checkpoints from before the change boot cold instead. `task boot:record` checks that a machine
+resumes its own checkpoint and refuses what QEMU would load silently.
 
 ## Simplicity
 
@@ -132,8 +135,8 @@ full method. These are its rules.
   `Disk.validate`, which every bind runs, refuses an image with no format because a guessed
   format is how an image the guest can write gets read as another one. That is worth a check
   at the boundary, not a sensible default.
-- **Name things for what they are** to the reader, not for their type. `Shape`, `Spec`,
-  `Fingerprint` are the words used when talking about this machine. Use those.
+- **Name things for what they are** to the reader, not for their type. `Spec`, `Target`,
+  `Refusal` are the words used when talking about this machine. Use those.
 
 ## Comments
 
@@ -273,4 +276,4 @@ one entry, and the entry's note says what the bump is checked with.
 
 CalVer, `vYYYYMMDD.NN`. A release is the machine as it stood on a date. There is no API here
 to promise compatibility about. The one thing a version could promise is that checkpoints
-still resume, and the fingerprint decides that, not a number anybody chose.
+still resume, and the machine's record decides that (`machine.CanResume`), not a number anybody chose.

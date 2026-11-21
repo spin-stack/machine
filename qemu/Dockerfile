@@ -70,7 +70,7 @@ ARG QEMU_VERSION
 #
 # https is a claim about who you are talking to, not about what they sent. Without the check, an archive that served a different tarball —
 # or a cache mount holding a truncated one from an interrupted build — is compiled and
-# shipped, and the first sign is a fingerprint nobody can explain.
+# shipped, and the first sign is a machine nobody can explain.
 #
 # It also makes usr/share/spin-stack/SOURCES in a release true rather than aspirational:
 # what that file names is what was built.

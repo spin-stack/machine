@@ -5,10 +5,9 @@ verbs. Each verb's `--help` says what it needs, does, leaves and exits with. Thi
 verbs fit together. `spin-machine-dev --help` lists them, and `go tool task bin` builds the command
 into `_output/bin`.
 
-It is not `spin-machine`. `cmd/spin-machine` is the machine's own tool: it boots a machine, prints
-its fingerprint, attaches a disk, saves and restores. `release` builds it to compute the
-fingerprint, and the tarball ships none: spin builds the `machine` package of the release it pins,
-and a person builds the tool with `spin-machine-dev build spin-machine`. `cmd/spin-machine-dev`
+It is not `spin-machine`. `cmd/spin-machine` is the machine's own tool: it boots a machine,
+attaches a disk, saves and restores. The tarball ships none: spin builds the `machine` package of
+the release it pins, and a person builds the tool with `spin-machine-dev build spin-machine`. `cmd/spin-machine-dev`
 builds, measures and releases the machine, and is never shipped.
 
 ## Principles
@@ -84,15 +83,14 @@ spin-machine-dev release [--version v]   build every part and spin-machine, then
 
 The release is one tarball. It holds QEMU and its firmware, the kernel, the base image, the
 e2fsprogs tools, LICENSE and NOTICE, every patch each part was built with (a directory ships whole,
-never as a list), `machine.env`, `SOURCES` and a CycloneDX SBOM. `machine.env` is the manifest, and
-its `fingerprint_sha256` alone decides whether checkpoints resume. The SBOM is inside the tarball
-and beside it.
+never as a list), `machine.env`, `SOURCES` and a CycloneDX SBOM. `machine.env` is the manifest:
+versions and checksums, none of which decides whether checkpoints resume (the machine's record
+does, `machine.CanResume`). The SBOM is inside the tarball and beside it.
 
 `--help` hides the verbs that only workflows run. These are under `release`:
 
 - `version`: the next vYYYYMMDD.NN.
-- `notes`: what changed since the release before, and the fingerprint verdict. The verdict never
-  fails: changing the machine is allowed, being quiet about it is not.
+- `notes`: what changed since the release before, and its manifest.
 - `provenance`: SLSA.
 - `sign`: cosign over every file, each bundle checked, then attestgate.
 - `tag`: through the API, because GITHUB_TOKEN cannot push a ref over a workflow change.
@@ -120,7 +118,7 @@ parts.yml    changed: spin-machine-dev changed --base $BASE --pins ... <paths>, 
              image:   spin-machine-dev build e2fsprogs ; spin-machine-dev build image
              parts:   spin-machine-dev needs
 compat.yml   task boot:buildkit ; spin-machine-dev vsock ;
-             spin-machine-dev build qemu kernel spin-machine ; task boot:here ; task boot:roms ;
+             spin-machine-dev build qemu kernel spin-machine ; task boot:here ; task boot:record ;
              spin-machine-dev lab compat ; task boot:lockdown
 release.yml  compat.yml ; spin-machine-dev release version ; release ; release notes ;
              release provenance ; release sign ; release tag ; then the publish action ;
@@ -203,7 +201,7 @@ spin-machine-dev lab show RUN_ID|DIR                     a lab run's result.json
 spin-machine-dev lab dispatch PROBE --tree NAME=SPEC... [--reps N] [--opt K=V]... [--host bench|bench-metal]
 spin-machine-dev lab check TARGET [--tree NAME=SPEC]     boot:TARGET on one tree; a second tree, firmware-stages boots beside it
 spin-machine-dev lab ladder [--releases N] [--newest vX] the newest releases measured together: ladder.json
-spin-machine-dev lab compat [--here DIR] [--releases N]  a checkpoint of every release since the contract moved, resumed
+spin-machine-dev lab compat [--here DIR] [--releases N]  a checkpoint of every release whose machine is this one, resumed
 ```
 
 `lab ladder` compares releases, and two runs taken apart do not. The ladder boots the `--releases`
@@ -288,12 +286,14 @@ inline so its points' tooltips show. `pages.yml` runs `site` on every merge to m
 record, and deploys the file to GitHub Pages. Every verb takes `--dir` for the records' directory
 (default `docs/releases`), with the page and its chart beside it as `DIR.md` and `DIR.svg`.
 
-`lab compat` runs boot:compat's test over every release since the fingerprint last moved, newest
-first, and `task boot:compat` is `lab compat` over a built release. It
-checks that a host that skipped releases still resumes their checkpoints. It checks each release it
-fetches against its sha256 and its signature, as the lab checks every release a tree is made from.
-It stops at the first release with another fingerprint. On the way, it holds `machine.CanResume` to
-QEMU's one-way promise against each release's QEMU.
+`lab compat` runs boot:compat's test over the releases, newest first, and `task boot:compat` is
+`lab compat` over a built release. It checks that a host that skipped releases still resumes their
+checkpoints. It checks each release it fetches against its sha256 and its signature, as the lab
+checks every release a tree is made from. Each release's checkpoint is taken at spin's shape with
+this tree's `spin-machine save`, so its record is what that release's QEMU reports. It stops at the
+first release whose checkpoint this machine refuses (`machine.CanResume`), and that row names every
+difference. On the way, it holds `CanResume` to QEMU's one-way promise against each release's
+QEMU.
 
 `ssh-first` and `restore-first` are the goal's two numbers. `prestart` is a QEMU started ahead
 against today's, and `initcalls` is the kernel's boot by initcall. Every probe takes the shape's
@@ -340,10 +340,10 @@ question is nested against metal. `--ref` names the branch whose lab.yml and pro
 the table's LOST) and 2 when the experiment could not run.
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
-`firmware`, `roms`, `compat` (every release since the fingerprint moved, through `lab compat`),
+`firmware`, `record`, `compat` (every release whose machine is this one, through `lab compat`),
 `hotadd`, `logind` and `lockdown`. Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
 `lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
-`firmware-stages`, `waits` and `roms`, the targets its `probe` input lists.
+`firmware-stages`, `waits` and `record`, the targets its `probe` input lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its
 `trees` input names (`NAME=SPEC; NAME=SPEC`), runs the probe, puts the table on the run's summary,

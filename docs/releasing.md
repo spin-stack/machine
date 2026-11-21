@@ -29,9 +29,11 @@ repository keeps its numbers (`docs/releases.md`).
 `release.yml` builds all three artefacts and packs one tarball. Versions are **CalVer**, such as
 `v20260909.01`, because a release of this repository is the machine as it stood on a date. There is
 no API here to promise compatibility about. The one thing a version could promise is that
-checkpoints still resume, and the fingerprint decides that, not a number anybody chose. The
-fingerprint is the machine's contract: a release that keeps it resumes every checkpoint the release
-before it saved (`task boot:compat`), whatever QEMU, kernel or firmware it ships.
+checkpoints still resume, and the machine's record decides that (`machine.CanResume`), not a
+number anybody chose. A release whose machine reports the same record resumes every checkpoint the
+release before it saved, whatever kernel or firmware it ships. The compat job a release waits for
+(`spin-machine-dev lab compat`) says so release by release, and names every difference of the
+first release whose checkpoints it refuses.
 
 A release is release.yml dispatched on main, and nothing else. A pushed tag starts nothing. Given a
 version, the workflow makes that one. With no input, it generates the next sequence for today.
@@ -40,7 +42,6 @@ Either way, it tags the commit once its files are signed, and writes the notes:
 - What changed since the release before (`internal/release`'s `Changes`): the commits that reached the
   machine, by the part they changed; the pins that moved; the kernel options turned on, off or
   changed; and the patches added, changed or removed.
-- Whether checkpoints carry over (`internal/release`'s verdict).
 - Whether the QEMU shipped offers a machine type newer than the one checkpoints are saved on.
 - The release's `machine.env`, with the checksums of its parts.
 
