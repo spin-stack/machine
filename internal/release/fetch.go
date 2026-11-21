@@ -16,11 +16,13 @@ import (
 	"github.com/spin-stack/machine/internal/build"
 )
 
-// Repo is the repository releases are published from, and Identity's: renaming it is this line.
-const Repo = "spin-stack/spin-machine"
+// Repo is the repository releases are published from.
+const Repo = "spin-stack/machine"
 
-// Identity is the workflow every published file is signed by: release.yml, on main.
-const Identity = "https://github.com/" + Repo + "/.github/workflows/release.yml@refs/heads/main"
+// Identity matches the workflow every published file is signed by: release.yml, on main, under
+// the name the repository had when it ran. It was spin-stack/spin-machine until 2026-11-21, which
+// signed every release up to v20261120.04, so those still verify.
+const Identity = `^https://github\.com/spin-stack/(spin-)?machine/\.github/workflows/release\.yml@refs/heads/main$`
 
 // OIDCIssuer is who issues the token a release is signed with.
 const OIDCIssuer = "https://token.actions.githubusercontent.com"
@@ -92,7 +94,7 @@ func verify(ctx context.Context, pins *versions.Versions, file string) error {
 		return fmt.Errorf("verifying %s: %w", filepath.Base(file), err)
 	}
 	cmd := exec.CommandContext(ctx, "go", "run", cosign.Source+"@"+cosign.Version, "verify-blob",
-		"--bundle", file+".sigstore.json", "--certificate-identity", Identity, "--certificate-oidc-issuer", OIDCIssuer, file)
+		"--bundle", file+".sigstore.json", "--certificate-identity-regexp", Identity, "--certificate-oidc-issuer", OIDCIssuer, file)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%s's signature is not %s's: %w: %s", filepath.Base(file), Identity, err, bytes.TrimSpace(out))
 	}

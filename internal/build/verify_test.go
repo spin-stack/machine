@@ -306,19 +306,19 @@ func TestThePublishedQEMUIsTaggedWithThePinnedVersion(t *testing.T) {
 	v := pins(t)
 	version, _ := QEMUVersion(Options{Pins: v})
 	log := fakeDocker(t, "")
-	if err := PublishQEMU(context.Background(), Options{Root: t.TempDir(), Pins: v}, "o/r"); err != nil {
+	if err := PublishQEMU(context.Background(), Options{Root: t.TempDir(), Pins: v}); err != nil {
 		t.Fatal(err)
 	}
 	args, _ := Args(v, qemuPins...)
 	want := "buildx build --file qemu/Dockerfile --target runtime --platform linux/amd64 --cache-from type=registry,ref=" + CacheRegistry + ":qemu " +
-		strings.Join(args, " ") + " --build-arg JOBS=4 --label org.opencontainers.image.source=https://github.com/o/r --tag ghcr.io/o/r/qemu:" + version + " --push ."
+		strings.Join(args, " ") + " --build-arg JOBS=4 --label org.opencontainers.image.source=https://github.com/spin-stack/spin-machine --tag ghcr.io/spin-stack/spin-machine/qemu:" + version + " --push ."
 	if got := calls(t, log); len(got) != 1 || got[0] != want {
 		t.Errorf("publish ran %q, want %q", got, want)
 	}
-	if err := PublishQEMU(context.Background(), Options{Pins: pinsWithout(t, "qemu")}, "o/r"); err == nil {
+	if err := PublishQEMU(context.Background(), Options{Pins: pinsWithout(t, "qemu")}); err == nil {
 		t.Error("no QEMU pin published")
 	}
-	if err := PublishQEMU(context.Background(), Options{Pins: pinsWithout(t, "alpine")}, "o/r"); err == nil {
+	if err := PublishQEMU(context.Background(), Options{Pins: pinsWithout(t, "alpine")}); err == nil {
 		t.Error("a QEMU with a pin missing published")
 	}
 }

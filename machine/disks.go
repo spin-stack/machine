@@ -195,7 +195,7 @@ func (m *QEMU) addImages(ctx context.Context, d Disk) (string, error) {
 		node := diskNode(d.Serial, j)
 		readOnly := d.Readonly || j > 0
 		// The set's opaque is the image's path, and a writable top's set holds a read-only
-		// copy of it too. spin's storage relies on both (spin-stack/spin-machine#297): it finds
+		// copy of it too. spin's storage relies on both (spin-stack/machine#297): it finds
 		// which machine has an image open by query-fdsets' opaques, and after sealing a layer it
 		// drops the writable copy, leaving QEMU the read-only one to reopen the layer with -
 		// QEMU takes from a set only a descriptor of the access mode it asks for.

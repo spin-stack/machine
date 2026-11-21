@@ -254,8 +254,8 @@ func publishCmd() *cobra.Command {
 		Use:    "publish qemu",
 		Short:  "Build and push QEMU's runtime image, tagged with the pinned version, which fetch pulls",
 		Hidden: true,
-		Long: `Build and push the runtime image, tagged with the pinned QEMU version, under GITHUB_REPOSITORY:
-what fetch qemu pulls. main's parts.yml runs it, with a docker login that can write packages.`,
+		Long: `Build and push the runtime image, tagged with the pinned QEMU version, to the image
+fetch qemu pulls. main's parts.yml runs it, with a docker login that can write packages.`,
 		ValidArgs: []string{"qemu"},
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -263,11 +263,7 @@ what fetch qemu pulls. main's parts.yml runs it, with a docker login that can wr
 			if err != nil {
 				return err
 			}
-			repo := os.Getenv("GITHUB_REPOSITORY")
-			if repo == "" {
-				repo = "spin-stack/spin-machine"
-			}
-			if err := build.PublishQEMU(c.Context(), buildFlags{}.options(c, w), repo); err != nil {
+			if err := build.PublishQEMU(c.Context(), buildFlags{}.options(c, w)); err != nil {
 				return couldNot(err)
 			}
 			return nil

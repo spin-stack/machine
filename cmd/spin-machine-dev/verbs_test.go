@@ -311,17 +311,15 @@ func TestFetchIsThePublishedQEMU(t *testing.T) {
 	}
 }
 
-func TestPublishIsUnderTheWorkflowsRepository(t *testing.T) {
+func TestPublishIsWhatFetchPulls(t *testing.T) {
 	checkout(t)
 	calls := fakes(t, map[string]string{"docker": ""})
-	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("GITHUB_REPOSITORY", "o/r")
 	if _, stderr, status := verb(t, "publish", "qemu"); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
-	t.Setenv("GITHUB_REPOSITORY", "o/r")
-	_, _, _ = verb(t, "publish", "qemu")
 	got := strings.Split(strings.TrimSpace(read(t, calls)), "\n")
-	if len(got) != 2 || !strings.Contains(got[0], "--tag ghcr.io/spin-stack/spin-machine/qemu:") || !strings.Contains(got[1], "--tag ghcr.io/o/r/qemu:") {
+	if len(got) != 1 || !strings.Contains(got[0], "--tag "+build.PublishedQEMU+":") {
 		t.Errorf("docker ran %q", got)
 	}
 	fakes(t, map[string]string{"docker": "exit 1"})
@@ -659,7 +657,7 @@ func TestOSVWritesTheFindingsOfTheNewestRelease(t *testing.T) {
 	if got := read(t, filepath.Join(dir, "_output/osv.tsv")); got != "USN-1\tcurl@8.5\ts\n" {
 		t.Errorf("osv.tsv holds %q", got)
 	}
-	if got := read(t, calls); !strings.Contains(got, "/cmd/cosign@") || !strings.Contains(got, "--certificate-identity "+release.Identity) ||
+	if got := read(t, calls); !strings.Contains(got, "/cmd/cosign@") || !strings.Contains(got, "--certificate-identity-regexp "+release.Identity) ||
 		!strings.Contains(got, "go run github.com/google/osv-scanner/v2/cmd/osv-scanner@") {
 		t.Errorf("ran %q", got)
 	}

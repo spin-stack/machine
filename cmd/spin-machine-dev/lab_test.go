@@ -241,7 +241,7 @@ func TestAResultIsFoundByDirectoryOrRun(t *testing.T) {
 	if _, err := resultOf("123"); err == nil {
 		t.Error("a run's result was found outside a checkout")
 	}
-	if g := github(); g.Repo != "spin-stack/spin-machine" {
+	if g := github(); g.Repo != "spin-stack/machine" {
 		t.Errorf("repo %q", g.Repo)
 	}
 	t.Setenv("GITHUB_REPOSITORY", "o/r")

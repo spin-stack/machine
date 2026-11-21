@@ -74,10 +74,10 @@ func TestAFetchedReleaseIsItsTarballOnceItsSumAndSignatureAreTheReleases(t *test
 	}
 	cosign, _ := pins(t).Get("cosign")
 	tarball := filepath.Join(dir, Name("v1")+".tar.gz")
-	want := "gh release download v1 -R spin-stack/spin-machine -D " + dir +
+	want := "gh release download v1 -R spin-stack/machine -D " + dir +
 		" -p " + Name("v1") + ".tar.gz -p " + Name("v1") + ".tar.gz.sha256 -p " + Name("v1") + ".tar.gz.sigstore.json\n" +
 		"go run " + cosign.Source + "@" + cosign.Version + " verify-blob --bundle " + tarball + ".sigstore.json" +
-		" --certificate-identity https://github.com/spin-stack/spin-machine/.github/workflows/release.yml@refs/heads/main" +
+		" --certificate-identity-regexp " + Identity +
 		" --certificate-oidc-issuer https://token.actions.githubusercontent.com " + tarball + "\n"
 	if got := read(t, calls); got != want {
 		t.Errorf("asked\n%s\nwant\n%s", got, want)
@@ -150,7 +150,7 @@ func TestASignedFileIsTheOneAskedForOnceItsSignatureIsTheReleases(t *testing.T) 
 	if err != nil || path != filepath.Join(dir, "r.cdx.json") {
 		t.Fatalf("Signed = %s, %v", path, err)
 	}
-	if got := read(t, calls); !strings.HasPrefix(got, "gh release download v1 -R spin-stack/spin-machine -D "+dir+" -p r.cdx.json -p r.cdx.json.sigstore.json\n") ||
+	if got := read(t, calls); !strings.HasPrefix(got, "gh release download v1 -R spin-stack/machine -D "+dir+" -p r.cdx.json -p r.cdx.json.sigstore.json\n") ||
 		!strings.Contains(got, " verify-blob --bundle "+path+".sigstore.json ") || !strings.HasSuffix(got, " "+path+"\n") {
 		t.Errorf("asked %s", got)
 	}

@@ -74,7 +74,7 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 	if os.Getenv("SPIN_LAB_GITHUB") == "" {
 		t.Skip("set SPIN_LAB_GITHUB=1: asks GitHub through gh")
 	}
-	gh := &GitHub{Repo: "spin-stack/spin-machine"}
+	gh := &GitHub{Repo: "spin-stack/machine"}
 	tag, err := gh.LatestRelease()
 	if err != nil || tag == "" {
 		t.Fatalf("LatestRelease = %q, %v", tag, err)
