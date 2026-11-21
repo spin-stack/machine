@@ -445,7 +445,7 @@ func (h *handover) devices(s *Spec, open func(string) (*os.File, error)) error {
 }
 
 func openDevice(path string) (*os.File, error) {
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	f, err := os.OpenFile(path, os.O_RDWR, 0) // mutate-exempt: the mode is read only with O_CREATE, which this has not
 	if err != nil {
 		return nil, fmt.Errorf("opening %s for the machine: %w", path, err)
 	}
