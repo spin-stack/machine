@@ -7,7 +7,8 @@ machine that boots it are released together. A new kernel does not strand checkp
 resumed guest runs the kernel in its saved memory until it reboots, and boots this one then
 (`machine.Spec.Fingerprint` hashes the machine's contract, not the kernel). `spin-machine-dev build kernel`
 builds it. `spin-machine-dev verify kernel` reads the setup header of the bzImage the machine boots
-(relocatable, so KASLR can move it) and the PVH notes of the stripped vmlinux beside it.
+(relocatable, so KASLR can move it), and checks that the stripped vmlinux beside it opens as an
+ELF.
 
 ## Memory that moves
 
