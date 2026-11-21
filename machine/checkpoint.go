@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strconv"
-	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -74,101 +72,18 @@ type Saved struct {
 	// Format names how the state file is written. A VM resumes only formats it reads, and
 	// says so before reading the file.
 	Format string `json:"format"`
-	// CPU is the CPU the guest was shown. A VM resumes it only where CanResume says it may: a
-	// record without one, from before it was kept, is not checked.
-	CPU CPU `json:"cpu"`
-	// Fingerprint is the machine the guest was saved from, as the VMM names it (for QEMU,
-	// Spec.Fingerprint): the devices, the shape and the firmware a resume has to rebuild. A
-	// record without one, from before it was kept, is not checked.
-	Fingerprint string `json:"fingerprint,omitempty"`
-	// VMM is the program and version that wrote the state, "qemu 11.2.0": a VMM loads what
-	// its own or an older version wrote, and promises nothing about a newer one's. A record
-	// without one is not checked.
-	VMM string `json:"vmm,omitempty"`
-	// Machine is what this VMM needs besides the state to rebuild the machine it was saved
-	// from - the vCPUs and the disks added while it ran - in a form only the VMM reads.
-	Machine json.RawMessage `json:"machine,omitempty"`
+	// From is the machine the checkpoint was taken on, as it said at the checkpoint (VM.Target):
+	// what CanResume holds the machine it resumes into to.
+	From Target `json:"from"`
+	// Added is what the VMM adds again before the state is loaded - the vCPUs and the disks added
+	// while the guest ran - in a form only the VMM reads. It is not the machine: From is what the
+	// machine was started with.
+	Added json.RawMessage `json:"added,omitempty"`
 }
 
-// Target is what a machine can resume (VM.Target): the formats it reads, the machine it is, the
-// VMM it runs under and the CPU it shows its guest.
-type Target struct {
-	Formats     []string `json:"formats"`
-	Fingerprint string   `json:"fingerprint"`
-	VMM         string   `json:"vmm"`
-	CPU         CPU      `json:"cpu"`
-}
-
-// CanResume says whether a checkpoint may be resumed into a machine of this Target, and if not,
-// why. It is the one rule: a caller placing checkpoints, and Resume before it reads a byte, ask
-// the same question.
-//
-//   - the format is one the machine reads;
-//   - the machine is the same one (Fingerprint), since a resume rebuilds the saved machine's
-//     devices, shape and firmware and QEMU does not refuse every difference;
-//   - the VMM is the same program, at the version that wrote the state or newer: QEMU loads
-//     what an older QEMU of the same machine type wrote, never the other way, so a rolling
-//     update does not send a checkpoint back to a host that has not been updated yet;
-//   - the CPU can be shown again (canShowCPU).
-//
-// A field the record does not have, from before it was kept, is not checked.
-func CanResume(saved Saved, here Target) error {
-	if !slices.Contains(here.Formats, saved.Format) {
-		return fmt.Errorf("the checkpoint is in format %q, and this machine reads %s", saved.Format, strings.Join(here.Formats, ", "))
-	}
-	if saved.Fingerprint != "" && saved.Fingerprint != here.Fingerprint {
-		return fmt.Errorf("the checkpoint is of machine %s, and this is machine %s", saved.Fingerprint, here.Fingerprint)
-	}
-	if saved.VMM != "" {
-		if err := newEnough(saved.VMM, here.VMM); err != nil {
-			return err
-		}
-	}
-	if saved.CPU.Vendor != "" {
-		return canShowCPU(saved.CPU, here.CPU)
-	}
-	return nil
-}
-
-// newEnough says whether a VMM here, "qemu 11.2.0", loads a state the VMM saved wrote.
-func newEnough(saved, here string) error {
-	sp, sv, err := vmmVersion(saved)
-	if err != nil {
-		return fmt.Errorf("the checkpoint's VMM: %w", err)
-	}
-	hp, hv, err := vmmVersion(here)
-	if err != nil {
-		return fmt.Errorf("this machine's VMM: %w", err)
-	}
-	if sp != hp {
-		return fmt.Errorf("the checkpoint was written by %s, and this machine runs %s", sp, hp)
-	}
-	if slices.Compare(hv, sv) < 0 {
-		return fmt.Errorf("the checkpoint was written by %s, newer than this machine's %s", saved, here)
-	}
-	return nil
-}
-
-// vmmVersion splits "qemu 11.2.0" into its program and version numbers.
-func vmmVersion(v string) (string, []int, error) {
-	program, version, ok := strings.Cut(v, " ")
-	if !ok || program == "" {
-		return "", nil, fmt.Errorf("%q is not a program and a version", v)
-	}
-	var nums []int
-	for _, p := range strings.Split(version, ".") {
-		n, err := strconv.Atoi(p)
-		if err != nil {
-			return "", nil, fmt.Errorf("%q is not a program and a version: %w", v, err)
-		}
-		nums = append(nums, n)
-	}
-	return program, nums, nil
-}
-
-// Checkpoint formats. The format is not in the fingerprint, and a QEMU without mapped-ram, or
-// told to load without it, cannot read a FormatMappedRAM state whatever the machine is: so it is
-// recorded with the state (Saved) and checked before a byte is read.
+// Checkpoint formats. A QEMU without mapped-ram, or told to load without it, cannot read a
+// FormatMappedRAM state whatever the machine is: so the format is recorded with the state (Saved)
+// and checked before a byte is read.
 const (
 	// FormatMappedRAM is QEMU's migration stream with mapped-ram: each RAM page at a fixed
 	// offset of the file, which is what lets a load read a page when the guest touches it
@@ -180,8 +95,8 @@ const (
 	FormatStream = "qemu-stream"
 )
 
-// savedMachine is what a QEMU checkpoint needs besides its state (Saved.Machine).
-type savedMachine struct {
+// added is what a QEMU checkpoint adds again before its state is loaded (Saved.Added).
+type added struct {
 	CPUs  []addedCPU `json:"cpus,omitempty"`
 	Disks []hotDisk  `json:"disks,omitempty"`
 }
@@ -198,19 +113,19 @@ const checkpointBandwidth = int64(64) << 30
 // added while the machine ran are read before the migration starts, because QEMU refuses a query
 // of some of them once one is under way.
 func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save Save, seal func(context.Context) error) (Saved, error) {
-	var sm savedMachine
+	var a added
 	var err error
-	if sm.CPUs, err = m.addedCPUs(ctx); err != nil {
+	if a.CPUs, err = m.addedCPUs(ctx); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	if sm.Disks, err = m.hotDisks(ctx); err != nil {
+	if a.Disks, err = m.hotDisks(ctx); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	machine, err := json.Marshal(sm)
+	again, err := json.Marshal(a)
 	if err != nil {
-		return Saved{}, fmt.Errorf("checkpointing: recording the machine: %w", err)
+		return Saved{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
 	}
-	target, err := m.Target(ctx)
+	from, err := m.Target(ctx)
 	if err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
@@ -232,43 +147,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save Save, seal func
 		cancelErr := m.q.run(context.WithoutCancel(ctx), "migrate_cancel", nil, nil)
 		return Saved{}, errors.Join(fmt.Errorf("checkpointing: %w", err), cancelErr)
 	}
-	return Saved{Format: FormatMappedRAM, CPU: target.CPU, Fingerprint: target.Fingerprint, VMM: target.VMM, Machine: machine}, nil
-}
-
-// Target is what this machine resumes: the formats it reads, the fingerprint Args gave QEMU as
-// its name, the QEMU it is and the CPU it shows.
-func (m *QEMU) Target(ctx context.Context) (Target, error) {
-	var name struct {
-		Name string `json:"name"`
-	}
-	if err := m.q.run(ctx, "query-name", nil, &name); err != nil {
-		return Target{}, fmt.Errorf("asking the machine's fingerprint: %w", err)
-	}
-	fingerprint, ok := strings.CutPrefix(name.Name, fingerprintName)
-	if !ok {
-		return Target{}, fmt.Errorf("the machine is named %q, not by a fingerprint: was it started from Spec.Args?", name.Name)
-	}
-	var version struct {
-		QEMU struct {
-			Major int `json:"major"`
-			Minor int `json:"minor"`
-			Micro int `json:"micro"`
-		} `json:"qemu"`
-	}
-	if err := m.q.run(ctx, "query-version", nil, &version); err != nil {
-		return Target{}, fmt.Errorf("asking the machine's QEMU version: %w", err)
-	}
-	cpu, err := m.CPU(ctx)
-	if err != nil {
-		return Target{}, err
-	}
-	v := version.QEMU
-	return Target{
-		Formats:     []string{FormatMappedRAM, FormatStream},
-		Fingerprint: fingerprint,
-		VMM:         fmt.Sprintf("qemu %d.%d.%d", v.Major, v.Minor, v.Micro),
-		CPU:         cpu,
-	}, nil
+	return Saved{Format: FormatMappedRAM, From: from, Added: again}, nil
 }
 
 // switchover runs seal at pre-switchover and waits for the migration to complete.
@@ -387,10 +266,10 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	if prefetches(saved, load) {
 		prefetch(state)
 	}
-	var sm savedMachine
-	if len(saved.Machine) > 0 {
-		if err := json.Unmarshal(saved.Machine, &sm); err != nil {
-			return fmt.Errorf("resuming: reading what the checkpoint says of its machine: %w", err)
+	var again added
+	if len(saved.Added) > 0 {
+		if err := json.Unmarshal(saved.Added, &again); err != nil {
+			return fmt.Errorf("resuming: reading what the checkpoint says was added: %w", err)
 		}
 	}
 	st, err := m.status(ctx)
@@ -407,10 +286,10 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	if err := CanResume(saved, here); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	if err := m.bindAll(ctx, disks, sm.Disks); err != nil {
+	if err := m.bindAll(ctx, disks, again.Disks); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	for _, c := range sm.CPUs {
+	for _, c := range again.CPUs {
 		args, err := c.deviceArgs()
 		if err != nil {
 			return fmt.Errorf("resuming: %w", err)

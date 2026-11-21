@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -325,21 +326,21 @@ func (o *restoreFlags) register(fs *flag.FlagSet) {
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "how long the load may take")
 }
 
-// restore loads a saved state into a machine started for one, with its disk, and runs it. A
-// state with no <from>.json beside it is one a spin-machine before machine.Saved wrote, in the
-// stream format.
+// restore loads a saved state into a machine started for one, with its disk, and runs it: the
+// state and what save wrote beside it, <from>.json, which says the machine it was taken on. A
+// machine that is not that one refuses it before reading the state, and each difference is said
+// on a line of its own.
 func restore(o restoreFlags) error {
 	if o.qmp == "" || o.from == "" {
 		return errors.New("restore: --qmp and --from are required")
 	}
-	saved := machine.Saved{Format: machine.FormatStream}
-	switch b, err := os.ReadFile(savedPath(o.from)); {
-	case err == nil:
-		if err := json.Unmarshal(b, &saved); err != nil {
-			return fmt.Errorf("reading %s: %w", savedPath(o.from), err)
-		}
-	case !errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("reading what the checkpoint needs besides its state: %w", err)
+	var saved machine.Saved
+	b, err := os.ReadFile(savedPath(o.from))
+	if err != nil {
+		return fmt.Errorf("reading what save wrote beside the state: %w", err)
+	}
+	if err := json.Unmarshal(b, &saved); err != nil {
+		return fmt.Errorf("reading %s: %w", savedPath(o.from), err)
 	}
 	f, err := os.Open(o.from)
 	if err != nil {
@@ -362,7 +363,16 @@ func restore(o restoreFlags) error {
 		defer closeAll()
 		disks = append(disks, disk)
 	}
-	if err := m.Resume(ctx, f, saved, machine.Load{Fast: o.fast, Channels: o.channels}, disks...); err != nil {
+	err = m.Resume(ctx, f, saved, machine.Load{Fast: o.fast, Channels: o.channels}, disks...)
+	var r *machine.Refusal
+	if errors.As(err, &r) {
+		lines := []string{"restore: the checkpoint's machine is not this one:"}
+		for _, d := range r.Differences {
+			lines = append(lines, "  "+d.String())
+		}
+		return errors.New(strings.Join(lines, "\n"))
+	}
+	if err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "restored %s\n", o.from)

@@ -12,7 +12,7 @@ import (
 
 // CPU is the CPU a guest is shown: who made it, the model it is presented as, and every feature
 // it has. A guest asks CPUID once, at boot, and never again, so a checkpoint carries the CPU it
-// was shown and may resume only where that CPU can be shown again.
+// was shown and resumes only where the same CPU is shown.
 type CPU struct {
 	Vendor string `json:"vendor"`
 	// Model is the named model the guest is shown, or host when it is shown the host's own.
@@ -21,47 +21,56 @@ type CPU struct {
 	Features []string `json:"features,omitempty"`
 }
 
-// canShowCPU says whether a checkpoint of a guest shown saved may resume where here is shown,
-// and why not when it may not.
+// differences are the ways a guest shown saved would find here another CPU: its vendor, its model
+// and its set of features, each the same.
 //
-// The same vendor, and every feature the guest was shown is one here can show: a guest that
-// was told an instruction exists executes it, and on a CPU without it that is an invalid opcode
-// long after the resume reported success. More is fine - the guest does not know about it.
+// The same set, and not a subset of here's: a guest that was told an instruction exists executes
+// it, and on a CPU without it that is an invalid opcode long after the resume reported success;
+// and a CPU with more shows a process features (AVX-512, AMX) whose register state the guest's
+// kernel never enabled, because CPUID is not in the migration stream. One difference lists the
+// features that differ, each side's own.
 //
-// A named model is enough by its name: the machine runs one with enforce=on (Spec.Shape), so a
-// host that cannot show every feature of it does not start the machine at all.
-//
-// This replaces the host's model name in the fingerprint, which was both too strict - two hosts
-// of one model differ in nothing a guest sees, and a host whose microcode or kernel moved a flag
-// was a new machine to the model's flags line - and too loose: two hosts of one model name with
-// different features were one machine (spin-stack/spin#1348, 2026-11-19).
-func canShowCPU(saved, here CPU) error {
-	switch {
-	case saved.Vendor != here.Vendor:
-		return fmt.Errorf("the checkpoint's guest was shown a %s CPU, and this machine shows a %s one", saved.Vendor, here.Vendor)
-	case saved.Model != here.Model:
-		return fmt.Errorf("the checkpoint's guest was shown the CPU model %s, and this machine shows %s", saved.Model, here.Model)
-	case saved.Model != "host":
-		return nil
+// One rule for every model: under enforce=on a named model's features are its name's on every
+// host, so the sets agree whenever the names do, and under host - or host less what a pool does
+// not share (Spec.CPUWithout) - the set is what decides.
+func (saved CPU) differences(here CPU) []Difference {
+	var ds []Difference
+	if saved.Vendor != here.Vendor {
+		ds = append(ds, Difference{Part: "cpu vendor", Checkpoint: saved.Vendor, Here: here.Vendor, Rule: Same})
 	}
-	var missing []string
-	for _, f := range saved.Features {
-		if _, found := slices.BinarySearch(here.Features, f); !found {
-			missing = append(missing, f)
+	if saved.Model != here.Model {
+		ds = append(ds, Difference{Part: "cpu model", Checkpoint: saved.Model, Here: here.Model, Rule: Same})
+	}
+	gone, added := without(saved.Features, here.Features), without(here.Features, saved.Features)
+	if len(gone) > 0 || len(added) > 0 {
+		ds = append(ds, Difference{Part: "cpu features", Checkpoint: strings.Join(gone, " "), Here: strings.Join(added, " "), Rule: Same})
+	}
+	return ds
+}
+
+// without is the names in a that b does not have, sorted.
+func without(a, b []string) []string {
+	var out []string
+	for _, f := range a {
+		if !slices.Contains(b, f) {
+			out = append(out, f)
 		}
 	}
-	if len(missing) > 0 {
-		return fmt.Errorf("the checkpoint's guest was shown CPU features this machine cannot show: %s", strings.Join(missing, " "))
-	}
-	return nil
+	slices.Sort(out)
+	return out
 }
 
 // cpuSuffix is QEMU's type name for a vCPU of a model: <model>-x86_64-cpu.
 const cpuSuffix = "-x86_64-cpu"
 
-// CPU is the CPU this machine shows its guest: its first vCPU's model, expanded by QEMU into
-// every property it has. Under model host that is the host's features less what QEMU cannot
-// migrate (migratable=on, as Spec.Shape runs it).
+// CPU is the CPU this machine shows its guest, read off its first vCPU: the features the vCPU has
+// on, not the ones its model's name has, so that what the command line took away (Spec.CPUWithout,
+// -vmx, and under host what migratable=on drops) is not reported as shown.
+//
+// A feature is a name QEMU's static expansion of the model lists as a flag: the CPUID features,
+// one canonical name each. The vCPU and the full expansion also answer to aliases (sse4.1, sse4-1
+// and sse4_1 are one feature) and to switches that are no CPUID bit (migratable, check, pmu,
+// l3-cache), which the static expansion leaves out (QEMU 11.2.0-rc0, 2026-11-21).
 func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
 	var cpus []struct {
 		QOMPath string `json:"qom-path"`
@@ -72,24 +81,27 @@ func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
 	if len(cpus) == 0 {
 		return CPU{}, errors.New("the machine has no vCPU to ask its model of")
 	}
-	var typ string
-	if err := m.q.run(ctx, "qom-get", map[string]any{"path": cpus[0].QOMPath, "property": "type"}, &typ); err != nil {
-		return CPU{}, fmt.Errorf("reading the vCPUs' model: %w", err)
+	vcpus, err := m.qomObjects(ctx, cpus[0].QOMPath)
+	if err != nil {
+		return CPU{}, fmt.Errorf("reading the machine's vCPU: %w", err)
 	}
-	model, ok := strings.CutSuffix(typ, cpuSuffix)
+	vcpu := vcpus[0]
+	model, ok := strings.CutSuffix(vcpu.text("type"), cpuSuffix)
 	if !ok {
-		return CPU{}, fmt.Errorf("a vCPU of type %s, which is not an x86_64 CPU model", typ)
+		return CPU{}, fmt.Errorf("a vCPU of type %q, which is not an x86_64 CPU model", vcpu.text("type"))
 	}
-	asked := map[string]any{"name": model}
-	if derivedFromHost(model) {
-		asked["props"] = map[string]any{"migratable": true}
-	}
-	props, err := m.expand(ctx, "full", asked)
+	flags, err := m.expand(ctx, "static", map[string]any{"name": model})
 	if err != nil {
 		return CPU{}, err
 	}
-	vendor, _ := props["vendor"].(string)
-	return CPU{Vendor: vendor, Model: model, Features: features(props)}, nil
+	var on []string
+	for name, v := range flags {
+		if _, flag := v.(bool); flag && string(vcpu.value(name)) == "true" {
+			on = append(on, name)
+		}
+	}
+	slices.Sort(on)
+	return CPU{Vendor: vcpu.text("vendor"), Model: model, Features: on}, nil
 }
 
 // expand is query-cpu-model-expansion of model: its properties as QEMU would give a vCPU of it.
@@ -105,8 +117,7 @@ func (m *QEMU) expand(ctx context.Context, how string, model map[string]any) (ma
 	return r.Model.Props, nil
 }
 
-// features is the names of the properties that are on, sorted: a CPU's features, and the few
-// switches QEMU expands beside them, which both sides of CanResume expand alike.
+// features is the names of the properties that are on, sorted.
 func features(props map[string]any) []string {
 	var out []string
 	for k, v := range props {
@@ -185,6 +196,39 @@ func Baseline(hosts [][]Model) (Model, error) {
 		return Model{}, errors.New("no CPU model every host runs: the fleet has hosts of more than one vendor, or one that runs none")
 	}
 	return best, nil
+}
+
+// Unshared are the features some host of a pool shows and another does not: the Spec.CPUWithout
+// that has every host of the pool show the features they share, so that a checkpoint of one
+// resumes on any (spin-stack/spin#1417). Each host's CPU is what its machine shows under host
+// with nothing taken away (Target.CPU).
+//
+// Where Baseline names the newest model every host runs, this keeps the host's own model and
+// takes away only what is missing somewhere: a named model cost the cold first login 27 ms on the
+// bench against host (lab 44855890737, 2026-11-21). Hosts of more than one vendor or model are an
+// error, which no list of features takes away.
+func Unshared(hosts []CPU) ([]string, error) {
+	if len(hosts) == 0 {
+		return nil, errors.New("no hosts to find the features they share")
+	}
+	shows := map[string]int{}
+	for _, h := range hosts {
+		if h.Vendor != hosts[0].Vendor || h.Model != hosts[0].Model {
+			return nil, fmt.Errorf("a pool of %s %s and %s %s CPUs: only hosts of one vendor and model share features by taking some away",
+				hosts[0].Vendor, hosts[0].Model, h.Vendor, h.Model)
+		}
+		for _, f := range slices.Compact(slices.Sorted(slices.Values(h.Features))) {
+			shows[f]++
+		}
+	}
+	var out []string
+	for f, n := range shows {
+		if n < len(hosts) {
+			out = append(out, f)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 // derivedFromHost reports whether a CPU model takes its feature set from the
