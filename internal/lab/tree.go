@@ -69,8 +69,7 @@ type NamedEdit struct {
 	Edit Edit   `json:"edit"`
 }
 
-// partFiles are the parts of a tree, and the file under it each is checked by; the kernel's is
-// partFile's.
+// partFiles are the parts of a tree, and the file under it each is checked by.
 var partFiles = map[string]string{
 	"qemu":         "bin/qemu-system-x86_64",
 	"firmware":     "qemu/" + machine.DefaultBIOS,
@@ -79,17 +78,8 @@ var partFiles = map[string]string{
 	"spin-machine": "bin/spin-machine",
 }
 
-// partFile is the file under dir that part name is checked by. A release from before 2026-11-19
-// carries no bzImage, only the vmlinux the machine entered through PVH then, and
-// machine.OpenRelease boots that; a kernel put into a tree has to be a bzImage (placeKernel).
-func partFile(dir, name string) string {
-	if name == "kernel" {
-		if _, err := os.Stat(filepath.Join(dir, partFiles[name])); errors.Is(err, fs.ErrNotExist) {
-			return filepath.Join(dir, "kernel", "vmlinux")
-		}
-	}
-	return filepath.Join(dir, partFiles[name])
-}
+// partFile is the file under dir that part name is checked by.
+func partFile(dir, name string) string { return filepath.Join(dir, partFiles[name]) }
 
 const manifestName = "manifest.json"
 

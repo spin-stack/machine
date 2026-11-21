@@ -201,7 +201,7 @@ func shipped(o Options, top, share string) ([]file, error) {
 	files = append(files,
 		file{filepath.Join(o.Root, "qemu/qboot/COPYING"), at("qemu/qboot-COPYING"), "qboot's licence", 0o644},
 		// The bzImage is what the machine boots, its decompressor where KASLR happens; vmlinux,
-		// the same kernel as an ELF, is for --kernel and a debugger.
+		// the same kernel as an ELF, is for what reads its symbols and for a debugger.
 		file{fromOut("kernel/bzImage"), at("kernel/bzImage"), "the guest kernel", 0o644},
 		file{fromOut("kernel/vmlinux"), at("kernel/vmlinux"), "the guest kernel as an ELF", 0o644},
 		file{fromOut("kernel/kernel-config"), at("kernel/kernel-config"), "the kernel config", 0o644},
@@ -241,7 +241,7 @@ func install(f file) error {
 
 // ManifestKeys are machine.env's keys, in the order it is written.
 var ManifestKeys = []string{"version", "source_commit", "qemu_version", "kernel_version", "e2fsprogs_version", "built",
-	"qemu_sha256", "kernel_sha256", "bios_sha256", "pvh_sha256", "fingerprint_sha256", "image_sha256"}
+	"qemu_sha256", "kernel_sha256", "bios_sha256", "fingerprint_sha256", "image_sha256"}
 
 // Manifest is what the release is, in a form something other than a human reads. fingerprint is
 // machine.Spec.Fingerprint, the machine's contract, and it alone decides whether a checkpoint
@@ -266,7 +266,6 @@ func Manifest(o Options, share, fingerprint string) (map[string]string, error) {
 		"qemu_sha256":   "bin/qemu-system-x86_64",
 		"kernel_sha256": "kernel/vmlinux",
 		"bios_sha256":   "qemu/qboot.bin",
-		"pvh_sha256":    "qemu/pvh.bin",
 		"image_sha256":  "image/rootfs.qcow2",
 	} {
 		sum, err := build.FileSHA256(filepath.Join(share, path))

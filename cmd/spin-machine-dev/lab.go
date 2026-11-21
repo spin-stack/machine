@@ -411,7 +411,7 @@ Exits 1 when one did not resume.`,
 			_, _ = fmt.Fprintln(c.OutOrStdout(), table)
 			summarise(table)
 			for _, r := range rows {
-				if !r.Resumed && !r.Moved {
+				if !r.Resumed && !r.Moved && !r.NoBzImage {
 					return exitError{code: 1}
 				}
 			}

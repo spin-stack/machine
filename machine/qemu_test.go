@@ -199,70 +199,38 @@ func qemuTCG(t *testing.T) (qemu, firmware string) {
 	return qemu, filepath.Join(out, firmwareDir)
 }
 
-// pvhStub writes a kernel QEMU will load and never execute: an ELF with a PVH
-// entry note, the smallest file QEMU accepts as -kernel (the machine boots a
-// bzImage, which a stub would have to carry a whole setup header to imitate).
+// bzImageStub writes a kernel QEMU will load and never execute: a setup header with nothing
+// behind it, the fields x86_load_linux reads (hw/i386/x86-common.c) and no code.
 //
 // A stub and not the kernel from _output/kernel, deliberately. What is under
 // test is the command line, and requiring the real kernel would tie this check
 // to the kernel build — tens of minutes — so it could only ever run in a lane
 // that had one, which is the lane a machine/*.go change does not reach. QEMU
-// still loads it through pvh.bin out of the firmware directory, so -L and the
-// option ROM that boot depends on are exercised either way.
+// still adds linuxboot_dma.bin out of the firmware directory for it, so -L and
+// the option ROM that boot depends on are exercised either way.
 //
-// Without the note QEMU says "Error loading uncompressed kernel without PVH ELF
-// Note" and exits, which is how this was checked.
-func pvhStub(t *testing.T) string {
+// Without "HdrS" QEMU tries the file as a multiboot and then an ELF kernel, and
+// exits with "Error loading uncompressed kernel without PVH ELF Note"; with fewer
+// bytes than its setup sectors it exits with "invalid kernel header".
+func bzImageStub(t *testing.T) string {
 	t.Helper()
 
-	const entry = 0x100000
+	const setupSects = 4
 	le := binary.LittleEndian
+	b := make([]byte, (setupSects+1)*512+512) // the setup sectors, the boot sector, a sector of payload
+	b[0x1f1] = setupSects
+	le.PutUint16(b[0x1fe:], 0xaa55) // boot_flag
+	copy(b[0x202:], "HdrS")
+	le.PutUint16(b[0x206:], 0x020f)     // boot protocol 2.15
+	b[0x211] = 0x01                     // loadflags: LOADED_HIGH, the protected-mode code at 1 MiB
+	le.PutUint32(b[0x22c:], 0x7fffffff) // initrd_addr_max
+	b[0x234] = 1                        // relocatable_kernel
+	le.PutUint16(b[0x236:], 0x0002)     // xloadflags: XLF_CAN_BE_LOADED_ABOVE_4G
+	le.PutUint32(b[0x238:], 2048)       // cmdline_size
+	b[(setupSects+1)*512] = 0xf4        // hlt, which -S means is never reached
 
-	// One Xen ELF note: XEN_ELFNOTE_PHYS32_ENTRY (18), the 32-bit entry point.
-	note := make([]byte, 0, 20)
-	note = le.AppendUint32(note, 4)  // namesz, "Xen\0"
-	note = le.AppendUint32(note, 4)  // descsz, one address
-	note = le.AppendUint32(note, 18) // XEN_ELFNOTE_PHYS32_ENTRY
-	note = append(note, 'X', 'e', 'n', 0)
-	note = le.AppendUint32(note, entry)
-
-	const phoff, phentsize, phnum = 64, 56, 2
-	noteOff := uint64(phoff + phentsize*phnum)
-	textOff := noteOff + uint64(len(note))
-
-	elf := make([]byte, 0, 256)
-	elf = append(elf, 0x7f, 'E', 'L', 'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-	elf = le.AppendUint16(elf, 2)  // ET_EXEC
-	elf = le.AppendUint16(elf, 62) // EM_X86_64
-	elf = le.AppendUint32(elf, 1)  // EV_CURRENT
-	elf = le.AppendUint64(elf, entry)
-	elf = le.AppendUint64(elf, phoff)
-	elf = le.AppendUint64(elf, 0) // no sections
-	elf = le.AppendUint32(elf, 0) // no flags
-	elf = le.AppendUint16(elf, 64)
-	elf = le.AppendUint16(elf, phentsize)
-	elf = le.AppendUint16(elf, phnum)
-	elf = le.AppendUint16(elf, 64)
-	elf = le.AppendUint16(elf, 0)
-	elf = le.AppendUint16(elf, 0)
-
-	segment := func(typ, flags uint32, offset, addr, size uint64) {
-		elf = le.AppendUint32(elf, typ)
-		elf = le.AppendUint32(elf, flags)
-		elf = le.AppendUint64(elf, offset)
-		elf = le.AppendUint64(elf, addr) // vaddr
-		elf = le.AppendUint64(elf, addr) // paddr
-		elf = le.AppendUint64(elf, size) // filesz
-		elf = le.AppendUint64(elf, size) // memsz
-		elf = le.AppendUint64(elf, 4)    // align
-	}
-	segment(4, 4, noteOff, 0, uint64(len(note))) // PT_NOTE
-	segment(1, 5, textOff, entry, 1)             // PT_LOAD, r-x
-	elf = append(elf, note...)
-	elf = append(elf, 0xf4) // hlt, which -S means is never reached
-
-	path := filepath.Join(t.TempDir(), "vmlinux-stub")
-	if err := os.WriteFile(path, elf, 0o600); err != nil {
+	path := filepath.Join(t.TempDir(), "bzImage-stub")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path

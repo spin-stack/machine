@@ -32,7 +32,6 @@ deliberately not shipped. It exports a disk over NBD, which nothing here does.
 loads and enters them itself. The bzImage's decompressor is where KASLR picks the kernel's
 random base. Until 2026-11-19 the machine entered an ELF `vmlinux` through its Xen PVH notes
 and `pvh.bin`, which skips that decompressor and left the kernel at the same address on every
-boot. `pvh.bin` is still shipped, for `--kernel vmlinux`. There is no bootloader and no UEFI:
-the same guest under UEFI + Secure Boot was measured at +356 ms and rejected. The BIOS is qboot,
-patched and built here as [qboot/README.md](qboot/README.md) describes, with SeaBIOS shipped as
-the fallback.
+boot. There is no bootloader and no UEFI: the same guest under UEFI + Secure Boot was measured
+at +356 ms and rejected. The BIOS is qboot, patched and built here as
+[qboot/README.md](qboot/README.md) describes, with SeaBIOS shipped as the fallback.

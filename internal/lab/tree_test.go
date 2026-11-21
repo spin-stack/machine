@@ -31,7 +31,6 @@ func fakeRelease(t *testing.T, kernel string) string {
 		"bin/spin-machine":       []byte("spin-machine"),
 		"qemu/qboot.bin":         []byte("qboot"),
 		"qemu/linuxboot_dma.bin": []byte("rom"),
-		"qemu/pvh.bin":           []byte("pvh"),
 		"image/rootfs.qcow2":     []byte("base"),
 		"kernel/vmlinux":         []byte("elf"),
 	}
@@ -235,17 +234,13 @@ func TestATreeRefusesWhatIsNotWhole(t *testing.T) {
 	}
 }
 
-// A release from before 2026-11-19 has a vmlinux and no bzImage: it is a tree, its kernel the
-// vmlinux, as machine.OpenRelease boots it.
-func TestAReleaseFromBeforeTheBzImageIsATree(t *testing.T) {
+// A release from before 2026-11-19 has a vmlinux and no bzImage, and nothing boots it now: it
+// is no tree, and the refusal names the file it lacks.
+func TestAReleaseFromBeforeTheBzImageIsNoTree(t *testing.T) {
 	base := fakeRelease(t, "")
-	tr, err := MakeTree(filepath.Join(t.TempDir(), "old"), TreeSpec{Name: "old", From: base}, src(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum, _ := fileSHA256(filepath.Join(base, "kernel/vmlinux"))
-	if tr.Manifest.Parts["kernel"].SHA256 != sum {
-		t.Error("the old release's kernel is not its vmlinux")
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "old"), TreeSpec{Name: "old", From: base}, src(t)); err == nil ||
+		!strings.Contains(err.Error(), "kernel/bzImage") {
+		t.Errorf("MakeTree of a release without a bzImage = %v", err)
 	}
 }
 

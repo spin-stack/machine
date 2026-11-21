@@ -24,7 +24,7 @@ import (
 // Under the TCG binary, like TestQEMUAcceptsEveryArgument, and skipped where there is none.
 func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testing.T) {
 	qemu, firmware := qemuTCG(t)
-	kernel := pvhStub(t)
+	kernel := bzImageStub(t)
 
 	dir := diskDir(t)
 	base := qcow2In(t, qemu, dir, "base.qcow2", "")

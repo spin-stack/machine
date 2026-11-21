@@ -49,8 +49,8 @@ func TestFirmwareRuns(t *testing.T) {
 		t.Skip("set SPIN_FIRMWARE_PROBE=1: this boots dozens of VMs")
 	}
 	out := releaseDir(t)
-	// The kernel the machine boots: SeaBIOS enters a bzImage through linuxboot_dma.bin and a
-	// vmlinux through pvh.bin, and qboot reads either out of fw_cfg itself.
+	// The kernel the machine boots: SeaBIOS enters the bzImage through linuxboot_dma.bin, and
+	// qboot reads it out of fw_cfg itself.
 	rel, err := machine.OpenRelease(out)
 	if err != nil {
 		t.Fatal(err)

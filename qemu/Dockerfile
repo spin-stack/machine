@@ -332,7 +332,7 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
 # which 317 MB is edk2 for aarch64, arm, riscv and loongarch, in a build whose target list
 # is x86_64-softmmu — and it was being copied into the image and out again on every build.
 #
-# Six files:
+# Five files:
 #   linuxboot_dma.bin
 #                  the option ROM QEMU adds whenever -kernel is a bzImage (x86_load_linux),
 #                  which is what the machine boots since 2026-11-19: the bzImage's
@@ -340,9 +340,6 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
 #                  setup and the kernel out of fw_cfg itself (boot_from_fwcfg) - but QEMU
 #                  publishes it in fw_cfg's genroms at every boot, and SeaBIOS runs it.
 #                  Missing, QEMU prints a rom-open error on every start.
-#   pvh.bin        the same for a vmlinux, which QEMU enters through its Xen PVH notes: kept
-#                  for `--kernel vmlinux`, the lab's comparisons of a kernel build, and
-#                  machine's QEMU tests.
 #   kvmvapic.bin   loaded by the KVM accelerator on a q35.
 #   bios.bin,
 #   bios-256k.bin  SeaBIOS, kept beside qboot to compare the two (`--bios bios-256k.bin`).
@@ -355,7 +352,7 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
 RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/cache/qemu \
     tree="$(sh /build/qemu-source.sh)" && \
     mkdir -p /build/pc-bios && \
-    for f in bios.bin bios-256k.bin linuxboot_dma.bin pvh.bin kvmvapic.bin efi-virtio.rom; do \
+    for f in bios.bin bios-256k.bin linuxboot_dma.bin kvmvapic.bin efi-virtio.rom; do \
         install -m 0644 "$tree/pc-bios/$f" "/build/pc-bios/$f"; \
     done
 
@@ -465,7 +462,7 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
     echo "OK: every binary is hardened"
 
 # qboot, the BIOS this machine boots with. QEMU's SeaBIOS is built for every guest a PC can run; this machine boots one Linux kernel
-# through PVH and nothing else, and qboot is a firmware for exactly that. Measured on the lab
+# and nothing else, and qboot is a firmware for exactly that. Measured on the lab
 # runner, 20 boots interleaved (2026-09-29): 121.9 -> 114.8 ms p50 to a diagnostic init, and
 # report's whole matrix boots on it. Stock qboot cannot run this machine: its ACPI linker
 # loader stops on WRITE_POINTER, which vmgenid needs, and the guest halts with nothing on the

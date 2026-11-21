@@ -5,7 +5,6 @@ package machine
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -48,34 +47,12 @@ func TestOpenReleaseNamesWhatIsMissing(t *testing.T) {
 	}
 }
 
-// A release from before the bzImage carries a vmlinux and pvh.bin, and boot:compat boots the
-// newest release with this tree's spin-machine: it boots what that release has. Beside a
-// bzImage, the vmlinux every release also carries is not what boots.
-func TestOpenReleaseBootsTheKernelTheReleaseHas(t *testing.T) {
-	old := []string{qemuName, qemuImgName, elfKernelName, filepath.Join(firmwareDir, elfKernelROM), filepath.Join(firmwareDir, DefaultBIOS)}
-	for _, tc := range []struct {
-		name   string
-		files  []string
-		kernel string
-	}{
-		{"a release before the bzImage", old, elfKernelName},
-		{"a release with both", append(slices.Clone(whole), elfKernelName), kernelName},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := tree(t, tc.files...)
-			r, err := OpenRelease(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got, want := r.Kernel(), filepath.Join(dir, tc.kernel); got != want {
-				t.Errorf("Kernel() = %q, want %q", got, want)
-			}
-		})
-	}
-	// A vmlinux is entered through pvh.bin, and linuxboot_dma.bin does not stand in for it.
-	noPVH := tree(t, qemuName, qemuImgName, elfKernelName, filepath.Join(firmwareDir, kernelROM), filepath.Join(firmwareDir, DefaultBIOS))
-	if _, err := OpenRelease(noPVH); err == nil || !strings.Contains(err.Error(), elfKernelROM) {
-		t.Errorf("OpenRelease of a vmlinux without pvh.bin returned %v", err)
+// A release from before v20261119.02 carries a vmlinux and pvh.bin and no bzImage. Nothing
+// enters a vmlinux any more, so it is refused, and the refusal names what it lacks.
+func TestOpenReleaseRefusesAReleaseWithoutABzImage(t *testing.T) {
+	old := tree(t, qemuName, qemuImgName, "kernel/vmlinux", filepath.Join(firmwareDir, "pvh.bin"), filepath.Join(firmwareDir, DefaultBIOS))
+	if _, err := OpenRelease(old); err == nil || !strings.Contains(err.Error(), kernelName) {
+		t.Errorf("OpenRelease of a release without a bzImage returned %v", err)
 	}
 }
 

@@ -17,8 +17,10 @@ import (
 type CompatRow struct {
 	Release string
 	// Resumed is whether a checkpoint the release saved went on running here; Moved, that the
-	// release has another fingerprint, so none of its checkpoints is meant to.
-	Resumed, Moved bool
+	// release has another fingerprint, so none of its checkpoints is meant to. NoBzImage is a
+	// release from before v20261119.02, which carries only the vmlinux the machine entered
+	// through PVH then: nothing here boots it, so nothing checks it.
+	Resumed, Moved, NoBzImage bool
 	// Why is the failure, or the fingerprints that differ.
 	Why string
 }
@@ -26,9 +28,11 @@ type CompatRow struct {
 // Compat is boot:compat over every release since the fingerprint last moved, newest first: a host
 // that skipped releases resumes a checkpoint from any of them, not only the one before. It stops
 // at the first release whose fingerprint, as here's spin-machine computes it, is not here's - that
-// one and every older one are a contract the release notes said moved. For each release it also
-// holds the other direction: a checkpoint written by here's QEMU is one CanResume refuses on a
-// release whose QEMU is older (QEMU loads what an older version wrote, never the reverse).
+// one and every older one are a contract the release notes said moved. It stops as well at the
+// first release with no bzImage, which no spin-machine since v20261119.02 boots, and every older
+// release has none either. For each release it also holds the other direction: a checkpoint
+// written by here's QEMU is one CanResume refuses on a release whose QEMU is older (QEMU loads
+// what an older version wrote, never the reverse).
 //
 // resume runs boot:compat's test with previous as the release before.
 func Compat(here string, tags []string, src Sources, resume func(previous string) error, log io.Writer) ([]CompatRow, error) {
@@ -46,6 +50,10 @@ func Compat(here string, tags []string, src Sources, resume func(previous string
 		dir, err := src.release(tag)
 		if err != nil {
 			return nil, err
+		}
+		if !fileExists(filepath.Join(dir, partFiles["kernel"])) {
+			rows = append(rows, CompatRow{Release: tag, NoBzImage: true})
+			break
 		}
 		theirs, err := fingerprint(cli, dir)
 		if err != nil {
@@ -124,6 +132,8 @@ func CompatTable(rows []CompatRow) string {
 		switch {
 		case r.Moved:
 			fmt.Fprintf(&b, "| %s | not meant to: the contract moved (%s); older releases neither |\n", r.Release, r.Why)
+		case r.NoBzImage:
+			fmt.Fprintf(&b, "| %s | not checked: it carries no bzImage, the only kernel this machine boots; older releases neither |\n", r.Release)
 		case r.Resumed:
 			fmt.Fprintf(&b, "| %s | resumed |\n", r.Release)
 		default:
