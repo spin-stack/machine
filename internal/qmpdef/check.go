@@ -35,6 +35,26 @@ func Enum[T ~string](values ...T) {
 // enums is every Enum's values by their Go type. Like defs, only package initialisation writes it.
 var enums = map[reflect.Type][]string{}
 
+// Union says variants are every type a T holds wherever a definition sends one: a sealed interface
+// standing for one of QEMU's unions, such as blockdev-add's BlockdevOptions. Check holds each
+// variant to the union's base and to the variant its tag names, and a variant may encode itself
+// to write its tag: Check reads the tag from the variant's zero value, as encoding/json writes it,
+// and the rest from its fields. Call it from an init beside the variants.
+func Union[T any](variants ...T) {
+	t := reflect.TypeFor[T]()
+	for _, v := range variants {
+		unions[t] = append(unions[t], reflect.TypeOf(v))
+		isVariant[reflect.TypeOf(v)] = true
+	}
+}
+
+// unions is every Union's variants by the interface's Go type, and isVariant every variant. Like
+// defs, only package initialisation writes them.
+var (
+	unions    = map[reflect.Type][]reflect.Type{}
+	isVariant = map[reflect.Type]bool{}
+)
+
 // Check holds every definition the binary links to a QEMU's answer to query-qmp-schema, and names
 // each disagreement. Each command and event must exist, neither deprecated nor unstable unless
 // defined Unstable; each member a definition sends or reads must be one QEMU has, of a kind its
@@ -42,7 +62,8 @@ var enums = map[reflect.Type][]string{}
 // the enum it reaches; and each name must be defined once.
 //
 // A Go type that encodes or decodes itself (json.Marshaler, json.Unmarshaler), an interface and a
-// map are taken as they are: what they put on the wire is not in their type.
+// map are taken as they are: what they put on the wire is not in their type. An interface Union
+// lists the variants of is held to QEMU's union through each variant.
 func Check(schema json.RawMessage) error {
 	var entries []entry
 	if err := json.Unmarshal(schema, &entries); err != nil {
@@ -70,6 +91,11 @@ func Check(schema json.RawMessage) error {
 			s.fail("Enum %s is reached by no definition, so nothing holds its values to QEMU's", t)
 		}
 	}
+	for t := range unions {
+		if !s.reached[t] {
+			s.fail("Union %s is reached by no definition, so nothing holds its variants to QEMU's", t)
+		}
+	}
 	slices.SortFunc(s.errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
 	return errors.Join(s.errs...)
 }
@@ -88,7 +114,9 @@ type entry struct {
 	// array
 	ElementType string `json:"element-type"`
 	// object, enum and alternate
-	Members  []member  `json:"members"`
+	Members []member `json:"members"`
+	// a union: an object whose member Tag names which of Variants it is
+	Tag      string    `json:"tag"`
 	Variants []variant `json:"variants"`
 }
 
@@ -101,11 +129,12 @@ type member struct {
 }
 
 type variant struct {
+	Case string `json:"case"`
 	Type string `json:"type"`
 }
 
 // schemaOf is one Check under way: the schema by type name, what it has found, and which Enums
-// a definition reached.
+// and Unions a definition reached.
 type schemaOf struct {
 	types   map[string]entry
 	errs    []error
@@ -176,11 +205,19 @@ func (s *schemaOf) fit(path string, t reflect.Type, name string, send bool) {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
+	if variants, ok := unions[t]; ok {
+		s.reached[t] = true
+		for _, v := range variants {
+			s.fit(path+" "+v.String(), v, name, send)
+		}
+		return
+	}
 	coder := unmarshaler
 	if send {
 		coder = marshaler
 	}
-	if t.Kind() == reflect.Interface || t.Kind() == reflect.Map || t.Implements(coder) || reflect.PointerTo(t).Implements(coder) {
+	codes := t.Implements(coder) || reflect.PointerTo(t).Implements(coder)
+	if t.Kind() == reflect.Interface || t.Kind() == reflect.Map || codes && !isVariant[t] {
 		return
 	}
 	v := visit{t, name, send}
@@ -265,15 +302,33 @@ func (s *schemaOf) object(path string, t reflect.Type, e entry, send bool) {
 	for _, m := range e.Members {
 		members[m.Name] = m
 	}
-	// A union's members are its base's and each variant's: which apply depends on the value.
+	required := e.Members
+	sent := map[string]bool{}
+	// A union's members are its base's and its variant's. A type whose zero value names its
+	// variant by the tag is held to that variant alone, and sends the tag every time; any other
+	// may be any variant, so it may send what any of them has, and must send what the base
+	// requires.
+	which := tagOf(t, e.Tag)
+	found := which == ""
 	for _, v := range e.Variants {
+		if which != "" && v.Case != which {
+			continue
+		}
+		found = true
 		for _, m := range s.types[v.Type].Members {
 			if _, ok := members[m.Name]; !ok {
 				members[m.Name] = m
 			}
 		}
+		if which != "" {
+			required = append(slices.Clone(required), s.types[v.Type].Members...)
+			sent[e.Tag] = true
+		}
 	}
-	sent := map[string]bool{}
+	if !found {
+		s.fail("%s: QEMU's union has no %s %q", path, e.Tag, which)
+		return
+	}
 	for _, f := range fields(t) {
 		m, ok := member{}, false
 		if send {
@@ -299,11 +354,22 @@ func (s *schemaOf) object(path string, t reflect.Type, e entry, send bool) {
 	if !send {
 		return
 	}
-	for _, m := range e.Members {
+	for _, m := range required {
 		if m.Default == nil && !sent[m.Name] {
 			s.fail("%s: QEMU requires %q, which a %s does not send every time", path, m.Name, t)
 		}
 	}
+}
+
+// tagOf is the variant of a union a t's zero value names by the member tag, as encoding/json
+// writes it, or "" when it names none: a variant that encodes itself to write its tag says which
+// it is that way. A zero value encoding/json cannot write, or that is not an object, names none.
+func tagOf(t reflect.Type, tag string) string {
+	b, _ := json.Marshal(reflect.Zero(t).Interface())
+	var zero map[string]any
+	_ = json.Unmarshal(b, &zero)
+	which, _ := zero[tag].(string)
+	return which
 }
 
 // alternate fits t to whichever of QEMU's alternatives it fits without a disagreement.
