@@ -237,3 +237,121 @@ func Unshared(hosts []CPU) ([]string, error) {
 func derivedFromHost(model string) bool {
 	return model == "host" || model == "max"
 }
+
+// cpuSlot is one place for a vCPU, as query-hotpluggable-cpus reports it.
+type cpuSlot struct {
+	Type    string         `json:"type"`
+	QOMPath string         `json:"qom-path,omitempty"`
+	Props   map[string]any `json:"props"`
+}
+
+// addedCPU is a vCPU added after exec, as a checkpoint records it to add it again before the
+// state is loaded: the stream names each vCPU, and one that is not there fails the load.
+type addedCPU struct {
+	ID     string         `json:"id"`
+	Driver string         `json:"driver"`
+	Props  map[string]any `json:"props"`
+}
+
+// cpuTopology is every property a vCPU's slot is named by: all a checkpoint's vCPU may set.
+var cpuTopology = []string{"node-id", "socket-id", "die-id", "cluster-id", "module-id", "core-id", "thread-id"}
+
+// deviceArgs is the device_add that adds c again, refused unless it is a vCPU in a slot.
+//
+// The record is what the saved machine's QEMU answered, and device_add attaches whatever device
+// and properties it is given: a QEMU the guest had taken over could have answered with another
+// device, or a vCPU with properties of its choosing, for the machine that resumes it to add. So
+// the driver has to be a vCPU's and every property a slot's coordinate, a number, and neither
+// can name the driver or the id (spin-stack/spin#1367's review; spin's own client refused the
+// same before it moved here).
+func (c addedCPU) deviceArgs() (map[string]any, error) {
+	if !strings.HasSuffix(c.Driver, cpuSuffix) || c.ID == "" {
+		return nil, fmt.Errorf("the checkpoint records a vCPU %q of type %q, which is not a vCPU", c.ID, c.Driver)
+	}
+	args := map[string]any{"driver": c.Driver, "id": c.ID}
+	for k, v := range c.Props {
+		if _, number := v.(float64); !number || !slices.Contains(cpuTopology, k) {
+			return nil, fmt.Errorf("the checkpoint gives vCPU %s the property %s=%v, which names no slot", c.ID, k, v)
+		}
+		args[k] = v
+	}
+	return args, nil
+}
+
+func (m *QEMU) cpuSlots(ctx context.Context) ([]cpuSlot, error) {
+	var slots []cpuSlot
+	if err := m.q.run(ctx, "query-hotpluggable-cpus", nil, &slots); err != nil {
+		return nil, fmt.Errorf("listing the machine's vCPU slots: %w", err)
+	}
+	// QEMU lists them highest first; added in this order, vCPU n is the n-th.
+	slices.Reverse(slots)
+	return slots, nil
+}
+
+// SetCPUs adds vCPUs into the first free slots, or removes the last ones added, until there are
+// n. A removal returns once QEMU has let the vCPU go, which waits on the guest offlining it.
+func (m *QEMU) SetCPUs(ctx context.Context, n int) error {
+	slots, err := m.cpuSlots(ctx)
+	if err != nil {
+		return err
+	}
+	if n < 1 || n > len(slots) {
+		return fmt.Errorf("%d vCPUs, and the machine has slots for 1 to %d", n, len(slots))
+	}
+	have := 0
+	for _, s := range slots {
+		if s.QOMPath != "" {
+			have++
+		}
+	}
+	for i, s := range slots {
+		if have >= n {
+			break
+		}
+		if s.QOMPath != "" {
+			continue
+		}
+		args := map[string]any{"driver": s.Type, "id": fmt.Sprintf("vcpu%d", i)}
+		for k, v := range s.Props {
+			args[k] = v
+		}
+		if err := m.q.run(ctx, "device_add", args, nil); err != nil {
+			return fmt.Errorf("adding vCPU %d: %w", i, err)
+		}
+		have++
+	}
+	for _, s := range slices.Backward(slots) {
+		if have <= n {
+			break
+		}
+		id, ok := strings.CutPrefix(s.QOMPath, peripheral)
+		if !ok {
+			// Boot vCPUs are not devices anyone added, and cannot be removed.
+			continue
+		}
+		if err := m.q.deviceDel(ctx, id); err != nil {
+			return fmt.Errorf("removing vCPU %s: %w", id, err)
+		}
+		have--
+	}
+	if have != n {
+		return fmt.Errorf("%d vCPUs, and only %d can be removed: the rest are the ones the machine was started with", n, have)
+	}
+	return nil
+}
+
+// addedCPUs are the vCPUs added since exec: QEMU puts a device with an id under
+// /machine/peripheral, and the boot vCPUs under /machine/unattached.
+func (m *QEMU) addedCPUs(ctx context.Context) ([]addedCPU, error) {
+	slots, err := m.cpuSlots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []addedCPU
+	for _, s := range slots {
+		if id, ok := strings.CutPrefix(s.QOMPath, peripheral); ok {
+			out = append(out, addedCPU{ID: id, Driver: s.Type, Props: s.Props})
+		}
+	}
+	return out, nil
+}
