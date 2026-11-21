@@ -27,8 +27,9 @@ import (
 // MIGRATION and never asks query-migrate again, so a QEMU that stopped sending one would leave a
 // save or a resume waiting until its context ended. Each side's stream is held to the order the
 // machine relies on: the save stops at pre-switchover and completes after it, a full load runs
-// the guest (RESUME) before it reports completed, and a fast load reports postcopy-active before
-// completed. A load of a truncated state ends the destination's QEMU.
+// the guest (RESUME) before it reports completed, and a fast load passes postcopy-device to
+// postcopy-active, where Resume returns, and runs the guest after it (bench, QEMU 11.2.0-rc0,
+// lab 44898418357, 2026-11-21). A load of a truncated state ends the destination's QEMU.
 //
 //	SPIN_RECORD_TEST=1   it starts machines (task boot:record)
 func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
@@ -126,7 +127,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 			t.Fatalf("resuming: %v\n%s", err, g.said())
 		}
 		t.Logf("loading: %s", s)
-		s.inOrder(t, "MIGRATION setup", "MIGRATION postcopy-active", "RESUME", "MIGRATION completed")
+		s.inOrder(t, "MIGRATION setup", "MIGRATION active", "MIGRATION postcopy-device", "MIGRATION postcopy-active", "RESUME", "MIGRATION completed")
 		g.type_(t, "echo RESUMED-$((2+3))")
 		g.await(t, regexp.MustCompile(`RESUMED-5\b`), 30*time.Second)
 	})
