@@ -209,8 +209,8 @@ func namedEdit(name, checkout string) (Edit, error) {
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
-// time alone and was never measured on a goal number in spin's shape (docs/lab.md, "What we carry,
-// and what it earns"), one group each, as image/mkosi.extra/usr/local/lib/spin-base/
+// time alone and was never measured on a goal number in spin's shape (docs/lab.md, "What the
+// machine carries"), one group each, as image/mkosi.extra/usr/local/lib/spin-base/
 // optimize-systemd.sh and the coldplug filter do it. What the script does for a function (the time
 // sync, the first boot's prompt, the machine-id commit, journald's storage, the timeouts, docker's
 // socket activation) is not in any of them, and neither are the masks of the five units of
@@ -272,7 +272,7 @@ rm "$f"
 
 // forwarderEarlyEdit starts login=spin's forwarder, which stands for spin's supervisor, without
 // systemd's default dependencies, as the image starts ssh.service: what spin would get if its
-// supervisor were ordered so (the proposal in docs/lab.md, "What is next", rank 6). It refuses a
+// supervisor were ordered so (docs/lab.md, "Open experiments", the forwarder). It refuses a
 // tree booted without the forwarder.
 var forwarderEarlyEdit = Edit{
 	Files: map[string]string{
