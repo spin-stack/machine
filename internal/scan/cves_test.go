@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package kernelcves
+package scan
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,7 +118,7 @@ func TestAVersionIsComparedByItsNumbers(t *testing.T) {
 }
 
 // The summary is what a person reads, so its counts and the list that needs a decision are
-// asserted on the output of run, from files laid out as the job lays them out.
+// asserted on what KernelCVEs returns, from files laid out as the job lays them out.
 func TestTheSummaryCountsEachVerdictAndListsWhatALaterSeriesFixes(t *testing.T) {
 	dir := t.TempDir()
 	published := filepath.Join(dir, "published", "2026")
@@ -147,9 +146,13 @@ func TestTheSummaryCountsEachVerdictAndListsWhatALaterSeriesFixes(t *testing.T) 
 	if err := os.WriteFile(sources, []byte("net/core/../ipv4/ip_output.c\ninclude/net/ip.h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var out, errs bytes.Buffer
-	if code := Run([]string{"-published", filepath.Join(dir, "published"), "-version", "7.3.3", "-sources", sources}, &out, &errs); code != 0 {
-		t.Fatalf("exit %d: %s", code, errs.String())
+	v, err := ParseKernelVersion("7.3.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := KernelCVEs(filepath.Join(dir, "published"), v, sources)
+	if err != nil {
+		t.Fatal(err)
 	}
 	for _, want := range []string{
 		"against the kernel CNA's 3 published CVEs",
@@ -159,12 +162,12 @@ func TestTheSummaryCountsEachVerdictAndListsWhatALaterSeriesFixes(t *testing.T) 
 		"Fixed only in a later series (1)",
 		"[CVE-2026-3](https://www.cve.org/CVERecord?id=CVE-2026-3) ipv4: later series - fixed in 7.4",
 	} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("the summary lacks %q:\n%s", want, out.String())
+		if !strings.Contains(out, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out.String(), "CVE-2026-2]") {
-		t.Errorf("the summary lists a CVE in code the kernel does not compile:\n%s", out.String())
+	if strings.Contains(out, "CVE-2026-2]") {
+		t.Errorf("the summary lists a CVE in code the kernel does not compile:\n%s", out)
 	}
 }
 
@@ -199,24 +202,36 @@ func TestInputsThatWouldUndercountAreRefused(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(good, "CVE-1.json"), []byte(`{"cveMetadata":{"cveId":"CVE-1"},"containers":{"cna":{"affected":[`+entryJSON("a.c", "7.4")+`]}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	v, err := ParseKernelVersion("7.3.3")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
-		name string
-		args []string
-		code int
+		name               string
+		published, sources string
+		ok                 bool
 	}{
-		{"a sources list that names nothing", []string{"-published", bad, "-version", "7.3.3", "-sources", empty}, 1},
-		{"a record that does not parse", []string{"-published", bad, "-version", "7.3.3", "-sources", sources}, 1},
-		{"a directory with no record", []string{"-published", t.TempDir(), "-version", "7.3.3", "-sources", sources}, 1},
-		{"a version that is not one", []string{"-published", bad, "-version", "7.3-rc1", "-sources", sources}, 2},
-		{"a missing flag", []string{"-version", "7.3.3", "-sources", sources}, 2},
-		{"a flag it does not know", []string{"-published", good, "-version", "7.3.3", "-sources", sources, "-since", "2026"}, 2},
-		{"a sources list of one file is a list", []string{"-published", good, "-version", "7.3.3", "-sources", sources}, 0},
+		{"a sources list that names nothing", bad, empty, false},
+		{"a record that does not parse", bad, sources, false},
+		{"a directory with no record", t.TempDir(), sources, false},
+		{"a sources list that is not there", good, filepath.Join(dir, "missing"), false},
+		{"a sources list of one file is a list", good, sources, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var out, errs bytes.Buffer
-			if code := Run(tc.args, &out, &errs); code != tc.code {
-				t.Errorf("exit %d, want %d (%s)", code, tc.code, errs.String())
+			if _, err := KernelCVEs(tc.published, v, tc.sources); (err == nil) != tc.ok {
+				t.Errorf("err %v, want ok %v", err, tc.ok)
 			}
 		})
+	}
+}
+
+func TestAVersionThatIsNotOneIsRefused(t *testing.T) {
+	for _, s := range []string{"7.3-rc1", "", "7.-1"} {
+		if _, err := ParseKernelVersion(s); err == nil {
+			t.Errorf("%q parsed", s)
+		}
+	}
+	if v, err := ParseKernelVersion("7.3.3"); err != nil || v.String() != "7.3.3" {
+		t.Errorf("7.3.3: %v, %v", v, err)
 	}
 }

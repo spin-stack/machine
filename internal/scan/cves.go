@@ -1,24 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package kernelcves says what the Linux kernel CNA's published CVEs mean for one built kernel:
-// for each, whether the kernel's version is past its fix, whether the kernel compiled none of the
-// files the fix touched, or whether it applies - and for those that apply, where the fix is.
-//
-// "Not built" is read off the build and not the configuration: the kernel's build records, for
-// every object it compiled, the sources and headers that went into it (kernel/Dockerfile writes
-// their union as kernel/sources), so a CVE whose files are none of them is in code this kernel
-// does not contain. Reasoning from CONFIG_ symbols to files through Kbuild's makefiles would be a
-// second, worse copy of what the build already decided.
-//
-// The record's semver ranges are read and its git ranges are not: the kernel is built from a
-// release tarball, so its version is all there is to compare.
-package kernelcves
+// Package scan says what is known against a release: the Linux kernel CNA's published CVEs against
+// its kernel (KernelCVEs), and OSV's findings against its SBOM, kept as one issue a package
+// (SyncIssues).
+package scan
 
 import (
 	"bufio"
 	"cmp"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -30,38 +20,31 @@ import (
 	"strings"
 )
 
-// Run writes the summary to stdout: 0 when it could, 2 for a command line it cannot use, 1 when
-// reading failed.
-func Run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("kernelcves", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	published := fs.String("published", "", "the vulns repository's cve/published directory")
-	version := fs.String("version", "", "the kernel's version, e.g. 7.3.3")
-	sourcesPath := fs.String("sources", "", "the kernel's sources: one path a line, as kernel/Dockerfile writes them")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if *published == "" || *version == "" || *sourcesPath == "" {
-		fmt.Fprintln(stderr, "kernelcves: -published, -version and -sources are required")
-		return 2
-	}
-	v, ok := parseVersion(*version)
-	if !ok {
-		fmt.Fprintf(stderr, "kernelcves: %q is not a kernel version\n", *version)
-		return 2
-	}
-	sources, err := readSources(*sourcesPath)
+// KernelCVEs is what the kernel CNA's records under published mean for the kernel at v, whose
+// build compiled the files the list at sources names: a Markdown summary saying, for each CVE,
+// whether v is past its fix, whether the kernel compiled none of the files the fix touched, or
+// whether it applies, and for those that apply, where the fix is.
+//
+// "Not built" is read off the build and not the configuration: the kernel's build records, for
+// every object it compiled, the sources and headers that went into it (kernel/Dockerfile writes
+// their union as kernel/sources), so a CVE whose files are none of them is in code this kernel
+// does not contain. Reasoning from CONFIG_ symbols to files through Kbuild's makefiles would be a
+// second, worse copy of what the build already decided.
+//
+// The record's semver ranges are read and its git ranges are not: the kernel is built from a
+// release tarball, so its version is all there is to compare.
+func KernelCVEs(published string, v KernelVersion, sources string) (string, error) {
+	built, err := readSources(sources)
 	if err != nil {
-		fmt.Fprintln(stderr, "kernelcves:", err)
-		return 1
+		return "", err
 	}
-	records, err := readRecords(*published)
+	records, err := readRecords(published)
 	if err != nil {
-		fmt.Fprintln(stderr, "kernelcves:", err)
-		return 1
+		return "", err
 	}
-	writeSummary(stdout, *version, classify(records, v, sources))
-	return 0
+	var b strings.Builder
+	writeSummary(&b, v, classify(records, v, built))
+	return b.String(), nil
 }
 
 // readSources reads kernel/sources, each path cleaned: the build records a header included by a
@@ -146,11 +129,20 @@ func readRecords(dir string) ([]record, error) {
 	return out, nil
 }
 
-// version is a kernel version's numbers: 7.3 is 7.3.0.
-type version []int
+// KernelVersion is a kernel version's numbers: 7.3 is 7.3.0.
+type KernelVersion []int
 
-func parseVersion(s string) (version, bool) {
-	var v version
+// ParseKernelVersion is s, such as 7.3.3, as a KernelVersion.
+func ParseKernelVersion(s string) (KernelVersion, error) {
+	v, ok := parseVersion(s)
+	if !ok {
+		return nil, fmt.Errorf("%q is not a kernel version", s)
+	}
+	return v, nil
+}
+
+func parseVersion(s string) (KernelVersion, bool) {
+	var v KernelVersion
 	for p := range strings.SplitSeq(s, ".") {
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 0 {
@@ -161,7 +153,7 @@ func parseVersion(s string) (version, bool) {
 	return v, len(v) > 0
 }
 
-func (v version) compare(w version) int {
+func (v KernelVersion) compare(w KernelVersion) int {
 	for i := range max(len(v), len(w)) {
 		if c := cmp.Compare(v.at(i), w.at(i)); c != 0 {
 			return c
@@ -170,33 +162,33 @@ func (v version) compare(w version) int {
 	return 0
 }
 
-func (v version) at(i int) int {
+func (v KernelVersion) at(i int) int {
 	if i < len(v) {
 		return v[i]
 	}
 	return 0
 }
 
-func (v version) series() string {
+func (v KernelVersion) series() string {
 	return fmt.Sprintf("%d.%d", v.at(0), v.at(1))
 }
 
 // atMost is v <= bound, where bound is a version, "*" (no bound), or a series and "*": 7.2.*
 // is every release of 7.2.
-func (v version) atMost(bound string) bool {
+func (v KernelVersion) atMost(bound string) bool {
 	if bound == "*" {
 		return true
 	}
 	if prefix, ok := strings.CutSuffix(bound, ".*"); ok {
 		b, ok := parseVersion(prefix)
-		return ok && version(v[:min(len(v), len(b))]).compare(b) <= 0
+		return ok && KernelVersion(v[:min(len(v), len(b))]).compare(b) <= 0
 	}
 	b, ok := parseVersion(bound)
 	return ok && v.compare(b) <= 0
 }
 
 // contains is whether a range names v. A git range never does: there is no commit to compare.
-func (r rng) contains(v version) bool {
+func (r rng) contains(v KernelVersion) bool {
 	if r.VersionType == "git" {
 		return false
 	}
@@ -216,7 +208,7 @@ func (r rng) contains(v version) bool {
 }
 
 // status is what an affected entry says of v: its default, unless one of its ranges names v.
-func (a affected) status(v version) string {
+func (a affected) status(v KernelVersion) string {
 	status := a.DefaultStatus
 	for _, r := range a.Versions {
 		if r.contains(v) {
@@ -229,8 +221,8 @@ func (a affected) status(v version) string {
 // fixes are the versions an entry says a fix landed in: the start of each range that is
 // unaffected from there on (a stable release up to its series' end, or mainline up to "*"). A git
 // range's version is a commit, which parseVersion refuses.
-func (a affected) fixes() []version {
-	var out []version
+func (a affected) fixes() []KernelVersion {
+	var out []KernelVersion
 	for _, r := range a.Versions {
 		if r.Status != "unaffected" || r.LessThanOrEqual == "" {
 			continue
@@ -253,19 +245,19 @@ const (
 	applies
 )
 
-type finding struct {
+type cve struct {
 	id, title string
 	verdict   verdict
 	// fix is the first version past v the record says is fixed, nil when there is none yet.
-	fix version
+	fix KernelVersion
 }
 
-func classify(records []record, v version, sources map[string]bool) []finding {
-	var out []finding
+func classify(records []record, v KernelVersion, sources map[string]bool) []cve {
+	var out []cve
 	for _, r := range records {
-		f := finding{id: r.Meta.ID, title: r.Containers.CNA.Title, verdict: fixed}
+		f := cve{id: r.Meta.ID, title: r.Containers.CNA.Title, verdict: fixed}
 		var files []string
-		var fixes []version
+		var fixes []KernelVersion
 		for _, a := range r.Containers.CNA.Affected {
 			files = append(files, a.ProgramFiles...)
 			fixes = append(fixes, a.fixes()...)
@@ -281,14 +273,14 @@ func classify(records []record, v version, sources map[string]bool) []finding {
 		}
 		out = append(out, f)
 	}
-	slices.SortFunc(out, func(a, b finding) int { return cmp.Compare(a.id, b.id) })
+	slices.SortFunc(out, func(a, b cve) int { return cmp.Compare(a.id, b.id) })
 	return out
 }
 
 // firstFixAfter prefers a release of v's own series, which refresh.yml takes on its own, to a
 // later series, which is a person's decision.
-func firstFixAfter(v version, fixes []version) version {
-	var same, later version
+func firstFixAfter(v KernelVersion, fixes []KernelVersion) KernelVersion {
+	var same, later KernelVersion
 	for _, f := range fixes {
 		if f.compare(v) <= 0 {
 			continue
@@ -307,7 +299,7 @@ func firstFixAfter(v version, fixes []version) version {
 	return later
 }
 
-func (v version) String() string {
+func (v KernelVersion) String() string {
 	parts := make([]string, len(v))
 	for i, n := range v {
 		parts[i] = strconv.Itoa(n)
@@ -315,10 +307,10 @@ func (v version) String() string {
 	return strings.Join(parts, ".")
 }
 
-func writeSummary(w io.Writer, ver string, findings []finding) {
-	v, _ := parseVersion(ver)
+func writeSummary(w io.Writer, v KernelVersion, findings []cve) {
+	ver := v.String()
 	var nFixed, nNotBuilt int
-	var inSeries, laterSeries, unfixed []finding
+	var inSeries, laterSeries, unfixed []cve
 	for _, f := range findings {
 		switch {
 		case f.verdict == fixed:
@@ -348,7 +340,7 @@ func writeSummary(w io.Writer, ver string, findings []finding) {
 	list(w, "No fix released", unfixed)
 }
 
-func list(w io.Writer, heading string, findings []finding) {
+func list(w io.Writer, heading string, findings []cve) {
 	if len(findings) == 0 {
 		return
 	}

@@ -12,9 +12,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/spin-stack/spin-machine/internal/machinetype"
-	"github.com/spin-stack/spin-machine/machine"
 )
 
 // QEMUBinaries are what the QEMU build ships. qemu-img is not a convenience: a container's
@@ -85,20 +82,6 @@ func VerifyQEMU(o Options) error {
 		}
 	}
 	return nil
-}
-
-// MachineType is what qemu says of the machine type every checkpoint is saved on: an error when it
-// is missing or deprecated, and a notice when the binary offers a newer one.
-func MachineType(qemu string) (string, error) {
-	help, err := machinetype.Help(qemu)
-	if err != nil {
-		return "", err
-	}
-	notice, err := machinetype.Check(help, machine.MachineType)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", filepath.Base(qemu), err)
-	}
-	return notice, nil
 }
 
 // VerifyKernel asserts the kernel is one QEMU can enter and this machine can boot: a relocatable

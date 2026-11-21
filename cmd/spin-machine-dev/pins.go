@@ -21,7 +21,6 @@ import (
 	"github.com/spin-stack/go-tools/versions"
 
 	"github.com/spin-stack/spin-machine/internal/build"
-	"github.com/spin-stack/spin-machine/internal/machinetype"
 	"github.com/spin-stack/spin-machine/machine"
 )
 
@@ -112,8 +111,8 @@ func qemuCompat(ctx context.Context, w workspace) (string, error) {
 		}
 		src = append(src, string(b))
 	}
-	out, err := machinetype.Compat(strings.Join(src, "\n"), machine.MachineType)
-	if errors.Is(err, machinetype.ErrNoArray) {
+	out, err := build.MachineTypeCompat(strings.Join(src, "\n"), machine.MachineType)
+	if errors.Is(err, build.ErrNoCompatArray) {
 		return machine.MachineType + " is the newest type in this QEMU: nothing newer to differ from it", nil
 	}
 	return out, err

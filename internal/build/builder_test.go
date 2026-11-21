@@ -139,3 +139,23 @@ func TestThePinnedBuildersPackagesAreReadFromItsDigest(t *testing.T) {
 		t.Error("a part with no builder entry: read")
 	}
 }
+
+// The installed packages are every one of them, name=version, sorted. A package with half its
+// record is refused, and so is a database with none.
+func TestTheInstalledPackagesAreEveryOneOfThem(t *testing.T) {
+	db := "C:Q1abc=\nP:zlib-static\nV:1.3.1-r2\nA:x86_64\n\nP:glib-static\nV:2.88.1-r1\n\n"
+	got, err := installedPackages(db)
+	if err != nil || got != "glib-static=2.88.1-r1\nzlib-static=1.3.1-r2\n" {
+		t.Fatalf("installed %q, %v", got, err)
+	}
+	for name, db := range map[string]string{
+		"no version":          "P:glib\n",
+		"no name":             "V:1\n",
+		"nothing":             "\n",
+		"one whole, one half": "P:musl\nV:1.2.5-r10\n\nP:glib\n",
+	} {
+		if _, err := installedPackages(db); err == nil {
+			t.Errorf("%s: read as installed packages", name)
+		}
+	}
+}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package osvissues
+package scan
 
 import (
 	"bytes"
@@ -116,51 +116,57 @@ func TestFindingsAreReadAsTaskOSVWritesThem(t *testing.T) {
 	}
 }
 
-func TestRunTakesThePlanThroughGH(t *testing.T) {
+func TestSyncIssuesTakesThePlanThroughGH(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "osv.tsv")
 	if err := os.WriteFile(path, []byte("USN-8927-1\tcurl@8.18.0-1ubuntu2.7\tcurl vulnerabilities\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	existing, err := json.Marshal([]issue{{Number: 7, Title: "osv: jq", State: "OPEN"}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
-		name string
-		args []string
-		want []string
+		name   string
+		issues []issue
+		calls  []string
+		said   string
 	}{
-		{"acts", []string{"-release", rel, "-findings", path},
-			[]string{"issue list", "issue create --title osv: curl", "issue close 7"}},
-		{"with -n only reads", []string{"-n", "-release", rel, "-findings", path},
-			[]string{"issue list"}},
+		{"a package with no issue, and an issue whose package has none", []issue{{Number: 7, Title: "osv: jq", State: "OPEN"}},
+			[]string{"issue list", "issue create --title osv: curl --body ", "issue close 7 --reason completed --comment "},
+			"create \"osv: curl\"\nclose #7 \"osv: jq\"\n"},
+		{"a closed issue that did not list a finding", []issue{{Number: 3, Title: "osv: curl", State: "CLOSED"}},
+			[]string{"issue list", "issue reopen 3 --comment ", "issue edit 3 --body "},
+			"reopen #3 \"osv: curl\"\nedit #3 \"osv: curl\"\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			existing, err := json.Marshal(tc.issues)
+			if err != nil {
+				t.Fatal(err)
+			}
 			var calls []string
-			cli := func(args ...string) ([]byte, error) {
+			gh := func(args ...string) ([]byte, error) {
 				calls = append(calls, strings.Join(args, " "))
 				if args[1] == "list" {
 					return existing, nil
 				}
 				return nil, nil
 			}
-			var stdout, stderr bytes.Buffer
-			if code := Run(tc.args, cli, &stdout, &stderr); code != 0 {
-				t.Fatalf("run = %d: %s", code, stderr.String())
+			var stdout bytes.Buffer
+			if err := SyncIssues(rel, path, gh, &stdout); err != nil {
+				t.Fatal(err)
 			}
-			if len(calls) != len(tc.want) {
-				t.Fatalf("gh was called %d times, want %d: %q", len(calls), len(tc.want), calls)
+			if len(calls) != len(tc.calls) {
+				t.Fatalf("gh was called %d times, want %d: %q", len(calls), len(tc.calls), calls)
 			}
-			for i, w := range tc.want {
+			for i, w := range tc.calls {
 				if !strings.HasPrefix(calls[i], w) {
 					t.Errorf("call %d = %q, want it to start %q", i, calls[i], w)
 				}
+			}
+			if got := stdout.String(); got != tc.said {
+				t.Errorf("stdout %q, want %q", got, tc.said)
 			}
 		})
 	}
 }
 
-func TestRunFailsWhenItCannotReadOrAct(t *testing.T) {
+func TestSyncIssuesFailsWhenItCannotReadOrAct(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "osv.tsv")
 	bad := filepath.Join(dir, "bad.tsv")
@@ -185,25 +191,15 @@ func TestRunFailsWhenItCannotReadOrAct(t *testing.T) {
 		{"gh cannot act", good, []byte("[]"), nil, fails},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cli := func(args ...string) ([]byte, error) {
+			gh := func(args ...string) ([]byte, error) {
 				if args[1] == "list" {
 					return tc.list, tc.listErr
 				}
 				return nil, tc.actErr
 			}
-			var stderr bytes.Buffer
-			if code := Run([]string{"-release", rel, "-findings", tc.findings}, cli, &bytes.Buffer{}, &stderr); code != 1 {
-				t.Errorf("run = %d, want 1: %s", code, stderr.String())
+			if err := SyncIssues(rel, tc.findings, gh, &bytes.Buffer{}); err == nil {
+				t.Error("no error")
 			}
 		})
-	}
-}
-
-func TestRunRefusesACommandLineWithoutItsInputs(t *testing.T) {
-	for _, args := range [][]string{{"-release", rel}, {"-findings", "x"}, {"-bogus"}} {
-		var stderr bytes.Buffer
-		if code := Run(args, func(...string) ([]byte, error) { t.Fatal("gh called"); return nil, nil }, &bytes.Buffer{}, &stderr); code != 2 {
-			t.Errorf("run %q = %d, want 2", args, code)
-		}
 	}
 }

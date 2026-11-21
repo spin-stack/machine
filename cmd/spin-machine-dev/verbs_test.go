@@ -749,6 +749,16 @@ esac`
 	if _, _, status := verb(t, "cves"); status != 2 {
 		t.Errorf("no release exited %d", status)
 	}
+	// A manifest from before kernel_version names no kernel to judge.
+	put(t, filepath.Join(share, "machine.env"), "qemu_version=11.1.2\n", 0o644)
+	if out, err := exec.Command("tar", "-czf", tarball, "-C", tar, "spin-machine-v20261119.01-linux-x86_64").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	sum, _ = build.FileSHA256(tarball)
+	fakes(t, map[string]string{"gh": strings.Replace(gh, "SUM", sum, 1), "cosign": "", "git": records})
+	if _, stderr, status := verb(t, "cves"); status != 2 || !strings.Contains(stderr, "is not a kernel version") {
+		t.Errorf("a release with no kernel version: exit %d, %q", status, stderr)
+	}
 }
 
 func TestOutdatedAndBumpAreGoToolsVersions(t *testing.T) {

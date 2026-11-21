@@ -101,7 +101,7 @@ order. The gaps in their numbers are patches deleted once a run read nothing for
 carries", which says what they earn together.
 
 A change to the config is a new kernel for every guest's next boot, and the release notes say
-what changed (`internal/releasenotes` lists the options turned on, off or changed). It does not
+what changed (`internal/release` lists the options turned on, off or changed). It does not
 move the fingerprint, and checkpoints keep resuming: each resumed guest goes on running the
 kernel it was saved with until it reboots.
 
