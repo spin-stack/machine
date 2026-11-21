@@ -103,9 +103,12 @@ const (
 	// Postmigrate is a machine a completed checkpoint left stopped, its disks let go until Hold
 	// or Continue takes them back.
 	Postmigrate Status = "postmigrate"
+	// finishMigrate is a machine stopped for a checkpoint that QEMU has not yet left Postmigrate.
+	// Checkpoint returns only once it is past.
+	finishMigrate Status = "finish-migrate"
 )
 
-func init() { qmpdef.Enum(Prelaunch, Inmigrate, Running, Paused, Postmigrate) }
+func init() { qmpdef.Enum(Prelaunch, Inmigrate, Running, Paused, Postmigrate, finishMigrate) }
 
 type deviceID struct {
 	ID string `json:"id"`
