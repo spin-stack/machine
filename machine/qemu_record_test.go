@@ -3,12 +3,19 @@
 package machine
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/spin-stack/machine/qmp"
 )
 
 // fakeMachine is what a QEMU answers about itself, path by path: a small machine with a device of
@@ -328,5 +335,87 @@ func TestCPUOfANamedModel(t *testing.T) {
 	}
 	if got := f.sent("query-cpu-model-expansion")[0]["model"]; !reflect.DeepEqual(got, map[string]any{"name": "Skylake-Server-v4"}) {
 		t.Errorf("expanded %v", got)
+	}
+}
+
+// ReadTarget hands back the record of a machine of the caller's Spec, held and never run, and
+// ends it. What is one machine's and not the record's is not opened: the caller's monitor, its
+// console file, a TAP or /dev/vhost-net; and a machine with a console still has its serial port.
+func TestReadTargetReadsAMachineHeldForItAndEndsIt(t *testing.T) {
+	t.Setenv("FAKE_STATUS", "prelaunch")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := filepath.Join(t.TempDir(), "gone")
+	for _, tc := range []struct {
+		name, console string
+		// serial is how the command line gives the machine its serial port.
+		serial string
+		// handed is how many descriptors QEMU is given: Start's monitor, and the console's pipe.
+		handed int
+	}{
+		{"with a console", "file:" + filepath.Join(gone, "console"), "opaque=console", 2},
+		{"with none", "", "-serial none", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := Spec{QEMU: self, Kernel: bzImageStub(t), Firmware: t.TempDir(), Accel: "tcg", BootCPUs: 1, Memory: Memory{BaseMB: 128},
+				Monitors: []Monitor{{Socket: filepath.Join(gone, "qmp.sock")}},
+				NICs:     []NIC{{MAC: "52:54:00:12:34:56", MTU: 1450}},
+				Console:  tc.console}
+			var args []string
+			var handed int
+			var asked []string
+			var mu sync.Mutex
+			got, err := ReadTarget(ctx(t), s, StartOptions{
+				Cmd: func(c *exec.Cmd) {
+					c.Env = append(os.Environ(), fakeMode+"=obeys", "GORACE=atexit_sleep_ms=0")
+					args, handed = c.Args, len(c.ExtraFiles)
+				},
+				Observer: qmp.Observer{Command: func(ctx context.Context, name string) (context.Context, func(error)) {
+					mu.Lock()
+					asked = append(asked, name)
+					mu.Unlock()
+					return ctx, func(error) {}
+				}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []NIC{{MAC: "52:54:00:12:34:56", MTU: 1450}}; !reflect.DeepEqual(s.NICs, want) {
+				t.Errorf("the caller's NICs became %+v", s.NICs)
+			}
+			if want := fakeTarget(t); !reflect.DeepEqual(got, want) {
+				t.Errorf("ReadTarget = %+v, want what Target reads, %+v", got, want)
+			}
+			line := strings.Join(args, " ")
+			if !strings.Contains(line, "-netdev hubport,id=net0,hubid=0 -device virtio-net-pci,netdev=net0,") ||
+				!strings.Contains(line, ",host_mtu=1450") || !strings.Contains(line, tc.serial) || strings.Contains(line, gone) {
+				t.Errorf("the machine held for its record was %s", line)
+			}
+			if handed != tc.handed {
+				t.Errorf("QEMU was handed %d descriptors, want %d", handed, tc.handed)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(asked) == 0 || asked[len(asked)-1] != "quit" {
+				t.Errorf("asked %v, want the machine quit once it had said", asked)
+			}
+		})
+	}
+}
+
+// A machine that cannot be started says why, in QEMU's words.
+func TestReadTargetSaysWhyTheMachineDidNotStart(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := Spec{QEMU: self, Kernel: bzImageStub(t), Firmware: t.TempDir(), Accel: "tcg", BootCPUs: 1, Memory: Memory{BaseMB: 128}}
+	_, err = ReadTarget(ctx(t), s, StartOptions{Cmd: func(c *exec.Cmd) {
+		c.Env = append(os.Environ(), fakeMode+"=refuses", "GORACE=atexit_sleep_ms=0")
+	}})
+	if err == nil || !strings.Contains(err.Error(), "reading the record") || !strings.Contains(err.Error(), "Host doesn't support requested features") {
+		t.Errorf("ReadTarget = %v, want why QEMU refused", err)
 	}
 }

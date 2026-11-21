@@ -128,8 +128,9 @@ func (f *fake) serve(c net.Conn) {
 	in := bufio.NewScanner(c)
 	for in.Scan() {
 		var req struct {
-			Execute string          `json:"execute"`
-			ID      json.RawMessage `json:"id"`
+			Execute   string          `json:"execute"`
+			Arguments map[string]any  `json:"arguments"`
+			ID        json.RawMessage `json:"id"`
 		}
 		_ = json.Unmarshal(in.Bytes(), &req)
 		reply := `{"return": {}}`
@@ -139,6 +140,10 @@ func (f *fake) serve(c net.Conn) {
 			continue
 		case req.Execute == "query-status":
 			reply = `{"return": {"status": "` + f.status + `"}}`
+		default:
+			if r, ok := recordAnswers(call{Command: req.Execute, Args: req.Arguments}); ok {
+				reply = r
+			}
 		}
 		f.mu.Lock()
 		_, _ = w.WriteString(reply[:len(reply)-1] + `, "id": ` + string(req.ID) + "}\n")
