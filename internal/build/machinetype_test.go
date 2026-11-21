@@ -34,7 +34,7 @@ func TestThePinnedTypeAgainstAQEMU(t *testing.T) {
 	for _, tc := range []struct {
 		name, help, pinned, notice, err string
 	}{
-		{name: "this tree's QEMU and pin", help: real, pinned: machine.MachineType},
+		{name: "this tree's QEMU and pin", help: real, pinned: machine.Type},
 		{name: "a QEMU with a newer type", help: newer, pinned: "pc-q35-11.1", notice: "QEMU offers pc-q35-11.2; this machine stays on pc-q35-11.1"},
 		{name: "a newer major", help: "pc-q35-12.0   Standard PC\n" + real, pinned: "pc-q35-11.1", notice: "QEMU offers pc-q35-12.0"},
 		{name: "an older pin, still offered", help: real, pinned: "pc-q35-10.2", notice: "QEMU offers pc-q35-11.1; this machine stays on pc-q35-10.2"},
@@ -184,7 +184,7 @@ func TestAQEMUBumpSaysWhatNewerTypesChange(t *testing.T) {
 	}
 	tarball, v = qemuSource(t, "GlobalProperty hw_compat_99_0[] = {};\n", "GlobalProperty pc_compat_99_0[] = {};\n")
 	fakeCurl(t, `cp `+tarball+` "$4"`)
-	if got, err := QEMUCompat(context.Background(), v); err != nil || got != machine.MachineType+" is the newest type in this QEMU: nothing newer to differ from it" {
+	if got, err := QEMUCompat(context.Background(), v); err != nil || got != machine.Type+" is the newest type in this QEMU: nothing newer to differ from it" {
 		t.Errorf("a QEMU with nothing newer: %q, %v", got, err)
 	}
 	tarball, v = qemuSource(t, source, "")

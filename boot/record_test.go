@@ -218,7 +218,7 @@ func (r *recorder) selfResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = state.Close() }()
-	saved, err := src.Checkpoint(ctx, state, machine.Save{}, func(context.Context) error { return nil })
+	saved, err := src.Checkpoint(ctx, state, machine.SaveOptions{}, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatalf("checkpointing: %v\n%s", err, a.said())
 	}
@@ -240,7 +240,7 @@ func (r *recorder) selfResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := dst.Resume(ctx, state, saved, here, machine.Load{}, root, extDisk(t)); err != nil {
+	if err := dst.Resume(ctx, state, saved, here, machine.LoadOptions{}, root, extDisk(t)); err != nil {
 		t.Fatalf("resuming: %v\n%s", err, b.said())
 	}
 	b.type_(t, "echo RESUMED-$((2+3))")

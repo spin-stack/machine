@@ -12,7 +12,7 @@ it. The repository builds the machine that the lifecycle runs on, and offers the
 lifecycle needs. `Spec.Restore` starts a machine held for a checkpoint (`-incoming defer`).
 `machine.VM.Resume` takes the record of the machine it resumes into from its caller, refuses a
 checkpoint that record does not resume, binds its disks and loads the state. It loads the state
-in full or, with `Load.Fast`, runs the guest once its devices are in and reads the guest's memory
+in full or, with `LoadOptions.Fast`, runs the guest once its devices are in and reads the guest's memory
 as the guest touches it (QEMU 11.2's fast snapshot load). A checkpoint is written in
 `machine.FormatMappedRAM`. One saved before that format, in `FormatStream`, still loads, in full.
 

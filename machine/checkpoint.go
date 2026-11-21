@@ -14,8 +14,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Load is how a checkpoint is read.
-type Load struct {
+// LoadOptions is how a checkpoint is read.
+type LoadOptions struct {
 	// Fast runs the guest as soon as its devices are loaded and reads its memory as it touches
 	// it, the rest behind it. Without Fast the guest runs once all of it has been read.
 	//
@@ -32,23 +32,24 @@ type Load struct {
 	Channels int
 }
 
-// Save is how a checkpoint is written.
-type Save struct {
-	// Channels is how many threads write the guest's memory, as Load.Channels reads it; none given
-	// is DefaultChannels. The state is the same file whatever wrote it, and loads with any number.
+// SaveOptions is how a checkpoint is written.
+type SaveOptions struct {
+	// Channels is how many threads write the guest's memory, as LoadOptions.Channels reads it;
+	// none given is DefaultChannels. The state is the same file whatever wrote it, and loads with
+	// any number.
 	Channels int
 }
 
-// DefaultChannels is how many threads move a checkpoint's memory when a Save or a Load names
-// none. Eight, not sixteen, because restores share a host: one restore into a QEMU started ahead
-// reached the first login at 152 ms with 1 channel, 100 with 8 and 90 with 16, but four at once
-// read 184, 140 and 143, 16 losing to 8 by 3.2 ms [1.1, 5.8], and eight at once 400, 329 and 337
-// (bench, spin's shape and login, 30 bursts, lab 44792429636, 2026-11-20). Each channel is a
+// DefaultChannels is how many threads move a checkpoint's memory when SaveOptions or LoadOptions
+// names none. Eight, not sixteen, because restores share a host: one restore into a QEMU started
+// ahead reached the first login at 152 ms with 1 channel, 100 with 8 and 90 with 16, but four at
+// once read 184, 140 and 143, 16 losing to 8 by 3.2 ms [1.1, 5.8], and eight at once 400, 329 and
+// 337 (bench, spin's shape and login, 30 bursts, lab 44792429636, 2026-11-20). Each channel is a
 // thread of QEMU's.
 const DefaultChannels = 8
 
 // channels is how many threads write s's state.
-func (s Save) channels() int {
+func (s SaveOptions) channels() int {
 	if s.Channels == 0 {
 		return DefaultChannels
 	}
@@ -56,7 +57,7 @@ func (s Save) channels() int {
 }
 
 // channels is how many threads read a state in format with l.
-func (l Load) channels(format string) int {
+func (l LoadOptions) channels(format string) int {
 	switch {
 	case l.Channels != 0:
 		return l.Channels
@@ -87,8 +88,8 @@ type Saved struct {
 const (
 	// FormatMappedRAM is QEMU's migration stream with mapped-ram: each RAM page at a fixed
 	// offset of the file, which is what lets a load read a page when the guest touches it
-	// (Load.Fast). The file is sparse, as large as the machine's RAM blocks at their ceilings;
-	// what is not written is holes.
+	// (LoadOptions.Fast). The file is sparse, as large as the machine's RAM blocks at their
+	// ceilings; what is not written is holes.
 	FormatMappedRAM = "qemu-mapped-ram"
 	// FormatStream is the stream before it, every page in order: what a checkpoint saved by
 	// a spin-machine before mapped-ram is, which still loads, but only in full.
@@ -113,7 +114,7 @@ const checkpointBandwidth = int64(64) << 30
 // added while the machine ran are read before the migration starts, because QEMU refuses a query
 // of some of them once one is under way. The machine's record is read while it runs: QEMU answers
 // its monitors while it writes the guest's RAM.
-func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save Save, seal func(context.Context) error) (Saved, error) {
+func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, seal func(context.Context) error) (Saved, error) {
 	var a added
 	var err error
 	if a.CPUs, err = m.addedCPUs(ctx); err != nil {
@@ -266,7 +267,7 @@ func (m *QEMU) migrate(ctx context.Context, command string, f *os.File, access i
 // postcopy-active. QEMU needs userfaultfd for it: /dev/userfaultfd readable and writable by its
 // user, or vm.unprivileged_userfaultfd=1, or CAP_SYS_PTRACE - the guest's faults are taken in
 // the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor does not see.
-func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load Load, disks ...Disk) error {
+func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error {
 	if err := CanResume(saved, here); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
@@ -352,7 +353,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 // prefetches is whether a resume reads the state ahead: only a full load of a mapped-ram state.
 // A fast load reads a page when the guest touches it, which reading every page ahead would undo,
 // and a stream state is read once, in order, by the load itself.
-func prefetches(saved Saved, load Load) bool {
+func prefetches(saved Saved, load LoadOptions) bool {
 	return saved.Format == FormatMappedRAM && !load.Fast
 }
 

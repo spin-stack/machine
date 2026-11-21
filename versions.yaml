@@ -44,7 +44,7 @@
   pin: 1055588c7acb8b083ca69c3f8625ca240de823e6a34b02b16fa8cabeb1be49be
   track: tags https://gitlab.com/qemu-project/qemu.git
   note: >-
-    qemu/Dockerfile. A new emulator of the same machine: the machine type (machine.MachineType)
+    qemu/Dockerfile. A new emulator of the same machine: the machine type (machine.Type)
     stays, and `spin-machine-dev bump qemu` prints what newer types change against it. After the
     bump: `spin-machine-dev build qemu`, `spin-machine-dev verify qemu args`, then `task boot:record boot:compat`. The build directories' cache mounts are keyed by the
     version, so QEMU_CONFIG_REV does not move with it.

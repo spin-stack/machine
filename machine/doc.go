@@ -31,7 +31,7 @@
 //  1. OpenRelease finds a release's files and says which is missing. Release.Spec, given the
 //     accelerator, starts the Spec: QEMU (the TCG build under "tcg"), Kernel, Firmware and
 //     Accel.
-//  2. The caller fills in the rest of the Spec: CPUs, Memory, Disks, NICs, vsock, Monitors, the
+//  2. The caller fills in the rest of the Spec: CPUs, Memory, Places, NICs, vsock, Monitors, the
 //     Cmdline, and Restore when a checkpoint will be resumed.
 //  3. Spec.Args is the QEMU command line. The caller execs QEMU with it and the descriptors the
 //     Spec names. QEMU starts held.

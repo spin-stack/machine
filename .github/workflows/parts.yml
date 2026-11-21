@@ -154,7 +154,7 @@ jobs:
 
       # The build said what it produced, and whether it still offers the machine type every
       # checkpoint is saved on, on the run's summary. A changed QEMU binary is a new emulator of
-      # the same machine (machine.MachineType stays), and whether a
+      # the same machine (machine.Type stays), and whether a
       # checkpoint the released QEMU saved resumes on it is compat's to say, on the KVM runner
       # (compat.yml). lab tree --qemu run:<id> finds it by this name.
       - name: Upload the extracted binaries

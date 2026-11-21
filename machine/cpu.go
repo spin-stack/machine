@@ -129,19 +129,19 @@ func features(props map[string]any) []string {
 	return out
 }
 
-// Model is a named CPU model a host can run, and how many features it has.
-type Model struct {
+// CPUModel is a named CPU model a host can run, and how many features it has.
+type CPUModel struct {
 	Name     string `json:"name"`
 	Features int    `json:"features"`
 }
 
-// Models are the named CPU models this host can run a machine of: the ones QEMU says it can
+// CPUModels are the named CPU models this host can run a machine of: the ones QEMU says it can
 // run here with nothing missing (query-cpu-definitions' unavailable-features is empty, under the
 // accelerator the machine runs), that are safe to migrate, are not an alias of another, and are
 // not deprecated. host and max are the host's own, not a name every host shares.
 //
 // Each with its feature count, from its static expansion, which Baseline ranks them by.
-func (m *QEMU) Models(ctx context.Context) ([]Model, error) {
+func (m *QEMU) CPUModels(ctx context.Context) ([]CPUModel, error) {
 	var defs []struct {
 		Name          string   `json:"name"`
 		Unavailable   []string `json:"unavailable-features"`
@@ -152,7 +152,7 @@ func (m *QEMU) Models(ctx context.Context) ([]Model, error) {
 	if err := m.q.run(ctx, "query-cpu-definitions", nil, &defs); err != nil {
 		return nil, fmt.Errorf("listing the CPU models: %w", err)
 	}
-	var out []Model
+	var out []CPUModel
 	for _, d := range defs {
 		if len(d.Unavailable) > 0 || !d.MigrationSafe || d.AliasOf != "" || d.Deprecated || derivedFromHost(d.Name) || d.Name == "base" {
 			continue
@@ -161,9 +161,9 @@ func (m *QEMU) Models(ctx context.Context) ([]Model, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Model{Name: d.Name, Features: len(features(props))})
+		out = append(out, CPUModel{Name: d.Name, Features: len(features(props))})
 	}
-	slices.SortFunc(out, func(a, b Model) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(out, func(a, b CPUModel) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
 }
 
@@ -178,22 +178,22 @@ func (m *QEMU) Models(ctx context.Context) ([]Model, error) {
 // The trade-off, which is the point of a baseline: on a fleet of mixed hosts every guest is shown
 // only what the oldest can run - AVX-512 or AMX on the newer hosts are hidden from every workspace
 // - and in return a checkpoint resumes on any host of the fleet.
-func Baseline(hosts [][]Model) (Model, error) {
+func Baseline(hosts [][]CPUModel) (CPUModel, error) {
 	if len(hosts) == 0 {
-		return Model{}, errors.New("no hosts to pick a CPU model all of them run")
+		return CPUModel{}, errors.New("no hosts to pick a CPU model all of them run")
 	}
-	var best Model
+	var best CPUModel
 	for _, m := range hosts[0] {
 		everywhere := true
 		for _, h := range hosts[1:] {
-			everywhere = everywhere && slices.ContainsFunc(h, func(o Model) bool { return o.Name == m.Name })
+			everywhere = everywhere && slices.ContainsFunc(h, func(o CPUModel) bool { return o.Name == m.Name })
 		}
 		if everywhere && (m.Features > best.Features || (m.Features == best.Features && m.Name > best.Name)) {
 			best = m
 		}
 	}
 	if best.Name == "" {
-		return Model{}, errors.New("no CPU model every host runs: the fleet has hosts of more than one vendor, or one that runs none")
+		return CPUModel{}, errors.New("no CPU model every host runs: the fleet has hosts of more than one vendor, or one that runs none")
 	}
 	return best, nil
 }

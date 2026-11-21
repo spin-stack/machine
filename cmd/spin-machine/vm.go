@@ -290,7 +290,7 @@ func save(o saveFlags) error {
 	defer func() { _ = m.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 	defer cancel()
-	saved, err := m.Checkpoint(ctx, f, machine.Save{Channels: o.channels}, func(context.Context) error { return nil })
+	saved, err := m.Checkpoint(ctx, f, machine.SaveOptions{Channels: o.channels}, func(context.Context) error { return nil })
 	if err != nil {
 		return err
 	}
@@ -383,7 +383,7 @@ func restore(o restoreFlags) error {
 			return err
 		}
 	}
-	err = m.Resume(ctx, f, saved, here, machine.Load{Fast: o.fast, Channels: o.channels}, disks...)
+	err = m.Resume(ctx, f, saved, here, machine.LoadOptions{Fast: o.fast, Channels: o.channels}, disks...)
 	var r *machine.Refusal
 	if errors.As(err, &r) {
 		lines := []string{"restore: the checkpoint's machine is not this one:"}
@@ -552,14 +552,14 @@ func cpuReport(qmp string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	models, err := m.Models(ctx)
+	models, err := m.CPUModels(ctx)
 	if err != nil {
 		return err
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(struct {
-		CPU    machine.CPU     `json:"cpu"`
-		Models []machine.Model `json:"models"`
+		CPU    machine.CPU        `json:"cpu"`
+		Models []machine.CPUModel `json:"models"`
 	}{cpu, models})
 }

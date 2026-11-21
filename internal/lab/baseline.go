@@ -19,7 +19,7 @@ import (
 
 // hostBaseline is the newest named CPU model this host can run a machine of with the tree at dir:
 // its QEMU, started held with no disk, asked which models it can run here with nothing missing
-// (machine.Models), and machine.Baseline over this one host.
+// (machine.QEMU.CPUModels), and machine.Baseline over this one host.
 //
 // On the host that measures, not where the experiment is written: the bench fleet is nested, and
 // its L0 hides features the silicon has - la57, TSX, fsrm - so a model chosen by the CPU's name
@@ -71,11 +71,11 @@ func baselineOn(qmp string) (string, error) {
 	defer func() { _ = m.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	models, err := m.Models(ctx)
+	models, err := m.CPUModels(ctx)
 	if err != nil {
 		return "", err
 	}
-	best, err := machine.Baseline([][]machine.Model{models})
+	best, err := machine.Baseline([][]machine.CPUModel{models})
 	if err != nil {
 		return "", fmt.Errorf("choosing this host's CPU model: %w", err)
 	}

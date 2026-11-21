@@ -25,11 +25,11 @@ type Target struct {
 	Formats []string `json:"formats"`
 	// CPU is the CPU the guest is shown, as the running vCPU has it.
 	CPU CPU `json:"cpu"`
-	// Machine is the hardware the guest is given.
-	Machine Machine `json:"machine"`
+	// Hardware is the devices, -machine options and RAM blocks the guest is given.
+	Hardware Hardware `json:"machine"`
 }
 
-// Machine is the hardware a guest is given, as named facts, each with a rule given by where it
+// Hardware is what a guest is given, as named facts, each with a rule given by where it
 // sits. That is the one place a VMM says which differences a resume may cross:
 //
 //   - an exact fact is one the machine a checkpoint resumes into has, with the same value, and
@@ -42,10 +42,10 @@ type Target struct {
 // A fact named "a b" belongs to the one named "a": a difference in "a" - a device missing, or of
 // another type - is reported alone, not with each of its properties.
 //
-// A Machine is made by its VMM's Target through newMachine, and read from JSON through the same,
+// Hardware is made by its VMM's Target through newHardware, and read from JSON through the same,
 // so its lists are always sorted by name with no name twice, and it marshals to the same bytes
 // however it was made.
-type Machine struct {
+type Hardware struct {
 	exact   []part
 	atLeast []count
 }
@@ -62,9 +62,9 @@ type count struct {
 	N    int64  `json:"n"`
 }
 
-// newMachine sorts both lists by name, and refuses a name given twice or given in both lists: a
+// newHardware sorts both lists by name, and refuses a name given twice or given in both lists: a
 // fact has one value and one rule.
-func newMachine(exact []part, atLeast []count) (Machine, error) {
+func newHardware(exact []part, atLeast []count) (Hardware, error) {
 	exact, atLeast = slices.Clone(exact), slices.Clone(atLeast)
 	slices.SortFunc(exact, func(a, b part) int { return strings.Compare(a.Name, b.Name) })
 	slices.SortFunc(atLeast, func(a, b count) int { return strings.Compare(a.Name, b.Name) })
@@ -78,37 +78,37 @@ func newMachine(exact []part, atLeast []count) (Machine, error) {
 	}
 	for _, n := range names {
 		if seen[n] {
-			return Machine{}, fmt.Errorf("the machine names %q twice", n)
+			return Hardware{}, fmt.Errorf("the machine names %q twice", n)
 		}
 		seen[n] = true
 	}
-	return Machine{exact: exact, atLeast: atLeast}, nil
+	return Hardware{exact: exact, atLeast: atLeast}, nil
 }
 
-// machineJSON is a Machine as it is written.
-type machineJSON struct {
+// hardwareJSON is Hardware as it is written.
+type hardwareJSON struct {
 	Exact   []part  `json:"exact"`
 	AtLeast []count `json:"at_least,omitempty"`
 }
 
-// MarshalJSON writes both lists, sorted. A Machine with no exact fact writes an empty list and
+// MarshalJSON writes both lists, sorted. Hardware with no exact fact writes an empty list and
 // not null, so that it has one form.
-func (m Machine) MarshalJSON() ([]byte, error) {
+func (m Hardware) MarshalJSON() ([]byte, error) {
 	exact := m.exact
 	if exact == nil {
 		exact = []part{}
 	}
-	return json.Marshal(machineJSON{Exact: exact, AtLeast: m.atLeast})
+	return json.Marshal(hardwareJSON{Exact: exact, AtLeast: m.atLeast})
 }
 
 // UnmarshalJSON reads what MarshalJSON wrote, or the same lists in another order, through
-// newMachine: a record with a name twice is refused, as one made that way would have been.
-func (m *Machine) UnmarshalJSON(b []byte) error {
-	var j machineJSON
+// newHardware: a record with a name twice is refused, as one made that way would have been.
+func (m *Hardware) UnmarshalJSON(b []byte) error {
+	var j hardwareJSON
 	if err := json.Unmarshal(b, &j); err != nil {
 		return fmt.Errorf("reading a machine record: %w", err)
 	}
-	read, err := newMachine(j.Exact, j.AtLeast)
+	read, err := newHardware(j.Exact, j.AtLeast)
 	if err != nil {
 		return fmt.Errorf("reading a machine record: %w", err)
 	}
@@ -121,7 +121,7 @@ type Rule string
 
 const (
 	// Same is a part the machine resumed into has with the checkpoint's value, and the
-	// checkpoint's machine had: an exact fact of a Machine, and the CPU.
+	// checkpoint's machine had: an exact fact of the Hardware, and the CPU.
 	Same Rule = "same"
 	// AtLeast is a count the machine resumed into has as much of or more: an at-least fact.
 	AtLeast Rule = "at least"
@@ -172,7 +172,7 @@ func (r *Refusal) Error() string {
 //     an older QEMU of the same machine type wrote, never the other way, so a rolling update does
 //     not send a checkpoint back to a host that has not been updated yet;
 //   - the CPU is the same one (CPU's differences);
-//   - the machine is the same one, but for the counts it may have more of (Machine).
+//   - the machine is the same one, but for the counts it may have more of (Hardware).
 //
 // A format the machine does not read, or a record of another VMM, is refused alone: two VMMs'
 // records name nothing in common, and listing every part of both says no more. Nothing is
@@ -194,7 +194,7 @@ func CanResume(saved Saved, here Target) error {
 		ds = append(ds, vmm)
 	}
 	ds = append(ds, from.CPU.differences(here.CPU)...)
-	ds = append(ds, from.Machine.differences(here.Machine)...)
+	ds = append(ds, from.Hardware.differences(here.Hardware)...)
 	if len(ds) == 0 {
 		return nil
 	}
@@ -217,11 +217,11 @@ func vmmVersion(v string) (string, []int, bool) {
 }
 
 // differences are the facts of here a checkpoint of saved would cross, by name: indexed, so a
-// Machine compares the same whatever order its lists are in.
+// Hardware compares the same whatever order its lists are in.
 //
 // A name that moved from one list to the other between releases comes out as missing from the
 // exact side, which is refused: the safe direction.
-func (saved Machine) differences(here Machine) []Difference {
+func (saved Hardware) differences(here Hardware) []Difference {
 	was := make(map[string]string, len(saved.exact))
 	for _, p := range saved.exact {
 		was[p.Name] = p.Value

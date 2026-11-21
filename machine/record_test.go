@@ -46,7 +46,7 @@ func spinsMachine() facts {
 	}
 }
 
-func (f facts) machine(t *testing.T) Machine {
+func (f facts) machine(t *testing.T) Hardware {
 	t.Helper()
 	var exact []part
 	for n, v := range f.exact {
@@ -56,7 +56,7 @@ func (f facts) machine(t *testing.T) Machine {
 	for n, c := range f.atLeast {
 		atLeast = append(atLeast, count{n, c})
 	}
-	m, err := newMachine(exact, atLeast)
+	m, err := newHardware(exact, atLeast)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func target(t *testing.T, edit func(*Target, facts)) Target {
 	if edit != nil {
 		edit(&tg, f)
 	}
-	tg.Machine = f.machine(t)
+	tg.Hardware = f.machine(t)
 	return tg
 }
 
@@ -216,15 +216,15 @@ func TestARefusalSaysEachDifference(t *testing.T) {
 	}
 }
 
-// A Machine is sorted by name whatever order its facts came in, and a name has one value and one
+// Hardware is sorted by name whatever order its facts came in, and a name has one value and one
 // rule.
 func TestNewMachine(t *testing.T) {
-	m, err := newMachine([]part{{"b", "2"}, {"a", "1"}}, []count{{"d", 4}, {"c", 3}})
+	m, err := newHardware([]part{{"b", "2"}, {"a", "1"}}, []count{{"d", 4}, {"c", 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (Machine{exact: []part{{"a", "1"}, {"b", "2"}}, atLeast: []count{{"c", 3}, {"d", 4}}}); !reflect.DeepEqual(m, want) {
-		t.Errorf("newMachine = %+v, want %+v", m, want)
+	if want := (Hardware{exact: []part{{"a", "1"}, {"b", "2"}}, atLeast: []count{{"c", 3}, {"d", 4}}}); !reflect.DeepEqual(m, want) {
+		t.Errorf("newHardware = %+v, want %+v", m, want)
 	}
 	for _, tc := range []struct {
 		name    string
@@ -235,8 +235,8 @@ func TestNewMachine(t *testing.T) {
 		{"a count given twice", nil, []count{{"c", 1}, {"c", 1}}},
 		{"a name in both lists", []part{{"c", "1"}}, []count{{"c", 1}}},
 	} {
-		if _, err := newMachine(tc.exact, tc.atLeast); err == nil || !strings.Contains(err.Error(), `names "`) {
-			t.Errorf("%s: newMachine = %v, want it refused by name", tc.name, err)
+		if _, err := newHardware(tc.exact, tc.atLeast); err == nil || !strings.Contains(err.Error(), `names "`) {
+			t.Errorf("%s: newHardware = %v, want it refused by name", tc.name, err)
 		}
 	}
 }
@@ -244,7 +244,7 @@ func TestNewMachine(t *testing.T) {
 // Two equal records are equal bytes, however they were read: a caller stores them as text and
 // tells them apart as text.
 func TestARecordHasOneForm(t *testing.T) {
-	m, err := newMachine([]part{{"b", "2"}, {"a", "1"}}, []count{{"c", 3}})
+	m, err := newHardware([]part{{"b", "2"}, {"a", "1"}}, []count{{"c", 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,14 +255,14 @@ func TestARecordHasOneForm(t *testing.T) {
 	if want := `{"exact":[{"name":"a","value":"1"},{"name":"b","value":"2"}],"at_least":[{"name":"c","n":3}]}`; string(b) != want {
 		t.Errorf("marshalled %s, want %s", b, want)
 	}
-	var read Machine
+	var read Hardware
 	if err := json.Unmarshal([]byte(`{"at_least":[{"name":"c","n":3}],"exact":[{"name":"b","value":"2"},{"name":"a","value":"1"}]}`), &read); err != nil {
 		t.Fatal(err)
 	}
 	if again, _ := json.Marshal(read); string(again) != string(b) {
 		t.Errorf("read out of order and written again: %s, want %s", again, b)
 	}
-	if empty, _ := json.Marshal(Machine{}); string(empty) != `{"exact":[]}` {
+	if empty, _ := json.Marshal(Hardware{}); string(empty) != `{"exact":[]}` {
 		t.Errorf("an empty machine is %s, want one form", empty)
 	}
 	for _, bad := range []string{`{"exact":[{"name":"a","value":"1"},{"name":"a","value":"2"}]}`, `{"exact":"x"}`} {

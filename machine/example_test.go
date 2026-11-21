@@ -30,7 +30,7 @@ func Example() {
 	spec.Initrd = "/var/lib/spin/initrd.img"
 	spec.BootCPUs, spec.MaxCPUs = 1, 16
 	spec.Memory = machine.Memory{SizeMB: 128, MaxMB: 8192}
-	spec.Disks = []machine.DiskSlot{{Serial: "root"}, {Serial: "home"}}
+	spec.Places = []machine.Place{{Serial: "root"}, {Serial: "home"}}
 	spec.HotplugDisks = 16
 	spec.VsockCID = 42
 	spec.NICs = []machine.NIC{{TapFD: 3, MAC: "52:54:00:00:00:01"}}
@@ -72,7 +72,7 @@ func Example() {
 			log.Fatal(err)
 		}
 		defer state.Close()
-		if err := m.Resume(ctx, state, saved, here, machine.Load{Fast: true}, root, home); err != nil {
+		if err := m.Resume(ctx, state, saved, here, machine.LoadOptions{Fast: true}, root, home); err != nil {
 			log.Fatal(err)
 		}
 		if err := m.Loaded(ctx); err != nil { // the state file is free once this returns
@@ -92,7 +92,7 @@ func Example() {
 		log.Fatal(err)
 	}
 	defer to.Close()
-	saved, err = m.Checkpoint(ctx, to, machine.Save{}, func(context.Context) error {
+	saved, err = m.Checkpoint(ctx, to, machine.SaveOptions{}, func(context.Context) error {
 		return nil // where the caller seals the disks to match the state
 	})
 	if err != nil {
