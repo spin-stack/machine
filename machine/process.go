@@ -147,9 +147,7 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 	}
 	fail := func(err error) (*Process, error) {
 		_ = own.Close()
-		if console != nil {
-			_ = console.Close()
-		}
+		_ = console.Close() // a nil *os.File refuses the close, and there is nothing to close
 		h.removeSockets()
 		return nil, err
 	}
