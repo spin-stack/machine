@@ -67,7 +67,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 
 	// resume loads state into a fresh machine held for one, and returns its stream, its error and
 	// the guest.
-	resume := func(t *testing.T, state string, load machine.LoadOptions) (*stream, error, *guest) {
+	resume := func(t *testing.T, state string, load machine.LoadOptions, told *timeline) (*stream, error, *guest) {
 		t.Helper()
 		spec, mac := r.next(t, "/bin/sh")
 		spec.Restore = true
@@ -86,6 +86,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = f.Close() }()
+		load.Phases = told.tell
 		err = g.Resume(ctx, f, saved, here, load, root)
 		if err == nil && load.Fast {
 			err = g.Loaded(ctx)
@@ -94,11 +95,14 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 	}
 
 	t.Run("in full", func(t *testing.T) {
-		s, err, g := resume(t, state, machine.LoadOptions{})
+		told := &timeline{}
+		s, err, g := resume(t, state, machine.LoadOptions{}, told)
 		if err != nil {
 			t.Fatalf("resuming: %v\n%s", err, g.said())
 		}
 		t.Logf("loading: %s", s)
+		t.Logf("phases:\n%s", told)
+		told.inOrder(t, "LoadStarted", "StateLoaded", "GuestRunning")
 		s.inOrder(t, "MIGRATION setup", "MIGRATION active", "RESUME", "MIGRATION completed")
 		g.type_(t, "echo RESUMED-$((2+3))")
 		g.await(t, regexp.MustCompile(`RESUMED-5\b`), 30*time.Second)
@@ -108,11 +112,14 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		if !userfaults() {
 			t.Skip("QEMU cannot open a userfaultfd here: /dev/userfaultfd is not readable and writable, and vm.unprivileged_userfaultfd is 0")
 		}
-		s, err, g := resume(t, state, machine.LoadOptions{Fast: true})
+		told := &timeline{}
+		s, err, g := resume(t, state, machine.LoadOptions{Fast: true}, told)
 		if err != nil {
 			t.Fatalf("resuming: %v\n%s", err, g.said())
 		}
 		t.Logf("loading: %s", s)
+		t.Logf("phases:\n%s", told)
+		told.inOrder(t, "LoadStarted", "GuestRunning", "StateLoaded")
 		s.inOrder(t, "MIGRATION setup", "MIGRATION active", "MIGRATION postcopy-device", "MIGRATION postcopy-active", "RESUME", "MIGRATION completed")
 		g.type_(t, "echo RESUMED-$((2+3))")
 		g.await(t, regexp.MustCompile(`RESUMED-5\b`), 30*time.Second)
@@ -131,7 +138,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		if err := os.Truncate(short, st.Size()/2); err != nil {
 			t.Fatal(err)
 		}
-		s, err, g := resume(t, short, machine.LoadOptions{})
+		s, err, g := resume(t, short, machine.LoadOptions{}, &timeline{})
 		if err == nil {
 			t.Fatalf("a truncated state resumed\n%s", g.said())
 		}

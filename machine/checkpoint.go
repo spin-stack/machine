@@ -35,6 +35,10 @@ type LoadOptions struct {
 	// DefaultChannels for a full load of a mapped-ram state, and one for a fast load or a stream
 	// state, which one thread reads.
 	Channels int
+	// Phases, when set, is told each Phase of the resume as it happens, on Resume's goroutine:
+	// LoadStarted, StateLoaded and GuestRunning. A fast load runs the guest before its state is
+	// all read, and Loaded tells StateLoaded. Nothing asks QEMU more for it.
+	Phases func(Phase)
 }
 
 // SaveOptions is how a checkpoint is written.
@@ -43,6 +47,12 @@ type SaveOptions struct {
 	// none given is DefaultChannels. The state is the same file whatever wrote it, and loads with
 	// any number.
 	Channels int
+	// Phases, when set, is told each Phase of the checkpoint as it happens, one at a time and in
+	// order: SaveStarted, RAMWritten, GuestStopped, Sealed and SaveCompleted, then GuestRunning
+	// from Continue or GuestHeld from Hold. RAMWritten costs a query-migrate every progressEvery
+	// while the guest runs; nothing else asks QEMU more. GuestStopped and Sealed are told with
+	// the guest stopped, so the time Phases takes then is the guest's.
+	Phases func(Phase)
 }
 
 // DefaultChannels is how many threads move a checkpoint's memory when SaveOptions or LoadOptions
@@ -182,14 +192,16 @@ type migrationInfo struct {
 	TotalTime int64 `json:"total-time"`
 	RAM       struct {
 		Transferred int64 `json:"transferred"`
+		Total       int64 `json:"total"`
 	} `json:"ram"`
 }
 
 // Cost is what a checkpoint cost the guest.
 type Cost struct {
-	// Paused is QEMU's downtime: from the guest's stop to the migration's end. The guest stays
-	// stopped until Continue, and the caller's clock read 200-250 ms more from seal to Continue's
-	// return (laptop, 1.6 GiB written, 2026-11-21, docs/memory-and-disk.md).
+	// Paused is QEMU's downtime: from the guest's stop to the migration's end, the seal and the
+	// last of the RAM included. The guest stays stopped until Continue, and the caller's clock
+	// read 200-250 ms more from seal to Continue's return (laptop, 1.6 GiB written, 2026-11-21,
+	// docs/memory-and-disk.md).
 	Paused time.Duration
 	// Total is how long the save took, from its start to its end.
 	Total time.Duration
@@ -255,8 +267,10 @@ func loadEnded(st migrationStatus) error {
 // Checkpoint saves the machine to a file in FormatMappedRAM, its memory written by save.Channels
 // threads, DefaultChannels when it names none.
 //
-// pause-before-switchover stops the migration with the guest paused and the disks quiet, after
-// the last RAM is written and before the device state is: seal runs there. The vCPUs and disks
+// pause-before-switchover stops the migration with the guest paused and the disks quiet, before
+// the RAM the guest dirtied last and the device state are written: seal runs there. Of 1.6 GiB
+// saves, the last RAMWritten before the stop was 0.3-0.9 GiB short of what the save wrote
+// (laptop, 32 saves, 2026-11-21). The vCPUs and disks
 // added while the machine ran are read before the migration starts, because QEMU refuses a query
 // of some of them once one is under way. The machine's record is read while it runs: QEMU answers
 // its monitors while it writes the guest's RAM.
@@ -296,13 +310,19 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	}
 	at := m.expectMigration(preSwitchover, completed)
 	defer at.Stop()
+	var completedAt time.Time
 	writing := func() error {
+		tell(save.Phases, SaveStarted{At: time.Now()})
+		stop := m.progress(ctx, save.Phases)
+		defer stop()
 		// Read before the migration, the record's round trips made `spin-machine save` 7.0 and
 		// 10.6 ms slower (bench, lab 44866054104); read here they overlap the RAM being written,
 		// and the record is the same (laptop, 2026-11-21). Target keeps what it read, and is
 		// asked again below, where an error counts.
 		_, _ = m.Target(ctx)
-		return m.switchover(ctx, at, seal)
+		var err error
+		completedAt, err = m.switchover(ctx, at, seal, stop, save.Phases)
+		return err
 	}
 	if err := m.migrate(ctx, migrateOut, to, os.O_WRONLY, writing); err != nil {
 		// A migration left at pre-switchover holds the guest paused with nobody to continue
@@ -319,26 +339,33 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: reading what it cost: %w", err)
 	}
 	cost := Cost{Paused: time.Duration(info.Downtime) * time.Millisecond, Total: time.Duration(info.TotalTime) * time.Millisecond, RAM: info.RAM.Transferred}
+	tell(save.Phases, SaveCompleted{At: completedAt, Cost: cost})
+	m.then = save.Phases
 	return Saved{Format: FormatMappedRAM, From: from, Added: again}, cost, nil
 }
 
-// switchover runs seal at pre-switchover and waits for the migration to complete. at is the wait
-// for pre-switchover, armed before the migration started.
-func (m *QEMU) switchover(ctx context.Context, at *qmp.Expected[migrationNews], seal func(context.Context) error) error {
+// switchover runs seal at pre-switchover, waits for the migration to complete and returns when
+// the host learned it had. at is the wait for pre-switchover, armed before the migration started.
+// stop ends the progress before the guest is told stopped, so that p is told one phase at a time.
+func (m *QEMU) switchover(ctx context.Context, at *qmp.Expected[migrationNews], seal func(context.Context) error, stop func(), p func(Phase)) (time.Time, error) {
 	st, err := m.saving(ctx, at)
 	if err != nil || st == completed {
-		return err
+		return time.Now(), err
 	}
+	stop()
+	sealing := time.Now()
+	tell(p, GuestStopped{At: sealing})
 	if err := seal(ctx); err != nil {
-		return fmt.Errorf("sealing: %w", err)
+		return time.Time{}, fmt.Errorf("sealing: %w", err)
 	}
+	tell(p, Sealed{At: time.Now(), Took: time.Since(sealing)})
 	done := m.expectMigration(completed)
 	defer done.Stop()
 	if _, err := qmp.Do(ctx, m.c, migrateContinue, migrationState{State: preSwitchover}); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	_, err = m.saving(ctx, done)
-	return err
+	return time.Now(), err
 }
 
 func (m *QEMU) setCapabilities(ctx context.Context, caps map[migrationCapability]bool) error {
@@ -465,7 +492,17 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	}
 	running := m.expectMigration(until...)
 	defer running.Stop()
-	if err := m.migrate(ctx, migrateIn, state, os.O_RDONLY, func() error { return loading(ctx, running) }); err != nil {
+	loaded := func() error {
+		tell(load.Phases, LoadStarted{At: time.Now()})
+		if err := loading(ctx, running); err != nil {
+			return err
+		}
+		if !load.Fast {
+			tell(load.Phases, StateLoaded{At: time.Now()})
+		}
+		return nil
+	}
+	if err := m.migrate(ctx, migrateIn, state, os.O_RDONLY, loaded); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
 	// A machine saved stopped comes back stopped: QEMU carries the source's run state across.
@@ -473,7 +510,13 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		return fmt.Errorf("resuming: %w", err)
 	}
 	if st == Paused {
-		return m.Continue(ctx)
+		if err := m.Continue(ctx); err != nil {
+			return err
+		}
+	}
+	tell(load.Phases, GuestRunning{At: time.Now()})
+	if load.Fast {
+		m.then = load.Phases
 	}
 	return nil
 }
@@ -535,5 +578,7 @@ func (m *QEMU) Loaded(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("finishing the load: %w", err)
 	}
+	tell(m.then, StateLoaded{At: time.Now()})
+	m.then = nil
 	return nil
 }

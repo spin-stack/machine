@@ -5,9 +5,13 @@ package boot_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -118,7 +122,8 @@ func TestACheckpointedMachineIsHeldThenContinued(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = state.Close() }()
-	_, cost, err := g.Checkpoint(ctx, state, machine.SaveOptions{}, func(context.Context) error { return nil })
+	told := &timeline{}
+	_, cost, err := g.Checkpoint(ctx, state, machine.SaveOptions{Phases: told.tell}, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatalf("checkpointing: %v\n%s", err, g.said())
 	}
@@ -141,6 +146,48 @@ func TestACheckpointedMachineIsHeldThenContinued(t *testing.T) {
 			t.Fatalf("Status = %q, %v, want %q", st, err, step.want)
 		}
 	}
+	t.Logf("phases:\n%s", told)
+	told.inOrder(t, "SaveStarted", "GuestStopped", "Sealed", "SaveCompleted", "GuestHeld")
 	g.type_(t, "echo UP-$((2+2))")
 	g.await(t, regexp.MustCompile(`UP-4\b`), 30*time.Second)
+}
+
+// timeline is what a checkpoint or a resume told, as it happened.
+type timeline struct {
+	mu   sync.Mutex
+	told []machine.Phase
+}
+
+func (l *timeline) tell(p machine.Phase) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.told = append(l.told, p)
+}
+
+// String is each phase on a line, at its time from the first.
+func (l *timeline) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var b strings.Builder
+	for _, p := range l.told {
+		fmt.Fprintf(&b, "%8.2f ms  %T %+v\n", float64(p.When().Sub(l.told[0].When()).Microseconds())/1000, p, p)
+	}
+	return b.String()
+}
+
+// inOrder fails unless the phases told, but for RAMWritten, which a short save may not tell, are
+// want.
+func (l *timeline) inOrder(t *testing.T, want ...string) {
+	t.Helper()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var got []string
+	for _, p := range l.told {
+		if _, ram := p.(machine.RAMWritten); !ram {
+			got = append(got, strings.TrimPrefix(fmt.Sprintf("%T", p), "machine."))
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("phases %v, want %v", got, want)
+	}
 }

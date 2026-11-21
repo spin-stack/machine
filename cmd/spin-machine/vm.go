@@ -245,7 +245,9 @@ func save(o saveFlags) error {
 	defer func() { _ = m.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 	defer cancel()
-	saved, cost, err := m.Checkpoint(ctx, f, machine.SaveOptions{Channels: o.channels}, func(context.Context) error { return nil })
+	var told timeline
+	saved, cost, err := m.Checkpoint(ctx, f, machine.SaveOptions{Channels: o.channels, Phases: told.tell}, func(context.Context) error { return nil })
+	told.print(os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -260,6 +262,27 @@ func save(o saveFlags) error {
 		o.to, cost.RAM>>20, cost.Total.Milliseconds(), cost.Paused.Milliseconds()) // mutate-exempt: a line for a person, whose MiB no caller reads
 	// The state is complete; what is left is a stopped VM nobody will resume in place.
 	return m.Quit(ctx)
+}
+
+// timeline is what a checkpoint or a resume told, printed for a person once it is over: printed
+// as it happens, a resume's lines would be on restore-first's clock.
+type timeline []machine.Phase
+
+func (l *timeline) tell(p machine.Phase) { *l = append(*l, p) }
+
+// print writes each phase on a line, at its time from the first.
+func (l timeline) print(w io.Writer) {
+	for _, p := range l {
+		at := float64(p.When().Sub(l[0].When()).Microseconds()) / 1000
+		what := strings.TrimPrefix(fmt.Sprintf("%T", p), "machine.")
+		switch p := p.(type) {
+		case machine.RAMWritten:
+			what += fmt.Sprintf(" %d MiB", p.Bytes>>20) // mutate-exempt: a line for a person, whose MiB no caller reads
+		case machine.Sealed:
+			what += fmt.Sprintf(" in %s", p.Took)
+		}
+		fmt.Fprintf(w, "%9.2f ms  %s\n", at, what)
+	}
 }
 
 type restoreFlags struct {
@@ -339,7 +362,9 @@ func restore(o restoreFlags) error {
 			return err
 		}
 	}
-	err = m.Resume(ctx, f, saved, here, machine.LoadOptions{Fast: o.fast, Channels: o.channels}, disks...)
+	var told timeline
+	err = m.Resume(ctx, f, saved, here, machine.LoadOptions{Fast: o.fast, Channels: o.channels, Phases: told.tell}, disks...)
+	told.print(os.Stderr)
 	var r *machine.Refusal
 	if errors.As(err, &r) {
 		lines := []string{"restore: the checkpoint's machine is not this one:"}

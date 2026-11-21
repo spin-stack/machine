@@ -49,6 +49,8 @@
 //     the state; and QEMU.Loaded says when the state file is no longer read.
 //  6. QEMU.AttachDisk and QEMU.DetachDisk change the disks while the guest runs.
 //  7. QEMU.Checkpoint saves the guest and leaves it stopped, and QEMU.Continue runs it again.
+//     SaveOptions.Phases and LoadOptions.Phases are told each step of a checkpoint or a resume
+//     as it happens (Phase; docs/machine.md, "Phases").
 //  8. Process.Stop ends the machine, asking the guest first, and Process.Exited and Wait say when
 //     and how it ended.
 package machine
