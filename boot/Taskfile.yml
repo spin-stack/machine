@@ -55,6 +55,17 @@ tasks:
     cmds:
       - SPIN_PAUSE_TEST=1 go test ./boot/ -run '^TestACheckpointPausesTheGuestBriefly$' -count=1 -v -timeout 15m
 
+  disk-limit:
+    desc: >-
+      A disk limit (machine.QEMU.SetDiskLimit) on a real guest at spin's shape with two disks
+      beside its root: the guest's direct reads of one slow to its bytes a second and its direct
+      writes to its IOPS while the other's run free, both recover once it is cleared, QEMU reads
+      each limit back as set, a disk attached while it runs is held the same way, and a machine
+      resumed from a checkpoint runs without the limit until it is set again (disklimit_test.go). Needs a built release, /dev/kvm and /dev/vhost-vsock.
+    deps: [':tools']
+    cmds:
+      - SPIN_DISK_LIMIT_TEST=1 go test ./boot/ -run '^TestADiskLimitHoldsOneDiskAndLetsItGo$' -count=1 -v -timeout 5m
+
   buildkit:
     desc: >-
       Use the BuildKit builder named compat, made the first time: a docker-container builder,

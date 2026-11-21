@@ -4,6 +4,7 @@ package machine
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,10 +13,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
+
+	"github.com/spin-stack/machine/qmp"
 )
 
-// Limit is one of the limits spin sets on the cgroup QEMU runs in.
+// Limit is one of the limits spin sets: on the cgroup QEMU runs in, or on one disk inside QEMU.
 type Limit int
 
 const (
@@ -34,11 +38,19 @@ const (
 	IOWriteBytes
 	IOReads
 	IOWrites
+	// DiskReadBytes, DiskWriteBytes, DiskReads and DiskWrites are a DiskLimit's fields: a disk
+	// held inside QEMU (SetDiskLimit), which the cgroup never sees.
+	DiskReadBytes
+	DiskWriteBytes
+	DiskReads
+	DiskWrites
 )
 
 var limitNames = map[Limit]string{
 	CPUMax: "cpu.max", MemoryHigh: "memory.high", MemoryMax: "memory.max", MemoryOOMKill: "memory.max oom_kill",
 	IOReadBytes: "io.max rbps", IOWriteBytes: "io.max wbps", IOReads: "io.max riops", IOWrites: "io.max wiops",
+	DiskReadBytes: "disk limit read bytes", DiskWriteBytes: "disk limit write bytes",
+	DiskReads: "disk limit reads", DiskWrites: "disk limit writes",
 }
 
 func (l Limit) String() string {
@@ -48,29 +60,41 @@ func (l Limit) String() string {
 	return fmt.Sprintf("limit(%d)", int(l))
 }
 
-// ioLimits are io.max's keys, each with the io.stat counter it holds.
-var ioLimits = []struct {
+// rateLimit is a limit on a rate: the key that sets it and the counter it holds.
+type rateLimit struct {
 	limit    Limit
 	max, use string
-}{
-	{IOReadBytes, "rbps", "rbytes"}, {IOWriteBytes, "wbps", "wbytes"}, {IOReads, "riops", "rios"}, {IOWrites, "wiops", "wios"},
 }
 
-// Limited is the machine held at a limit spin set on QEMU's own cgroup, in the second before At.
-// A Stall says the machine waited; Limited says spin's limit is why. It comes again each second
-// the limit holds, with the same Since.
+// ioLimits are io.max's keys, each with the io.stat counter it holds. diskLimits are a DiskLimit's
+// fields under the same keys, each with its query-blockstats counter under io.stat's name
+// (heldSample).
+var (
+	ioLimits = []rateLimit{
+		{IOReadBytes, "rbps", "rbytes"}, {IOWriteBytes, "wbps", "wbytes"}, {IOReads, "riops", "rios"}, {IOWrites, "wiops", "wios"},
+	}
+	diskLimits = []rateLimit{
+		{DiskReadBytes, "rbps", "rbytes"}, {DiskWriteBytes, "wbps", "wbytes"}, {DiskReads, "riops", "rios"}, {DiskWrites, "wiops", "wios"},
+	}
+)
+
+// Limited is the machine held at a limit spin set, on QEMU's own cgroup or on one disk through
+// SetDiskLimit, in the second before At. A Stall says the machine waited; Limited says spin's limit
+// is why. It comes again each second the limit holds, with the same Since.
 type Limited struct {
 	At    time.Time
 	Limit Limit
-	// Device is io.max's device, major:minor, and empty for the other limits.
+	// Device is io.max's device, major:minor, a held disk's serial for a DiskLimit, and empty for
+	// the other limits.
 	Device string
 	// Set is the limit in Used's unit: CPU microseconds a second for cpu.max, bytes for memory,
-	// bytes or IOs a second for io.max.
+	// bytes or IOs a second for io.max and a DiskLimit.
 	Set int64
 	// Used is what the machine used: over the second for CPU and IO, memory.current for memory.
 	Used int64
 	// Events is how often the kernel held the machine in that second: cpu.stat's nr_throttled,
-	// memory.events' high, max or oom_kill. io.max counts none, so it is 0 for IO.
+	// memory.events' high, max or oom_kill. Neither io.max nor QEMU counts what it held, so it is
+	// 0 for IO.
 	Events uint64
 	// Since is when the limit began to hold the machine, without a second's break.
 	Since time.Time
@@ -103,6 +127,8 @@ type limitSample struct {
 	memEvents map[string]int64
 	// ioMax and ioStat are io.max and io.stat, by device and key.
 	ioMax, ioStat map[string]map[string]int64
+	// diskMax and diskStat are the same of each disk SetDiskLimit holds, by serial (heldSample).
+	diskMax, diskStat map[string]map[string]int64
 }
 
 // readLimits reads the limits of the cgroup at dir. A file the cgroup does not have, as when the
@@ -208,18 +234,8 @@ func (lw *limitWatch) next(now limitSample) []Limited {
 			held = append(held, Limited{Limit: m.limit, Set: m.set, Used: now.memCurrent, Events: uint64(d)})
 		}
 	}
-	for _, dev := range slices.Sorted(maps.Keys(now.ioMax)) {
-		for _, k := range ioLimits {
-			set, ok := now.ioMax[dev][k.max]
-			if !ok {
-				continue
-			}
-			used := perSecond(now.ioStat[dev][k.use] - last.ioStat[dev][k.use])
-			if used*10 >= set*ioHeld {
-				held = append(held, Limited{Limit: k.limit, Device: dev, Set: set, Used: used})
-			}
-		}
-	}
+	held = appendRates(held, ioLimits, now.ioMax, now.ioStat, last.ioStat, perSecond)
+	held = appendRates(held, diskLimits, now.diskMax, now.diskStat, last.diskStat, perSecond)
 	since := map[limitKey]time.Time{}
 	for i := range held {
 		key := limitKey{held[i].Limit, held[i].Device}
@@ -232,4 +248,85 @@ func (lw *limitWatch) next(now limitSample) []Limited {
 	}
 	lw.since = since
 	return held
+}
+
+// appendRates appends each rate limit that held a device between two samples: one of limits set in
+// ceilings, whose counter's rate reached 90% of it or more. A device the last sample has no counters
+// of has no rate yet, as a disk held since the last sample does not.
+func appendRates(held []Limited, limits []rateLimit, ceilings, now, last map[string]map[string]int64, perSecond func(int64) int64) []Limited {
+	for _, dev := range slices.Sorted(maps.Keys(ceilings)) {
+		before, ok := last[dev]
+		if !ok {
+			continue
+		}
+		for _, k := range limits {
+			set, ok := ceilings[dev][k.max]
+			if !ok {
+				continue
+			}
+			used := perSecond(now[dev][k.use] - before[k.use])
+			if used*10 >= set*ioHeld {
+				held = append(held, Limited{Limit: k.limit, Device: dev, Set: set, Used: used})
+			}
+		}
+	}
+	return held
+}
+
+// heldDisks are the disks SetDiskLimit holds, by serial, each with its device's id: what the probe
+// reads their counters against. A limit set through another monitor is not among them.
+type heldDisks struct {
+	mu sync.Mutex
+	by map[string]heldDisk
+}
+
+type heldDisk struct {
+	device string
+	limit  DiskLimit
+}
+
+func (h *heldDisks) set(serial, device string, l DiskLimit) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if l == (DiskLimit{}) {
+		delete(h.by, serial)
+		return
+	}
+	if h.by == nil {
+		h.by = map[string]heldDisk{}
+	}
+	h.by[serial] = heldDisk{device: device, limit: l}
+}
+
+// heldSample adds the limits and counters of each disk SetDiskLimit holds to s, from one
+// query-blockstats, and asks QEMU nothing while it holds none: every machine of a host would pay
+// a command a second for a limit few of them are under.
+func (m *QEMU) heldSample(ctx context.Context, s *limitSample) error {
+	m.held.mu.Lock()
+	held := maps.Clone(m.held.by)
+	m.held.mu.Unlock()
+	if len(held) == 0 {
+		return nil
+	}
+	stats, err := qmp.Do(ctx, m.c, queryBlockstats, qmp.None{})
+	if err != nil {
+		return fmt.Errorf("reading the held disks' counters: %w", err)
+	}
+	s.diskMax, s.diskStat = map[string]map[string]int64{}, map[string]map[string]int64{}
+	for serial, h := range held {
+		i := slices.IndexFunc(stats, func(b blockStats) bool { return deviceOf(b.QDev) == h.device })
+		if i < 0 {
+			continue
+		}
+		st := stats[i].Stats
+		s.diskStat[serial] = map[string]int64{"rbytes": st.Read, "wbytes": st.Written, "rios": st.Reads, "wios": st.Writes}
+		limits := map[string]int64{}
+		for k, v := range map[string]int64{"rbps": h.limit.ReadBytes, "wbps": h.limit.WriteBytes, "riops": h.limit.Reads, "wiops": h.limit.Writes} {
+			if v > 0 {
+				limits[k] = v
+			}
+		}
+		s.diskMax[serial] = limits
+	}
+	return nil
 }

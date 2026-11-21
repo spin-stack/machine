@@ -373,6 +373,8 @@ type guest struct {
 	*machine.Process
 	stdin  *os.File
 	screen *screen
+	// n counts the commands side typed, whose output it tells apart by it.
+	n int
 }
 
 // startGuest starts a machine of s, held, with spin's NIC, its events from the handshake on going

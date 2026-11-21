@@ -390,3 +390,103 @@ func (m *QEMU) releaseImages(ctx context.Context, serial string) error {
 	}
 	return nil
 }
+
+// DiskLimit is how fast one disk may go, each field a ceiling a second and 0 for none: the zero
+// DiskLimit is no limit. ReadBytes and WriteBytes are bytes, Reads and Writes are requests.
+//
+// QEMU lets a disk run a tenth of a second's worth over its rate before it holds it (a bucket of
+// avg/10, throttle_fix_bucket), so a limit holds within the second and needs no burst of its own.
+type DiskLimit struct {
+	ReadBytes, WriteBytes int64
+	Reads, Writes         int64
+}
+
+var blockSetIOThrottle = qmpdef.Define[ioThrottle, qmp.None]("block_set_io_throttle")
+
+// ioThrottle is block_set_io_throttle's arguments. Every limit is required, so each is sent each
+// time. The totals stay 0: a total and its read or write limit cannot both be set.
+type ioThrottle struct {
+	ID         string `json:"id"`
+	Bytes      int64  `json:"bps"`
+	ReadBytes  int64  `json:"bps_rd"`
+	WriteBytes int64  `json:"bps_wr"`
+	IOs        int64  `json:"iops"`
+	Reads      int64  `json:"iops_rd"`
+	Writes     int64  `json:"iops_wr"`
+}
+
+// SetDiskLimit holds the disk with this serial to l, at once and while the machine runs, and the
+// zero DiskLimit lets it go. The guest is not told: its requests wait in QEMU.
+//
+// The limit is the device's, on its block backend, and not the place's throttle node's. The node's
+// group is every place's (placeGroup), so a limit there would hold the machine's disks together,
+// where the backend's group is the device's alone, and the backend is the one thing a bind does not
+// replace. Nothing is added to the command line, so a boot pays nothing for a limit it may never
+// be given.
+//
+// A limit is the running QEMU's, as io.max is its cgroup's. A checkpoint does not carry it, and a
+// machine resumed from one runs without it. spin keeps the policy - who, how much, for how long -
+// and sets it again after a resume if it still holds.
+func (m *QEMU) SetDiskLimit(ctx context.Context, serial string, l DiskLimit) error {
+	id, b, err := m.diskBackend(ctx, serial)
+	if err != nil {
+		return err
+	}
+	// The backend's qdev path and not the device's id: a place's id names its virtio-blk-pci,
+	// which has no backend of its own ("Device does not have a block device backend").
+	args := ioThrottle{ID: b.QDev, ReadBytes: l.ReadBytes, WriteBytes: l.WriteBytes, Reads: l.Reads, Writes: l.Writes}
+	if _, err := qmp.Do(ctx, m.c, blockSetIOThrottle, args); err != nil {
+		return fmt.Errorf("limiting disk %q to %+v: %w", serial, l, err)
+	}
+	m.held.set(serial, id, l)
+	return nil
+}
+
+// DiskLimit is the limit the disk with this serial is held to, as QEMU reports it.
+func (m *QEMU) DiskLimit(ctx context.Context, serial string) (DiskLimit, error) {
+	_, b, err := m.diskBackend(ctx, serial)
+	if err != nil {
+		return DiskLimit{}, err
+	}
+	n := b.Inserted
+	return DiskLimit{ReadBytes: n.ReadBytes, WriteBytes: n.WriteBytes, Reads: n.Reads, Writes: n.Writes}, nil
+}
+
+// diskBackend is the id of the device the disk with this serial is in, and the device's backend
+// as query-block lists it.
+func (m *QEMU) diskBackend(ctx context.Context, serial string) (string, qmp.BlockInfo, error) {
+	id, err := m.diskDevice(ctx, serial)
+	if err != nil {
+		return "", qmp.BlockInfo{}, err
+	}
+	blocks, err := qmp.Do(ctx, m.c, qmp.QueryBlock, qmp.None{})
+	if err != nil {
+		return "", qmp.BlockInfo{}, fmt.Errorf("finding disk %q's backend: %w", serial, err)
+	}
+	for _, b := range blocks {
+		if b.Inserted != nil && deviceOf(b.QDev) == id {
+			return id, b, nil
+		}
+	}
+	return "", qmp.BlockInfo{}, fmt.Errorf("finding disk %q's backend: QEMU lists no disk in device %s", serial, id)
+}
+
+// diskDevice is the id of the device the disk with this serial is in: its place's, or the one it
+// was attached as while the machine ran.
+func (m *QEMU) diskDevice(ctx context.Context, serial string) (string, error) {
+	slots, err := m.slots(ctx)
+	if err != nil {
+		return "", err
+	}
+	if i := slices.IndexFunc(slots, func(s slot) bool { return s.serial == serial }); i >= 0 {
+		return slotDevice(slots[i].index), nil
+	}
+	hot, err := m.hotDisks(ctx)
+	if err != nil {
+		return "", err
+	}
+	if i := slices.IndexFunc(hot, func(h hotDisk) bool { return h.Serial == serial }); i >= 0 {
+		return hotDiskID(hot[i].Target), nil
+	}
+	return "", fmt.Errorf("the machine has no disk %q", serial)
+}

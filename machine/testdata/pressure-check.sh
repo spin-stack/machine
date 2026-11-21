@@ -50,5 +50,9 @@ sleep 2
 echo PHASE iolimit
 timeout 5 dd if=/dev/disk/by-id/virtio-lim of=/dev/null bs=64k iflag=direct status=none
 sleep 2
+# The same disk against a limit inside QEMU (SetDiskLimit), which the cgroup never sees.
+echo PHASE disklimit
+timeout 5 dd if=/dev/disk/by-id/virtio-lim of=/dev/null bs=64k iflag=direct status=none
+sleep 2
 echo PHASE done; sleep 1
 echo PRESSURE_CHECK_OK

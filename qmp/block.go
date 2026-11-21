@@ -260,6 +260,12 @@ type BlockNodeInfo struct {
 	File     string    `json:"file"`
 	ReadOnly bool      `json:"ro"`
 	Image    ImageInfo `json:"image"`
+	// ReadBytes, WriteBytes, Reads and Writes are the IO limit of the device that reads the node,
+	// a second, set by block_set_io_throttle: 0 for none, and for a node no device reads.
+	ReadBytes  int64 `json:"bps_rd"`
+	WriteBytes int64 `json:"bps_wr"`
+	Reads      int64 `json:"iops_rd"`
+	Writes     int64 `json:"iops_wr"`
 }
 
 // ImageInfo is a node's image as QEMU reads it, and the image under it.

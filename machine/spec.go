@@ -710,7 +710,9 @@ const slotNodePrefix = "slot"
 func slotDevice(i int) string { return fmt.Sprintf("disk%d", i) }
 func emptyNode(i int) string  { return fmt.Sprintf("slot%d-empty", i) }
 
-// placeGroup is the throttle group every place's node is in. It has no limits.
+// placeGroup is the throttle group every place's node is in. It has no limits and is given none:
+// a group's members share its limit, so one set here would hold every disk together. A disk's
+// limit is its device's (SetDiskLimit).
 const placeGroup = "places"
 
 // placeNode is the node a place's device reads through: a pass-through over file, the
