@@ -359,7 +359,7 @@ done
 # And every mask shadows something the image has. A mask of a unit, generator or tmpfiles rule
 # no package installed is dead code that reads as a decision: optimize-systemd.sh carried 16
 # (avahi, cups, multipathd, the tpm2 units of a systemd built without TPM2, ...), found on
-# 2026-11-21 (docs/lab.md, "What the machine carries"). An instance's mask is checked
+# 2026-11-21 (docs/boot-time.md, "What the machine carries"). An instance's mask is checked
 # against its template.
 for dir in /etc/systemd/system /etc/systemd/system-generators /etc/tmpfiles.d; do
     links=$("$bin/debugfs" -R "ls -l $dir" /work/base.raw 2>/dev/null | awk '$2 ~ /^120/ {print $NF}')

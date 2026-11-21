@@ -31,7 +31,7 @@ import (
 // After the firmware's jump nothing exits for tens of milliseconds while the bzImage is
 // decompressed, and the kernel's own clock starts only after that. The probe init prints the
 // kernel's kvm-clock reading and "Freeing", and kernelClock puts them on the host's clock, so
-// the jump to the kernel's clock is a row of its own (docs/lab.md, rule 7).
+// the jump to the kernel's clock is a row of its own (docs/boot-time.md, rule 7).
 //
 // Tracing costs a little in every interval it measures - a formatted line per event - so the
 // numbers are where the time goes, not how much a boot without tracing takes.

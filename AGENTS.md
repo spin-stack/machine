@@ -21,7 +21,7 @@ console prompt, a phase, an initcall, a unit's time - is a tool for finding why 
 moved, never a target of its own. `docs/log.md` shows what optimising the others cost.
 
 Where both stand, what each phase of them costs, and how a number is taken and read is
-`docs/lab.md`. It also says why the cold number cannot reach 100 ms by userspace work alone:
+`docs/boot-time.md`. It also says why the cold number cannot reach 100 ms by userspace work alone:
 QEMU, the firmware and the kernel spent ~125-160 ms before PID 1 ran (2026-11-20, depending on
 the shape).
 
@@ -82,10 +82,10 @@ what it makes clear.
 
 ### Experiments
 
-Explore freely; promote on evidence. `docs/lab.md`, "How a number is measured", is the method in
+Explore freely; promote on evidence. `docs/boot-time.md`, "How a number is measured", is the method in
 full; these are its rules.
 
-- **Write the budget entry first.** Name the phase an experiment attacks in `docs/lab.md`'s
+- **Write the budget entry first.** Name the phase an experiment attacks in `docs/boot-time.md`'s
   budget, its p50 today, its ceiling (what the goal number gains if the phase cost nothing), and
   the result that would decide it. An experiment whose ceiling is under the noise needs more
   boots before it needs a run.
@@ -95,7 +95,7 @@ full; these are its rules.
   release, on the kind of host the goal is measured on, one run at a time: two runs side by side
   measure each other, and two runs taken apart are two machines. A laptop finds leads.
 - **One acceptance rule.** A change is a gain only when the bootstrap 95% interval of its Δp50
-  excludes 0. At 20 boots a side the interval is about ±7-9 ms (`docs/lab.md`); a smaller effect
+  excludes 0. At 20 boots a side the interval is about ±7-9 ms (`docs/boot-time.md`); a smaller effect
   needs more boots, not a second look.
 - **One change per arm.** A comparison that decides a change carries that change alone. A floor
   or a bound may change as many things at once as its question needs: a floor built from every
@@ -108,9 +108,9 @@ full; these are its rules.
 - Keep experiment outputs, overlays, initrds, firmware and caches apart from release outputs,
   and never open the shared base image for writing.
 - Remove an experiment once its question is answered. When a change decides something, kept or
-  rejected, add its row to `docs/lab.md`'s tables and its entry, dated and with its run, to
+  rejected, add its row to `docs/boot-time.md`'s tables and its entry, dated and with its run, to
   `docs/log.md`.
-- **Read before starting.** `docs/lab.md`'s "Measured and rejected" table and `docs/log.md`'s
+- **Read before starting.** `docs/boot-time.md`'s "Measured and rejected" table and `docs/log.md`'s
   rework cycles: an idea already there needs a new reason, not a new run. What the guest's memory
   and disk cost is `docs/memory-and-disk.md`.
 
