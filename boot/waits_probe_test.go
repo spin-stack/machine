@@ -5,19 +5,19 @@ package boot_test
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"fmt"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/spin-stack/machine/internal/lab"
+	"github.com/spin-stack/machine/machine"
 )
 
 // What waited on what between the kernel handing over and a login prompt, on one axis with
@@ -43,8 +43,9 @@ import (
 //	TOP=<n>            rows per table (default 15)
 //	GAP=<ms>           the shortest idle interval printed (default 1)
 //	RAW=<dir>          also write each boot's dump there, which is how testdata is made
-//	FLAGS=<flags>      spin-machine boot flags after the rest: --vsock-cid 3 gives the boot
-//	                   systemd-ssh-generator's sshd-vsock.socket, for TARGET=sshd-vsock.socket
+//
+// TARGET=sshd-vsock.socket gives the machine a vsock, without which systemd-ssh-generator makes
+// no such socket.
 func TestBootWaits(t *testing.T) {
 	if os.Getenv("SPIN_BOOT_WAITS") == "" {
 		t.Skip("set SPIN_BOOT_WAITS=1: boots a VM and needs sudo to write into its overlay")
@@ -59,7 +60,7 @@ func TestBootWaits(t *testing.T) {
 	target := cmp.Or(os.Getenv("TARGET"), "serial-getty@ttyS0.service")
 	raw := os.Getenv("RAW")
 
-	v := waitsVariant(cmp.Or(os.Getenv("CPUS"), "2"))
+	v := waitsVariant(envInt(t, "CPUS", 2))
 	// EXPERIMENT (branch pid1-marks): a systemd image/systemd built with SYSTEMD_EXPERIMENT, put
 	// into each boot's overlay; with experiments/pid1-marks, PID 1 marks its own steps.
 	if debs := os.Getenv("SPIN_SYSTEMD_DEBS"); debs != "" {
@@ -85,16 +86,14 @@ func TestBootWaits(t *testing.T) {
 
 // variant is one configuration to boot.
 type variant struct {
-	label, cpus, memory string
-	edit                lab.Edit // made in the boot's own overlay
-	// -device entries taken out of the machine, by prefix ("virtio-rng-pci"): a diagnostic row
-	// of another machine, one spin-machine deliberately has no flag for. See machineCommand.
-	without []string
+	label        string
+	cpus, memory int
+	edit         lab.Edit // made in the boot's own overlay
 }
 
 // waitsVariant is the boot both probes take: the getty an echo, and spin-waits.service printing
 // every unit's timestamps once startup has finished.
-func waitsVariant(cpus string) variant {
+func waitsVariant(cpus int) variant {
 	// Type=simple and a loop on FinishTimestampMonotonic: this unit is one of the initial
 	// transaction's jobs, and a oneshot there would hold startup open until it was done.
 	//
@@ -121,7 +120,7 @@ WantedBy=multi-user.target
 	files := lab.GettyDropin(lab.GettyEcho)
 	files["/etc/systemd/system/spin-waits.service"] = dump
 	return variant{
-		label: "waits", cpus: cpus, memory: "2048", edit: lab.Edit{Files: files,
+		label: "waits", cpus: cpus, memory: 2048, edit: lab.Edit{Files: files,
 			Links: map[string]string{
 				"/etc/systemd/system/multi-user.target.wants/spin-waits.service": "/etc/systemd/system/spin-waits.service",
 			}},
@@ -148,73 +147,59 @@ type hostRAM struct{ residentMB, hugeMB float64 }
 
 func (x waitsBoot) target() Unit { u, _ := x.w.Unit(x.login); return u }
 
-// machineCommand is `spin-machine boot` with args, or, for a variant that takes devices out
-// of the machine, the release's QEMU run with the command line `spin-machine args` prints for
-// the same arguments, less those devices - as boot:firmware-stages runs it to add
-// QEMU's trace flags. A machine with a device fewer is another machine, which is a
-// fleet-wide decision, so spin-machine has no flag for it on purpose: an experiment does not
-// belong in the release's path. Everything else the line holds is the definition's. start boots
-// the machine once the command runs: nothing for `spin-machine boot`, which boots its own.
-func machineCommand(t *testing.T, out string, v variant, args ...string) (cmd *exec.Cmd, start func(t *testing.T)) {
-	t.Helper()
-	bin := filepath.Join(out, "bin", "spin-machine")
-	if len(v.without) == 0 {
-		return exec.Command(bin, append([]string{"boot", "--release", out}, args...)...), func(*testing.T) {}
-	}
-	line, start := machineArgs(t, bin, out, args)
-	removed := 0
-	for i := 0; i+1 < len(line); i++ {
-		if line[i] != "-device" {
-			continue
-		}
-		for _, d := range v.without {
-			if strings.HasPrefix(line[i+1], d) {
-				line = slices.Delete(line, i, i+2)
-				i--
-				removed++
-				break
-			}
-		}
-	}
-	if removed != len(v.without) {
-		t.Fatalf("took %d devices out of %v; the command line has:\n%s", removed, v.without, strings.Join(line, "\n"))
-	}
-	return exec.Command(line[0], line[1:]...), start
-}
-
 // bootWaits boots once and reads the console until end, which is SPIN-WAITS-END or the marker
 // of a probe that writes after it.
 func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoot {
 	t.Helper()
+	base := filepath.Join(out, "image", "rootfs.qcow2")
 	overlay := filepath.Join(t.TempDir(), "overlay.qcow2")
-	mustRun(t, filepath.Join(out, "bin", "qemu-img"), "create", "-f", "qcow2",
-		"-F", "qcow2", "-b", filepath.Join(out, "image", "rootfs.qcow2"), overlay)
+	mustRun(t, filepath.Join(out, "bin", "qemu-img"), "create", "-f", "qcow2", "-F", "qcow2", "-b", base, overlay)
 	if err := lab.EditOverlay(overlay, v.edit); err != nil {
 		t.Fatal(err)
 	}
+	rel, err := machine.OpenRelease(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := rel.Spec("kvm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.BootCPUs, spec.Memory.BaseMB = v.cpus, v.memory
+	spec.Places = []machine.Place{{Serial: "root"}}
+	c := machine.DefaultCmdline()
+	c.Root, c.Init = "/dev/vda", "/sbin/init"
+	spec.Cmdline = c
+	if target == "sshd-vsock.socket" {
+		spec.VsockCID = 4000000 + os.Getpid()%100000
+	}
+	root, err := rootDisk(overlay, base)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	// FLAGS, as the other probes take it: spin-machine boot flags after the rest.
-	cmd, start := machineCommand(t, out, v, append([]string{"--disk", overlay, "--memory", v.memory, "--cpus", v.cpus,
-		"--console", "file:/dev/stdout", "--append", "init=/sbin/init"}, strings.Fields(os.Getenv("FLAGS"))...)...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("console pipe: %v", err)
 	}
-	cmd.Stdout, cmd.Stderr = w, w
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	// Before Start, which execs QEMU: the report is on the host's clock from that moment.
 	t0 := time.Now()
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("launching the machine: %v", err)
+	p, err := machine.Start(ctx, spec, machine.StartOptions{Console: w})
+	if err != nil {
+		t.Fatal(err)
 	}
-	_ = w.Close()
-	start(t)
+	// r first: Start's copy of the console into w then fails rather than waits, and QEMU's exit
+	// is not held behind a reader that has stopped.
 	defer func() {
-		if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil {
-			_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		}
-		_ = cmd.Wait()
 		_ = r.Close()
+		p.Kill()
+		_ = w.Close()
 	}()
+	if err := p.Boot(ctx, root); err != nil {
+		t.Fatalf("booting: %v", err)
+	}
 
 	// Stamped per read, as lab.Watch does and for its reason: a harness that stamps lines
 	// slows the serial port it is timing.
@@ -244,9 +229,7 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 	}
 	// What the host holds of the guest's memory, read while the machine still runs.
 	var ram hostRAM
-	if mb, err := strconv.Atoi(v.memory); err == nil {
-		ram.residentMB, ram.hugeMB, _ = guestRAM(cmd.Process.Pid, mb)
-	}
+	ram.residentMB, ram.hugeMB, _ = guestRAM(p.Pid(), v.memory)
 	for _, m := range marks[:3] {
 		if _, ok := stamps[m]; !ok {
 			t.Fatalf("no %q on the console; tail:\n%s", m, tail(console, 2000))

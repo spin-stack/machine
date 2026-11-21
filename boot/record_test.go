@@ -26,8 +26,26 @@ import (
 
 // spinsShape is the machine spin runs a workspace on (internal/lab's shape, spin c12bd87), but
 // for its vsock and NIC, which every machine here is given apart: one vCPU of sixteen, 128 MiB of
-// 8 GiB, sixteen hotplug targets.
-var spinsShape = []string{"--cpus", "1", "--max-cpus", "16", "--memory", "128", "--max-memory", "8192", "--hotplug-disks", "16"}
+// 8 GiB, sixteen hotplug targets, its root on /dev/vda and init as given.
+func spinsShape(t *testing.T, out, init string) machine.Spec {
+	t.Helper()
+	rel, err := machine.OpenRelease(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := rel.Spec("kvm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.BootCPUs, s.MaxCPUs = 1, 16
+	s.Memory = machine.Memory{BaseMB: 128, CeilingMB: 8192}
+	s.HotplugDisks = 16
+	s.Places = []machine.Place{{Serial: "root"}}
+	c := machine.DefaultCmdline()
+	c.Root, c.Init = "/dev/vda", init
+	s.Cmdline = c
+	return s
+}
 
 // balloon sets the size the balloon leaves the guest: a call machine.QEMU has no use for, which
 // the record's test sends to put an inflated balloon in the stream.
@@ -53,14 +71,12 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 	if os.Getenv("SPIN_RECORD_TEST") == "" {
 		t.Skip("set SPIN_RECORD_TEST=1: this starts machines")
 	}
-	out := releaseDir(t)
-	r := &recorder{t: t, out: out, cli: filepath.Join(out, "bin", "spin-machine"), cid: 3000000 + os.Getpid()%100000*10}
-	r.dir, _ = os.MkdirTemp("/tmp", "rec")
-	t.Cleanup(func() { _ = os.RemoveAll(r.dir) })
+	r := newRecorder(t, 3000000)
+	out := r.out
 
 	t.Run("a machine resumes its own checkpoint", r.selfResume)
 
-	base, took := r.target(true)
+	base, took := r.target(func(*machine.Spec) {})
 	b, err := json.Marshal(base)
 	if err != nil {
 		t.Fatal(err)
@@ -86,10 +102,10 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 		}
 	})
 
-	noVsock, _ := r.target(false)
-	seabios, _ := r.target(true, "--bios", "bios-256k.bin")
-	moreRAM, _ := r.target(true, "--memory", "256")
-	moreTargets, _ := r.target(true, "--hotplug-disks", "17")
+	noVsock, _ := r.target(func(s *machine.Spec) { s.VsockCID = 0 })
+	seabios, _ := r.target(func(s *machine.Spec) { s.BIOS = "bios-256k.bin" })
+	moreRAM, _ := r.target(func(s *machine.Spec) { s.Memory.BaseMB = 256 })
+	moreTargets, _ := r.target(func(s *machine.Spec) { s.HotplugDisks = 17 })
 	for _, tc := range []struct {
 		name     string
 		from, to machine.Target
@@ -123,39 +139,64 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 
 // recorder starts machines of spin's shape and reads their records.
 type recorder struct {
-	t             *testing.T
-	out, cli, dir string
-	n, cid        int
+	t        *testing.T
+	out, dir string
+	n, cid   int
 }
 
-// next is the next machine's monitor, vsock context id and NIC.
-func (r *recorder) next() (sock string, cid int, mac string) {
+// newRecorder is a recorder of the release under test, its vsock context ids from cid on, kept
+// apart per process so that runs side by side do not share one.
+func newRecorder(t *testing.T, cid int) *recorder {
+	t.Helper()
+	r := &recorder{t: t, out: releaseDir(t), cid: cid + os.Getpid()%100000*10}
+	// Second monitors' sockets, in /tmp: a socket's path fits in 108 bytes.
+	var err error
+	if r.dir, err = os.MkdirTemp("/tmp", "rec"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(r.dir) })
+	return r
+}
+
+// next is the next machine: spin's shape running init, with a vsock of its own, and its NIC's MAC.
+func (r *recorder) next(t *testing.T, init string) (machine.Spec, string) {
+	t.Helper()
 	r.n++
-	return filepath.Join(r.dir, fmt.Sprintf("%d.sock", r.n)), r.cid + r.n, fmt.Sprintf("52:54:00:00:%02x:%02x", r.n>>8, r.n&0xff)
+	s := spinsShape(t, r.out, init)
+	s.VsockCID = r.cid + r.n
+	return s, fmt.Sprintf("52:54:00:00:%02x:%02x", r.n>>8, r.n&0xff)
 }
 
-// target is the record of a held machine of spin's shape changed by flags, with a vsock or
-// without, and how long the read took; the machine is ended once it has said.
-func (r *recorder) target(vsock bool, flags ...string) (machine.Target, time.Duration) {
+// overlay is a new qcow2 overlay of the release's base image in dir.
+func (r *recorder) overlay(t *testing.T, dir string) string {
+	t.Helper()
+	overlay := filepath.Join(dir, "root.qcow2")
+	if b, err := exec.Command(filepath.Join(r.out, "bin", "qemu-img"), "create", "-q", "-f", "qcow2", //nolint:gosec // the release's qemu-img
+		"-b", r.base(), "-F", "qcow2", overlay).CombinedOutput(); err != nil {
+		t.Fatalf("an overlay of the base image: %v: %s", err, b)
+	}
+	return overlay
+}
+
+func (r *recorder) base() string { return filepath.Join(r.out, "image", "rootfs.qcow2") }
+
+// target is the record of a held machine of spin's shape changed by edit, and how long the read
+// took; the machine is ended once it has said.
+func (r *recorder) target(edit func(*machine.Spec)) (machine.Target, time.Duration) {
 	t := r.t
 	t.Helper()
-	sock, cid, mac := r.next()
-	more := []string{"--qmp", sock}
-	if vsock {
-		more = append(more, "--vsock-cid", fmt.Sprint(cid))
-	}
-	args, _ := machineArgs(t, r.cli, r.out, slices.Concat(spinsShape, more, flags))
-	g := startGuest(t, append(args, spinsNIC(mac)...))
-	m := attachTo(t, sock, g.said)
+	s, mac := r.next(t, "")
+	edit(&s)
+	g := startGuest(t, s, mac, nil)
+	defer g.Kill()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	start := time.Now()
-	tg, err := m.Target(ctx)
+	tg, err := g.Target(ctx)
 	took := time.Since(start)
 	if err != nil {
-		t.Fatalf("the record of %v: %v\n%s", flags, err, g.said())
+		t.Fatalf("the record: %v\n%s", err, g.said())
 	}
-	_ = m.Quit(ctx)
 	return tg, took
 }
 
@@ -164,29 +205,22 @@ func (r *recorder) target(vsock bool, flags ...string) (machine.Target, time.Dur
 // the checkpoint into a fresh machine held for one, of the same shape with its own vsock and MAC.
 func (r *recorder) selfResume(t *testing.T) {
 	dir := t.TempDir()
-	overlay := filepath.Join(dir, "root.qcow2")
-	if b, err := exec.Command(filepath.Join(r.out, "bin", "qemu-img"), "create", "-q", "-f", "qcow2", //nolint:gosec // the release's qemu-img
-		"-b", filepath.Join(r.out, "image", "rootfs.qcow2"), "-F", "qcow2", overlay).CombinedOutput(); err != nil {
-		t.Fatalf("an overlay of the base image: %v: %s", err, b)
-	}
+	overlay := r.overlay(t, dir)
 	ext := filepath.Join(dir, "ext.raw")
 	if err := os.WriteFile(ext, make([]byte, 1<<20), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	disk := []string{"--disk", overlay, "--disk-format", "qcow2", "--init", "/bin/sh"}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	sock, cid, mac := r.next()
-	raw := filepath.Join(r.dir, "raw.sock")
-	args, start := machineArgs(t, r.cli, r.out, slices.Concat(spinsShape, []string{"--qmp", sock, "--vsock-cid", fmt.Sprint(cid)}, disk))
+	s, mac := r.next(t, "/bin/sh")
 	// A second monitor, for what machine.QEMU has no call for: inflating the balloon.
-	args = append(args, "-qmp", "unix:"+raw+",server=on,wait=off")
-	a := startGuest(t, append(args, spinsNIC(mac)...))
-	start(t)
-	a.type_(t, "mount -t proc proc /proc; echo UP-$((1+1))")
-	a.await(t, regexp.MustCompile(`UP-2\b`), 60*time.Second)
-	src := attachTo(t, sock, a.said)
+	raw := filepath.Join(r.dir, "raw.sock")
+	s.Monitors = []machine.Monitor{{Socket: raw}}
+	src := startGuest(t, s, mac, nil)
+	src.boot(t, overlay, r.base())
+	src.type_(t, "mount -t proc proc /proc; echo UP-$((1+1))")
+	src.await(t, regexp.MustCompile(`UP-2\b`), 60*time.Second)
 	if err := src.SetMemory(ctx, 1024); err != nil {
 		t.Fatal(err)
 	}
@@ -201,11 +235,7 @@ func (r *recorder) selfResume(t *testing.T) {
 	if _, err := src.GuestMemory(ctx); err != nil && !errors.Is(err, machine.ErrNoGuestStats) {
 		t.Fatal(err)
 	}
-	q := monitorAt(t, raw, a.said)
-	if _, err := qmp.Do(ctx, q, balloon, balloonTarget{Value: 960 << 20}); err != nil {
-		t.Fatalf("inflating the balloon: %v", err)
-	}
-	_ = q.Close()
+	inflate(ctx, t, raw)
 	if err := src.SetCPUs(ctx, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -228,15 +258,13 @@ func (r *recorder) selfResume(t *testing.T) {
 	defer func() { _ = state.Close() }()
 	saved, _, err := src.Checkpoint(ctx, state, machine.SaveOptions{}, func(context.Context) error { return nil })
 	if err != nil {
-		t.Fatalf("checkpointing: %v\n%s", err, a.said())
+		t.Fatalf("checkpointing: %v\n%s", err, src.said())
 	}
-	_ = src.Quit(ctx)
-	a.kill()
+	src.Kill()
 
-	sock, cid, mac = r.next()
-	args, _ = machineArgs(t, r.cli, r.out, slices.Concat(spinsShape, []string{"--qmp", sock, "--vsock-cid", fmt.Sprint(cid), "--restore"}, disk))
-	b := startGuest(t, append(args, spinsNIC(mac)...))
-	dst := attachTo(t, sock, b.said)
+	s, mac = r.next(t, "/bin/sh")
+	s.Restore = true
+	dst := startGuest(t, s, mac, nil)
 	here, err := dst.Target(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -244,17 +272,35 @@ func (r *recorder) selfResume(t *testing.T) {
 	if err := machine.CanResume(saved, here); err != nil {
 		t.Fatalf("a machine refuses its own checkpoint: %v", err)
 	}
-	root, err := rootDisk(overlay, filepath.Join(r.out, "image", "rootfs.qcow2"))
+	root, err := rootDisk(overlay, r.base())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := dst.Resume(ctx, state, saved, here, machine.LoadOptions{}, root, extDisk(t)); err != nil {
-		t.Fatalf("resuming: %v\n%s", err, b.said())
+		t.Fatalf("resuming: %v\n%s", err, dst.said())
 	}
-	b.type_(t, "echo RESUMED-$((2+3))")
-	b.await(t, regexp.MustCompile(`RESUMED-5\b`), 30*time.Second)
+	dst.type_(t, "echo RESUMED-$((2+3))")
+	dst.await(t, regexp.MustCompile(`RESUMED-5\b`), 30*time.Second)
 	t.Logf("a checkpoint taken on %s after a memory plug, the balloon, a vCPU and a disk resumed into a fresh machine of the shape: %s",
 		saved.From.VMM, saved.Added)
+}
+
+// inflate leaves the guest 960 MiB through the monitor at sock. machine.Dial would do for the
+// connection, but a machine.QEMU sends only the calls it declares, and the balloon is not one.
+func inflate(ctx context.Context, t *testing.T, sock string) {
+	t.Helper()
+	c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{})
+	if err != nil {
+		t.Fatalf("talking to %s: %v", sock, err)
+	}
+	defer func() { _ = q.Close() }()
+	if _, err := qmp.Do(ctx, q, balloon, balloonTarget{Value: 960 << 20}); err != nil {
+		t.Fatalf("inflating the balloon: %v", err)
+	}
 }
 
 // rootDisk is the root disk as a machine.Disk: the overlay, writable, over the base image, read
@@ -272,78 +318,85 @@ func rootDisk(overlay, base string) (machine.Disk, error) {
 }
 
 // spinsNIC is the NIC spin gives a workspace, as Spec.Args writes it (appendNICs) with spin's
-// MTU, on a hub port in place of spin's TAP: spin-machine has no flag for a NIC, and a TAP needs
-// CAP_NET_ADMIN.
-func spinsNIC(mac string) []string {
-	return []string{"-netdev", "hubport,id=net0,hubid=0",
-		"-device", "virtio-net-pci,netdev=net0,mac=" + mac + ",romfile=,disable-legacy=on,addr=0x10,host_mtu=1450"}
-}
-
-// attachTo is machine.Attach on a machine's monitor, once QEMU has made it.
-func attachTo(t *testing.T, sock string, said func() string) *machine.QEMU {
-	t.Helper()
-	return machine.Attach(monitorAt(t, sock, said))
-}
-
-// monitorAt is a client of the monitor at sock, once QEMU has made it. said is what QEMU has
-// printed so far, for a failure to show.
-func monitorAt(t *testing.T, sock string, said func() string) *qmp.Client {
-	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: sock, Net: "unix"})
-		if err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{})
-			if err != nil {
-				t.Fatalf("attaching to %s: %v", sock, err)
-			}
-			t.Cleanup(func() { _ = q.Close() })
-			return q
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("QEMU never answered on %s: %v\n%s", sock, err, said())
-		}
-		time.Sleep(20 * time.Millisecond)
+// MTU, on a hub port in place of spin's TAP, which needs CAP_NET_ADMIN.
+func spinsNIC(mac string) func(*exec.Cmd) {
+	return func(c *exec.Cmd) {
+		c.Args = append(c.Args, "-netdev", "hubport,id=net0,hubid=0",
+			"-device", "virtio-net-pci,netdev=net0,mac="+mac+",romfile=,disable-legacy=on,addr=0x10,host_mtu=1450")
 	}
 }
 
-// guest is one QEMU whose console is its stdin and stdout.
-type guest struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-	mu    sync.Mutex
-	out   bytes.Buffer
+// screen is what a console has said, written by QEMU's side and read by the test's.
+type screen struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+	// news has a value once something was written since it was last taken.
+	news chan struct{}
 }
 
-func startGuest(t *testing.T, args []string) *guest {
+func newScreen() *screen { return &screen{news: make(chan struct{}, 1)} }
+
+func (s *screen) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	s.b.Write(p)
+	s.mu.Unlock()
+	select {
+	case s.news <- struct{}{}:
+	default:
+	}
+	return len(p), nil
+}
+
+func (s *screen) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// guest is one machine whose console is QEMU's stdin and stdout.
+type guest struct {
+	*machine.Process
+	stdin  *os.File
+	screen *screen
+}
+
+// startGuest starts a machine of s, held, with spin's NIC, its events from the handshake on going
+// to events when it is not nil.
+func startGuest(t *testing.T, s machine.Spec, mac string, events func(qmp.Event)) *guest {
 	t.Helper()
-	g := &guest{cmd: exec.Command(args[0], args[1:]...)} //nolint:gosec // the machine's own command line
-	stdin, err := g.cmd.StdinPipe()
+	s.Console = "stdio"
+	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	g.stdin = stdin
-	r, w := io.Pipe()
-	g.cmd.Stdout, g.cmd.Stderr = w, w
-	if err := g.cmd.Start(); err != nil {
-		t.Fatalf("starting QEMU: %v", err)
+	t.Cleanup(func() { _ = w.Close() })
+	defer func() { _ = r.Close() }()
+	g := &guest{stdin: w, screen: newScreen()}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	g.Process, err = machine.Start(ctx, s, machine.StartOptions{
+		Stdin: r, Stdout: g.screen, Stderr: g.screen,
+		Observer: qmp.Observer{Event: events}, Cmd: spinsNIC(mac),
+	})
+	if err != nil {
+		t.Fatalf("%v\n%s", err, g.said())
 	}
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := r.Read(buf)
-			g.mu.Lock()
-			g.out.Write(buf[:n])
-			g.mu.Unlock()
-			if err != nil {
-				return
-			}
-		}
-	}()
-	t.Cleanup(g.kill)
+	t.Cleanup(func() { g.Kill() })
 	return g
+}
+
+// boot binds the overlay over base as the root disk and boots the machine.
+func (g *guest) boot(t *testing.T, overlay, base string) {
+	t.Helper()
+	root, err := rootDisk(overlay, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := g.Boot(ctx, root); err != nil {
+		t.Fatalf("booting: %v\n%s", err, g.said())
+	}
 }
 
 // type_ is a line on the console. The guest's shell is not reading it when QEMU starts, so the
@@ -355,11 +408,7 @@ func (g *guest) type_(t *testing.T, line string) {
 	}
 }
 
-func (g *guest) said() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.out.String()
-}
+func (g *guest) said() string { return g.screen.String() }
 
 // await is the console printing what matches re, or the test failing with what it did print.
 func (g *guest) await(t *testing.T, re *regexp.Regexp, timeout time.Duration) {
@@ -370,12 +419,5 @@ func (g *guest) await(t *testing.T, re *regexp.Regexp, timeout time.Duration) {
 			t.Fatalf("the console never said %s in %s:\n%s", re, timeout, tail([]byte(g.said()), 2000))
 		}
 		time.Sleep(50 * time.Millisecond)
-	}
-}
-
-func (g *guest) kill() {
-	if g.cmd.Process != nil {
-		_ = g.cmd.Process.Kill()
-		_ = g.cmd.Wait()
 	}
 }

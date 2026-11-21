@@ -5,13 +5,10 @@ package boot_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -36,25 +33,16 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 	if os.Getenv("SPIN_RECORD_TEST") == "" {
 		t.Skip("set SPIN_RECORD_TEST=1: this starts machines")
 	}
-	out := releaseDir(t)
-	r := &recorder{t: t, out: out, cli: filepath.Join(out, "bin", "spin-machine"), cid: 3500000 + os.Getpid()%100000*10}
-	r.dir, _ = os.MkdirTemp("/tmp", "evt")
-	t.Cleanup(func() { _ = os.RemoveAll(r.dir) })
+	r := newRecorder(t, 3500000)
 	dir := t.TempDir()
-	base := filepath.Join(out, "image", "rootfs.qcow2")
-	overlay := filepath.Join(dir, "root.qcow2")
-	if b, err := exec.Command(filepath.Join(out, "bin", "qemu-img"), "create", "-q", "-f", "qcow2", //nolint:gosec // the release's qemu-img
-		"-b", base, "-F", "qcow2", overlay).CombinedOutput(); err != nil {
-		t.Fatalf("an overlay of the base image: %v: %s", err, b)
-	}
-	disk := []string{"--disk", overlay, "--disk-format", "qcow2", "--init", "/bin/sh"}
+	overlay := r.overlay(t, dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	sock, cid, mac := r.next()
-	args, start := machineArgs(t, r.cli, out, slices.Concat(spinsShape, []string{"--qmp", sock, "--vsock-cid", fmt.Sprint(cid)}, disk))
-	a := startGuest(t, append(args, spinsNIC(mac)...))
-	start(t)
+	s, mac := r.next(t, "/bin/sh")
+	saving := &stream{}
+	a := startGuest(t, s, mac, saving.event)
+	a.boot(t, overlay, r.base())
 	// The shell may not be reading the console yet when the first line arrives, blanks and all.
 	for i := 0; !regexp.MustCompile(`UP-2\b`).MatchString(a.said()); i++ {
 		if i == 30 {
@@ -63,19 +51,17 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		a.type_(t, "echo UP-$((1+1))")
 		time.Sleep(time.Second)
 	}
-	src, saving := observed(t, sock, a)
 	state := filepath.Join(dir, "state")
 	f, err := os.Create(state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, _, err := src.Checkpoint(ctx, f, machine.SaveOptions{}, func(context.Context) error { return nil })
+	saved, _, err := a.Checkpoint(ctx, f, machine.SaveOptions{}, func(context.Context) error { return nil })
 	_ = f.Close()
 	if err != nil {
 		t.Fatalf("checkpointing: %v\n%s", err, a.said())
 	}
-	_ = src.Quit(ctx)
-	a.kill()
+	a.Kill()
 	t.Logf("saving: %s", saving)
 	saving.inOrder(t, "MIGRATION setup", "MIGRATION active", "MIGRATION pre-switchover", "MIGRATION device", "MIGRATION completed")
 
@@ -83,15 +69,15 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 	// the guest.
 	resume := func(t *testing.T, state string, load machine.LoadOptions) (*stream, error, *guest) {
 		t.Helper()
-		sock, cid, mac := r.next()
-		args, _ := machineArgs(t, r.cli, out, slices.Concat(spinsShape, []string{"--qmp", sock, "--vsock-cid", fmt.Sprint(cid), "--restore"}, disk))
-		g := startGuest(t, append(args, spinsNIC(mac)...))
-		dst, s := observed(t, sock, g)
-		here, err := dst.Target(ctx)
+		spec, mac := r.next(t, "/bin/sh")
+		spec.Restore = true
+		s := &stream{}
+		g := startGuest(t, spec, mac, s.event)
+		here, err := g.Target(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		root, err := rootDisk(overlay, base)
+		root, err := rootDisk(overlay, r.base())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,9 +86,9 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = f.Close() }()
-		err = dst.Resume(ctx, f, saved, here, load, root)
+		err = g.Resume(ctx, f, saved, here, load, root)
 		if err == nil && load.Fast {
-			err = dst.Loaded(ctx)
+			err = g.Loaded(ctx)
 		}
 		return s, err, g
 	}
@@ -149,10 +135,8 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		if err == nil {
 			t.Fatalf("a truncated state resumed\n%s", g.said())
 		}
-		exited := make(chan error, 1)
-		go func() { exited <- g.cmd.Wait() }()
 		select {
-		case <-exited:
+		case <-g.Exited():
 		case <-time.After(10 * time.Second):
 			t.Errorf("QEMU still runs 10 s after a failed load")
 		}
@@ -197,31 +181,6 @@ func (s *stream) inOrder(t *testing.T, want ...string) {
 	}
 	if i < len(want) {
 		t.Errorf("events %v, want %v in that order: %q never came where it should", s.events, want, want[i])
-	}
-}
-
-// observed is machine.Attach on a machine's monitor, its events recorded from the handshake on.
-func observed(t *testing.T, sock string, g *guest) (*machine.QEMU, *stream) {
-	t.Helper()
-	s := &stream{}
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: sock, Net: "unix"})
-		if err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{Event: s.event})
-			if err != nil {
-				t.Fatalf("attaching to %s: %v", sock, err)
-			}
-			m := machine.Attach(q)
-			t.Cleanup(func() { _ = m.Close() })
-			return m, s
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("QEMU never answered on %s: %v\n%s", sock, err, g.said())
-		}
-		time.Sleep(20 * time.Millisecond)
 	}
 }
 
