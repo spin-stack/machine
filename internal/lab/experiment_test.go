@@ -689,3 +689,31 @@ func TestDispatchAsksForItsOwnRun(t *testing.T) {
 		}
 	}
 }
+
+// A check's outcome is in its step's lines, which the steps after it would push out of the job
+// log's tail.
+func TestAStepsTailIsItsOwnLines(t *testing.T) {
+	log := []byte(strings.Join([]string{
+		"T1 ##[group]Run actions/checkout@3d3c",
+		"T2 checked out",
+		"T3 ##[group]Run go tool task lab:ci",
+		"T4 === RUN   TestX",
+		"T5 --- PASS: TestX",
+		"T6 ok",
+		"T7 ##[group]Run actions/upload-artifact@cf43",
+		"T8 uploaded",
+	}, "\n") + "\n")
+	for _, tc := range []struct {
+		step string
+		n    int
+		want string
+	}{
+		{"go tool task lab:ci", 2, "T5 --- PASS: TestX\nT6 ok"},
+		{"go tool task lab:ci", 10, "T3 ##[group]Run go tool task lab:ci\nT4 === RUN   TestX\nT5 --- PASS: TestX\nT6 ok"},
+		{"go tool task lab", 1, "T8 uploaded"},
+	} {
+		if got := StepTail(log, tc.step, tc.n); got != tc.want {
+			t.Errorf("StepTail(%q, %d) = %q, want %q", tc.step, tc.n, got, tc.want)
+		}
+	}
+}

@@ -112,6 +112,10 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 		if err != nil || r.Status != "completed" {
 			t.Fatalf("Wait(%d) = %+v, %v", n, r, err)
 		}
+		log, err := gh.JobLog(n)
+		if err != nil || !strings.Contains(StepTail(log, "go tool task lab:ci", 1<<20), "##[group]Run go tool task lab:ci") {
+			t.Fatalf("JobLog(%d) has no lab:ci step: %v\n%s", n, err, StepTail(log, "", 20))
+		}
 		dir := t.TempDir()
 		if err := gh.Artifact(id, "lab-"+id, dir); err != nil {
 			t.Fatal(err)

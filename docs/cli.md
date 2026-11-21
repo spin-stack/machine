@@ -200,7 +200,7 @@ variable it may not read.
 spin-machine-dev lab tree NAME [tree flags]              make _output/trees/NAME
 spin-machine-dev lab run PROBE [TREE...] [--tree NAME=SPEC]... [--reps N] [--opt K=V]... [--out DIR]
 spin-machine-dev lab show RUN_ID|DIR                     a lab run's result.json, downloaded, as its table
-spin-machine-dev lab dispatch PROBE --tree NAME=SPEC... [--reps N] [--opt K=V]... [--host bench|bench-metal]
+spin-machine-dev lab dispatch PROBE|check:TARGET --tree NAME=SPEC... [--reps N] [--opt K=V]... [--host bench|bench-metal]
 spin-machine-dev lab check TARGET [--tree NAME=SPEC]     boot:TARGET on one tree; a second tree, firmware-stages boots beside it
 spin-machine-dev lab ladder [--releases N] [--newest vX] the newest releases measured together: ladder.json
 spin-machine-dev lab compat [--here DIR] [--releases N]  a checkpoint of every release whose machine is this one, resumed
@@ -362,13 +362,16 @@ table lists each kind of thread's wait.
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
 compare. Use `--host bench` (nested, the default) unless the question is nested against metal. `--ref` names the branch whose lab.yml and probes run (default
 `main`). `lab run` exits 1 when a measurement was lost (a machine that never answered, counted in
-the table's LOST) and 2 when the experiment could not run.
+the table's LOST) and 2 when the experiment could not run. `lab dispatch check:TARGET` runs one
+of lab.yml's checks on the bench, on the first tree. A check keeps no result, so dispatch prints
+the last lines of its step from the job's log, and exits 1 when the run did not succeed.
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
-`firmware`, `record`, `rollback`, `compat` (every release whose machine is this one, through `lab compat`),
+`firmware`, `record`, `rollback`, `checkpoint-pause`, `compat` (every release whose machine is this one, through `lab compat`),
 `hotadd`, `logind` and `lockdown`. Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
 `lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
-`firmware-stages`, `waits`, `record` and `rollback`, the targets its `probe` input lists.
+`firmware-stages`, `waits`, `record`, `rollback` and `checkpoint-pause`, the targets its `probe` input
+lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its
 `trees` input names (`NAME=SPEC; NAME=SPEC`), runs the probe, puts the table on the run's summary,
