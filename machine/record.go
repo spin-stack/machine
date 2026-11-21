@@ -68,8 +68,8 @@ func newMachine(exact []part, atLeast []count) (Machine, error) {
 	exact, atLeast = slices.Clone(exact), slices.Clone(atLeast)
 	slices.SortFunc(exact, func(a, b part) int { return strings.Compare(a.Name, b.Name) })
 	slices.SortFunc(atLeast, func(a, b count) int { return strings.Compare(a.Name, b.Name) })
-	seen := make(map[string]bool, len(exact)+len(atLeast))
-	names := make([]string, 0, len(exact)+len(atLeast))
+	seen := map[string]bool{}
+	var names []string
 	for _, p := range exact {
 		names = append(names, p.Name)
 	}

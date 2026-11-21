@@ -303,7 +303,7 @@ func TestUnshared(t *testing.T) {
 		{"what one host lacks", []CPU{host("GenuineIntel", "avx512f", "avx2", "sse2"), host("GenuineIntel", "sse2", "avx2", "sse2"),
 			host("GenuineIntel", "amx-tile", "avx2", "avx512f", "sse2")}, []string{"amx-tile", "avx512f"}, ""},
 		{"two vendors", []CPU{host("GenuineIntel"), host("AuthenticAMD")}, nil, "a pool of GenuineIntel host and AuthenticAMD host CPUs"},
-		{"two models", []CPU{host("GenuineIntel"), {Vendor: "GenuineIntel", Model: "Skylake-Server-v4"}}, nil, "one vendor and model"},
+		{"two models", []CPU{host("GenuineIntel"), {Vendor: "GenuineIntel", Model: "Skylake-Server-v4"}}, nil, "a pool of GenuineIntel host and GenuineIntel Skylake-Server-v4 CPUs"},
 		{"no hosts", nil, nil, "no hosts"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
