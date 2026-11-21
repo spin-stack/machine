@@ -312,7 +312,7 @@ func Refuse(format string, args ...any) error {
 }
 
 // refusedHere is what QEMU says when it will not make the machine on this host: enforce=on, a CPU
-// model naming a feature the host cannot show (Spec.Shape).
+// model naming a feature the host cannot show (machine.Spec.CPU).
 const refusedHere = "Host doesn't support requested features"
 
 // Exited says why a machine that should still be running is not, once it has exited: a refusal of

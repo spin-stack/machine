@@ -13,15 +13,15 @@ release's numbers.
 
 ## Why one repository
 
-A checkpoint resumes only on the same hardware it was saved on, and QEMU does not check that.
-So the machine's identity is its contract, and `machine.CanResume` refuses a checkpoint saved on
-another one. `machine.Spec.Fingerprint` hashes the versioned
-machine type (`machine.MachineType`), the shape, every device as the command line gives it, and
-the BIOS's size. Two machines with different fingerprints do not take each other's checkpoints.
-Two with the same one do, where the QEMU is as new as the one that saved the checkpoint and the
-host can show the guest every CPU feature it was shown (docs/migration.md). A new QEMU of the
-same machine type, a new kernel, or new firmware of the same size is the same machine, and
-`task boot:compat` holds every release to that. One repository and one version keep the four parts from drifting apart.
+A checkpoint resumes only on the same hardware it was saved on, and QEMU does not check all of
+it: it loads a checkpoint into a machine with an extra device, a larger BIOS or more base RAM.
+So a checkpoint carries the record of the machine it was taken on, read from the running QEMU
+(`machine.QEMU.Target`): its version, its CPU, every device and its properties, its options and
+its RAM blocks. `machine.CanResume` refuses it on a machine whose record differs and names each
+difference (docs/machine.md). A new kernel, or new firmware of the same size, is the same
+machine, and so is a new QEMU of the same machine type that reports the same machine;
+`task boot:compat` holds every release to that. One repository and one version keep the four
+parts from drifting apart.
 
 ## Layout
 
@@ -30,7 +30,7 @@ imported. Every other directory is this repository's own and changes without not
 
 | directory | what it is |
 |---|---|
-| [`machine/`](machine/) | the machine as Go: the `Spec` and its QEMU command line, the fingerprint, and the `VM` that boots, resumes and checkpoints one |
+| [`machine/`](machine/) | the machine as Go: the `Spec` and its QEMU command line, the record a checkpoint is held to, and the `VM` that boots, resumes and checkpoints one |
 | [`cmd/spin-machine/`](cmd/spin-machine/) | the tool that boots and drives one machine by hand |
 | [`cmd/spin-machine-dev/`](cmd/spin-machine-dev/) | the tool that builds, verifies, measures and releases the machine ([docs/cli.md](docs/cli.md)) |
 | [`internal/`](internal/) | what `spin-machine-dev` is made of: the builds, the release, its notes, the lab and the CVE and OSV checks |
@@ -60,7 +60,7 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `kernel/sources` | every source and header the kernel compiled, which `spin-machine-dev cves` judges CVEs against |
 | `kernel/patches/` | the changes this tree makes to the kernel |
 | `image/rootfs.qcow2` | the base image, read-only (0444) |
-| `machine.env` | the version, the commit, the QEMU, kernel and e2fsprogs versions, the checksums of QEMU, `vmlinux`, `qboot.bin` and the base image, and `fingerprint_sha256` |
+| `machine.env` | the version, the commit, the QEMU, kernel and e2fsprogs versions, and the checksums of QEMU, `vmlinux`, `qboot.bin` and the base image |
 | `SOURCES` | every upstream source by version, URL and SHA-256, and the written offer |
 | `packages.txt` | every package and exact version in the base image |
 | `licenses.txt` | the copyright and licence text of each package in the base image |
@@ -76,7 +76,7 @@ code that compiles. It opens a release, fills a `Spec`, starts QEMU from `Spec.A
 boots or resumes, attaches a disk and takes a checkpoint. The package doc
 (`go doc ./machine`) lists the same steps.
 
-By hand, `spin-machine` boots a machine, prints its command line or fingerprint, attaches,
+By hand, `spin-machine` boots a machine, prints its command line, attaches,
 detaches or saves on a running one, grows or shrinks its vCPUs and memory, and restores a saved
 one (`spin-machine <command> -h`). To run one command in a throwaway guest:
 
@@ -117,7 +117,7 @@ slower (7.6 s against 455 ms, lab 44848049631, 2026-11-21), and nothing chooses 
 | [docs/releases.md](docs/releases.md) | each release's numbers, measured on the bench |
 | [docs/log.md](docs/log.md) | what was tried, when, why, and what it measured |
 | [docs/cli.md](docs/cli.md) | `spin-machine-dev`: building, verifying, measuring, releasing |
-| [docs/machine.md](docs/machine.md) | the definition: fixed slots, vmgenid, and what the fingerprint hashes |
+| [docs/machine.md](docs/machine.md) | the definition: fixed slots, vmgenid, and the record a checkpoint is held to |
 | [docs/migration.md](docs/migration.md) | one VM moved to another host, and why the CPU model decides it |
 | [docs/memory-and-disk.md](docs/memory-and-disk.md) | what a guest's page cache, freed memory and disk cost its host, and what the host must set |
 | [docs/releasing.md](docs/releasing.md) | CI, versions, and what a release owes its upstreams |

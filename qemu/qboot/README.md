@@ -83,11 +83,11 @@ the same way. On the bench fleet in spin's shape, SeaBIOS instead of qboot costs
 login +68.5 ms [+62.7, +71.7] (lab 44818953987, `docs/boot-time.md`), far more than these
 diagnostic boots saw.
 
-The BIOS's size is part of Spec.Fingerprint, and its contents are not. The BIOS is the
+The BIOS's size is part of the machine's record (`machine.QEMU.Target`), and its contents are not. The BIOS is the
 `pc.bios` RAM block, which a checkpoint carries whole, so a resumed guest keeps running the qboot
 it booted with, and only a block of another length is refused. qboot.bin is linked for its
 64 KiB window (`spin-machine-dev verify qemu` holds it there), so a rebuilt qboot is the same machine to a
 checkpoint and new firmware to the next boot. The kernel and the option ROM QEMU adds for it
-reach the guest through fw_cfg at a boot and are not in the fingerprint either. That ROM is
+reach the guest through fw_cfg at a boot and are not in the record either. That ROM is
 linuxboot_dma.bin for the bzImage, and qboot does not run it, because qboot loads the bzImage
 from fw_cfg itself.
