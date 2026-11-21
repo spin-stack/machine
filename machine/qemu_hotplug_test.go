@@ -80,7 +80,7 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 
 	// Each disk exists at the first target free when it came, on its top node.
 	for target, serial := range []string{"vsc-a", "vsc-b"} {
-		for property, want := range map[string]any{"drive": TopNode(serial), "scsi-id": float64(target), "serial": serial} {
+		for property, want := range map[string]any{"drive": diskNode(serial, 0), "scsi-id": float64(target), "serial": serial} {
 			reply, err := q.try("qom-get", map[string]any{"path": "/machine/peripheral/" + hotDiskID(target), "property": property})
 			if err != nil {
 				t.Fatalf("the disk %s was accepted and has no %s: %v", serial, property, err)

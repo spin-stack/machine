@@ -8,7 +8,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -17,7 +19,8 @@ import (
 // A disk handed over as descriptors is bound to its place and read without a path: the chain
 // is opened after the directory that held it is gone, so a backing name in a header points
 // nowhere and QEMU reads what it was given or nothing. Then the top is sealed under a new
-// overlay through TopNode, as spin's storage does, and the place reads the overlay; and
+// overlay through the qcow2 node over the top's descriptor set, found as spin's storage finds it,
+// and the place reads the overlay; and
 // query-fdsets gives back what each descriptor was. The monitor is on a socket this test listens
 // on and QEMU was handed, as a QEMU that may create no socket needs.
 //
@@ -125,7 +128,7 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 			t.Fatal(err)
 		}
 	}
-	if err := m.q.run(ctx, "blockdev-snapshot", map[string]any{"node": TopNode("root"), "overlay": "next"}, nil); err != nil {
+	if err := m.q.run(ctx, "blockdev-snapshot", map[string]any{"node": qcow2NodeOf(ctx, t, m, top), "overlay": "next"}, nil); err != nil {
 		t.Fatalf("sealing the top under an overlay: %v", err)
 	}
 
@@ -167,6 +170,56 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 			t.Errorf("%d descriptors say they are %q, want %d: %s", got, want, n, b)
 		}
 	}
+}
+
+// qcow2NodeOf is the qcow2 node that reads the image at path, found as spin's storage finds the
+// node it seals (its qcow.topOf): by the opaque of the image's descriptor set and the filename
+// of the node's file, never by a node name, which is this package's own.
+func qcow2NodeOf(ctx context.Context, t *testing.T, m *QEMU, path string) string {
+	t.Helper()
+	type fd struct {
+		Opaque string `json:"opaque"`
+	}
+	var sets []struct {
+		ID  int  `json:"fdset-id"`
+		FDs []fd `json:"fds"`
+	}
+	if err := m.q.run(ctx, "query-fdsets", nil, &sets); err != nil {
+		t.Fatal(err)
+	}
+	var nodes []struct {
+		Name string `json:"node-name"`
+		Drv  string `json:"drv"`
+		File string `json:"file"`
+	}
+	if err := m.q.run(ctx, "query-named-block-nodes", map[string]any{"flat": true}, &nodes); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range sets {
+		if !slices.Contains(s.FDs, fd{Opaque: path}) {
+			continue
+		}
+		for _, n := range nodes {
+			// A node given its backing by name is called json:{...}, its file's filename inside.
+			file := n.File
+			if j, ok := strings.CutPrefix(file, "json:"); ok {
+				var named struct {
+					File struct {
+						Filename string `json:"filename"`
+					} `json:"file"`
+				}
+				if err := json.Unmarshal([]byte(j), &named); err != nil {
+					t.Fatalf("node %s's name %s: %v", n.Name, n.File, err)
+				}
+				file = named.File.Filename
+			}
+			if n.Drv == "qcow2" && file == "/dev/fdset/"+strconv.Itoa(s.ID) {
+				return n.Name
+			}
+		}
+	}
+	t.Fatalf("no qcow2 node reads %s: sets %+v, nodes %+v", path, sets, nodes)
+	return ""
 }
 
 // countOf is how many of xs are x.
