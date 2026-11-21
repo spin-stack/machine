@@ -5,7 +5,6 @@ package machine
 import (
 	"context"
 	"errors"
-	"net"
 	"testing"
 	"time"
 )
@@ -18,37 +17,24 @@ import (
 // button or a report is boot:record's (boot/verbs_test.go).
 func TestAHeldMachineAnswersTheRunnersVerbs(t *testing.T) {
 	qemu, firmware := qemuTCG(t)
-	socket := qmpSocket(t)
 	spec := Spec{
 		QEMU:     qemu,
+		Accel:    "tcg",
 		Kernel:   bzImageStub(t),
 		Firmware: firmware,
 		BootCPUs: 1,
 		MaxCPUs:  4,
 		Memory:   Memory{BaseMB: 512, CeilingMB: 1536},
 		Cmdline:  DefaultCmdline(),
-		Monitors: []Monitor{{Socket: socket}, {Socket: socket + ".2"}},
-	}
-	args, err := spec.Args()
-	if err != nil {
-		t.Fatal(err)
-	}
-	args, _, err = tcgOnly(args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	vm := startQEMU(t, qemu, args)
-	askStatus(t, socket, vm)
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket + ".2", Net: "unix"})
-	if err != nil {
-		vm.fail(t, "dialling the second monitor", err)
-	}
-	m, err := connect(conn)
-	if err != nil {
-		vm.fail(t, "attaching", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	p, err := Start(ctx, spec, StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Kill() })
+	m := p.QEMU
 
 	if st, err := m.Status(ctx); err != nil || st != Prelaunch {
 		t.Errorf("Status = %q, %v, want %q", st, err, Prelaunch)
