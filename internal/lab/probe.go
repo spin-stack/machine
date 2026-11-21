@@ -377,18 +377,30 @@ func (m *Measurement) Launch(stdout io.Writer, args ...string) (*Machine, error)
 // mutate-lane: TestEveryProbeMeasuresATree
 func (mc *Machine) PID() int { return qemuPID(mc.cmd.Process.Pid) }
 
-// qemuPID is pid's only child, or pid when it has none: QEMU spawns nothing (-sandbox spawn=deny),
-// so a QEMU has no child and a spin-machine boot has one, its QEMU. Each thread lists the children
-// it forked, and a Go program forks from whichever thread it is on, so every thread is read.
+// qemuPID is pid when it is QEMU, else its child that is. An exec'd QEMU can have a child too: the
+// helper the old boot started before its exec, a zombie QEMU never reaps. Each thread lists the
+// children it forked, and a Go program forks from whichever thread it is on, so every thread is
+// read.
 func qemuPID(pid int) int {
+	if isQEMU(pid) {
+		return pid
+	}
 	tasks, _ := filepath.Glob(fmt.Sprintf("/proc/%d/task/*/children", pid))
 	for _, t := range tasks {
 		b, _ := os.ReadFile(t)
-		if child, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
-			return child
+		for _, f := range strings.Fields(string(b)) {
+			if child, err := strconv.Atoi(f); err == nil && isQEMU(child) {
+				return child
+			}
 		}
 	}
 	return pid
+}
+
+// isQEMU is whether pid runs a QEMU system emulator, by its name (comm, cut at 15 bytes).
+func isQEMU(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	return err == nil && strings.HasPrefix(string(b), "qemu-system")
 }
 
 // rssMiB is VmRSS in a /proc/PID/status, in MiB.
