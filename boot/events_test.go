@@ -224,11 +224,15 @@ func observed(t *testing.T, sock string, g *guest) (*machine.QEMU, *stream) {
 	}
 }
 
-// userfaults is whether a QEMU run as this user can open the userfaultfd a fast load needs.
+// userfaults is whether a QEMU run as this user can open the userfaultfd a fast load needs. On a
+// bench runner, a throwaway host, it is turned on, as internal/lab's restore-first does.
 func userfaults() bool {
 	if unix.Access("/dev/userfaultfd", unix.R_OK|unix.W_OK) == nil {
 		return true
 	}
-	b, err := os.ReadFile("/proc/sys/vm/unprivileged_userfaultfd")
-	return err == nil && strings.TrimSpace(string(b)) == "1"
+	const knob = "/proc/sys/vm/unprivileged_userfaultfd"
+	if b, err := os.ReadFile(knob); err == nil && strings.TrimSpace(string(b)) == "1" {
+		return true
+	}
+	return os.Getenv("GITHUB_ACTIONS") == "true" && exec.Command("sudo", "sysctl", "-q", "-w", "vm.unprivileged_userfaultfd=1").Run() == nil
 }
