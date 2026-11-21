@@ -18,7 +18,7 @@ import (
 )
 
 // outputDir is the release tree the QEMU tests ask. The default is the tree beside this
-// package; the variable is what `task verify:args` passes, because OUTPUT_DIR can move and
+// package; the variable is what `spin-machine-dev verify args` passes, because OUTPUT_DIR can move and
 // a check that looked at the old location would answer about a QEMU nobody is building any
 // more.
 func outputDir(t *testing.T) string {
@@ -180,7 +180,7 @@ func (q *qmp) do(command string, args any) json.RawMessage {
 // qemuTCG is the emulating build and the firmware beside it.
 //
 // The TCG binary and not the one a host runs: that one has no TCG compiled in
-// (qemu:verify asserts it) and refuses to start without /dev/kvm, which is a
+// (`spin-machine-dev verify qemu` asserts it) and refuses to start without /dev/kvm, which is a
 // device CI does not have and a check must not require.
 //
 // The two paths out of a release tree, and not machine.OpenRelease, because it asks
@@ -193,7 +193,7 @@ func qemuTCG(t *testing.T) (qemu, firmware string) {
 	out := outputDir(t)
 	qemu = filepath.Join(out, qemuTCGName)
 	if _, err := os.Stat(qemu); err != nil {
-		t.Skipf("no QEMU at %s: %v\n\t`task verify:args` is the gate — it fetches one"+
+		t.Skipf("no QEMU at %s: %v\n\t`spin-machine-dev verify args` is the gate — it fetches one"+
 			" and refuses rather than skipping", qemu, err)
 	}
 	return qemu, filepath.Join(out, firmwareDir)

@@ -591,7 +591,7 @@ const machineOpts = MachineType + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,
 // minor is a new machine; under the version it is a new emulator of the same one, and a
 // checkpoint resumes across it (Fingerprint). Moving this is moving every guest to new
 // hardware: a decision, made here, that every checkpoint taken before it stops resuming.
-// qemu:verify says when the QEMU built offers a newer one, and fails once this one is
+// `spin-machine-dev verify qemu` says when the QEMU built offers a newer one, and fails once this one is
 // deprecated (QEMU deprecates a versioned type after three years and removes it after six).
 const MachineType = "pc-q35-11.1"
 
@@ -1087,16 +1087,17 @@ func (s Spec) bios() string {
 
 // Fingerprint is the machine's contract: what a checkpoint saved on it needs of the machine it
 // resumes into. Two machines with one fingerprint present the same hardware to a guest, and a
-// checkpoint saved on one resumes on the other; across two that differ a resume is undefined
-// rather than an error, because QEMU does not check it.
+// checkpoint saved on one resumes on the other. QEMU does not check it, so across two that
+// differ a resume is undefined rather than an error, and CanResume refuses it.
 //
 // It hashes the versioned machine type and the shape (Shape), the chipset's globals and every
 // device as the command line gives it with what is one VM's taken out (Contract), and the size of
 // the BIOS. Not the host's CPU: under model host, which CPU a checkpoint needs is in the
 // checkpoint (Saved.CPU) and checked against the machine it is resumed into (CanResume), which
-// is exact where a model name was not - see hostCPU's removal in docs/log.md, 2026-11-19. Not the QEMU binary, the kernel, the
-// initrd or the option ROM that entered it (linuxboot_dma.bin, pvh.bin): QEMU's promise is per versioned machine type, so a newer QEMU of the same
-// type is the same machine; a resumed guest runs the kernel in its saved memory, and the
+// is exact where a model name was not (hostCPU's removal, docs/log.md, 2026-11-19). Not the
+// QEMU binary, the kernel, the initrd or the option ROM that entered it (linuxboot_dma.bin,
+// pvh.bin): QEMU's promise is per versioned machine type, so a newer QEMU of the same type is
+// the same machine; a resumed guest runs the kernel in its saved memory, and the
 // kernel, the initrd and the option ROM that entered it are read again only by a boot.
 // boot:compat holds the promise: a checkpoint the newest release saved resumes on this tree's.
 //

@@ -198,12 +198,13 @@ func apart(a, b string) string {
 // about is what the page and the site say first: where the records come from, the goal, and what
 // a Δ is read against.
 func about() string {
-	return fmt.Sprintf("Each release is measured on the bench fleet once it is published (report.yml): booted "+
-		"interleaved with the release before it, each by the spin-machine of its own commit, in the shape spin "+
-		"boots a workspace in; a release from before that by `spin-machine-dev releases measure`. Each record says "+
-		"the shape it booted, and a number is only read beside one in the same shape. The goal is "+
-		"%.0f ms (AGENTS.md). A Δ is read only between two releases booted in the same run, because %s. ", Goal, drift) +
-		"So a release's Δ is against the release measured with it, with its 95% interval, and a Δ whose interval " +
+	return "The bench fleet measures each release once it is published (report.yml). It boots the release " +
+		"interleaved with the release before it, each by the spin-machine of its own commit, in the shape spin " +
+		"boots a workspace in. A release from before report.yml was measured by `spin-machine-dev releases measure`. " +
+		"Each record says the shape it booted, and a number is read only beside one in the same shape. " +
+		fmt.Sprintf("The goal is %.0f ms (AGENTS.md). ", Goal) +
+		"A Δ is read only between two releases booted in the same run, because " + drift + ". " +
+		"So a release's Δ is against the release measured with it, with its 95% interval. A Δ whose interval " +
 		"includes 0 is within noise, whatever its size. `spin-machine-dev releases compare A B` puts two side by side."
 }
 

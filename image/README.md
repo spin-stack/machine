@@ -9,7 +9,7 @@ qemu-img create -f qcow2 -F qcow2 -b rootfs.qcow2 overlay.qcow2
 Copy-on-write happens in the block layer, where QEMU does it, rather than in a filesystem
 stacked inside the guest.
 
-The contents are an Ubuntu 26.04 userland with systemd as the container's first process,
+The contents are an Ubuntu 26.04 userland with systemd as the guest's PID 1,
 the tools a workspace expects, and the boot optimizations in
 `mkosi.extra/usr/local/lib/spin-base/optimize-systemd.sh`.
 
@@ -17,17 +17,17 @@ Every package comes from the Ubuntu archive except systemd's. Those are Ubuntu's
 package rebuilt here (`systemd/Dockerfile`, which says what is built out and what it measured),
 versioned `+spin1` and held, so an `apt upgrade` in a workspace cannot bring back the archive's
 build. `build.sh` fails an image whose systemd is not that build or whose packages are not held.
-The other side of that: another package of the same source the image does not carry -
-`systemd-container`, `systemd-resolved` - asks for the archive's systemd at exactly its version,
-so `apt install` of it in a workspace is refused rather than mixing the two builds.
+The rebuild has a cost. A package of the same source that the image does not carry, such as
+`systemd-container` or `systemd-resolved`, asks for the archive's systemd at exactly its
+version. apt therefore refuses to install it in a workspace rather than mix the two builds.
 
 **ext4**, because the guest kernel has `EXT4_FS` and `OVERLAY_FS` and explicitly not
-`XFS_FS`, `BTRFS_FS`, `SQUASHFS` or `EROFS_FS`. Anything else starts with a kernel config
-change one directory over — which `kernel/Dockerfile` asserts.
+`XFS_FS`, `BTRFS_FS`, `SQUASHFS` or `EROFS_FS`. Another filesystem starts with a kernel config
+change one directory over, in the config that `kernel/Dockerfile` asserts.
 
 **Partitionless**, not a bootable disk with an ESP and a GPT, which nothing here would read.
-mkosi produces the tree (`Format=directory`); `build.sh` runs `mkfs.ext4 -d` — no loop
-device, no mount — and wraps the result with `qemu-img convert`. The `mkfs.ext4` is the
+mkosi produces the tree (`Format=directory`), and `build.sh` runs `mkfs.ext4 -d`, with no loop
+device and no mount, and wraps the result with `qemu-img convert`. The `mkfs.ext4` is the
 pinned one from [`e2fsprogs/`](../e2fsprogs/README.md), not the build container's. The base
 image reserves no blocks for root (`-m 0`): the reservation is a proportion, so a filesystem
 grown from the image onto a larger disk would keep 5% of the larger size.
@@ -36,12 +36,12 @@ grown from the image onto a larger disk would keep 5% of the larger size.
 
 - **The base must not be written to.** Every VM maps it read-only through a backing file and
   many VMs share one. A build step that opens it read-write invalidates every overlay in
-  existence — silently, because the overlays keep working until they read a cluster that
-  moved. It is written `0444`, and `spin-machine-dev shell` checks its checksum across a boot.
+  existence, and silently, because the overlays keep working until they read a cluster that
+  moved. `build.sh` writes it `0444`, and `spin-machine-dev shell` checks its checksum across a boot.
 - **No identity in the image.** No hostname, no machine-id, no `/etc/resolv.conf`, no SSH
-  host keys, no random seed. A VM is handed its identity by whoever runs it; anything
+  host keys, no random seed. A VM is handed its identity by whoever runs it. Anything
   baked in is shared by every VM that ever boots from it.
-  `build.sh` asserts each of these on the finished filesystem — `/etc/machine-id` present
+  `build.sh` asserts each of these on the finished filesystem: `/etc/machine-id` present
   and *empty*, everything else absent.
 
 ## Logging in: the SSH client has to speak ML-KEM
@@ -65,9 +65,9 @@ A client that connects is one of:
 Why one exchange: ML-KEM is post-quantum, and on the bench fleet a login with it cost what one
 with curve25519 did (40 and 39 ms; `task boot:ssh-first`, lab run 43479854381, 2026-11-13).
 sntrup761x25519, the other post-quantum exchange and the one OpenSSH 8.5-9.8 picks, took
-104 ms - its key generation alone was ~39 ms of the client's. The classical exchanges are
+104 ms, and its key generation alone was ~39 ms of the client's. The classical exchanges are
 gone with it. The drop-in is `/etc/ssh/sshd_config.d/10-spin-kex.conf`, written by
-`configure-system.sh` and asserted by `build.sh`; a drop-in that sets `KexAlgorithms` and is
+`configure-system.sh` and asserted by `build.sh`. A drop-in that sets `KexAlgorithms` and is
 read before it wins, because sshd keeps the first value it reads.
 
 ## The first login's lane
@@ -85,19 +85,24 @@ spin's runtime directory and manager. None of them waits for `sysinit.target` or
   session has its scope and `XDG_RUNTIME_DIR` and waits for neither. Nobody lingers: no user's
   manager starts in the boot.
 
-And udev's coldplug replays only the devices something here uses (`10-coldplug.conf`), so the
+udev's coldplug replays only the devices something here uses (`10-coldplug.conf`), so the
 lane has the CPU. On the bench fleet the first login went 478 -> 402 ms with all of it (`task
-boot:ssh-first`, lab run 43518915618, 2026-11-13); `configure-system.sh` and the drop-ins say what
+boot:ssh-first`, lab run 43518915618, 2026-11-13). `configure-system.sh` and the drop-ins say what
 each part did, and `build.sh` asserts each on the finished filesystem.
 
-spin's own path to the first login, ssh.socket and the one ssh.service behind it (spin's supervisor
-forwards vsock to 127.0.0.1:22), is in the lane as well: they and Ubuntu's `sshd-keygen.service`,
-which ssh.service is ordered after, have no default dependencies (`10-lane.conf`); logind and
-dbus-broker have no private /tmp, which would order them after the filesystems
-(`30-privatetmp.conf`); and udevd and its coldplug run at the lowest CPU weight while the boot
-runs (`20-startup.conf`), so the login started beside them gets the one vCPU first. Together, on
-the bench fleet in spin's shape, the cold first login came 59.4 ms sooner, the console prompt 51
-ms later (lab 44805051310, 2026-11-21).
+spin's own path to the first login is in the lane as well: ssh.socket and the one ssh.service
+behind it (spin's supervisor forwards vsock to 127.0.0.1:22). Three kinds of drop-in put it
+there:
+
+- ssh.socket, ssh.service and Ubuntu's `sshd-keygen.service`, which ssh.service is ordered
+  after, have no default dependencies (`10-lane.conf`).
+- logind and dbus-broker have no private /tmp, which would order them after the filesystems
+  (`30-privatetmp.conf`).
+- udevd and its coldplug run at the lowest CPU weight while the boot runs (`20-startup.conf`),
+  so the login started beside them gets the one vCPU first.
+
+Together, on the bench fleet in spin's shape, the cold first login came 59.4 ms sooner and the
+console prompt 51 ms later (lab 44805051310, 2026-11-21).
 
 ## Looking inside
 
@@ -107,7 +112,7 @@ spin-machine-dev shell --init /bin/bash   # a bare shell, for when systemd is th
 ```
 
 The default is `/sbin/init` because that is what this image is: a userland whose first
-process is systemd. Booting a bare shell answers a different question — `systemd-analyze`
+process is systemd. Booting a bare shell answers a different question. `systemd-analyze`
 in it replies *"System has not been booted with systemd as init system (PID 1)"*, which is
 true and useless.
 
@@ -118,24 +123,24 @@ It boots with no initrd at all: `root=/dev/vda rw rootfstype=ext4 init=/sbin/ini
 kernel can serve because virtio-blk and ext4 are built in and `build.sh` writes a partitionless
 filesystem. There is no debug initramfs: one that mounted the API filesystems, found the
 root disk and exec'd would be a second init, doing what the init a consumer brings already
-does. What removes the need for one is `systemd-udevd` being on.
+does. `systemd-udevd` being on removes the need for one.
 
 Three things the shell has found, all of them true of the image and none of them visible
 from outside:
 
 - **The serial login exists because udev does.** `serial-getty@ttyS0` carries
-  `BindsTo=dev-ttyS0.device`, and a `.device` unit exists only if udev announced it. While
-  this image masked `systemd-udevd` — on the theory that a VM's hardware is fixed and
-  discovering it is boot time spent — there was no login on the serial port at all, a
-  drop-in clearing `BindsTo` did not lift it, and the image had to carry an agetty unit of
-  its own with the dependency removed. Masking bought nothing measurable and cost a
-  ten-second `dev-ttyS0.device` timeout on every boot that had no initrd; the numbers are in
+  `BindsTo=dev-ttyS0.device`, and a `.device` unit exists only if udev announced it. This
+  image once masked `systemd-udevd`, on the theory that a VM's hardware is fixed and
+  discovering it is boot time spent. While it did, there was no login on the serial port at
+  all, a drop-in clearing `BindsTo` did not bring it back, and the image had to carry an agetty
+  unit of its own with the dependency removed. Masking bought nothing measurable and cost a
+  ten-second `dev-ttyS0.device` timeout on every boot that had no initrd. The numbers are in
   `optimize-systemd.sh`, where the decision is.
-- **`sshd` needs host keys generated at boot.** The image ships none — they are identity —
-  and the distribution's `sshd-keygen.service` carries `ConditionFirstBoot=yes`, so it does
-  not run before `sshd` is asked to validate a configuration with no keys, and
+- **`sshd` needs host keys generated at boot.** The image ships none, because they are
+  identity. The distribution's `sshd-keygen.service` carries `ConditionFirstBoot=yes`, so it
+  does not run before `sshd` is asked to validate a configuration with no keys, and
   `ssh.service` fails five times and gives up. `spin-machine-sshd-keygen.service` generates
-  them instead: every boot here *is* a first boot, since the root filesystem is a fresh
+  them instead. Every boot here *is* a first boot, since the root filesystem is a fresh
   overlay, so the keys live exactly as long as the VM does. Every sshd waits for it,
   including the per-connection `sshd@.service` that `systemd-ssh-generator` starts for vsock
   and `ssh .host`: without that, those connections found no host keys and were dropped. It
@@ -153,8 +158,10 @@ from outside:
 
 mkosi assembles a root filesystem by unsharing a user and mount namespace, and BuildKit
 forbids it (`mkosi was forbidden to unshare namespaces`, `PermissionError` on `unshare(2)`).
-The alternatives were `RUN --security=insecure`, which needs a `buildkitd` started with an
-entitlement flag — so `spin-machine-dev build image` would fail on any machine whose builder was created
-the ordinary way — or a container run with the privileges mkosi needs. `Dockerfile` pins the
-toolchain, `build.sh` is the build, and the task runs it with `--cap-add SYS_ADMIN` and
-seccomp/apparmor unconfined. Not `--privileged`.
+The alternatives were `RUN --security=insecure` or a container run with the privileges mkosi
+needs. `RUN --security=insecure` needs a `buildkitd` started with an entitlement flag, so
+`spin-machine-dev build image` would fail on any machine whose builder was created the ordinary
+way. `Dockerfile` pins the
+toolchain, `build.sh` is the build, and `spin-machine-dev build image` runs it in a container with
+`--cap-add SYS_ADMIN` and seccomp and AppArmor unconfined (`internal/build/build.go`), not
+`--privileged`.

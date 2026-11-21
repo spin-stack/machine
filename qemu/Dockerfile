@@ -43,7 +43,7 @@
 #                    download dtc.wrap via git`, at configure.
 #   --disable-tests  QEMU's unit and qtest binaries were compiled and linked in every build and
 #                    never run: nothing here runs `make check`. What says this QEMU works is
-#                    qemu:verify, verify:args and the boot probes, against this configuration.
+#                    `spin-machine-dev verify qemu`, `verify args` and the boot probes, against this configuration.
 #
 # Two flags that look like obvious wins and are not:
 #   --enable-vhost-user-blk-server   a device nothing asks for; a guest here gets an
