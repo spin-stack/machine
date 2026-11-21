@@ -141,11 +141,11 @@ func hostVsock() (int, error) {
 		return -1, err // mutate-exempt: the descriptor beside an error is never read
 	}
 	err = unix.Connect(fd, &unix.SockaddrVM{CID: unix.VMADDR_CID_HOST, Port: pressure.Port})
-	if err == nil {
+	if err == nil { // mutate-exempt: only a guest reaches the host's port, in machine's TestThePressureProbeReportsEachPressure, which fails without the connection
 		tv := unix.NsecToTimeval(writeWait.Nanoseconds())
 		err = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_SNDTIMEO, &tv)
 	}
-	if err != nil {
+	if err != nil { // mutate-exempt: only a guest reaches the host's port, in machine's TestThePressureProbeReportsEachPressure, which fails without the connection
 		_ = unix.Close(fd)
 		return -1, err // mutate-exempt: the descriptor beside an error is never read
 	}
