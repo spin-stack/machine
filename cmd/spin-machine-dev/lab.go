@@ -403,8 +403,8 @@ resume.`,
 				return couldNot(err)
 			}
 			// A machine that is not this one is an answer, not a failure: a row that says so.
-			resume := func(previous string) (string, error) {
-				return lab.ResumeHere(c.Context(), abs, previous, c.ErrOrStderr())
+			resume := func(previous, previousCLI string) (string, error) {
+				return lab.ResumeHere(c.Context(), abs, previous, previousCLI, c.ErrOrStderr())
 			}
 			rows, err := lab.Compat(abs, tags, sources(root, c.ErrOrStderr()), resume, c.ErrOrStderr())
 			if err != nil {
