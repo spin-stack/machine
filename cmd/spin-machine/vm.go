@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -165,23 +164,16 @@ func bootWith(ctx context.Context, m machine.VM, d diskFlags, release string) er
 // runs, so a client that connects early waits here for QEMU's start, a few hundred milliseconds.
 const handshakeTimeout = 30 * time.Second
 
-// dial connects to a machine's QMP socket, waiting for QEMU to have made it: a command run
-// right after boot otherwise races QEMU's start.
+// dial connects to a machine's QMP socket, waiting for boot to have bound it: a command run right
+// after boot otherwise races boot's own start.
 func dial(socket string, wait time.Duration) (*machine.QEMU, error) {
 	deadline := time.Now().Add(wait)
 	for {
-		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
-		if err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
-			defer cancel()
-			q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{})
-			if err != nil {
-				return nil, fmt.Errorf("talking to the machine at %s: %w", socket, err)
-			}
-			return machine.Attach(q), nil
-		}
-		if time.Now().After(deadline) || !(errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED)) {
-			return nil, fmt.Errorf("connecting to the machine at %s: %w", socket, err)
+		ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
+		m, err := machine.Dial(ctx, socket, qmp.Observer{})
+		cancel()
+		if err == nil || time.Now().After(deadline) || !(errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED)) {
+			return m, err
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
