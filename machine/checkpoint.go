@@ -132,6 +132,9 @@ const checkpointBandwidth = int64(64) << 30
 // plugged to 2 GiB, 20 saves an arm interleaved, lab 44940051596, 2026-11-21, #415).
 const checkpointDowntime = 30
 
+// DeferDiskFlush is EXPERIMENT ONLY (#426): boot's TestDeferAB turns it off and on.
+var DeferDiskFlush = true
+
 var (
 	migrateOut = qmpdef.Define[migrateArgs, qmp.None]("migrate")
 	migrateIn  = qmpdef.Define[migrateArgs, qmp.None]("migrate-incoming")
@@ -311,7 +314,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
 	}
 	channels := save.channels()
-	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1, events: true, deferDiskFlush: true}
+	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1, events: true, deferDiskFlush: DeferDiskFlush}
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
