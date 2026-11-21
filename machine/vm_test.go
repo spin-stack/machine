@@ -508,6 +508,9 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	if got := f.sent("migrate-set-parameters")[0]["max-bandwidth"]; got != float64(checkpointBandwidth) {
 		t.Errorf("max-bandwidth %v, want %d", got, checkpointBandwidth)
 	}
+	if got := f.sent("migrate-set-parameters")[0]["downtime-limit"]; got != float64(checkpointDowntime) {
+		t.Errorf("downtime-limit %v, want %d", got, checkpointDowntime)
+	}
 	if got := f.sent("migrate")[0]["uri"]; got != "file:/dev/fdset/3" {
 		t.Errorf("migrate to %v", got)
 	}

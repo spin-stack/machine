@@ -122,6 +122,15 @@ type added struct {
 // network: a checkpoint is a local file.
 const checkpointBandwidth = int64(64) << 30
 
+// checkpointDowntime is the pause QEMU plans for, in milliseconds: it stops the guest once what is
+// left to write fits in it at the rate it measures, and writes the rest with the guest stopped.
+// QEMU's default, 300, measured over 4 GB/s into the page cache and stopped an idle guest
+// mid-way through the first pass, with ~1.1 GiB left: QEMU's downtime 238 ms p50. At 30 the guest
+// stopped with 43 MiB left and the downtime was 12 ms, -226 [-236, -209], and the save's total
+// did not move, -10 [-67, +26] (laptop ext4, spin's shape plugged to 2 GiB, 1.5 GiB of tmpfs
+// filled, 1.6 GiB written, 16 saves an arm interleaved, 2026-11-21, #415).
+const checkpointDowntime = 30
+
 var (
 	migrateOut             = qmpdef.Define[migrateArgs, qmp.None]("migrate")
 	migrateIn              = qmpdef.Define[migrateArgs, qmp.None]("migrate-incoming")
@@ -162,6 +171,7 @@ type capabilityState struct {
 // migrationParameters are the parameters the machine sets: each left as it was when not given.
 type migrationParameters struct {
 	MaxBandwidth    int64 `json:"max-bandwidth,omitempty"`
+	DowntimeLimit   int64 `json:"downtime-limit,omitempty"`
 	MultifdChannels int   `json:"multifd-channels,omitempty"`
 }
 
@@ -301,7 +311,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	params := migrationParameters{MaxBandwidth: checkpointBandwidth}
+	params := migrationParameters{MaxBandwidth: checkpointBandwidth, DowntimeLimit: checkpointDowntime}
 	if channels > 1 {
 		params.MultifdChannels = channels
 	}
