@@ -169,6 +169,11 @@ func TestArgs(t *testing.T) {
 		want:   []string{"-device virtio-scsi-pci,id=scsi0,max_target=3,disable-legacy=on,addr=0x1a "},
 		absent: []string{"pcie-root-port"},
 	}, {
+		// One disk is a controller too, with the one target.
+		name: "one hotplug disk",
+		set:  func(s *Spec) { s.HotplugDisks = 1 },
+		want: []string{"-device virtio-scsi-pci,id=scsi0,max_target=0,disable-legacy=on,addr=0x1a "},
+	}, {
 		// Growing a VM is virtio-mem, not ACPI DIMM slots: -m carries the ceiling and
 		// no slots=, and the device holds the region between boot memory and ceiling
 		// with nothing plugged until somebody asks.
