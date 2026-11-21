@@ -111,7 +111,8 @@ const checkpointBandwidth = int64(64) << 30
 // pause-before-switchover stops the migration with the guest paused and the disks quiet, after
 // the last RAM is written and before the device state is: seal runs there. The vCPUs and disks
 // added while the machine ran are read before the migration starts, because QEMU refuses a query
-// of some of them once one is under way.
+// of some of them once one is under way. The machine's record is read while it runs: QEMU answers
+// its monitors while it writes the guest's RAM.
 func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save Save, seal func(context.Context) error) (Saved, error) {
 	var a added
 	var err error
@@ -125,10 +126,6 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save Save, seal func
 	if err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
 	}
-	from, err := m.Target(ctx)
-	if err != nil {
-		return Saved{}, fmt.Errorf("checkpointing: %w", err)
-	}
 	channels := save.channels()
 	caps := map[string]bool{"mapped-ram": true, "pause-before-switchover": true, "postcopy-ram": false, "multifd": channels > 1}
 	if err := m.setCapabilities(ctx, caps); err != nil {
@@ -141,11 +138,23 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save Save, seal func
 	if err := m.q.run(ctx, "migrate-set-parameters", params, nil); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	if err := m.migrate(ctx, "migrate", to, os.O_WRONLY, func() error { return m.switchover(ctx, seal) }); err != nil {
+	writing := func() error {
+		// Read before the migration, the record's round trips made `spin-machine save` 7.0 and
+		// 10.6 ms slower (bench, lab 44866054104); read here they overlap the RAM being written,
+		// and the record is the same (laptop, 2026-11-21). Target keeps what it read, and is
+		// asked again below, where an error counts.
+		_, _ = m.Target(ctx)
+		return m.switchover(ctx, seal)
+	}
+	if err := m.migrate(ctx, "migrate", to, os.O_WRONLY, writing); err != nil {
 		// A migration left at pre-switchover holds the guest paused with nobody to continue
 		// it; a cancel with none running succeeds.
 		cancelErr := m.q.run(context.WithoutCancel(ctx), "migrate_cancel", nil, nil)
 		return Saved{}, errors.Join(fmt.Errorf("checkpointing: %w", err), cancelErr)
+	}
+	from, err := m.Target(ctx)
+	if err != nil {
+		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	return Saved{Format: FormatMappedRAM, From: from, Added: again}, nil
 }
@@ -279,6 +288,11 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	if st != "inmigrate" {
 		return fmt.Errorf("resuming into a machine that is %s: only one started with Spec.Restore takes a checkpoint", st)
 	}
+	// Before the load, not beside it as Checkpoint reads it: QEMU answers no monitor while it
+	// loads a state. None answered from migrate-incoming's reply to the load's end, a mapped-ram
+	// state read by 8 channels (laptop, 2026-11-21). Read on a second monitor from QEMU's
+	// greeting, beside the restore, it was still on the restore's clock: the reads are work for
+	// QEMU's main loop, which is busy from exec to the load's end.
 	here, err := m.Target(ctx)
 	if err != nil {
 		return fmt.Errorf("resuming: %w", err)

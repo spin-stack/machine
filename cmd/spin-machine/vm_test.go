@@ -22,8 +22,8 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "vm.state")
 	completed := `{"return": {"status": "completed"}}`
 
-	saving := newMonitor(t, slices.Concat([]string{ok, `{"return": []}`, `{"return": []}`}, readRecord,
-		[]string{ok, ok, `{"return": {"fdset-id": 1}}`, ok, completed, ok, ok})...)
+	saving := newMonitor(t, slices.Concat([]string{ok, `{"return": []}`, `{"return": []}`, ok, ok, `{"return": {"fdset-id": 1}}`, ok},
+		readRecord, []string{completed, ok, ok})...)
 	if err := save(saveFlags{qmp: saving.socket, to: state, channels: 4, timeout: time.Minute}); err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +34,8 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 			t.Errorf("save --channels 4 set %v", r.Arguments)
 		}
 	}
-	want := slices.Concat([]string{"qmp_capabilities", "query-hotpluggable-cpus", "qom-list"}, readRecordAsked,
-		[]string{"migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate", "query-migrate", "remove-fd", "quit"})
+	want := slices.Concat([]string{"qmp_capabilities", "query-hotpluggable-cpus", "qom-list", "migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate"},
+		readRecordAsked, []string{"query-migrate", "remove-fd", "quit"})
 	if !slices.Equal(asked, want) {
 		t.Errorf("save asked %v, want %v", asked, want)
 	}
