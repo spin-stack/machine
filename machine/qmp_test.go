@@ -105,7 +105,7 @@ func TestDeletionsNobodyWaitsOnAreNotKept(t *testing.T) {
 		_, _ = w.WriteString(ok + "\n")
 	})
 	before := heap()
-	if err := q.deviceDel(ctx(t), "x"); err != nil {
+	if err := (&QEMU{q: q}).unplug(ctx(t), "x"); err != nil {
 		t.Fatal(err)
 	}
 	if grew := heap() - before; grew > events*idLen/8 {
@@ -128,7 +128,7 @@ func TestAnEarlierDeletionDoesNotEndAWait(t *testing.T) {
 	}
 	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if err := q.deviceDel(short, "x"); !errors.Is(err, context.DeadlineExceeded) {
+	if err := (&QEMU{q: q}).unplug(short, "x"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("a removal whose deletion never came = %v, want it to wait out its deadline", err)
 	}
 }
@@ -144,12 +144,12 @@ func TestADeletionEndsOneRemoval(t *testing.T) {
 		}
 		_, _ = w.WriteString(ok + "\n")
 	})
-	if err := q.deviceDel(ctx(t), "x"); err != nil {
+	if err := (&QEMU{q: q}).unplug(ctx(t), "x"); err != nil {
 		t.Fatal(err)
 	}
 	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if err := q.deviceDel(short, "x"); !errors.Is(err, context.DeadlineExceeded) {
+	if err := (&QEMU{q: q}).unplug(short, "x"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("a second removal = %v, want it to wait out its deadline", err)
 	}
 }

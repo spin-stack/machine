@@ -329,7 +329,7 @@ func (m *QEMU) SetCPUs(ctx context.Context, n int) error {
 			// Boot vCPUs are not devices anyone added, and cannot be removed.
 			continue
 		}
-		if err := m.q.deviceDel(ctx, id); err != nil {
+		if err := m.unplug(ctx, id); err != nil {
 			return fmt.Errorf("removing vCPU %s: %w", id, err)
 		}
 		have--

@@ -12,6 +12,8 @@ import (
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/spin-stack/machine/qmp"
 )
 
 // qmpClient is the smallest QMP client the machine needs: one command at a time, a descriptor sent
@@ -20,7 +22,7 @@ import (
 type qmpClient struct {
 	c  *net.UnixConn
 	in *bufio.Reader
-	// removing is the device deviceDel last removed, and removed whether QEMU has reported it
+	// removing is the device unplug last removed, and removed whether QEMU has reported it
 	// gone. A DEVICE_DELETED for any other device is dropped: nothing can wait on it, and QEMU
 	// is not trusted to send a bounded number of them.
 	removing string
@@ -169,23 +171,19 @@ func (q *qmpClient) readLine() ([]byte, error) {
 	}
 }
 
-// deviceDel removes the device id and returns once QEMU has reported it gone. The event may
-// arrive with device_del's own reply, so it is looked for there first.
-func (q *qmpClient) deviceDel(ctx context.Context, id string) error {
-	q.removing, q.removed = id, false
-	if err := q.run(ctx, "device_del", map[string]any{"id": id}, nil); err != nil {
-		return err
+// do sends a defined command over the machine's own client, as qmp.Do will once every file of the
+// machine sends defined commands.
+func do[A, R any](ctx context.Context, q *qmpClient, cmd qmp.Command[A, R], args A) (R, error) {
+	var r R
+	var a any = args
+	if _, none := a.(qmp.None); none {
+		a = nil
 	}
-	for !q.removed {
-		// A query to read what QEMU has sent meanwhile, events included.
-		if err := q.run(ctx, "query-status", nil, nil); err != nil {
-			return fmt.Errorf("waiting for %s to go: %w", id, err)
-		}
-		if err := sleep(ctx, pollInterval); err != nil {
-			return fmt.Errorf("waiting for %s to go: %w", id, err)
-		}
+	var f *os.File
+	if fd, ok := a.(qmp.AddFDArgs); ok {
+		f, _ = fd.File.(*os.File)
 	}
-	return nil
+	return r, q.send(ctx, cmd.Name(), a, f, &r)
 }
 
 // pollInterval is how often a wait asks QEMU again. Whatever is left of it when the thing waited
