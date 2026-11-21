@@ -50,6 +50,29 @@ func TestSummaryWaitedBySplitsAtTheLastSampleBefore(t *testing.T) {
 	}
 }
 
+func TestCrowdRow(t *testing.T) {
+	for row, want := range map[string][2]int{"0": {0, 0}, "16": {16, 0}, "16:nice=10": {16, 10}} {
+		n, nice, err := crowdRow(row)
+		if err != nil || n != want[0] || nice != want[1] {
+			t.Errorf("crowdRow(%q) = %d, %d, %v; want %v", row, n, nice, err, want)
+		}
+	}
+	for _, bad := range []string{"", "x", "-1", "16:nice=", "16:nice=-5", "16:nice=20"} {
+		if _, _, err := crowdRow(bad); err == nil {
+			t.Errorf("crowdRow(%q) was taken", bad)
+		}
+	}
+}
+
+func TestThreadKindDropsAWorkersPid(t *testing.T) {
+	for name, want := range map[string]string{"vhost-12828": "vhost", "iou-wrk-9342": "iou-wrk",
+		"CPU 0/KVM": "CPU 0/KVM", "mig/dst/recv_3": "mig/dst/recv_3", "qemu-system-x86": "qemu-system-x86"} {
+		if got := threadKind(name); got != want {
+			t.Errorf("threadKind(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestSummarizeCountsExitedThreadsAndTheVCPUs(t *testing.T) {
 	threads := map[int]threadSched{
 		1: {name: "qemu-system-x86", ran: 10 * time.Millisecond, waited: 2 * time.Millisecond},
