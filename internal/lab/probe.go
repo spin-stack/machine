@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -371,9 +372,24 @@ func (m *Measurement) Launch(stdout io.Writer, args ...string) (*Machine, error)
 	return mc, nil
 }
 
-// PID is the machine's process: QEMU's, which spin-machine boot execs in its place.
+// PID is QEMU's process: spin-machine boot's child, since boot starts QEMU through machine.Start,
+// or boot's own pid in a release from before, whose boot exec'd QEMU in its place.
 // mutate-lane: TestEveryProbeMeasuresATree
-func (mc *Machine) PID() int { return mc.cmd.Process.Pid }
+func (mc *Machine) PID() int { return qemuPID(mc.cmd.Process.Pid) }
+
+// qemuPID is pid's only child, or pid when it has none: QEMU spawns nothing (-sandbox spawn=deny),
+// so a QEMU has no child and a spin-machine boot has one, its QEMU. Each thread lists the children
+// it forked, and a Go program forks from whichever thread it is on, so every thread is read.
+func qemuPID(pid int) int {
+	tasks, _ := filepath.Glob(fmt.Sprintf("/proc/%d/task/*/children", pid))
+	for _, t := range tasks {
+		b, _ := os.ReadFile(t)
+		if child, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+			return child
+		}
+	}
+	return pid
+}
 
 // rssMiB is VmRSS in a /proc/PID/status, in MiB.
 func rssMiB(status string) (float64, bool) { return statusMiB(status, "VmRSS") }

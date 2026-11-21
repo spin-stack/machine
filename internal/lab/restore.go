@@ -401,17 +401,12 @@ func settled(socket string, state machine.Status) error {
 	if err := waitSocket(socket, deadline); err != nil {
 		return Miss("the held QEMU never opened its monitor %s: %v", socket, err)
 	}
-	c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
-	if err != nil {
-		return fmt.Errorf("connecting to %s: %w", socket, err)
-	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
-	q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{})
+	m, err := machine.Dial(ctx, socket, qmp.Observer{})
 	if err != nil {
-		return fmt.Errorf("the held QEMU's monitor %s: %w", socket, err)
+		return fmt.Errorf("the held QEMU: %w", err)
 	}
-	m := machine.Attach(q)
 	defer func() { _ = m.Close() }()
 	st, err := m.Status(ctx)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sync/atomic"
 
 	"github.com/spin-stack/machine/internal/qmpdef"
@@ -35,6 +36,23 @@ var _ VM = (*QEMU)(nil)
 // which cannot disagree with the command line it was started from the way a second copy of the
 // Spec could.
 func Attach(c *qmp.Client) *QEMU { return &QEMU{c: c} }
+
+// Dial connects to the monitor listening at socket, of a machine started elsewhere or a second
+// monitor of one Start started, and returns the machine. ctx bounds the connect and the handshake,
+// which waits for QEMU's start when Start bound the socket before QEMU ran. A socket nobody listens
+// on is an error at once: Dial waits for no one to make it.
+func Dial(ctx context.Context, socket string, o qmp.Observer) (*QEMU, error) {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", socket)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to the machine at %s: %w", socket, err)
+	}
+	c, err := qmp.New(ctx, qmp.Unix(conn.(*net.UnixConn)), o)
+	if err != nil {
+		return nil, fmt.Errorf("talking to the machine at %s: %w", socket, err)
+	}
+	return Attach(c), nil
+}
 
 // Close lets the monitor go. The machine runs on: a monitor's client leaving is nothing to QEMU.
 func (m *QEMU) Close() error { return m.c.Close() }

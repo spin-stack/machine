@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,17 +60,12 @@ func hostBaseline(dir string) (string, error) {
 // baselineOn asks the machine on the monitor at socket which named models it can run, and picks this
 // one host's baseline among them.
 func baselineOn(socket string) (string, error) {
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
-	if err != nil {
-		return "", fmt.Errorf("asking which CPU models this host runs: %w", err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{})
+	m, err := machine.Dial(ctx, socket, qmp.Observer{})
 	if err != nil {
 		return "", fmt.Errorf("asking which CPU models this host runs: %w", err)
 	}
-	m := machine.Attach(c)
 	defer func() { _ = m.Close() }()
 	models, err := m.CPUModels(ctx)
 	if err != nil {
