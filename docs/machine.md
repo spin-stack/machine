@@ -132,8 +132,8 @@ end, said := m.End()             // the last SHUTDOWN QEMU sent: End{Guest, Reas
 
 ## Pressure
 
-A runner hosts many machines. The probe says which of them is short of CPU, memory or IO, and
-which QMP commands are slow, as it happens. `Usage` then says which machine causes it. The machine
+A runner hosts many machines. The probe says which of them is short of CPU, memory or IO, which
+is held at a limit spin set on its cgroup, and which QMP commands are slow, as it happens. `Usage` then says which machine causes it. The machine
 owns both ends: a sender in the guest and the listener on the host. spin keeps what spans machines:
 the host's own PSI, ranking, attribution and what to do about it.
 
@@ -147,7 +147,7 @@ p, err := machine.Start(ctx, spec, machine.StartOptions{
 u, err := p.Usage(ctx)              // counters; two Usages say what was used between them
 ```
 
-`machine.Pressure` is one of four types:
+`machine.Pressure` is one of these types:
 
 | Type | Says | Seen by |
 |---|---|---|
@@ -156,6 +156,7 @@ u, err := p.Usage(ctx)              // counters; two Usages say what was used be
 | `OOMKill{Kills}` | the guest's OOM killer killed that many processes since the last report | the guest |
 | `SlowCommand{Command, Took, Baseline}` | a QMP command on Start's monitor took at least 100 ms and 4 times what it took before: `query-blockstats` took 536 ms against 14 while host hogs shared QEMU's one core (laptop, 2026-11-21) | the host, in the monitor's one client |
 | `GuestLost{Err}` | the guest's sender's connection ended, and the guest is blind until it dials again | the host |
+| `Limited{Limit, Device, Set, Used, Events, Since}` | in the last second, a limit on QEMU's own cgroup held the machine: `cpu.max`, `memory.high`, `memory.max` (and its OOM kill), or one key of `io.max` on one device | the host, from QEMU's cgroup each second |
 
 Each Stall carries `Total`, the resource's stall since the guest booted or the cgroup was made.
 Two Stalls of the same vantage and resource say how much stall fell between them.
@@ -172,6 +173,38 @@ guest IO stalls, and guest CPU and host CPU stalls with them. Who causes a host 
 balloon's count of the guest's OOM kills and allocation stalls. Its `Stalled` fields are the
 cgroup's PSI totals. A host's IO is someone else's IO only when the disks are on a disk. A disk
 on tmpfs is memory to the host (#394).
+
+**Short of X, held at its X limit, or squeezed by the host.** These are three different answers.
+A guest Stall says the machine is short of X. A `Limited` says spin's own limit is why. A host
+Stall with no `Limited` says the host is squeezing it. A host Stall alone cannot tell the last two
+apart. Under `cpu.max` of a fifth of a CPU, one loop in a guest of one vCPU brought a host CPU
+Stall each second, as hogs on its core do. It brought a `Limited` of `cpu.max` each second as well,
+with `Used` at 199,500-200,200 µs a second and 10 throttles, one each 100 ms period (task
+boot:pressure, laptop, 2026-11-21). The host reads the limits each second, since `cpu.stat` and
+`io.stat` cannot be polled. A `Limited` comes again each second the limit holds, with the same
+`Since`, and the last reading is taken as QEMU exits, so a machine killed by `memory.max` says so.
+Each limit is read from its own files:
+
+- **`cpu.max`.** `cpu.stat`'s `nr_throttled` moved. `Set` and `Used` are CPU microseconds a second.
+- **`memory.high` and `memory.max`.** `memory.events`' `high`, `max` or `oom_kill` moved. `Set` is
+  the limit and `Used` is `memory.current`, in bytes. With `memory.high` 32 MiB above what QEMU
+  held, the guest reading its disk again and again brought 2,200-4,300 `high` events a second, and
+  `memory.current` stayed within 0.1% of the limit. The host caches what QEMU reads in QEMU's
+  cgroup. `memory.events` notifies a reader of each change, at most every 10 ms (the kernel's
+  `CGROUP_FILE_NOTIFY_MIN_INTV`), and under
+  `memory.high` it changed thousands of times a second. It is read with the others each second.
+- **`io.max`.** A device's `rbps`, `wbps`, `riops` or `wiops` ran at 90% of its limit or more over
+  the second. cgroup v2 counts nothing of what `io.max` throttled: `io.stat` gains no field from it,
+  checked on Linux 7.0 with `CONFIG_BLK_DEV_THROTTLING` on (2026-11-21). QEMU's `io.pressure` does
+  not show it either. Held 5 s at an `rbps` of 4 MiB/s, which QEMU read at 99.9%, its total did not
+  move, since io_uring leaves no thread of QEMU's waiting. The guest's own IO stalled each second.
+  So a rate at the limit is the one sign there is.
+
+The limits are QEMU's own cgroup's. One a parent cgroup sets is counted in the parent's files, and
+a disk throttled by QEMU's throttle group (#395) is invisible to the cgroup. spin keeps the network
+limit and its signal (spin-stack/spin#1480). `Usage` carries the counters behind each: `CPU.Throttled`
+and `CPU.Throttles` from `cpu.stat`, and `Memory.High`, `Max`, `OOMs` and `OOMKills` from
+`memory.events`. The guest is never told. It does not know its limits exist.
 
 **What each vantage cannot see.**
 - **The guest's PSI is the guest's word.** A workspace's root can stop the sender or write what
@@ -195,7 +228,7 @@ build (`image/build.sh` checks it is in the image as built). Its unit is
 killer's way. `spin-machine-pressure.timer` starts it 10 s after the boot. Started with the boot,
 after multi-user.target, it ran beside the first login and cost it ~3 ms, so a guest's first 10 s
 go unreported. A restored guest has it running already. It wakes only when the kernel says something changed. It holds no identity: the host
-is always CID 2. The host side is `machine/pressure.go` and `machine/usage.go`. Start refuses a
+is always CID 2. The host side is `machine/pressure.go`, `machine/limit.go` and `machine/usage.go`. Start refuses a
 watch for a Spec with no vsock, for a QEMU in its caller's own cgroup (one cgroup for every machine
 attributes nothing), and when the cgroup's triggers cannot be armed: a window under 2 s is root's.
 
