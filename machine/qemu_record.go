@@ -18,21 +18,12 @@ import (
 )
 
 var (
-	queryVersion = qmpdef.Define[qmp.None, versionInfo]("query-version")
 	// query-accelerators, not query-kvm, which QEMU 11.2 deprecates: it names the accelerator
 	// the machine runs, kvm or tcg, which is the record's "accel" as query-kvm's enabled made it.
 	queryAccelerators = qmpdef.Define[qmp.None, accelerators]("query-accelerators")
 	qomListGet        = qmpdef.Define[qomPaths, []qomObject]("qom-list-get")
 	xQueryRAMBlock    = qmpdef.Define[qmp.None, humanReadable]("x-query-ramblock", qmpdef.Unstable)
 )
-
-type versionInfo struct {
-	QEMU struct {
-		Major int `json:"major"`
-		Minor int `json:"minor"`
-		Micro int `json:"micro"`
-	} `json:"qemu"`
-}
 
 type accelerators struct {
 	Enabled string `json:"enabled"`
@@ -52,15 +43,12 @@ type humanReadable struct {
 // Read once and kept, because none of it changes for the life of the process: a device the
 // machine was started with cannot be unplugged from pcie.0, a device's properties are fixed once
 // it is realized, a RAM block keeps its maximum length, and a vCPU's features are fixed when it
-// is made. One full read is 8 round trips (2026-11-21). Resume does not ask it: the caller hands
-// Resume the Target of the machine it resumes into, read once for its host.
+// is made. One full read is 7 round trips: the version is the monitor's greeting, which QEMU
+// writes with query-version's own answer (monitor/qmp.c, qmp_greeting). Resume does not ask it:
+// the caller hands Resume the Target of the machine it resumes into, read once for its host.
 func (m *QEMU) Target(ctx context.Context) (Target, error) {
 	if m.record != nil {
 		return *m.record, nil
-	}
-	version, err := qmp.Do(ctx, m.c, queryVersion, qmp.None{})
-	if err != nil {
-		return Target{}, fmt.Errorf("asking the machine's QEMU version: %w", err)
 	}
 	cpu, err := m.CPU(ctx)
 	if err != nil {
@@ -70,7 +58,7 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 	if err != nil {
 		return Target{}, fmt.Errorf("reading the machine QEMU runs: %w", err)
 	}
-	v := version.QEMU
+	v := m.c.Version()
 	t := Target{
 		VMM:      fmt.Sprintf("qemu %d.%d.%d", v.Major, v.Minor, v.Micro),
 		Formats:  []string{FormatMappedRAM, FormatStream},

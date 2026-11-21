@@ -120,7 +120,7 @@ func withID(reply string, id json.RawMessage) string {
 // monitor without one, as QEMU does when it quits.
 func (f *fakeQEMU) serve(c *net.UnixConn) {
 	w := bufio.NewWriter(c)
-	_, _ = w.WriteString(`{"QMP": {"version": {}, "capabilities": []}}` + "\n")
+	_, _ = w.WriteString(`{"QMP": {"version": {"qemu": {"major": 11, "minor": 2, "micro": 0}, "package": ""}, "capabilities": []}}` + "\n")
 	_ = w.Flush()
 	buf := make([]byte, 1<<16)
 	oob := make([]byte, syscall.CmsgSpace(4))
@@ -444,7 +444,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	}
 	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get",
 		"migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate",
-		"query-version", "query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock",
+		"query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock",
 		"query-migrate", "query-migrate", "migrate-continue", "query-migrate", "remove-fd"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Errorf("commands\n%v\nwant\n%v", got, want)
@@ -560,7 +560,7 @@ func TestACheckpointRecordsItsMachineOnceTheStateIsWritten(t *testing.T) {
 			written := false
 			f := &fakeQEMU{}
 			f.answer = migrations(func(c call) string {
-				if c.Command == "query-version" && (!tc.after || !written) {
+				if c.Command == "query-cpus-fast" && (!tc.after || !written) {
 					return refused("not during a migration")
 				}
 				if r, ok := recordAnswers(c); ok {
@@ -583,7 +583,7 @@ func TestACheckpointRecordsItsMachineOnceTheStateIsWritten(t *testing.T) {
 				}
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), "QEMU version") {
+			if err == nil || !strings.Contains(err.Error(), "listing the machine's vCPUs") {
 				t.Fatalf("Checkpoint = %v, want the record it could not read", err)
 			}
 			if slices.Contains(f.commands(), "migrate_cancel") {

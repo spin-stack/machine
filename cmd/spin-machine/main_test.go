@@ -21,12 +21,12 @@ import (
 	"github.com/spin-stack/machine/machine"
 )
 
-// serve is the scripted monitor: a greeting, then one reply per request read. It
+// serve is the scripted monitor: its greeting, then one reply per request read. It
 // returns what it was asked once the client has closed the connection, and an error
 // if the client is still holding it a second after the script ran out.
-func serve(c net.Conn, replies []string) ([]qmpRequest, error) {
+func serve(c net.Conn, greeting string, replies []string) ([]qmpRequest, error) {
 	defer func() { _ = c.Close() }()
-	if _, err := io.WriteString(c, `{"QMP": {"version": {}, "capabilities": []}}`+"\n"); err != nil {
+	if _, err := io.WriteString(c, greeting+"\n"); err != nil {
 		return nil, err
 	}
 	var asked []qmpRequest

@@ -51,10 +51,14 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 		t.Fatalf("save recorded %s (%v), want the mapped-ram format and the machine it was taken on", b, err)
 	}
 
-	// The machine held for the checkpoint, and the record restore is given of it, if any.
-	restoring := func(target string, replies ...string) (*monitor, error) {
-		m := newMonitor(t, append([]string{ok}, replies...)...)
+	// The machine held for the checkpoint, the QEMU it greets as, and the record restore is given
+	// of it, if any.
+	restoringOn := func(hello, target string, replies ...string) (*monitor, error) {
+		m := greetedBy(t, hello, append([]string{ok}, replies...)...)
 		return m, restore(restoreFlags{qmp: m.socket, from: state, target: target, disks: diskFlags{path: "-"}, timeout: time.Minute})
+	}
+	restoring := func(target string, replies ...string) (*monitor, error) {
+		return restoringOn(greeting, target, replies...)
 	}
 	askedOf := func(m *monitor) (out []string) {
 		for _, r := range m.commands(t)[1:] {
@@ -76,10 +80,9 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 	}
 	// An older QEMU, whose conversation ends at what it is: a restore that went on to load the
 	// state would keep the monitor past it, which the monitor reports.
-	older := slices.Clone(readRecord)
-	older[0] = `{"return": {"qemu": {"major": 11, "minor": 1, "micro": 0}}}`
+	older := strings.Replace(greeting, `"minor": 2`, `"minor": 1`, 1)
 	refusal := "restore: the checkpoint's machine is not this one:\n  vmm: checkpoint qemu 11.2.0, here qemu 11.1.0 (as new)"
-	m, err = restoring("", older...)
+	m, err = restoringOn(older, "", readRecord...)
 	if err == nil || err.Error() != refusal {
 		t.Errorf("restore into an older QEMU: %v, want %q", err, refusal)
 	}
