@@ -118,7 +118,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 
 	defaults := base
 	defaults.BootCPUs = 2
-	defaults.Memory = machine.Memory{SizeMB: 2048}
+	defaults.Memory = machine.Memory{BaseMB: 2048}
 	defaults.Console = "mon:stdio"
 	defaults.Places = []machine.Place{{Serial: "root"}}
 	defaults.Cmdline = machine.DefaultCmdline()
@@ -129,7 +129,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	every.BIOS = "bios-256k.bin"
 	every.CPU, every.BootCPUs, every.MaxCPUs = "Skylake-Server-v4", 3, 8
 	every.Accel = "tcg"
-	every.Memory = machine.Memory{SizeMB: 1024, MaxMB: 4096}
+	every.Memory = machine.Memory{BaseMB: 1024, CeilingMB: 4096}
 	every.HotplugDisks, every.VsockCID = 2, 7
 	every.Monitors = []machine.Monitor{{Socket: "/qmp"}}
 	every.Restore = true

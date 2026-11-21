@@ -128,7 +128,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 			Kernel:   kernel,
 			Firmware: firmware,
 			BootCPUs: 2,
-			Memory:   Memory{SizeMB: 512},
+			Memory:   Memory{BaseMB: 512},
 			Cmdline:  DefaultCmdline(),
 		}
 	}
@@ -156,7 +156,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 		// backend, and a vCPU ceiling, which is what adds maxcpus=.
 		name: "ceilings",
 		spec: func(s Spec) Spec {
-			s.Memory.MaxMB = 2048
+			s.Memory.CeilingMB = 2048
 			s.MaxCPUs = 8
 			return s
 		},
@@ -247,7 +247,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 		name:       "everything",
 		needsVsock: true,
 		spec: func(s Spec) Spec {
-			s.Memory.MaxMB, s.MaxCPUs = 2048, 8
+			s.Memory.CeilingMB, s.MaxCPUs = 2048, 8
 			s.VsockCID = 12345
 			s.Places = []Place{{Serial: "root"}}
 			s.NICs = []NIC{{TapFD: 3, MAC: "52:54:00:12:34:56"}}

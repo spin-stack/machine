@@ -50,7 +50,7 @@ func readProperty[T any](ctx context.Context, m *QEMU, path, property string) (T
 	return v, nil
 }
 
-const memPath = peripheral + VirtioMemID
+const memPath = peripheral + virtioMemID
 
 // mib is a MiB in bytes, which QEMU counts memory in.
 const mib = 1 << 20

@@ -10,9 +10,9 @@ import (
 // VM is a machine that has been started and is held, waiting to be booted or to be handed a
 // checkpoint, and everything that is done to it after that.
 //
-// It is an interface with one implementation, QEMU, and that is deliberate: the user asked for
-// the machine to be swappable, so that another VMM can be put behind the same calls and the two
-// compared on the bench fleet with the same probes (2026-11-19). So its words are a VMM's and
+// It is an interface with one implementation, QEMU, and that is deliberate: another VMM put
+// behind the same calls is compared with QEMU on the bench fleet by the same probes, which drive
+// a VM. spin drives *QEMU, which adds what its runner needs of a QEMU. So VM's words are a VMM's and
 // not QEMU's: nothing in it names QMP, a block node, a descriptor set, a migration capability or
 // a PCI slot. Everything that is QEMU's - the command line (Spec.Args), what a QEMU machine's
 // record is made of (QEMU.Target), the slot layout - stays on the QEMU side.

@@ -30,7 +30,7 @@ func Example() {
 	}
 	spec.Initrd = "/var/lib/spin/initrd.img"
 	spec.BootCPUs, spec.MaxCPUs = 1, 16
-	spec.Memory = machine.Memory{SizeMB: 128, MaxMB: 8192}
+	spec.Memory = machine.Memory{BaseMB: 128, CeilingMB: 8192}
 	spec.Places = []machine.Place{{Serial: "root"}, {Serial: "home"}}
 	spec.HotplugDisks = 16
 	spec.VsockCID = 42

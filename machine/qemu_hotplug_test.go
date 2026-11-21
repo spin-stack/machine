@@ -31,7 +31,7 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 		Kernel:       kernel,
 		Firmware:     firmware,
 		BootCPUs:     2,
-		Memory:       Memory{SizeMB: 512},
+		Memory:       Memory{BaseMB: 512},
 		Cmdline:      DefaultCmdline(),
 		Monitors:     []Monitor{{Socket: socket}, {Socket: socket + ".2"}},
 		HotplugDisks: 2,

@@ -94,9 +94,9 @@ var diskFormats = []string{"qcow2", "raw"}
 // somebody asks for it.
 const memGrowthID = "mem.growth"
 
-// VirtioMemID is the virtio-mem device's id: the QOM path a caller grows and shrinks the VM
-// through is /machine/peripheral/<VirtioMemID>, its property requested-size.
-const VirtioMemID = "vmem0"
+// virtioMemID is the virtio-mem device's id: QEMU.SetMemory grows and shrinks the VM through
+// /machine/peripheral/<virtioMemID>, its property requested-size.
+const virtioMemID = "vmem0"
 
 // balloonID is the balloon's id, which puts it at /machine/peripheral/<balloonID>.
 const balloonID = "balloon0"
@@ -159,8 +159,8 @@ type NIC struct {
 
 // Memory describes guest RAM.
 type Memory struct {
-	SizeMB int
-	// MaxMB, when larger than SizeMB, is the ceiling this VM's memory may grow to
+	BaseMB int
+	// CeilingMB, when larger than BaseMB, is the ceiling this VM's memory may grow to
 	// and shrink back from while it runs, through virtio-mem. Both numbers are in
 	// the machine's shape.
 	//
@@ -171,9 +171,9 @@ type Memory struct {
 	// inside one device, so a VM that grew for a build can give the memory back
 	// afterwards — which is the half that made this worth having.
 	//
-	// Nothing is plugged at start-up. The caller sets requested-size over QMP when
-	// it wants more.
-	MaxMB int
+	// Nothing is plugged at start-up. QEMU.SetMemory plugs more when the caller
+	// wants it.
+	CeilingMB int
 }
 
 // Monitor is one QMP monitor: a Unix socket QEMU creates and listens on, or one the
@@ -207,7 +207,7 @@ type Spec struct {
 
 	// BIOS is the firmware the machine runs, a file in Firmware: DefaultBIOS when
 	// empty. Its size is the pc.bios block a saved machine carries, which the
-	// machine's record holds (QEMU.machine): a checkpoint resumes only where the
+	// machine's record holds (Target.Hardware): a checkpoint resumes only where the
 	// block is the same length.
 	// SeaBIOS (bios-256k.bin) is beside it, for comparing the two.
 	BIOS string
@@ -412,11 +412,11 @@ func (s Spec) validate() error {
 	// ceiling below it would be a machine that cannot grow, handed without complaint to a
 	// caller that asked for one that can. Equal is not an error: it is how a machine says
 	// it has no room to grow.
-	case s.Memory.MaxMB != 0 && s.Memory.MaxMB < s.Memory.SizeMB:
-		return fmt.Errorf("Memory.MaxMB %d is below Memory.SizeMB %d",
-			s.Memory.MaxMB, s.Memory.SizeMB)
-	case s.Memory.SizeMB < 1:
-		return fmt.Errorf("memory is %d MB", s.Memory.SizeMB)
+	case s.Memory.CeilingMB != 0 && s.Memory.CeilingMB < s.Memory.BaseMB:
+		return fmt.Errorf("Memory.CeilingMB %d is below Memory.BaseMB %d",
+			s.Memory.CeilingMB, s.Memory.BaseMB)
+	case s.Memory.BaseMB < 1:
+		return fmt.Errorf("memory is %d MB", s.Memory.BaseMB)
 	case len(s.Places) > maxDisks:
 		return fmt.Errorf("%d disks, and the slot range holds %d", len(s.Places), maxDisks)
 	// Held until a monitor says what to do: with none it never starts.
@@ -540,7 +540,7 @@ func (s Spec) Args() ([]string, error) {
 		"-accel", accelArg(s.accel(), s.KVMFDSet),
 		"-cpu", s.cpuArg(),
 		"-smp", smpArg(s.BootCPUs, s.MaxCPUs),
-		"-m", memoryArg(s.Memory.SizeMB, s.Memory.MaxMB),
+		"-m", memoryArg(s.Memory.BaseMB, s.Memory.CeilingMB),
 	)
 	args = appendChipset(args)
 	args = s.appendBoot(args)
@@ -652,12 +652,12 @@ func (s Spec) appendDevices(args []string) []string {
 	//
 	// requested-size=0 — nothing is plugged until somebody asks over QMP. What is
 	// plugged when a checkpoint is saved goes into it with the rest of the memory.
-	if s.Memory.MaxMB > s.Memory.SizeMB {
-		growth := s.Memory.MaxMB - s.Memory.SizeMB
+	if s.Memory.CeilingMB > s.Memory.BaseMB {
+		growth := s.Memory.CeilingMB - s.Memory.BaseMB
 		args = append(args,
 			"-object", fmt.Sprintf("memory-backend-ram,id=%s,size=%dM", memGrowthID, growth),
 			"-device", fmt.Sprintf("virtio-mem-pci,id=%s,memdev=%s,requested-size=0,%s,addr=0x%x",
-				VirtioMemID, memGrowthID, virtioModern, slotMem))
+				virtioMemID, memGrowthID, virtioModern, slotMem))
 	}
 
 	// The controller disks this machine is given while it runs are added to. See
