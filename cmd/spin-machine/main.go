@@ -33,7 +33,7 @@ import (
 // main is the only place the process ends. A command returns what happened and main decides
 // what it means: help asked for is not a failure, and boot's exitCode is QEMU's.
 func main() {
-	code, said := exitStatus(run(os.Args[1:]))
+	code, said := exitStatus(run(os.Args[1:])) // mutate-exempt: main runs in no test; exitStatus is TestExitStatusIsTheCommands
 	fmt.Fprint(os.Stderr, said)
 	os.Exit(code)
 }
