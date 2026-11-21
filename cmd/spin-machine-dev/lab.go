@@ -402,25 +402,9 @@ resume.`,
 			if err != nil {
 				return couldNot(err)
 			}
-			// The test writes a refusal to SPIN_COMPAT_REFUSED and skips: a machine that is not this
-			// one is an answer, not a failure.
+			// A machine that is not this one is an answer, not a failure: a row that says so.
 			resume := func(previous string) (string, error) {
-				refused, err := os.CreateTemp("", "refused")
-				if err != nil {
-					return "", err
-				}
-				_ = refused.Close()
-				defer func() { _ = os.Remove(refused.Name()) }()
-				cmd := exec.CommandContext(c.Context(), "go", "test", "./boot/", "-run", "^TestACheckpointOfTheReleaseBeforeResumesHere$",
-					"-count=1", "-v", "-timeout", "10m")
-				cmd.Dir, cmd.Stdout, cmd.Stderr = root, c.ErrOrStderr(), c.ErrOrStderr()
-				cmd.Env = append(os.Environ(), "SPIN_COMPAT_PREVIOUS="+previous, "SPIN_MACHINE_OUTPUT="+abs, "SPIN_COMPAT_REFUSED="+refused.Name())
-				ran := cmd.Run()
-				why, err := os.ReadFile(refused.Name())
-				if err != nil {
-					return "", fmt.Errorf("reading what the test said of the machine: %w", err)
-				}
-				return strings.TrimSpace(string(why)), ran
+				return lab.ResumeHere(c.Context(), abs, previous, c.ErrOrStderr())
 			}
 			rows, err := lab.Compat(abs, tags, sources(root, c.ErrOrStderr()), resume, c.ErrOrStderr())
 			if err != nil {

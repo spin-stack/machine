@@ -28,7 +28,7 @@ on:
       - cmd/spin-machine/**
       - qemu/**
       - kernel/**
-      - boot/compat_test.go
+      - internal/lab/compat.go
       - boot/record_test.go
       - boot/lockdown_test.go
       - boot/testdata/lockdown-check.sh

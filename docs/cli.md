@@ -286,7 +286,7 @@ inline so its points' tooltips show. `pages.yml` runs `site` on every merge to m
 record, and deploys the file to GitHub Pages. Every verb takes `--dir` for the records' directory
 (default `docs/releases`), with the page and its chart beside it as `DIR.md` and `DIR.svg`.
 
-`lab compat` runs boot:compat's test over the releases, newest first, and `task boot:compat` is
+`lab compat` resumes a checkpoint of each release here (`lab.ResumeHere`), newest first, and `task boot:compat` is
 `lab compat` over a built release. It checks that a host that skipped releases still resumes their
 checkpoints. It checks each release it fetches against its sha256 and its signature, as the lab
 checks every release a tree is made from. Each release's checkpoint is taken at spin's shape with
