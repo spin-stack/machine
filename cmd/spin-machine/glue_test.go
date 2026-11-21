@@ -89,7 +89,7 @@ const (
 var readRecord = []string{
 	`{"return": {"qemu": {"major": 11, "minor": 2, "micro": 0}}}`,
 	cpuFast, cpuVCPU, cpuExpansion,
-	`{"return": {"enabled": true}}`,
+	`{"return": {"enabled": "kvm", "present": ["kvm", "tcg"]}}`,
 	`{"return": [{"properties": [{"name": "type", "type": "string", "value": "pc-q35-11.1-machine"}, ` +
 		`{"name": "smp", "type": "SMPConfiguration", "value": {"cpus": 1}}, {"name": "memory", "type": "x", "value": {"size": 1}}, ` +
 		`{"name": "hpet", "type": "bool", "value": false}, {"name": "acpi", "type": "OnOffAuto", "value": "on"}, ` +
@@ -101,7 +101,7 @@ var readRecord = []string{
 
 // readRecordAsked is what a Target asks.
 var readRecordAsked = []string{"query-version", "query-cpus-fast", "qom-list-get", "query-cpu-model-expansion",
-	"query-kvm", "qom-list-get", "qom-list-get", "x-query-ramblock"}
+	"query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock"}
 
 // Each command that acts on a running machine, against a monitor that answers as QEMU does:
 // what it asks, and what it makes of a refusal.

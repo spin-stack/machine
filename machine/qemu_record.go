@@ -12,7 +12,39 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/spin-stack/machine/internal/qmpdef"
+	"github.com/spin-stack/machine/qmp"
 )
+
+var (
+	queryVersion = qmpdef.Define[qmp.None, versionInfo]("query-version")
+	// query-accelerators, not query-kvm, which QEMU 11.2 deprecates: it names the accelerator
+	// the machine runs, kvm or tcg, which is the record's "accel" as query-kvm's enabled made it.
+	queryAccelerators = qmpdef.Define[qmp.None, accelerators]("query-accelerators")
+	qomListGet        = qmpdef.Define[qomPaths, []qomObject]("qom-list-get")
+	xQueryRAMBlock    = qmpdef.Define[qmp.None, humanReadable]("x-query-ramblock", qmpdef.Unstable)
+)
+
+type versionInfo struct {
+	QEMU struct {
+		Major int `json:"major"`
+		Minor int `json:"minor"`
+		Micro int `json:"micro"`
+	} `json:"qemu"`
+}
+
+type accelerators struct {
+	Enabled string `json:"enabled"`
+}
+
+type qomPaths struct {
+	Paths []string `json:"paths"`
+}
+
+type humanReadable struct {
+	Text string `json:"human-readable-text"`
+}
 
 // Target is what this machine is, read from QEMU: its version, the formats this package reads,
 // the CPU its vCPU has and the machine it was started with (QEMU.machine).
@@ -26,14 +58,8 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 	if m.record != nil {
 		return *m.record, nil
 	}
-	var version struct {
-		QEMU struct {
-			Major int `json:"major"`
-			Minor int `json:"minor"`
-			Micro int `json:"micro"`
-		} `json:"qemu"`
-	}
-	if err := m.q.run(ctx, "query-version", nil, &version); err != nil {
+	version, err := do(ctx, m.q, queryVersion, qmp.None{})
+	if err != nil {
 		return Target{}, fmt.Errorf("asking the machine's QEMU version: %w", err)
 	}
 	cpu, err := m.CPU(ctx)
@@ -69,15 +95,9 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 //     parse_ramblock);
 //   - the at-least facts: a device property in mayHaveMore, as a count.
 func (m *QEMU) machine(ctx context.Context) (Hardware, error) {
-	var kvm struct {
-		Enabled bool `json:"enabled"`
-	}
-	if err := m.q.run(ctx, "query-kvm", nil, &kvm); err != nil {
+	accel, err := do(ctx, m.q, queryAccelerators, qmp.None{})
+	if err != nil {
 		return Hardware{}, fmt.Errorf("asking the machine's accelerator: %w", err)
-	}
-	accel := "tcg"
-	if kvm.Enabled {
-		accel = "kvm"
 	}
 	objs, err := m.qomObjects(ctx, append([]string{"/machine"}, deviceParents...)...)
 	if err != nil {
@@ -87,7 +107,7 @@ func (m *QEMU) machine(ctx context.Context) (Hardware, error) {
 	if err != nil {
 		return Hardware{}, err
 	}
-	exact = append(exact, part{"accel", accel})
+	exact = append(exact, part{"accel", accel.Enabled})
 	devices := machineDevices(objs[1:])
 	paths := make([]string, len(devices))
 	for i, d := range devices {
@@ -101,10 +121,8 @@ func (m *QEMU) machine(ctx context.Context) (Hardware, error) {
 	if err != nil {
 		return Hardware{}, err
 	}
-	var blocks struct {
-		Text string `json:"human-readable-text"`
-	}
-	if err := m.q.run(ctx, "x-query-ramblock", nil, &blocks); err != nil {
+	blocks, err := do(ctx, m.q, xQueryRAMBlock, qmp.None{})
+	if err != nil {
 		return Hardware{}, fmt.Errorf("listing the machine's RAM blocks: %w", err)
 	}
 	ram, err := ramBlocks(blocks.Text)
@@ -389,8 +407,8 @@ func qomValue(v json.RawMessage) string {
 
 // qomObjects are the objects at paths, in their order, from one qom-list-get.
 func (m *QEMU) qomObjects(ctx context.Context, paths ...string) ([]qomObject, error) {
-	var objs []qomObject
-	if err := m.q.run(ctx, "qom-list-get", map[string]any{"paths": paths}, &objs); err != nil {
+	objs, err := do(ctx, m.q, qomListGet, qomPaths{Paths: paths})
+	if err != nil {
 		return nil, err
 	}
 	if len(objs) != len(paths) {

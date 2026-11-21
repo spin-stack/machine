@@ -76,8 +76,8 @@ func recordAnswers(c call) (string, bool) {
 	case "query-cpu-model-expansion":
 		// The flags of the model, whatever this vCPU has of them.
 		return ret(`{"model": {"name": "base", "props": {"vendor": "GenuineIntel", "sse2": true, "avx512f": false, "vmx": true, "family": 6}}}`), true
-	case "query-kvm":
-		return ret(`{"enabled": true, "present": true}`), true
+	case "query-accelerators":
+		return ret(`{"enabled": "kvm", "present": ["kvm", "tcg"]}`), true
 	case "x-query-ramblock":
 		b, _ := json.Marshal(map[string]string{"human-readable-text": fakeRAMBlocks})
 		return ret(string(b)), true
@@ -189,7 +189,7 @@ func TestTargetRefusesWhatItCannotRead(t *testing.T) {
 		answer func(c call) (string, bool)
 		want   string
 	}{
-		{"no accelerator", fails("query-kvm"), "asking the machine's accelerator"},
+		{"no accelerator", fails("query-accelerators"), "asking the machine's accelerator"},
 		{"no vCPU to read", failsReading("/machine/unattached/device[0]"), "reading the machine's vCPU"},
 		{"no list of devices", failsReading("/machine"), "listing the machine's devices"},
 		{"no device to read", failsReading("/machine/q35/mch"), "reading the machine's devices"},
@@ -302,7 +302,7 @@ func TestResumeRefusesAnotherMachine(t *testing.T) {
 			if read := slices.Contains(asked, "migrate-incoming"); read != (tc.want == nil) {
 				t.Errorf("the state was read: %t", read)
 			}
-			for _, c := range []string{"query-version", "query-cpus-fast", "qom-list-get", "query-kvm", "x-query-ramblock"} {
+			for _, c := range []string{"query-version", "query-cpus-fast", "qom-list-get", "query-accelerators", "x-query-ramblock"} {
 				if slices.Contains(asked, c) {
 					t.Errorf("Resume asked QEMU %s, a part of the record it was handed", c)
 				}
