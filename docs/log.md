@@ -566,7 +566,7 @@ Sequence: created 09-07 (`24c8a06`); made redundant by udev 09-10 (`064c4f4`); m
 
 This is the cycle AGENTS.md asks for ("Remove an experiment once its question is answered"). The cost is that the answers live only in commit messages and comments.
 
-**Lesson:** this log, or `docs/memory-and-disk.md`-style records, is where an answered probe's result should land. Before writing a probe, check docs/boot-time.md's "Measured and rejected" and the row comments in `boot/harness_test.go` and `internal/lab/sshfirst.go`.
+**Lesson:** this log, or `docs/memory-and-disk.md`-style records, is where an answered probe's result should land. Before writing a probe, check docs/boot-time.md's "Measured and rejected" and the row comments in `internal/lab/sshfirst.go`.
 
 ### 2.10 /tmp and tmpfiles; erofs; BPF_LSM; chrony
 - **/tmp:** masked by the imported optimizer; unmasked 09-26 (`f36ae13`, noise); capped at a quarter 09-28.

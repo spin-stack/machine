@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package boot
+package boot_test
 
 import (
 	"bufio"

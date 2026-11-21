@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package boot
+package lab
 
 import (
 	"io"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,6 +74,19 @@ func TestWatch(t *testing.T) {
 		reads: []string{"Startup fin", "ished in 190ms\n"},
 		step:  ms, until: Usable,
 		at: map[Phase]time.Duration{Started: 2 * ms},
+	}, {
+		// A serial console hands over a byte at a time as often as not.
+		name:  "a one-byte read completes a marker",
+		reads: []string{"spin login", ":"},
+		step:  ms, until: Usable,
+		at: map[Phase]time.Duration{Usable: 2 * ms},
+	}, {
+		// The window keeps only the end of a read, so bytes far apart in the stream never
+		// become a marker: here an "l" and an "ogin:" one read apart.
+		name:  "the window keeps the end of a read and nothing before it",
+		reads: []string{"l....ogin:" + strings.Repeat(".", 24), "\n"},
+		step:  ms, until: Usable,
+		unreached: []Phase{Usable},
 	}, {
 		// Absent, not zero. A boot that never offered a login is the failure this
 		// harness exists to catch, and a zero would report it as the fastest one.

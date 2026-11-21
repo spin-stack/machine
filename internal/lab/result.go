@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/spin-stack/spin-machine/boot"
 )
 
 // Result is what an experiment recorded, written as result.json: every sample as it was taken,
@@ -91,9 +89,6 @@ func (r *Result) Missed(tree, row string) int {
 	return n
 }
 
-// Pct is the p-th percentile of vs, by rank (boot.Percentile), and whether there were any.
-func Pct(vs []float64, p float64) (float64, bool) { return boot.Percentile(vs, p) }
-
 // label is a tree and row as a table names them.
 func (r *Result) label(tree, row string) string {
 	if len(r.Rows) == 1 {
@@ -136,8 +131,8 @@ func (r *Result) Table() string {
 			fmt.Fprintf(&b, "  %-*s", width, r.label(t.Name, row))
 			for i, m := range r.Metrics {
 				vs := r.Values(t.Name, row, m.Name)
-				p50, ok := Pct(vs, .5)
-				p95, _ := Pct(vs, .95)
+				p50, ok := Percentile(vs, .5)
+				p95, _ := Percentile(vs, .95)
 				cell := "-"
 				if ok {
 					cell = num(p50) + "/" + num(p95)
@@ -189,8 +184,8 @@ func against(a, b []float64) string {
 	if d, ok := DeltaP50(a, b); ok {
 		return d.String()
 	}
-	pa, okA := Pct(a, .5)
-	pb, okB := Pct(b, .5)
+	pa, okA := Percentile(a, .5)
+	pb, okB := Percentile(b, .5)
 	if !okA || !okB {
 		return "-"
 	}

@@ -258,7 +258,7 @@ func (initcalls) Detail(r *Result) string {
 					}
 				}
 			}
-			if p, ok := Pct(xs, .5); ok {
+			if p, ok := Percentile(xs, .5); ok {
 				fmt.Fprintf(&b, " %14.2f", p)
 			} else {
 				fmt.Fprintf(&b, " %14s", "-")
@@ -281,10 +281,10 @@ func (initcalls) Detail(r *Result) string {
 				}
 			}
 			keys := slices.Collect(maps.Keys(byKey))
-			p50 := func(k string) float64 { p, _ := Pct(byKey[k], .5); return p }
+			p50 := func(k string) float64 { p, _ := Percentile(byKey[k], .5); return p }
 			slices.SortFunc(keys, func(a, c string) int { return cmp.Compare(p50(c), p50(a)) })
 			for i, k := range keys {
-				p95, _ := Pct(byKey[k], .95)
+				p95, _ := Percentile(byKey[k], .95)
 				keys[i] = fmt.Sprintf("%8.2f %8.2f\x00%s", p50(k), p95, strings.TrimPrefix(k, prefix))
 			}
 			return keys

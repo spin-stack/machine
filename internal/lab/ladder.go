@@ -112,12 +112,12 @@ func (l *Ladder) value(release string, c cell) (p50, p95 float64, why string) {
 		return
 	}
 	vs := r.Values(release, c.row, c.metric)
-	p50, ok := Pct(vs, .5)
+	p50, ok := Percentile(vs, .5)
 	if !ok {
 		why = fmt.Sprintf("lost all %d", r.Missed(release, c.row))
 		return
 	}
-	p95, _ = Pct(vs, .95)
+	p95, _ = Percentile(vs, .95)
 	return
 }
 
