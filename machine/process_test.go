@@ -482,15 +482,22 @@ func TestTheStderrTailIsItsEnd(t *testing.T) {
 	if n, err := (&tail{}).Write([]byte("x")); n != 1 || err != nil {
 		t.Errorf("a tail with nowhere to pass it on: %d, %v", n, err)
 	}
-	broken := &tail{w: failing{}}
-	if n, err := broken.Write([]byte("x")); n != 1 || err != nil || broken.String() != "x" {
-		t.Errorf("a failing writer stopped the tail: %d, %v", n, err)
+	f := &failing{}
+	broken := &tail{w: f}
+	for range 2 {
+		if n, err := broken.Write([]byte("x")); n != 1 || err != nil {
+			t.Errorf("a failing writer stopped the tail: %d, %v", n, err)
+		}
+	}
+	if broken.String() != "xx" || f.n != 1 {
+		t.Errorf("the tail is %q and the failing writer was written %d times, want once", broken.String(), f.n)
 	}
 }
 
-type failing struct{}
+// failing is a writer that fails, counting how often it was asked.
+type failing struct{ n int }
 
-func (failing) Write([]byte) (int, error) { return 0, errors.New("full") }
+func (f *failing) Write([]byte) (int, error) { f.n++; return 0, errors.New("full") }
 
 func TestThePanicWatchKeepsTheFirstPanicsLine(t *testing.T) {
 	var out bytes.Buffer
@@ -517,7 +524,7 @@ func TestThePanicWatchKeepsTheFirstPanicsLine(t *testing.T) {
 			t.Errorf("a mark after %d bytes: %q, want %q", tc.pad, got, tc.want)
 		}
 	}
-	broken := &panicWatch{w: failing{}}
+	broken := &panicWatch{w: &failing{}}
 	if n, _ := broken.Write([]byte("Kernel panic\n")); n != 13 || broken.panicked() != "Kernel panic" {
 		t.Errorf("a failing console stopped the watch: %d %q", n, broken.panicked())
 	}
