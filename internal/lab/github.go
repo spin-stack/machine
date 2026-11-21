@@ -57,14 +57,6 @@ func (g *GitHub) LatestRelease() (string, error) {
 	return tag, nil
 }
 
-// DownloadRelease puts release tag's assets matching pattern in dir.
-//
-// mutate-lane: TestTheLabTalksToGitHub
-func (g *GitHub) DownloadRelease(tag, pattern, dir string) error {
-	_, err := g.gh("release", "download", tag, "-R", g.Repo, "-p", pattern, "-D", dir)
-	return err
-}
-
 // Releases are the tags of the newest n published releases, newest first.
 //
 // mutate-lane: TestTheLabTalksToGitHub

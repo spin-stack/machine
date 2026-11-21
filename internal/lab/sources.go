@@ -4,6 +4,7 @@ package lab
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +12,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/spin-stack/go-tools/versions"
+
+	"github.com/spin-stack/spin-machine/internal/release"
 )
 
 // from is the tree a spec starts from and how a manifest names it.
@@ -43,71 +48,27 @@ func (s Sources) releaseTag(from string) (string, error) {
 	return s.GitHub.LatestRelease()
 }
 
-// release is the unpacked tree of the release tag, downloaded the first time it is asked for.
+// release is the unpacked tree of the release tag, downloaded and verified the first time it is
+// asked for: the cache holds only what passed.
+//
 // mutate-lane: TestTheLabTalksToGitHub
 func (s Sources) release(tag string) (string, error) {
 	cache := filepath.Join(s.Cache, "releases", tag)
-	dir := filepath.Join(cache, "spin-machine-"+tag+"-linux-x86_64", "usr", "share", "spin-stack")
+	dir := filepath.Join(cache, release.Name(tag), "usr", "share", "spin-stack")
 	if _, err := os.Stat(filepath.Join(dir, partFiles["qemu"])); err == nil {
 		return dir, nil
 	}
 	if err := os.RemoveAll(cache); err != nil {
 		return "", fmt.Errorf("clearing %s: %w", cache, err)
 	}
-	name := "spin-machine-" + tag + "-linux-x86_64.tar.gz"
-	for _, f := range []string{name, name + ".sha256", name + ".sigstore.json"} {
-		if err := s.GitHub.DownloadRelease(tag, f, cache); err != nil {
-			return "", err
-		}
-	}
-	tarball := filepath.Join(cache, name)
-	if err := s.verify(tarball); err != nil {
-		return "", fmt.Errorf("release %s: %w", tag, err)
-	}
-	if out, err := exec.Command("tar", "-xzf", tarball, "-C", cache).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("unpacking %s: %w: %s", tarball, err, out)
-	}
-	if _, err := os.Stat(dir); err != nil {
-		return "", fmt.Errorf("release %s's tarball has no %s: %w", tag, dir, err)
-	}
-	return dir, nil
-}
-
-// releaseIdentity is the workflow every release is signed by.
-const releaseIdentity = "https://github.com/" + "spin-stack/spin-machine/.github/workflows/release.yml@refs/heads/main"
-
-// verify checks tarball against the sha256 published beside it and its signature by the release
-// workflow, as boot:previous did, before it is unpacked: what a tree is made of is what was
-// released, and the cache holds only what passed.
-//
-// mutate-lane: TestTheLabTalksToGitHub, with SPIN_LAB_RELEASE set.
-func (s Sources) verify(tarball string) error {
-	sum, err := os.ReadFile(tarball + ".sha256")
+	pins, err := versions.Load(filepath.Join(s.Checkout, versions.File))
 	if err != nil {
-		return fmt.Errorf("reading the published sha256: %w", err)
+		return "", fmt.Errorf("reading the pins release %s is verified with: %w", tag, err)
 	}
-	got, err := fileSHA256(tarball)
-	if err != nil {
-		return err
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		return "", fmt.Errorf("making %s: %w", cache, err)
 	}
-	if want, _, _ := strings.Cut(strings.TrimSpace(string(sum)), " "); want != got {
-		return fmt.Errorf("%s is %s, and its published sha256 says %s", filepath.Base(tarball), got, want)
-	}
-	pin := exec.Command("go", "tool", "versions", "version", "cosign")
-	pin.Dir = s.Checkout
-	version, err := pin.Output()
-	if err != nil {
-		return fmt.Errorf("asking versions.yaml for cosign's pin: %w", err)
-	}
-	cmd := exec.Command("go", "run", "github.com/sigstore/cosign/v3/cmd/cosign@"+strings.TrimSpace(string(version)),
-		"verify-blob", "--bundle", tarball+".sigstore.json",
-		"--certificate-identity", releaseIdentity,
-		"--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", tarball)
-	cmd.Dir = s.Checkout
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("verifying %s's signature: %w: %s", filepath.Base(tarball), err, out)
-	}
-	return nil
+	return release.Fetch(context.Background(), pins, tag, cache)
 }
 
 // run is the artifacts of workflow run id that match pattern, downloaded the first time.

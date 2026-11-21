@@ -22,13 +22,6 @@ import (
 	"github.com/spin-stack/spin-machine/internal/release"
 )
 
-// oidcIssuer is who issues the token a release is signed with.
-const oidcIssuer = "https://token.actions.githubusercontent.com"
-
-// releaseIdentity is the signer every published file of this repository is checked against: the
-// release workflow, on main.
-const releaseIdentity = "https://github.com/spin-stack/spin-machine/.github/workflows/release.yml@refs/heads/main"
-
 func releaseCmd() *cobra.Command {
 	var f buildFlags
 	var version string
@@ -336,7 +329,7 @@ func sign(ctx context.Context, c *cobra.Command, dir, predicate, identity string
 			return couldNot(err)
 		}
 		return cosign("verify-blob-attestation", "--type", kind, "--bundle", bundle, "--digest", sum, "--digestAlg", "sha256",
-			"--certificate-identity", identity, "--certificate-oidc-issuer", oidcIssuer)
+			"--certificate-identity", identity, "--certificate-oidc-issuer", release.OIDCIssuer)
 	}
 	var files []string
 	for _, g := range []string{"*.tar.gz", "*.tar.gz.sha256", "machine.env", "*.cdx.json"} {
@@ -347,7 +340,7 @@ func sign(ctx context.Context, c *cobra.Command, dir, predicate, identity string
 		steps := [][]string{
 			{"sign-blob", "--yes", "--bundle", f + ".sigstore.json", f},
 			{"attest-blob", "--yes", "--type", "slsaprovenance1", "--predicate", predicate, "--bundle", f + ".provenance.sigstore.json", f},
-			{"verify-blob", "--bundle", f + ".sigstore.json", "--certificate-identity", identity, "--certificate-oidc-issuer", oidcIssuer, f},
+			{"verify-blob", "--bundle", f + ".sigstore.json", "--certificate-identity", identity, "--certificate-oidc-issuer", release.OIDCIssuer, f},
 		}
 		for _, s := range steps {
 			if err := cosign(s...); err != nil {

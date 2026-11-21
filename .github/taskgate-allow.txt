@@ -7,6 +7,4 @@
 # Every line here was over the limit when go-tools set it, and is work owed: what decides goes to a
 # spin-machine-dev verb with a test, what drives tools in order stays shell once it is short.
 Taskfile.yml:coverage  # formats the coverage profile for the run's summary: Go
-boot/Taskfile.yml:previous  # fetches the previous release for boot:compat: shell, once shorter
-boot/Taskfile.yml:here  # builds this tree's release for boot:compat: shell, once shorter
 image/build.sh  # builds the base image and asserts it carries no identity: shell that drives mkfs, its assertions Go

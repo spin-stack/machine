@@ -257,7 +257,8 @@
   version: v3.1.4
   track: github-release https://github.com/sigstore/cosign
   note: >-
-    task boot:compat checks the release it fetches with it, on the KVM runner, which has no
-    envsubst for sigstore/cosign-installer to run. The workflows that sign install cosign with
-    that action, whose pin Dependabot moves; keep the two at one version. A bump is checked
-    with task boot:compat.
+    internal/release's Fetch and Signed check every published file this repository fetches
+    with it, built by go run (boot:here on the KVM runner, which has no envsubst for
+    sigstore/cosign-installer to run; lab; osv and cves). The workflows that sign install cosign
+    with that action, whose pin Dependabot moves; keep the two at one version. A bump is checked
+    with task boot:here.

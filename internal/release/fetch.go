@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package release
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/spin-stack/go-tools/versions"
+
+	"github.com/spin-stack/spin-machine/internal/build"
+)
+
+// Repo is the repository releases are published from, and Identity's: renaming it is this line.
+const Repo = "spin-stack/spin-machine"
+
+// Identity is the workflow every published file is signed by: release.yml, on main.
+const Identity = "https://github.com/" + Repo + "/.github/workflows/release.yml@refs/heads/main"
+
+// OIDCIssuer is who issues the token a release is signed with.
+const OIDCIssuer = "https://token.actions.githubusercontent.com"
+
+// Fetch downloads release tag's tarball into dir, checks it against the sha256 published beside it
+// and its signature by Identity, unpacks it there and returns its usr/share/spin-stack. Nothing is
+// unpacked that did not pass: what a caller boots or reads is what was released.
+func Fetch(ctx context.Context, pins *versions.Versions, tag, dir string) (string, error) {
+	name := Name(tag) + ".tar.gz"
+	if err := download(ctx, tag, dir, name, name+".sha256", name+".sigstore.json"); err != nil {
+		return "", err
+	}
+	tarball := filepath.Join(dir, name)
+	sum, err := os.ReadFile(tarball + ".sha256")
+	if err != nil {
+		return "", fmt.Errorf("reading release %s's published sha256: %w", tag, err)
+	}
+	got, err := build.FileSHA256(tarball)
+	if err != nil {
+		return "", err
+	}
+	if want, _, _ := strings.Cut(strings.TrimSpace(string(sum)), " "); want != got {
+		return "", fmt.Errorf("release %s: %s is %s, and its published sha256 says %q", tag, name, got, want)
+	}
+	if err := verify(ctx, pins, tarball); err != nil {
+		return "", err
+	}
+	if out, err := exec.CommandContext(ctx, "tar", "-xzf", tarball, "-C", dir).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("unpacking %s: %w: %s", tarball, err, bytes.TrimSpace(out))
+	}
+	share := filepath.Join(dir, Name(tag), "usr", "share", "spin-stack")
+	if _, err := os.Stat(share); err != nil {
+		return "", fmt.Errorf("release %s's tarball has no usr/share/spin-stack: %w", tag, err)
+	}
+	return share, nil
+}
+
+// Signed downloads the file name published with release tag into dir and returns its path, once
+// its signature is Identity's: one file of a release, when the tarball is more than is needed.
+func Signed(ctx context.Context, pins *versions.Versions, tag, dir, name string) (string, error) {
+	if err := download(ctx, tag, dir, name, name+".sigstore.json"); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, name)
+	return path, verify(ctx, pins, path)
+}
+
+// download puts the files names of release tag in dir.
+func download(ctx context.Context, tag, dir string, names ...string) error {
+	args := []string{"release", "download", tag, "-R", Repo, "-D", dir}
+	for _, n := range names {
+		args = append(args, "-p", n)
+	}
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("downloading %s of release %s: %w: %s", strings.Join(names, ", "), tag, err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	return nil
+}
+
+// verify checks file against the sigstore bundle beside it, as signed by Identity, with the cosign
+// versions.yaml pins, built by go run: one pin for a laptop and a runner alike, and nothing on the
+// PATH to drift from it.
+func verify(ctx context.Context, pins *versions.Versions, file string) error {
+	cosign, err := pins.Get("cosign")
+	if err != nil {
+		return fmt.Errorf("verifying %s: %w", filepath.Base(file), err)
+	}
+	cmd := exec.CommandContext(ctx, "go", "run", cosign.Source+"@"+cosign.Version, "verify-blob",
+		"--bundle", file+".sigstore.json", "--certificate-identity", Identity, "--certificate-oidc-issuer", OIDCIssuer, file)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s's signature is not %s's: %w: %s", filepath.Base(file), Identity, err, bytes.TrimSpace(out))
+	}
+	return nil
+}

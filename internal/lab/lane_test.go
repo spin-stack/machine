@@ -86,13 +86,6 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 	if err != nil || len(runs) == 0 {
 		t.Fatalf("LabRuns = %d runs, %v", len(runs), err)
 	}
-	dir := t.TempDir()
-	if err := gh.DownloadRelease(tag, "machine.env", dir); err != nil {
-		t.Fatal(err)
-	}
-	if b, err := os.ReadFile(filepath.Join(dir, "machine.env")); err != nil || len(b) == 0 {
-		t.Fatalf("release %s's machine.env: %d bytes, %v", tag, len(b), err)
-	}
 	src := Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), GitHub: gh}
 	// The release itself, unpacked: 385 MB, so only when asked for.
 	if os.Getenv("SPIN_LAB_RELEASE") != "" {

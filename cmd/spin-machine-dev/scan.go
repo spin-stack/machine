@@ -16,8 +16,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spin-stack/go-tools/versions"
 
-	"github.com/spin-stack/spin-machine/internal/build"
 	"github.com/spin-stack/spin-machine/internal/release"
 	"github.com/spin-stack/spin-machine/internal/scan"
 )
@@ -26,24 +26,6 @@ import (
 // scanned. One still pinned somewhere is its consumer's to scan.
 func newestRelease(ctx context.Context) (string, error) {
 	return gh(ctx, "release", "view", "--json", "tagName", "-q", ".tagName")
-}
-
-// verified downloads patterns of tag into dir and checks blob against its bundle, as the release
-// workflow on main signed it.
-func verified(ctx context.Context, tag, dir, blob string, patterns ...string) error {
-	args := []string{"release", "download", tag, "-D", dir}
-	for _, p := range patterns {
-		args = append(args, "-p", p)
-	}
-	if _, err := gh(ctx, args...); err != nil {
-		return err
-	}
-	cmd := exec.CommandContext(ctx, "cosign", "verify-blob", "--bundle", filepath.Join(dir, blob+".sigstore.json"),
-		"--certificate-identity", releaseIdentity, "--certificate-oidc-issuer", oidcIssuer, filepath.Join(dir, blob))
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s's signature is not the release's: %w: %s", blob, err, bytes.TrimSpace(out))
-	}
-	return nil
 }
 
 func osvCmd() *cobra.Command {
@@ -57,7 +39,7 @@ daily.
 
 --issues brings the repository's issues to the findings: one open for each package with findings,
 closed once the newest release has none - a package and not a finding, because a package is what
-gets fixed. Needs gh, cosign and the network.`,
+gets fixed. Needs gh and the network.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			w, err := open()
@@ -102,8 +84,8 @@ func osvScan(ctx context.Context, w workspace, tag, findings string) (int, error
 		return 0, fmt.Errorf("making a place for the SBOM: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	sbom := release.Name(tag) + ".cdx.json"
-	if err := verified(ctx, tag, dir, sbom, sbom, sbom+".sigstore.json"); err != nil {
+	sbom, err := release.Signed(ctx, w.pins, tag, dir, release.Name(tag)+".cdx.json")
+	if err != nil {
 		return 0, err
 	}
 	e, err := w.pins.Get("osv-scanner")
@@ -111,7 +93,7 @@ func osvScan(ctx context.Context, w workspace, tag, findings string) (int, error
 		return 0, err
 	}
 	cmd := exec.CommandContext(ctx, "go", "run", "github.com/google/osv-scanner/v2/cmd/osv-scanner@"+e.Version,
-		"scan", "source", "-L", filepath.Join(dir, sbom), "--format", "json")
+		"scan", "source", "-L", sbom, "--format", "json")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	// osv-scanner exits 1 when it found something, which is the answer; above 1 it failed.
@@ -181,8 +163,8 @@ fixed, in code the kernel does not compile, or applying and where its fix is. "N
 off the build (kernel/sources, every source and header the build compiled), not the configuration.
 
 The CNA's records are fetched into _output/cves/vulns, or brought to today's; a release's sources
-list comes out of its tarball once the tarball's checksum is signed by the release. The summary is
-in _output/cves/summary.md and on the run's summary. Needs git and the network; gh and cosign for a
+list comes out of its tarball once the tarball is its published sha256 and signed by the release. The summary is
+in _output/cves/summary.md and on the run's summary. Needs git and the network; gh for a
 release.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -201,7 +183,7 @@ release.`,
 					return couldNot(err)
 				}
 				version, sources = e.Version, filepath.Join(w.out, "kernel", "sources")
-			} else if version, sources, err = releaseKernel(c.Context(), filepath.Join(dir, "release")); err != nil {
+			} else if version, sources, err = releaseKernel(c.Context(), w.pins, filepath.Join(dir, "release")); err != nil {
 				return couldNot(err)
 			}
 			v, err := scan.ParseKernelVersion(version)
@@ -249,44 +231,31 @@ func records(ctx context.Context, c *cobra.Command, dir string) error {
 	return run("-C", dir, "reset", "-q", "--hard", "FETCH_HEAD")
 }
 
-// releaseKernel puts the newest release's machine.env and kernel/sources in dir, once its tarball's
-// checksum is signed by the release and the tarball has that checksum, and says its kernel's version
+// releaseKernel fetches the newest release into dir (release.Fetch) and says its kernel's version
 // and where its sources list is. The tarball and not a file of its own: the sources list is in what
 // a release signs already.
-func releaseKernel(ctx context.Context, dir string) (version, sources string, err error) {
+func releaseKernel(ctx context.Context, pins *versions.Versions, dir string) (version, sources string, err error) {
 	tag, err := newestRelease(ctx)
 	if err != nil {
 		return "", "", err
 	}
-	t := release.Name(tag) + ".tar.gz"
 	if err := os.RemoveAll(dir); err != nil {
 		return "", "", fmt.Errorf("emptying %s: %w", dir, err)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", "", fmt.Errorf("making %s: %w", dir, err)
 	}
-	if err := verified(ctx, tag, dir, t+".sha256", t, t+".sha256", t+".sha256.sigstore.json"); err != nil {
-		return "", "", err
-	}
-	want, err := os.ReadFile(filepath.Join(dir, t+".sha256"))
-	if err != nil {
-		return "", "", fmt.Errorf("reading %s.sha256: %w", t, err)
-	}
-	got, err := build.FileSHA256(filepath.Join(dir, t))
+	share, err := release.Fetch(ctx, pins, tag, dir)
 	if err != nil {
 		return "", "", err
 	}
-	if fields := strings.Fields(string(want)); len(fields) == 0 || fields[0] != got {
-		return "", "", fmt.Errorf("%s does not have the sha256 its signed checksum says", t)
+	sources = filepath.Join(share, "kernel", "sources")
+	if _, err := os.Stat(sources); err != nil {
+		return "", "", fmt.Errorf("%s carries no kernel/sources: cves reads releases from the one after kernel/Dockerfile wrote it: %w", tag, err)
 	}
-	tar := exec.CommandContext(ctx, "tar", "-xzf", filepath.Join(dir, t), "-C", dir, "--wildcards", "--strip-components=4",
-		"*/usr/share/spin-stack/machine.env", "*/usr/share/spin-stack/kernel/sources")
-	if out, err := tar.CombinedOutput(); err != nil {
-		return "", "", fmt.Errorf("%s carries no kernel/sources: cves reads releases from the one after kernel/Dockerfile wrote it: %w: %s", tag, err, out)
-	}
-	env, err := os.ReadFile(filepath.Join(dir, "machine.env"))
+	env, err := os.ReadFile(filepath.Join(share, "machine.env"))
 	if err != nil {
 		return "", "", fmt.Errorf("reading %s's manifest: %w", tag, err)
 	}
-	return release.ParseEnv(string(env))["kernel_version"], filepath.Join(dir, "kernel", "sources"), nil
+	return release.ParseEnv(string(env))["kernel_version"], sources, nil
 }

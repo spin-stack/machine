@@ -405,35 +405,12 @@ func TestAReleaseByItsTagIsTheOneInTheCache(t *testing.T) {
 	}
 }
 
-// A tarball is checked against its published sha256 before its signature: one that differs, or has
-// none, is refused before anything asks the signature's tools.
 // A release's own spin-machine is built from the commit its machine.env names, and a base with no
 // machine.env has none to build.
 func TestATreesSpinMachineCanBeItsReleases(t *testing.T) {
 	if _, err := MakeTree(filepath.Join(t.TempDir(), "r"), TreeSpec{Name: "r", From: fakeRelease(t, "k"), SpinMachine: "release"}, src(t)); err == nil ||
 		!strings.Contains(err.Error(), "machine.env") {
 		t.Errorf("a release with no machine.env: %v", err)
-	}
-}
-
-func TestATarballIsItsPublishedSHA256(t *testing.T) {
-	dir := t.TempDir()
-	tarball := filepath.Join(dir, "r.tar.gz")
-	write(t, tarball, []byte("release"))
-	s := Sources{Checkout: t.TempDir()}
-	if err := s.verify(tarball); err == nil || !strings.Contains(err.Error(), "reading the published sha256") {
-		t.Errorf("no sha256: %v", err)
-	}
-	write(t, tarball+".sha256", []byte("0000  r.tar.gz\n"))
-	if err := s.verify(tarball); err == nil || !strings.Contains(err.Error(), "its published sha256 says 0000") {
-		t.Errorf("a sha256 that differs: %v", err)
-	}
-	sum, _ := fileSHA256(tarball)
-	write(t, tarball+".sha256", []byte(sum+"  r.tar.gz\n"))
-	// The sum agrees; the signature's tools are asked next, and a directory that is no checkout
-	// has no versions.yaml to pin them by.
-	if err := s.verify(tarball); err == nil || !strings.Contains(err.Error(), "cosign's pin") {
-		t.Errorf("past the sum: %v", err)
 	}
 }
 
