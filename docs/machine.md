@@ -397,6 +397,15 @@ of its own, the same gap took 6 ms p50, and the guest's stop to `cont` fell from
 caller's `fdatasync` after `Continue` took 259 ms instead of 3, so the time to a durable state did
 not change (−19 ms [−4088, +3963]). It moved off the guest's clock.
 
+**A checkpoint does not sync the disks either.** QEMU drains them at the stop, so every flush the
+guest asked for is on the disk. From then until the guest runs again it defers its own flushes to
+the host's disk (`x-defer-disk-flush`, which `qemu/patches` adds): the stop's, a seal's
+`blockdev-snapshot` and `cont`'s activation reach the page cache, and the guest's next flush forces
+them. A caller that keeps the checkpoint's disk, such as the layer a seal put under a new overlay,
+syncs it with the state after `Continue`. On a bench whose disk four writers kept busy, the stop's
+fsync had held the guest 40 ms p50, and 18 without it (docs/memory-and-disk.md, "A busy host disk",
+#426).
+
 The 0.3-0.9 GiB the guest stopped with was QEMU's default `downtime-limit` of 300 ms at work: QEMU
 stops the guest once what is left fits in that limit at the rate it measures, ~4 GB/s into the page
 cache. Checkpoint now sets 30 ms (`checkpointDowntime`). On the bench, QEMU's downtime for the same
