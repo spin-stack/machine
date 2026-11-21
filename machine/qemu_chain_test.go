@@ -44,10 +44,15 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 		t.Cleanup(func() { _ = f.Close() })
 		return f
 	}
-	disk := Disk{Serial: "root", Locking: true, Images: []Image{
-		{File: open(top, os.O_RDWR), Format: "qcow2"},
-		{File: open(base, os.O_RDONLY), Format: "qcow2"},
-	}}
+	// The chain as qemu-img wrote it, read from its headers.
+	disk, err := OpenDisk(DiskPath{Serial: "root", Path: top, Format: "qcow2", Under: []string{base}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = disk.Close() })
+	if len(disk.Images) != 2 || disk.Images[1].File.Name() != base || !disk.Locking {
+		t.Fatalf("OpenDisk read %+v from qemu-img's headers, want %s over %s, locked", disk, top, base)
+	}
 	nextFile := open(next, os.O_RDWR)
 	// The console, a FIFO as a runner keeps one: its reader first, or opening the writer blocks.
 	fifo := filepath.Join(t.TempDir(), "console")

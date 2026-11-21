@@ -110,11 +110,13 @@ func hostTarget() machine.Target { return machine.Target{} }
 // tap is the caller's TAP device, already opened.
 func tap() *os.File { return nil }
 
-// disk is one of the workspace's disks, its images opened by the caller.
+// disk is one of the workspace's disks: its overlay, writable, over the shared images it may
+// read and never write.
 func disk(serial string) machine.Disk {
-	top, err := os.OpenFile("/var/lib/spin/ws/"+serial+".qcow2", os.O_RDWR, 0)
+	d, err := machine.OpenDisk(machine.DiskPath{Serial: serial, Path: "/var/lib/spin/ws/" + serial + ".qcow2", Format: "qcow2",
+		Under: []string{"/var/lib/spin/layers"}})
 	if err != nil {
 		log.Fatal(err)
 	}
-	return machine.Disk{Serial: serial, Images: []machine.Image{{File: top, Format: "qcow2"}}}
+	return d
 }

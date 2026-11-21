@@ -37,6 +37,10 @@ type Image struct {
 	// Format is qcow2 or raw, and never guessed: a guessed format is how an image the guest
 	// can write is talked into being read as another one. Only the last image may be raw.
 	Format string
+	// Size is the size the guest sees, as OpenDisk read it: a qcow2 header's, a raw file's.
+	// Nothing here reads it; a caller that bounds what its VMM may write to a file
+	// (RLIMIT_FSIZE) bounds it by the writable top's.
+	Size int64
 }
 
 // serialPattern is what a serial may be: a virtio-blk serial is 20 bytes, and the serial names
