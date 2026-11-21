@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spin-stack/machine/internal/lab"
 	"github.com/spin-stack/machine/internal/qmpdef"
 	"github.com/spin-stack/machine/machine"
 	"github.com/spin-stack/machine/qmp"
@@ -52,8 +53,10 @@ type pause struct {
 
 // How long a checkpoint stops the guest, at spin's shape plugged to 2 GiB with 1.5 GiB of tmpfs
 // filled from /dev/urandom, idle, and with 1 GiB filled and a writer rewriting 64 MiB of a 512 MiB
-// tmpfs file every ~100 ms: the two guests that decided checkpointDowntime (#415). Each saves
-// SPIN_PAUSE_SAVES times (default 10) into a file on TMPDIR's disk, continued after each, and logs
+// tmpfs file every ~100 ms: the two guests that decided checkpointDowntime (#415). The third is
+// the writer beside a busy disk, its guest writing its own disk too: what made a stop wait on the
+// host's disk to flush the overlay (#426). Each saves
+// SPIN_PAUSE_SAVES times (default 10) into a file on the scratch disk, continued after each, and logs
 // each save's pause, QEMU's downtime, what was left at the stop and the save's total. The median
 // pause is held under pauseBound. A QEMU bump that changes when migration stops the guest shows
 // here (compat.yml runs it on every change to QEMU and before every release).
@@ -64,14 +67,28 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 		t.Skip("set SPIN_PAUSE_TEST=1: this starts machines")
 	}
 	saves := envInt(t, "SPIN_PAUSE_SAVES", 10)
+	// The overlays, the states and the busy disk's files on the disk a probe's go on: the bench
+	// runner's /tmp is an overlayfs, and its instance store is where spin keeps them.
+	scratch, err := lab.Scratch(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", scratch)
 	r := newRecorder(t, 4000000)
+	writer := "dd if=/dev/urandom of=/mnt/src bs=1M count=64 2>/dev/null; dd if=/dev/urandom of=/mnt/ws bs=1M count=512 2>/dev/null; " +
+		"(i=0; while :; do dd if=/mnt/src of=/mnt/ws bs=1M count=64 seek=$(( (i*64) % 512 )) conv=notrunc 2>/dev/null; i=$((i+1)); sleep 0.1; done) &"
 	for _, tc := range []struct {
 		name, fill, writer string
+		// busy is a host writer on the state's file system throughout the saves (busyDisk).
+		busy bool
 	}{
-		{"idle", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1536", ""},
-		{"writing", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024",
-			"dd if=/dev/urandom of=/mnt/src bs=1M count=64 2>/dev/null; dd if=/dev/urandom of=/mnt/ws bs=1M count=512 2>/dev/null; " +
-				"(i=0; while :; do dd if=/mnt/src of=/mnt/ws bs=1M count=64 seek=$(( (i*64) % 512 )) conv=notrunc 2>/dev/null; i=$((i+1)); sleep 0.1; done) &"},
+		{"idle", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1536", "", false},
+		{"writing", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer, false},
+		// Its guest also writes 1 MiB of its own disk every ~100 ms past its page cache and
+		// without a sync, so a stop always has the guest's writes still to flush: with
+		// conv=fsync instead, the guest had flushed them itself and the stop found nothing to.
+		{"writing beside a busy disk", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer +
+			" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 oflag=direct conv=notrunc 2>/dev/null; sleep 0.1; done) &", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -106,6 +123,9 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 			}
 			defer func() { _ = q.Close() }()
 
+			if tc.busy {
+				busyDisk(t)
+			}
 			var pauses []pause
 			for range saves {
 				p := checkpointOnce(ctx, t, g, q)
@@ -182,4 +202,57 @@ func p50[T cmp.Ordered](pauses []pause, of func(pause) T) T {
 	return v[len(v)/2]
 }
 
+// busyWriters is how many write beside a busy disk's guest. One, on the bench's instance store,
+// never made a stop wait on its flush; with four, the stop's fdatasync took 13-79 ms (lab
+// 44958247487, 2026-11-21).
+const busyWriters = 4
+
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
+
+// busyDisk writes beside the test on TMPDIR's file system, where the overlay and the states are,
+// until the test ends: what other workspaces do to a runner's disk. Each of busyWriters rewrites a
+// 2 GiB file in 4 MiB writes through the page cache and syncs it every 256 MiB, so the disk always
+// has writeback queued and ext4's journal a commit waiting on it.
+func busyDisk(t *testing.T) {
+	t.Helper()
+	writers := busyWriters
+	done := make(chan struct{})
+	stopped := make(chan error, writers)
+	for w := range writers {
+		f, err := os.Create(filepath.Join(t.TempDir(), fmt.Sprintf("busy%d", w)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			defer func() { _ = f.Close() }()
+			block := make([]byte, 4<<20)
+			for i := 0; ; i++ {
+				select {
+				case <-done:
+					stopped <- nil
+					return
+				default:
+				}
+				block[0] = byte(i)
+				if _, err := f.WriteAt(block, int64(i%512)*int64(len(block))); err != nil {
+					stopped <- fmt.Errorf("writing beside the test: %w", err)
+					return
+				}
+				if i%64 == 63 {
+					if err := f.Sync(); err != nil {
+						stopped <- fmt.Errorf("syncing beside the test: %w", err)
+						return
+					}
+				}
+			}
+		}()
+	}
+	t.Cleanup(func() {
+		close(done)
+		for range writers {
+			if err := <-stopped; err != nil {
+				t.Error(err)
+			}
+		}
+	})
+}

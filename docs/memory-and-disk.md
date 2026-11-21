@@ -290,13 +290,55 @@ v20261121.01, `lab dispatch check:checkpoint-pause`) read:
 | idle | 13.3 ms | 14.8 ms | 6 ms | 0 | 465 ms |
 | writer | 18.9 ms | 25.8 ms | 7 ms | 0 | 531 ms |
 
-On a laptop whose disk was busy, the same check stopped the guest for 0.1-8.7 s in 4-6 of the
-writer's 10 saves with at most 85 MiB left at the stop, so that time did not go to RAM (#426).
-
 `Resume` has no bound of its own besides its context. A full load reads the state's written
 blocks, not its length, since a mapped-ram state is sparse. How long that may take depends on the
 host's slowest disk, which the caller knows. spin bounds it at 30 s plus the written blocks at
 50 MB/s.
+
+#### A busy host disk
+
+On a laptop whose disk was busy, the same check stopped the guest for 0.1-8.7 s in 4-6 of the
+writer's 10 saves, with at most 85 MiB left at the stop, so that time did not go to RAM (#426).
+QEMU's downtime was longer than the guest's stop to `GuestRunning`, so the wait came before
+`pre-switchover`, where the host hears of the stop.
+
+QEMU's trace (`-trace` on `runstate_set`, `vm_stop_flush_all`, `migrate_set_state` and
+`luring_co_submit`) named it. From `finish-migrate` to `pre-switchover` the time was the flush in
+QEMU's `do_vm_stop`, after the drain: one io_uring fsync of the overlay. That was 527 ms in one
+laptop save. On the bench it was 13-79 ms, beside four host writers on the instance store's ext4,
+with the guest writing its disk past its page cache (lab 44958247487). One host writer, or a guest
+that synced its own writes, left the stop nothing to flush or a disk that answered at once. Deferred
+only to the end of the switchover, the same fsync came back inside `cont`. Activating a qcow2 node
+closes it and opens it again, and the close flushes.
+
+So QEMU carries `x-defer-disk-flush` (`qemu/patches/0003-migration-x-defer-disk-flush.patch`), and
+`Checkpoint` sets it. The stop drains the disks first, so every flush the guest asked for is on the
+disk. From then until the guest runs again, or QEMU closes the disks, QEMU's own flushes write what
+qcow2 caches to the page cache and stop there: the stop's, a seal's `blockdev-snapshot` and `cont`'s
+activation. The guest's next flush forces them. A caller that keeps the checkpoint's disk syncs it
+with the state, after `Continue`.
+
+Measured on the bench (nested KVM, v20261121.01 with QEMU from parts run 44961949665, spin's shape
+plugged to 2 GiB, the busy-disk guest, 20 pairs interleaved on one guest in a random order within
+each pair, lab 44962720682, 2026-11-21):
+
+| `x-defer-disk-flush` | Guest stopped at least, p50 / p90 / slowest | QEMU's downtime, p50 | Stop to `GuestRunning`, p50 |
+| --- | --- | --- | --- |
+| off | 40.0 / 72.0 / 93.0 ms | 40 ms | 18.9 ms |
+| on | 18.0 / 22.3 / 28.8 ms | 7 ms | 18.0 ms |
+
+The guest's stop fell 22.0 ms [−29.2, −15.8], and QEMU's downtime 33 ms [−40, −27]. The stop to
+`GuestRunning` did not move, −0.9 [−1.6, +0.7], since it starts at `pre-switchover`, after the
+flush. On QEMU's own clock, `finish-migrate` to `running` read 8-20 ms with it and 20-95 ms
+without, and no flush was submitted between `completed` and `running` in either arm.
+`boot:checkpoint-pause` now holds that guest too: 19.1 ms p50 (lab 44962720691). The patched QEMU
+alone did not move restore-first, which a checkpoint's stop is not on: login −0.1 ms [−2.3, +2.4]
+from an evicted state and −3.2 [−4.7, −0.5] from a cached one (lab 44963610565).
+
+The laptop's slowest saves had two more waits that the bench did not show. One was 1.6-1.9 s
+between `finish-migrate` and the stop's flush with nothing to flush, which is the drain or the
+vCPUs' pause. The other was 0.7-1.6 s writing the last RAM after `pre-switchover`. That laptop's swap
+was full, so both may be QEMU's memory read back from swap (#437).
 
 ## Turned down
 

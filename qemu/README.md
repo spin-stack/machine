@@ -3,9 +3,11 @@
 One build, **statically linked**, against musl on Alpine. `spin-machine-dev build qemu` builds it from
 source (tens of minutes). `spin-machine-dev fetch qemu` unpacks the published build of the pinned
 version (seconds). `devices.mak` is the device allowlist, and `patches/` holds the changes this
-tree makes to QEMU's source: 0001 builds the memory map once for device creation, and 0002 gives
-virtio-scsi a `max_target` property. `docs/boot-time.md`, "What the machine carries", says what
-each one earns.
+tree makes to QEMU's source: 0001 builds the memory map once for device creation, 0002 gives
+virtio-scsi a `max_target` property, and 0003 adds the migration capability `x-defer-disk-flush`,
+which keeps a checkpoint's stop off the host's disk. `docs/boot-time.md`, "What the machine
+carries", says what 0001 and 0002 earn, and `docs/memory-and-disk.md`, "A busy host disk", what 0003
+does.
 
 A dynamically linked QEMU is not one artefact. It is an artefact plus the libraries it was
 compiled against. Extracted onto a host with different ones it dies at start-up
