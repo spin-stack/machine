@@ -45,6 +45,29 @@ func argValue(args []string, flag string) string {
 	return ""
 }
 
+// -smp carries maxcpus= only for a ceiling above the boot count: none, or one equal to it, adds
+// no vCPU slots.
+func TestTheVCPUCeilingIsOnTheCommandLineOnlyAboveTheBootCount(t *testing.T) {
+	for _, tc := range []struct {
+		boot, max int
+		want      string
+	}{
+		{2, 0, "2"},
+		{2, 2, "2"},
+		{1, 16, "1,maxcpus=16"},
+	} {
+		s := spec(t)
+		s.BootCPUs, s.MaxCPUs = tc.boot, tc.max
+		args, err := s.Args()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := argValue(args, "-smp"); got != tc.want {
+			t.Errorf("-smp for %d vCPUs of %d = %q, want %q", tc.boot, tc.max, got, tc.want)
+		}
+	}
+}
+
 // nic is a NIC validate accepts, for a test about something else.
 func nic() NIC { return NIC{TapFD: 3, MAC: "52:54:00:00:00:01"} }
 

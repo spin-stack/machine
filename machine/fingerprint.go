@@ -175,8 +175,10 @@ const machineOpts = MachineType + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,
 // deprecated (QEMU deprecates a versioned type after three years and removes it after six).
 const MachineType = "pc-q35-11.1"
 
+// smpArg is -smp. A ceiling of 0, or one equal to the boot count, adds no maxcpus=: validate
+// refuses a ceiling below the boot count, so above it is the only ceiling that adds slots.
 func smpArg(bootCPUs, maxCPUs int) string {
-	if maxCPUs > 0 && maxCPUs != bootCPUs {
+	if maxCPUs > bootCPUs {
 		return fmt.Sprintf("%d,maxcpus=%d", bootCPUs, maxCPUs)
 	}
 	return fmt.Sprintf("%d", bootCPUs)
