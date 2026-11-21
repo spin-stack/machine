@@ -34,7 +34,8 @@ import (
 // line of its own. A VM is what is reached once it is running.
 //
 // Which checkpoints a VM resumes is one rule for every VMM, CanResume, over two records the VMM
-// gives (Target): the one a checkpoint carries (Saved.From) and the machine's own. A VMM says
+// gives (Target): the one a checkpoint carries (Saved.From) and the machine's own, which the
+// caller holds and hands to Resume. A VMM says
 // what its record holds and which facts may grow (Machine); the comparison, and the refusal that
 // names each difference, are the same whatever made them. Another VMM's Target is read from its
 // own API - Cloud Hypervisor's vm.info, Firecracker's GET /vm/config - into the same Target, and
@@ -46,9 +47,12 @@ type VM interface {
 	Boot(ctx context.Context, disks ...Disk) error
 
 	// Resume loads a checkpoint into a machine started to receive one, with the disks the
-	// checkpoint was saved with, and runs it. It returns once the guest runs: with Load.Fast
-	// that is before the guest's memory has all been read, and Loaded says when it has.
-	Resume(ctx context.Context, state *os.File, saved Saved, load Load, disks ...Disk) error
+	// checkpoint was saved with, and runs it, once CanResume(saved, here) allows it. here is this
+	// machine's Target as the caller holds it, and is trusted as given: the caller is responsible
+	// for it describing this machine, and QEMU.Resume says how spin keeps it. It returns once the
+	// guest runs: with Load.Fast that is before the guest's memory has all been read, and Loaded
+	// says when it has.
+	Resume(ctx context.Context, state *os.File, saved Saved, here Target, load Load, disks ...Disk) error
 	// Loaded returns once a resumed machine has read all of its state: until then the state's
 	// file is still being read, and must not be moved, deleted or written, nor another
 	// checkpoint started.
@@ -83,7 +87,7 @@ type VM interface {
 	// (Saved.From), and what CanResume holds a checkpoint resumed into it to. A caller choosing
 	// where a checkpoint resumes asks a machine of the kind that will take it - one started held
 	// for a checkpoint, with the devices a workspace has - before starting anything, rather than
-	// learning from a failed load.
+	// learning from a failed load, and hands the answer to Resume.
 	Target(ctx context.Context) (Target, error)
 
 	// Quit ends the VMM without asking the guest.

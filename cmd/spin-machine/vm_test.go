@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"os"
@@ -18,6 +19,8 @@ import (
 // save writes beside the state the machine it was taken on and what was added to it, and restore
 // reads it: into that machine the state loads, into another it is refused before a byte of it is
 // read, each difference on a line of its own, and a state with nothing beside it is no checkpoint.
+// The machine's own record is asked of it, or with --target taken from the file as given, and the
+// machine is not asked for it.
 func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "vm.state")
 	completed := `{"return": {"status": "completed"}}`
@@ -48,32 +51,81 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 		t.Fatalf("save recorded %s (%v), want the mapped-ram format and the machine it was taken on", b, err)
 	}
 
-	// The machine held for the checkpoint, and what it says it is.
-	restoring := func(replies ...string) (*monitor, error) {
-		m := newMonitor(t, slices.Concat([]string{ok, `{"return": {"status": "inmigrate"}}`}, replies)...)
-		return m, restore(restoreFlags{qmp: m.socket, from: state, disks: diskFlags{path: "-"}, timeout: time.Minute})
+	// The machine held for the checkpoint, and the record restore is given of it, if any.
+	restoring := func(target string, replies ...string) (*monitor, error) {
+		m := newMonitor(t, append([]string{ok}, replies...)...)
+		return m, restore(restoreFlags{qmp: m.socket, from: state, target: target, disks: diskFlags{path: "-"}, timeout: time.Minute})
 	}
-	load := []string{`{"return": []}`, ok}
+	askedOf := func(m *monitor) (out []string) {
+		for _, r := range m.commands(t)[1:] {
+			out = append(out, r.Execute)
+		}
+		return out
+	}
+	load := []string{`{"return": {"status": "inmigrate"}}`, `{"return": []}`, ok}
 	if machine.DefaultChannels > 1 { // migrate-set-parameters: a mapped-ram state loads by the default's channels
 		load = append(load, ok)
 	}
 	load = append(load, `{"return": {"fdset-id": 1}}`, ok, completed, ok, `{"return": {"status": "running"}}`)
-	m, err := restoring(slices.Concat(readRecord, load)...)
+	m, err := restoring("", slices.Concat(readRecord, load)...)
 	if err != nil {
 		t.Errorf("restore into the machine it was taken on: %v", err)
 	}
-	if !slices.ContainsFunc(m.commands(t), func(r qmpRequest) bool { return r.Execute == "migrate-incoming" }) {
-		t.Error("restore into the machine it was taken on did not load the state")
+	if got := askedOf(m); !slices.Equal(got[:len(readRecordAsked)], readRecordAsked) || !slices.Contains(got, "migrate-incoming") {
+		t.Errorf("restore into the machine it was taken on asked %v, want what it is and then the load", got)
 	}
 	// An older QEMU, whose conversation ends at what it is: a restore that went on to load the
 	// state would keep the monitor past it, which the monitor reports.
 	older := slices.Clone(readRecord)
 	older[0] = `{"return": {"qemu": {"major": 11, "minor": 1, "micro": 0}}}`
-	m, err = restoring(older...)
-	if want := "restore: the checkpoint's machine is not this one:\n  vmm: checkpoint qemu 11.2.0, here qemu 11.1.0 (as new)"; err == nil || err.Error() != want {
-		t.Errorf("restore into an older QEMU: %v, want %q", err, want)
+	refusal := "restore: the checkpoint's machine is not this one:\n  vmm: checkpoint qemu 11.2.0, here qemu 11.1.0 (as new)"
+	m, err = restoring("", older...)
+	if err == nil || err.Error() != refusal {
+		t.Errorf("restore into an older QEMU: %v, want %q", err, refusal)
 	}
 	m.commands(t)
+
+	// --target: the record target printed, as given, and only the load asked of the machine.
+	var printed bytes.Buffer
+	reading := newMonitor(t, append([]string{ok}, readRecord...)...)
+	if err := targetReport(reading.socket, &printed); err != nil {
+		t.Fatal(err)
+	}
+	reading.commands(t)
+	target := filepath.Join(t.TempDir(), "target.json")
+	if err := os.WriteFile(target, printed.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err = restoring(target, load...)
+	if err != nil {
+		t.Errorf("restore --target of the machine it was taken on: %v", err)
+	}
+	if got := askedOf(m); len(got) == 0 || got[0] != "query-status" || !slices.Contains(got, "migrate-incoming") {
+		t.Errorf("restore --target asked %v, want the load and nothing of what the machine is", got)
+	}
+	// --target of an older QEMU: refused before the machine is asked anything.
+	from := saved.From
+	from.VMM = "qemu 11.1.0"
+	if b, err := json.Marshal(from); err != nil || os.WriteFile(target, b, 0o600) != nil {
+		t.Fatalf("writing the machine's record: %v", err)
+	}
+	m, err = restoring(target)
+	if err == nil || err.Error() != refusal {
+		t.Errorf("restore --target of an older QEMU: %v, want %q", err, refusal)
+	}
+	if got := askedOf(m); len(got) != 0 {
+		t.Errorf("restore --target of an older QEMU asked %v, want nothing", got)
+	}
+	// A record that is not one is refused before the machine is dialled.
+	if err := os.WriteFile(target, []byte(`{"machine": {"exact": [{"name": "a"}, {"name": "a"}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := restore(restoreFlags{qmp: "/nowhere", from: state, target: target}); err == nil || !strings.Contains(err.Error(), "reading "+target) {
+		t.Errorf("restore --target of a record that is not one: %v", err)
+	}
+	if err := restore(restoreFlags{qmp: "/nowhere", from: state, target: "/nonexistent/target.json"}); err == nil || !strings.Contains(err.Error(), "reading the machine's record") {
+		t.Errorf("restore --target of no file: %v", err)
+	}
 
 	if err := os.Remove(savedPath(state)); err != nil {
 		t.Fatal(err)

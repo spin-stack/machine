@@ -309,6 +309,7 @@ func save(o saveFlags) error {
 type restoreFlags struct {
 	qmp      string
 	from     string
+	target   string
 	fast     bool
 	channels int
 	release  string
@@ -319,6 +320,7 @@ type restoreFlags struct {
 func (o *restoreFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "QMP socket of a VM started with boot --restore (required)")
 	fs.StringVar(&o.from, "from", "", "the state save wrote (required)")
+	fs.StringVar(&o.target, "target", "", "this machine's record, as spin-machine target prints it, trusted as given (default: asked of the machine before the load)")
 	fs.BoolVar(&o.fast, "fast", false, "run the guest once its devices are in and read its memory as it touches it")
 	fs.IntVar(&o.channels, "channels", 0, fmt.Sprintf("how many threads read the guest's memory (QEMU's multifd); any number reads a state saved with any, and none given is %d, machine.DefaultChannels, or one for --fast or a stream state", machine.DefaultChannels))
 	fs.StringVar(&o.release, "release", "_output", "the release tree: its base image, under a throwaway overlay, is the disk when --disk is not given")
@@ -330,6 +332,9 @@ func (o *restoreFlags) register(fs *flag.FlagSet) {
 // state and what save wrote beside it, <from>.json, which says the machine it was taken on. A
 // machine that is not that one refuses it before reading the state, and each difference is said
 // on a line of its own.
+//
+// The machine's own record is --target when given, as spin hands Resume its host's, read once:
+// asked of the machine here, its 8 round trips are on the restore's clock (machine.QEMU.Resume).
 func restore(o restoreFlags) error {
 	if o.qmp == "" || o.from == "" {
 		return errors.New("restore: --qmp and --from are required")
@@ -341,6 +346,16 @@ func restore(o restoreFlags) error {
 	}
 	if err := json.Unmarshal(b, &saved); err != nil {
 		return fmt.Errorf("reading %s: %w", savedPath(o.from), err)
+	}
+	var here machine.Target
+	if o.target != "" {
+		b, err := os.ReadFile(o.target)
+		if err != nil {
+			return fmt.Errorf("reading the machine's record: %w", err)
+		}
+		if err := json.Unmarshal(b, &here); err != nil {
+			return fmt.Errorf("reading %s: %w", o.target, err)
+		}
 	}
 	f, err := os.Open(o.from)
 	if err != nil {
@@ -363,7 +378,12 @@ func restore(o restoreFlags) error {
 		defer closeAll()
 		disks = append(disks, disk)
 	}
-	err = m.Resume(ctx, f, saved, machine.Load{Fast: o.fast, Channels: o.channels}, disks...)
+	if o.target == "" {
+		if here, err = m.Target(ctx); err != nil {
+			return err
+		}
+	}
+	err = m.Resume(ctx, f, saved, here, machine.Load{Fast: o.fast, Channels: o.channels}, disks...)
 	var r *machine.Refusal
 	if errors.As(err, &r) {
 		lines := []string{"restore: the checkpoint's machine is not this one:"}
@@ -490,6 +510,29 @@ func memory(o memoryFlags, w io.Writer) error {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// targetReport prints the machine's record (machine.QEMU.Target) as JSON: what restore --target
+// reads, and what a caller that resumes many checkpoints into machines of one shape reads once,
+// from one machine started held, and keeps.
+func targetReport(qmp string, w io.Writer) error {
+	if qmp == "" {
+		return errors.New("target: --qmp is required")
+	}
+	m, err := dial(qmp, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = m.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	here, err := m.Target(ctx)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(here)
 }
 
 // cpuReport prints the CPU a machine shows its guest and the named models its host can run,

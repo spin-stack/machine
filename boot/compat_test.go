@@ -28,8 +28,9 @@ import (
 // the previous release's QEMU, kernel and firmware, over an overlay of its base image, with a
 // counter printing on its console; this tree's spin-machine saves it, which records the machine
 // as that QEMU reports it. A machine of this tree's QEMU, held for a checkpoint over the same
-// overlay, says whether it resumes it (machine.CanResume); if so it is restored, and the counter
-// has to go on from where it was and the disk has to answer.
+// overlay, says whether it resumes it (machine.CanResume); if so it is restored with that record
+// (restore --target), as spin hands Resume its host's, and the counter has to go on from where it
+// was and the disk has to answer.
 //
 // When this machine refuses the checkpoint, the machine moved and no checkpoint of the previous
 // release is meant to resume: the test says so with every difference, holds nothing, and writes
@@ -105,8 +106,13 @@ func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {
 		}
 		t.Skipf("the machine of %s is not this one:\n  %s", previous, strings.Join(ds, "\n  "))
 	}
+	// The record just read, handed to restore as spin hands Resume its host's.
+	target := state + ".target"
+	if b, err := json.Marshal(here); err != nil || os.WriteFile(target, b, 0o600) != nil {
+		t.Fatalf("keeping the machine's record: %v", err)
+	}
 	// #nosec G204 -- this tree's spin-machine
-	if o, err := exec.Command(cli, "restore", "--release", out, "--qmp", bSock, "--from", state,
+	if o, err := exec.Command(cli, "restore", "--release", out, "--qmp", bSock, "--from", state, "--target", target,
 		"--disk", overlay, "--disk-format", "qcow2").CombinedOutput(); err != nil {
 		t.Fatalf("restoring: %v: %s\n%s", err, o, b.said())
 	}

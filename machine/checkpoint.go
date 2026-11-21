@@ -247,7 +247,18 @@ func (m *QEMU) migrate(ctx context.Context, command string, f *os.File, access i
 	return err
 }
 
-// Resume loads a checkpoint into a machine started with Spec.Restore.
+// Resume loads a checkpoint into a machine started with Spec.Restore, once CanResume(saved, here)
+// allows it. That comes first, so a checkpoint of another machine is refused before QEMU is asked
+// anything, and before a byte of its state is read.
+//
+// here is this machine's Target, and Resume trusts it: it does not ask QEMU. The caller is
+// responsible for here describing this machine. spin reads it once, when its runner starts, from
+// a machine started held in the shape it resumes workspaces into, and holds each machine of its
+// pool to it once, when it starts it (spin-stack/spin#1416). A caller with no such constant asks
+// Target first. Read here, the record cost restore-first's first login +4.3 ms [+0.2, +7.5] with
+// the state on the disk and +8.2 [+6.2, +10.8] from the page cache (bench, lab 44868324811,
+// 2026-11-21), and no part of it could leave the clock: QEMU's main loop is busy from its exec to
+// the load's end, and QEMU answers no monitor while it loads a state.
 //
 // Fast is QEMU 11.2's fast snapshot load (docs/devel/migration/fast-snapshot-load.rst): mapped-ram
 // and postcopy-ram on a file: URI, the guest running once its device state is in while
@@ -255,7 +266,10 @@ func (m *QEMU) migrate(ctx context.Context, command string, f *os.File, access i
 // postcopy-active. QEMU needs userfaultfd for it: /dev/userfaultfd readable and writable by its
 // user, or vm.unprivileged_userfaultfd=1, or CAP_SYS_PTRACE - the guest's faults are taken in
 // the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor does not see.
-func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Load, disks ...Disk) error {
+func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load Load, disks ...Disk) error {
+	if err := CanResume(saved, here); err != nil {
+		return fmt.Errorf("resuming: %w", err)
+	}
 	channels := load.channels(saved.Format)
 	caps := map[string]bool{"pause-before-switchover": false}
 	switch {
@@ -287,18 +301,6 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, load Loa
 	}
 	if st != "inmigrate" {
 		return fmt.Errorf("resuming into a machine that is %s: only one started with Spec.Restore takes a checkpoint", st)
-	}
-	// Before the load, not beside it as Checkpoint reads it: QEMU answers no monitor while it
-	// loads a state. None answered from migrate-incoming's reply to the load's end, a mapped-ram
-	// state read by 8 channels (laptop, 2026-11-21). Read on a second monitor from QEMU's
-	// greeting, beside the restore, it was still on the restore's clock: the reads are work for
-	// QEMU's main loop, which is busy from exec to the load's end.
-	here, err := m.Target(ctx)
-	if err != nil {
-		return fmt.Errorf("resuming: %w", err)
-	}
-	if err := CanResume(saved, here); err != nil {
-		return fmt.Errorf("resuming: %w", err)
 	}
 	if err := m.bindAll(ctx, disks, again.Disks); err != nil {
 		return fmt.Errorf("resuming: %w", err)

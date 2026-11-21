@@ -237,7 +237,7 @@ func (r *recorder) selfResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := dst.Resume(ctx, state, saved, machine.Load{}, root, extDisk(t)); err != nil {
+	if err := dst.Resume(ctx, state, saved, here, machine.Load{}, root, extDisk(t)); err != nil {
 		t.Fatalf("resuming: %v\n%s", err, b.said())
 	}
 	b.type_(t, "echo RESUMED-$((2+3))")

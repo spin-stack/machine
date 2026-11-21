@@ -52,6 +52,7 @@ Usage:
   spin-machine detach  [flags]   take it back, once the guest has let it go
   spin-machine memory  [flags]   grow or shrink a running VM between its memory and its ceiling
   spin-machine cpu     [flags]   print the CPU the guest is shown and the named models this host runs
+  spin-machine target  [flags]   print the machine's record as JSON, which restore --target takes
 
 spin-machine <command> -h lists a command's flags.
 `
@@ -107,6 +108,14 @@ func run(argv []string) error {
 			return err
 		}
 		return cpuReport(qmp, os.Stdout)
+	case "target":
+		var qmp string
+		if err := parse(cmd, argv, func(fs *flag.FlagSet) {
+			fs.StringVar(&qmp, "qmp", "", "a machine's QMP socket (required)")
+		}); err != nil {
+			return err
+		}
+		return targetReport(qmp, os.Stdout)
 	case "attach":
 		var o attachFlags
 		if err := parse(cmd, argv, o.register); err != nil {
