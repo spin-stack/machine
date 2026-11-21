@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// spec returns a minimal valid spec pointing at files that exist, so
-// Fingerprint has something to hash.
+// spec returns a minimal valid spec pointing at files that exist: Args asks the kernel whether
+// it is a bzImage.
 func spec(t *testing.T) Spec {
 	t.Helper()
 	dir := t.TempDir()
@@ -23,9 +23,6 @@ func spec(t *testing.T) Spec {
 		}
 		return p
 	}
-	write(DefaultBIOS, "qboot")
-	write("bios-256k.bin", "seabios")
-	write("linuxboot_dma.bin", "linuxboot")
 	return Spec{
 		QEMU:     write("qemu-system-x86_64", "qemu"),
 		Kernel:   write("bzImage", strings.Repeat("\x00", 0x202)+"HdrS"),
@@ -258,173 +255,34 @@ func TestAnUnnamedCPUFollowsTheAccelerator(t *testing.T) {
 	for accel, want := range map[string]string{"kvm": "host,", "tcg": "max,"} {
 		s := spec(t)
 		s.Accel = accel
-		if got := s.Shape().CPU; !strings.HasPrefix(got, want) {
+		args, err := s.Args()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := argValue(args, "-cpu"); !strings.HasPrefix(got, want) {
 			t.Errorf("-accel %s: -cpu %q, want %q first", accel, got, want)
 		}
 	}
 }
 
-// The command line and the fingerprint read one Shape. If they read two, a VM could
-// resume a checkpoint of a machine it is not.
-func TestArgsCarriesTheShape(t *testing.T) {
+// What a pool takes away from host goes after what every machine takes away, and the machine is
+// named by nothing else: exec passes an empty element as an argument of its own, which QEMU reads
+// as a file name or refuses.
+func TestTheCPUTakesAwayWhatAPoolDoesNotShare(t *testing.T) {
 	s := spec(t)
+	s.CPUWithout = []string{"avx512f", "sse4.1", "kvm-pv-eoi"}
 	args, err := s.Args()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// exec passes an empty element as an argument of its own, which QEMU reads as a
-	// file name or refuses.
+	if got, want := argValue(args, "-cpu"), "host,migratable=on,-vmx,-svm,-avx512f,-sse4.1,-kvm-pv-eoi"; got != want {
+		t.Errorf("-cpu %q, want %q", got, want)
+	}
 	if i := slices.Index(args, ""); i >= 0 {
 		t.Errorf("argument %d is empty: %q", i, args)
 	}
-	sh := s.Shape()
-	for _, c := range []struct{ flag, want string }{
-		{"-machine", sh.Machine},
-		{"-accel", sh.Accel},
-		{"-cpu", sh.CPU},
-		{"-smp", sh.SMP},
-		{"-m", sh.Memory},
-	} {
-		if got := argValue(args, c.flag); got != c.want {
-			t.Errorf("%s = %q, want %q", c.flag, got, c.want)
-		}
-	}
-}
-
-// The fingerprint, one pair of machines per row: a is spec() changed by a, b is a
-// changed by b, and the row says whether a checkpoint saved on one resumes on the other.
-//
-// It may only if the machine type, the shape, the devices present when state is loaded and the
-// BIOS's size all agree — and must be able to when all that differs is the emulator, what a
-// boot reads, or what is behind the devices, or a checkpoint resumes nowhere but on the release
-// that saved it.
-func TestFingerprint(t *testing.T) {
-	rewrite := func(t *testing.T, path, content string) {
-		t.Helper()
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	withMTU := func(mtu int) func(*testing.T, *Spec) {
-		return func(_ *testing.T, s *Spec) {
-			n := nic()
-			n.MTU = mtu
-			s.NICs = []NIC{n}
-		}
-	}
-
-	for _, tc := range []struct {
-		name string
-		a, b func(*testing.T, *Spec)
-		same bool
-	}{
-		{name: "the same machine twice", same: true},
-
-		// A path is not the machine: the same contents under another name is one.
-		{name: "the same files at other paths", same: true, b: func(t *testing.T, s *Spec) {
-			other := spec(t)
-			s.QEMU, s.Kernel = other.QEMU, other.Kernel
-		}},
-
-		// The disks are the VM's, and a host fingerprints its machine before there is a
-		// VM: a checkpoint is resumed with the disks it was saved with, by its caller.
-		{name: "a disk", same: true, b: func(_ *testing.T, s *Spec) { s.Disks = []DiskSlot{{Serial: "root"}} }},
-
-		// A descriptor number is which file the backend reads, the way a disk's path
-		// is, and a MAC is a property of the device and not of the bus. A caller that
-		// wants distinct MACs should not find that its checkpoints resume nowhere else.
-		{name: "another TAP and MAC", same: true,
-			a: func(_ *testing.T, s *Spec) { s.NICs = []NIC{nic()} },
-			b: func(_ *testing.T, s *Spec) { s.NICs = []NIC{{TapFD: 9, MAC: "52:54:00:ff:ff:ff"}} }},
-
-		// What is behind a device is not the machine: two VMs with one disk each are
-		// the same machine whether that disk holds a database or a scratch overlay,
-		// and whether it arrives by path or as a descriptor.
-		{name: "everything handed over as descriptors", same: true,
-			a: func(_ *testing.T, s *Spec) {
-				s.Disks = []DiskSlot{{Serial: "aaa"}}
-				s.NICs = []NIC{nic()}
-				s.VsockCID = 7
-				s.Serial = "file:/var/log/console"
-			},
-			b: func(_ *testing.T, s *Spec) {
-				s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 10}}}, {ID: 2, FDs: []FD{{Num: 11}}}, {ID: 3, FDs: []FD{{Num: 13}}}}
-				s.Disks = []DiskSlot{{Serial: "bbb"}}
-				s.NICs = []NIC{{TapFD: 9, MAC: "52:54:00:00:00:02", VhostFD: 15}}
-				s.VsockCID = 42
-				s.Serial, s.SerialFDSet = "", 2
-				s.Monitors = []Monitor{{FD: 12}}
-				s.KVMFDSet, s.VsockFD = 3, 14
-			}},
-
-		// Naming a model is how a fleet gets VMs that move: every host shows the guest
-		// the same CPU, so the host's own silicon drops out.
-
-		{name: "more memory", b: func(_ *testing.T, s *Spec) { s.Memory.SizeMB = 1024 }},
-		{name: "more vCPUs", b: func(_ *testing.T, s *Spec) { s.BootCPUs = 4 }},
-		// A resumed guest runs the kernel in its saved memory: the file is read by a boot.
-		{name: "a new kernel", same: true, b: func(t *testing.T, s *Spec) { rewrite(t, s.Kernel, "a different kernel") }},
-		{name: "an initrd", same: true, b: func(t *testing.T, s *Spec) { s.Initrd = s.Kernel }},
-		// Another QEMU of the same versioned machine type is another emulator of one machine:
-		// QEMU's migration promise, which boot:compat holds a release to.
-		{name: "a new QEMU", same: true, b: func(t *testing.T, s *Spec) { rewrite(t, s.QEMU, "a different qemu") }},
-		// The option ROM QEMU adds for the kernel reaches the guest through fw_cfg at a boot
-		// and is no block a resume loads.
-		{name: "a new linuxboot_dma.bin", same: true, b: func(t *testing.T, s *Spec) {
-			rewrite(t, filepath.Join(s.Firmware, "linuxboot_dma.bin"), "a different linuxboot")
-		}},
-		// The BIOS is the pc.bios block a saved machine carries whole, contents included: one
-		// of another length is refused, and a rebuild of the same length is the same machine.
-		{name: "a BIOS rebuilt at its size", same: true, b: func(t *testing.T, s *Spec) {
-			rewrite(t, filepath.Join(s.Firmware, DefaultBIOS), "QBOOT")
-		}},
-		{name: "a BIOS of another size", b: func(t *testing.T, s *Spec) {
-			rewrite(t, filepath.Join(s.Firmware, DefaultBIOS), "a different qboot")
-		}},
-		{name: "SeaBIOS instead of qboot", b: func(_ *testing.T, s *Spec) { s.BIOS = "bios-256k.bin" }},
-		{name: "the same firmware in another directory", same: true, b: func(t *testing.T, s *Spec) {
-			s.Firmware = spec(t).Firmware
-		}},
-		{name: "the default BIOS named", same: true, b: func(_ *testing.T, s *Spec) { s.BIOS = DefaultBIOS }},
-		// A guest's state under TCG is not a guest's state under KVM, and the
-		// accelerator is in the shape.
-		{name: "emulation", b: func(_ *testing.T, s *Spec) { s.Accel = "tcg" }},
-		// A vsock and a memory ceiling are there on both sides of a restore.
-		{name: "a vsock", b: func(_ *testing.T, s *Spec) { s.VsockCID = 7 }},
-		{name: "a memory ceiling", b: func(_ *testing.T, s *Spec) { s.Memory.MaxMB = s.Memory.SizeMB * 2 }},
-		// A NIC is on the command line, so it is present when state is loaded.
-		{name: "a NIC", b: func(_ *testing.T, s *Spec) { s.NICs = []NIC{nic()} }},
-		// The MTU is VIRTIO_NET_F_MTU, negotiated at probe and written into the
-		// migration stream: a checkpoint saved under one MTU must not be loaded under
-		// another. Announcing nothing is a third machine.
-		{name: "an MTU announced", a: withMTU(0), b: withMTU(1500)},
-		{name: "another MTU", a: withMTU(1500), b: withMTU(1400)},
-		{name: "a named CPU instead of host", b: func(_ *testing.T, s *Spec) { s.CPU = "Skylake-Server-v4" }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			a := spec(t)
-			if tc.a != nil {
-				tc.a(t, &a)
-			}
-			fa, err := a.Fingerprint()
-			if err != nil {
-				t.Fatal(err)
-			}
-			b := a
-			if tc.b != nil {
-				tc.b(t, &b)
-			}
-			fb, err := b.Fingerprint()
-			if err != nil {
-				t.Fatal(err)
-			}
-			switch {
-			case tc.same && fa != fb:
-				t.Error("two machines a checkpoint may move between have different fingerprints")
-			case !tc.same && fa == fb:
-				t.Error("two machines a checkpoint may not move between share a fingerprint")
-			}
-		})
+	if slices.Contains(args, "-name") {
+		t.Errorf("the machine is named: %q", args)
 	}
 }
 
@@ -530,7 +388,10 @@ func TestValidateRefuses(t *testing.T) {
 		{"a kernel that is not a bzImage", func(s *Spec) { s.Kernel = s.QEMU }},
 		{"a kernel that is not there", func(s *Spec) { s.Kernel += ".absent" }},
 		{"no firmware", func(s *Spec) { s.Firmware = "" }},
-		{"a BIOS given as a path", func(s *Spec) { s.BIOS = "/elsewhere/qboot.bin" }},
+		// Each is written into -cpu, where a comma or an '=' is another option.
+		{"a feature to take away that is two", func(s *Spec) { s.CPUWithout = []string{"avx2,+avx512f"} }},
+		{"a feature to take away that sets one", func(s *Spec) { s.CPUWithout = []string{"pmu=on"} }},
+		{"a feature to take away with no name", func(s *Spec) { s.CPUWithout = []string{"avx2", ""} }},
 		{"no boot CPUs", func(s *Spec) { s.BootCPUs = 0 }},
 		{"a vCPU ceiling below the boot count", func(s *Spec) { s.BootCPUs, s.MaxCPUs = 4, 2 }},
 		{"no memory", func(s *Spec) { s.Memory.SizeMB = 0 }},
@@ -660,62 +521,6 @@ func TestValidateRefuses(t *testing.T) {
 	}
 }
 
-// What the contract says is present when a checkpoint's state is loaded, each device with its
-// properties and its slot and without what is one VM's. Two machines that differ in one of these
-// differ on the bus, so each has to be in the contract when the device is there and out of it
-// when it is not; a check that is only "the two fingerprints differ" holds none of them, because
-// an inverted test still differs.
-func TestTheContractIsTheDevicesPresentAtRestore(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		set    func(*Spec)
-		want   []string
-		absent []string
-	}{
-		{name: "the machine's own", set: func(*Spec) {},
-			want: []string{
-				"device vmgenid,guid=auto",
-				"device virtio-rng-pci,disable-legacy=on,addr=0x3",
-				"device virtio-balloon-pci,free-page-reporting=on,deflate-on-oom=on,disable-legacy=on,addr=0x4",
-				"global ICH9-LPC.disable_s3=1",
-				"global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off",
-			},
-			absent: []string{"vhost-vsock-pci", "virtio-mem-pci", "isa-serial", "virtio-scsi-pci", "virtio-net-pci", "virtio-blk-pci"}},
-		{name: "a vsock, without its context id or descriptor", set: func(s *Spec) { s.VsockCID, s.VsockFD = 7, 14 },
-			want: []string{"device vhost-vsock-pci,disable-legacy=on,addr=0x2"}, absent: []string{"guest-cid", "vhostfd"}},
-		{name: "a memory ceiling, without its backend", set: func(s *Spec) { s.Memory.MaxMB = s.Memory.SizeMB + 1 },
-			want: []string{"device virtio-mem-pci,requested-size=0,disable-legacy=on,addr=0x1e"}, absent: []string{"memdev", ",id="}},
-		{name: "a console by path", set: func(s *Spec) { s.Serial = "file:/log" }, want: []string{"serial isa-serial"}},
-		{name: "a console by descriptor", set: func(s *Spec) { s.SerialFDSet = 1 }, want: []string{"serial isa-serial"}},
-		{name: "a hotplug controller", set: func(s *Spec) { s.HotplugDisks = 1 },
-			want: []string{"device virtio-scsi-pci,max_target=0,disable-legacy=on,addr=0x1a"}},
-		{name: "a NIC, by its slot and MTU and not its MAC or backend", set: func(s *Spec) {
-			n := nic()
-			n.MTU, n.VhostFD = 1500, 15
-			s.NICs = []NIC{n}
-		}, want: []string{"device virtio-net-pci,romfile=,disable-legacy=on,addr=0x10,host_mtu=1500"}, absent: []string{"mac=", "netdev", "vhostfd"}},
-		{name: "a disk is the VM's", set: func(s *Spec) { s.Disks = []DiskSlot{{Serial: "x"}} },
-			absent: []string{"virtio-blk-pci", "serial=x"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := spec(t)
-			tc.set(&s)
-			got := strings.Join(s.Contract(), "\n")
-			for _, w := range tc.want {
-				if !slices.Contains(s.Contract(), w) {
-					t.Errorf("contract\n%s\nwant it to hold %q", got, w)
-				}
-			}
-			for _, a := range tc.absent {
-				if strings.Contains(got, a) {
-					t.Errorf("contract\n%s\nwant no %q", got, a)
-				}
-			}
-		})
-	}
-}
-
-// A machine starts held, for a boot or for a checkpoint, and never both: under -incoming defer
 // cont leaves the machine waiting for a migration, so a machine for a boot that carried it
 // would never boot, and one for a restore without it would boot a fresh guest instead.
 func TestAMachineStartsHeldForABootOrARestore(t *testing.T) {

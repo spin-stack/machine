@@ -395,7 +395,7 @@ func TestADiskIsOpenedForWhatItWillBe(t *testing.T) {
 
 // boot's own refusals, before anything is started.
 func TestBootRefusesBeforeStartingAnything(t *testing.T) {
-	dir := withBIOS(t, t.TempDir())
+	dir := t.TempDir()
 	garbage := filepath.Join(dir, "qemu")
 	if err := os.WriteFile(garbage, []byte{0, 1, 2, 3}, 0o700); err != nil {
 		t.Fatal(err)
@@ -428,7 +428,7 @@ func TestBootRefusesBeforeStartingAnything(t *testing.T) {
 // What boot would run: held for a boot, with the helper and the monitor it boots the machine
 // through, or held for a checkpoint with neither.
 func TestBootCommandIsHeld(t *testing.T) {
-	dir := withBIOS(t, t.TempDir())
+	dir := t.TempDir()
 	qemu := filepath.Join(dir, "qemu")
 	if err := os.WriteFile(qemu, nil, 0o700); err != nil {
 		t.Fatal(err)
@@ -487,7 +487,7 @@ func TestBootExecsQEMUHeld(t *testing.T) {
 		os.Exit(100)
 	}
 	for _, restore := range []bool{false, true} {
-		dir := withBIOS(t, t.TempDir())
+		dir := t.TempDir()
 		kernelIn(t, dir)
 		qemu, argv := filepath.Join(dir, "qemu"), filepath.Join(dir, "argv")
 		if err := os.WriteFile(qemu, []byte("#!/bin/sh\necho \"$@\" > "+argv+"\nexit 7\n"), 0o700); err != nil {
@@ -547,16 +547,6 @@ func TestRunPassesFlagsOn(t *testing.T) {
 			t.Errorf("args %v printed the helper's monitor: %t, want %t", tc.flags, !tc.helper, tc.helper)
 		}
 	}
-}
-
-// withBIOS puts an empty qboot.bin in dir and returns dir: Spec.Args names the machine by its
-// fingerprint, which sizes the BIOS, so a firmware directory without one is not a machine.
-func withBIOS(t *testing.T, dir string) string {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, machine.DefaultBIOS), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return dir
 }
 
 // kernelIn writes dir/bzImage, a file with a bzImage's setup header magic, which Args asks of a

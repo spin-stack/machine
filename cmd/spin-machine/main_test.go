@@ -116,7 +116,7 @@ func TestBootBecomesQEMU(t *testing.T) {
 		os.Exit(100)
 	}
 
-	dir := withBIOS(t, t.TempDir())
+	dir := t.TempDir()
 	kernelIn(t, dir)
 	qemu := filepath.Join(dir, "qemu")
 	pidFile := filepath.Join(dir, "pid")

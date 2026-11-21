@@ -45,7 +45,7 @@ import (
 //     question at all. The machine string does not move; kernel-irqchip=on,
 //     hpet=off, acpi=on, sata=off and smbus=off are accepted by both, which is
 //     itself worth knowing — every case below asks that of whichever machine
-//     string Shape currently produces, so an option added there is under this
+//     string Args currently produces, so an option added there is under this
 //     check without a case being written for it.
 //
 //   - -cpu host -> max. "host" is a KVM-only value by construction — QEMU says
@@ -224,7 +224,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 			return s
 		},
 	}, {
-		// The other half of Shape: a named model, which is enforce=on rather than
+		// The other half of cpuArg: a named model, which is enforce=on rather than
 		// migratable=on.
 		//
 		// qemu64 and not a microarchitecture anybody would deploy, because

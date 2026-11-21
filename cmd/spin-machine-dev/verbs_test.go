@@ -405,7 +405,7 @@ func TestReleaseVersionIsGivenOrTheNextOfToday(t *testing.T) {
 	}
 }
 
-// packed lays out a built _output, for release pack, with a spin-machine that says a fingerprint.
+// packed lays out a built _output, for release pack.
 func packed(t *testing.T, dir string) string {
 	t.Helper()
 	out := filepath.Join(dir, "_output")
@@ -432,7 +432,6 @@ func packed(t *testing.T, dir string) string {
 	}
 	put(t, filepath.Join(out, "sbom/qemu.apk"), apk("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,musl-dev,gcc"), 0o644)
 	put(t, filepath.Join(out, "sbom/e2fsprogs.apk"), apk("libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"), 0o644)
-	put(t, filepath.Join(out, "bin/spin-machine"), "#!/bin/sh\necho '{\"fingerprint\": \""+strings.Repeat("e", 64)+"\"}'\n", 0o755)
 	return out
 }
 
@@ -450,7 +449,7 @@ func TestReleasePackPacksWhatOutputHolds(t *testing.T) {
 		Manifest map[string]string `json:"manifest"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &p); err != nil || p.Tarball != filepath.Join(out, "release", "spin-machine-v20261119.09-linux-x86_64.tar.gz") ||
-		p.Manifest["fingerprint_sha256"] != strings.Repeat("e", 64) || len(p.Manifest["source_commit"]) != 40 {
+		p.Manifest["qemu_sha256"] == "" || len(p.Manifest["source_commit"]) != 40 {
 		t.Errorf("--json said %q (%v)", stdout, err)
 	}
 	// A version from git describe, when none is given: the commit's own name here, untagged.
@@ -488,35 +487,31 @@ func TestReleaseBuildsThenPacks(t *testing.T) {
 	}
 }
 
-func TestReleaseNotesSayWhatChangedAndWhatItCosts(t *testing.T) {
+func TestReleaseNotesSayWhatChanged(t *testing.T) {
 	dir := checkout(t)
 	share := filepath.Join(dir, "_output/release/spin-machine-v2-linux-x86_64/usr/share/spin-stack")
-	put(t, filepath.Join(share, "machine.env"), "version=v2\nfingerprint_sha256=f2\nqemu_sha256=q1\n", 0o644)
+	put(t, filepath.Join(share, "machine.env"), "version=v2\nqemu_sha256=q1\n", 0o644)
 	put(t, filepath.Join(share, "bin/qemu-system-x86_64"), "#!/bin/sh\necho '"+machine.MachineType+" q35'\n", 0o755)
 	gitRepo(t, dir, "v1")
-	fakes(t, map[string]string{"gh": `case "$1 $2" in
-"release list") printf 'v2\nv1\n';;
-"release download") mkdir -p "$7"; printf 'fingerprint_sha256=f1\nqemu_sha256=q1\n' > "$7/machine.env";;
-esac`})
+	fakes(t, map[string]string{"gh": `[ "$1 $2" = "release list" ] && printf 'v2\nv1\n'; exit 0`})
 	stdout, stderr, status := verb(t, "release", "notes", "--version", "v2")
 	if status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
-	for _, want := range []string{"stops resuming", "was `f1` (v1)", "The machine as it stood on this date.", "version=v2"} {
+	for _, want := range []string{"The machine as it stood on this date.", "version=v2\nqemu_sha256=q1\n"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the notes lack %q:\n%s", want, stdout)
 		}
+	}
+	if strings.Contains(stdout, "The first release") {
+		t.Errorf("notes against v1 say there is none:\n%s", stdout)
 	}
 	if got := read(t, os.Getenv("GITHUB_OUTPUT")); !strings.HasPrefix(got, "notes<<EOF_") {
 		t.Errorf("the notes are not on the step's outputs: %q", got)
 	}
 	fakes(t, map[string]string{"gh": `[ "$1 $2" = "release list" ] && echo v2; exit 0`})
-	if stdout, _, _ := verb(t, "release", "notes", "--version", "v2"); !strings.Contains(stdout, "this is the first published release") {
+	if stdout, _, _ := verb(t, "release", "notes", "--version", "v2"); !strings.HasPrefix(stdout, "The first release: nothing before it") {
 		t.Errorf("the first release's notes:\n%s", stdout)
-	}
-	fakes(t, map[string]string{"gh": `[ "$1 $2" = "release list" ] && echo v1; [ "$1 $2" = "release download" ] && exit 1; exit 0`})
-	if stdout, _, _ := verb(t, "release", "notes", "--version", "v2"); !strings.Contains(stdout, "published no `machine.env`") {
-		t.Errorf("notes against a release with no manifest:\n%s", stdout)
 	}
 	fakes(t, map[string]string{"gh": "exit 1"})
 	if _, _, status := verb(t, "release", "notes", "--version", "v2"); status != 2 {

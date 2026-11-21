@@ -2,17 +2,15 @@
 
 // Package release packs the machine into one tarball with one version - QEMU, its firmware, the
 // kernel, the base image and the tools that make and read its filesystem - and says what a
-// release is: its version, its manifest, its sources, its SBOM and what it costs the checkpoints
-// taken against the one before it.
+// release is: its version, its manifest, its sources, its SBOM and what changed since the one
+// before it.
 //
-// One tarball, not because it is tidy: the parts are checked together (boot:compat, boot:roms),
+// One tarball, not because it is tidy: the parts are checked together (boot:compat, boot:record),
 // and shipped separately they could drift apart and leave the last one to notice.
 package release
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,10 +26,6 @@ import (
 
 	"github.com/spin-stack/spin-machine/internal/build"
 )
-
-// FingerprintCPU is the named CPU the manifest's fingerprint is of, so no runner's own CPU enters
-// it: it moves with the machine type, the shape, the devices and the BIOS's size alone.
-const FingerprintCPU = "Skylake-Server-v4"
 
 // Name is the release's name, which its tarball and directory carry.
 func Name(version string) string { return "spin-machine-" + version + "-linux-" + build.Arch }
@@ -49,10 +43,8 @@ type Options struct {
 	Commit string
 	Epoch  time.Time
 	// Now is when the release was packed, for the manifest.
-	Now time.Time
-	// Fingerprint is machine.Spec.Fingerprint of the release tree share describes.
-	Fingerprint func(ctx context.Context, share string) (string, error)
-	Stderr      io.Writer
+	Now    time.Time
+	Stderr io.Writer
 }
 
 // Packed is what Pack left.
@@ -89,11 +81,7 @@ func Pack(ctx context.Context, o Options) (Packed, error) {
 	}
 	say(o.Stderr, "packed %d files into %s", len(files), name)
 
-	fp, err := o.Fingerprint(ctx, share)
-	if err != nil {
-		return Packed{}, fmt.Errorf("the release's fingerprint: %w", err)
-	}
-	manifest, err := Manifest(o, share, fp)
+	manifest, err := Manifest(o, share)
 	if err != nil {
 		return Packed{}, err
 	}
@@ -147,8 +135,7 @@ func Pack(ctx context.Context, o Options) (Packed, error) {
 		return Packed{}, err
 	}
 	// The manifest again, beside the tarball rather than inside it, so it is published as an
-	// asset of its own and read back without the gigabyte around it: what lets the next release
-	// say whether it breaks this one (Verdict).
+	// asset of its own and read without the gigabyte around it.
 	if err := os.WriteFile(filepath.Join(rel, "machine.env"), []byte(FormatEnv(manifest)), 0o644); err != nil { //nolint:gosec // published
 		return Packed{}, fmt.Errorf("writing the manifest beside the tarball: %w", err)
 	}
@@ -238,19 +225,18 @@ func install(f file) error {
 
 // ManifestKeys are machine.env's keys, in the order it is written.
 var ManifestKeys = []string{"version", "source_commit", "qemu_version", "kernel_version", "e2fsprogs_version", "built",
-	"qemu_sha256", "kernel_sha256", "bios_sha256", "fingerprint_sha256", "image_sha256"}
+	"qemu_sha256", "kernel_sha256", "bios_sha256", "image_sha256"}
 
-// Manifest is what the release is, in a form something other than a human reads. fingerprint is
-// machine.Spec.Fingerprint, the machine's contract, and it alone decides whether a checkpoint
-// resumes; the files' checksums beside it say what the release is made of and decide nothing
-// about checkpoints. source_commit says which tree it came out of, which the version alone does
-// not: a manifest that cannot be read without the repository it came from is half a manifest.
-func Manifest(o Options, share, fingerprint string) (map[string]string, error) {
+// Manifest is what the release is, in a form something other than a human reads: the files'
+// checksums say what it is made of, and decide nothing about checkpoints, which the machine's
+// record does (machine.CanResume). source_commit says which tree it came out of, which the
+// version alone does not: a manifest that cannot be read without the repository it came from is
+// half a manifest.
+func Manifest(o Options, share string) (map[string]string, error) {
 	m := map[string]string{
-		"version":            o.Version,
-		"source_commit":      o.Commit,
-		"built":              o.Now.UTC().Format(time.RFC3339),
-		"fingerprint_sha256": fingerprint,
+		"version":       o.Version,
+		"source_commit": o.Commit,
+		"built":         o.Now.UTC().Format(time.RFC3339),
 	}
 	for _, p := range []string{"qemu", "kernel", "e2fsprogs"} {
 		e, err := o.Pins.Get(p)
@@ -415,25 +401,6 @@ func hashed(name, version, path string) (cdx.Component, error) {
 	s := subject(name, version)
 	s.Hashes = f.Hashes
 	return s, nil
-}
-
-// FingerprintOf asks spin-machine for the fingerprint of the release tree share, with
-// FingerprintCPU.
-func FingerprintOf(ctx context.Context, spinMachine, share string) (string, error) {
-	out, err := exec.CommandContext(ctx, spinMachine, "fingerprint", "--release", share, "--cpu", FingerprintCPU).Output() //nolint:gosec // this build's spin-machine
-	if err != nil {
-		return "", fmt.Errorf("spin-machine fingerprint --release %s: %w", share, err)
-	}
-	var v struct {
-		Fingerprint string `json:"fingerprint"`
-	}
-	if err := json.Unmarshal(out, &v); err != nil {
-		return "", fmt.Errorf("reading spin-machine fingerprint's answer: %w", err)
-	}
-	if len(v.Fingerprint) != 64 {
-		return "", errors.New("spin-machine fingerprint gave no fingerprint for " + share)
-	}
-	return v.Fingerprint, nil
 }
 
 func say(w io.Writer, format string, a ...any) {

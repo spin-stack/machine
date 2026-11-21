@@ -20,14 +20,11 @@
 package main
 
 import (
-	"cmp"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spin-stack/spin-machine/machine"
@@ -46,16 +43,15 @@ func main() {
 const usage = `spin-machine - the machine this repository builds
 
 Usage:
-  spin-machine boot        [flags]   start a VM and wait for it; with --held or --restore, start it held
-  spin-machine args        [flags]   print the QEMU command line boot would run
-  spin-machine fingerprint [flags]   print the machine's identity
-  spin-machine start       [flags]   boot a VM started --held, with its disk
-  spin-machine restore     [flags]   load a saved state into a VM started --restore
-  spin-machine save        [flags]   stop a running VM and write its state to a file
-  spin-machine attach      [flags]   give a running VM a disk while it runs
-  spin-machine detach      [flags]   take it back, once the guest has let it go
-  spin-machine memory      [flags]   grow or shrink a running VM between its memory and its ceiling
-  spin-machine cpu         [flags]   print the CPU the guest is shown and the named models this host runs
+  spin-machine boot    [flags]   start a VM and wait for it; with --held or --restore, start it held
+  spin-machine args    [flags]   print the QEMU command line boot would run
+  spin-machine start   [flags]   boot a VM started --held, with its disk
+  spin-machine restore [flags]   load a saved state into a VM started --restore, if it is the machine the state was saved on
+  spin-machine save    [flags]   stop a running VM and write its state, and the machine it was saved on, to files
+  spin-machine attach  [flags]   give a running VM a disk while it runs
+  spin-machine detach  [flags]   take it back, once the guest has let it go
+  spin-machine memory  [flags]   grow or shrink a running VM between its memory and its ceiling
+  spin-machine cpu     [flags]   print the CPU the guest is shown and the named models this host runs
 
 spin-machine <command> -h lists a command's flags.
 `
@@ -68,7 +64,7 @@ func run(argv []string) error {
 	cmd, argv := argv[0], argv[1:]
 
 	switch cmd {
-	case "boot", "args", "fingerprint":
+	case "boot", "args":
 		var o machineFlags
 		if err := parse(cmd, argv, o.register); err != nil {
 			return err
@@ -77,24 +73,20 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		switch cmd {
-		case "boot":
+		if cmd == "boot" {
 			return boot(spec, o, argv)
-		case "args":
-			// The line boot runs has the monitor its helper boots the machine through, in a
-			// directory boot makes: shown at the name that directory starts with.
-			if !o.held && !o.restore {
-				spec.Monitors = append(spec.Monitors, machine.Monitor{Socket: "/tmp/sm/m"})
-			}
-			args, err := spec.Args()
-			if err != nil {
-				return err
-			}
-			fmt.Println(strings.Join(append([]string{spec.QEMU}, args...), " \\\n  "))
-			return nil
-		default:
-			return fingerprint(spec)
 		}
+		// The line boot runs has the monitor its helper boots the machine through, in a
+		// directory boot makes: shown at the name that directory starts with.
+		if !o.held && !o.restore {
+			spec.Monitors = append(spec.Monitors, machine.Monitor{Socket: "/tmp/sm/m"})
+		}
+		args, err := spec.Args()
+		if err != nil {
+			return err
+		}
+		fmt.Println(strings.Join(append([]string{spec.QEMU}, args...), " \\\n  "))
+		return nil
 	case bindCommand:
 		var o machineFlags
 		if err := parse(cmd, argv, o.register); err != nil {
@@ -179,7 +171,7 @@ func parse(cmd string, argv []string, register func(*flag.FlagSet)) error {
 	return nil
 }
 
-// machineFlags is everything boot, args and fingerprint let a caller choose. It is
+// machineFlags is everything boot and args let a caller choose. It is
 // deliberately thin: the machine's shape comes from the package, and what is left is
 // which release to boot, how big, and what to put in it.
 type machineFlags struct {
@@ -315,23 +307,4 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 	s.Cmdline = c
 
 	return s, nil
-}
-
-// fingerprint prints the machine's identity and what went into it, because the
-// number alone answers "did it change?" and not "what changed?".
-func fingerprint(s machine.Spec) error {
-	fp, err := s.Fingerprint()
-	if err != nil {
-		return err
-	}
-	out := struct {
-		Fingerprint string        `json:"fingerprint"`
-		Shape       machine.Shape `json:"shape"`
-		Contract    []string      `json:"contract"`
-		BIOS        string        `json:"bios"`
-	}{fp, s.Shape(), s.Contract(), filepath.Join(s.Firmware, cmp.Or(s.BIOS, machine.DefaultBIOS))}
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
 }

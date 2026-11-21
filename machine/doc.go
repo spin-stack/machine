@@ -11,12 +11,12 @@
 // detail of whoever launches a VM; it is part of what a release *is*, and it has
 // to move with the binary and the kernel it was written for.
 //
-// The rule that follows: Fingerprint is the machine's contract - its versioned machine
-// type, its shape, every device as the command line gives it, and the BIOS's size. A
-// checkpoint resumes only onto a machine with the fingerprint of the one it was saved on
-// (CanResume refuses another),
-// and onto any release with that fingerprint: a new QEMU of the same machine type, or a
-// new kernel, is the same machine to a checkpoint (boot:compat holds a release to it).
+// The rule that follows: a checkpoint carries the record of the machine it was taken on
+// (Saved.From, a Target), read from the running QEMU - its version, its CPU, its devices and
+// their properties, its options and its RAM blocks - and resumes only into a machine whose own
+// record is the same, but for what may grow; CanResume says so, and names every difference when
+// it is not. A new QEMU of the same machine type, or a new kernel, is the same machine to a
+// checkpoint while the records agree (boot:compat holds a release to it).
 //
 // What is here is what a machine is, and the QMP that drives one QEMU through its life (QEMU:
 // boot, attach and detach disks, checkpoint and resume). What is not here is the rest of

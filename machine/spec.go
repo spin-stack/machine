@@ -7,8 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
+	"slices"
 	"strings"
 )
+
+// cpuFeature is what a CPU feature's name is made of in QEMU: "avx512f", "sse4.1", "kvm-pv-eoi".
+// Spec.CPUWithout writes each into -cpu, where a comma or an '=' would be another option.
+var cpuFeature = regexp.MustCompile(`^[a-z0-9_.-]+$`)
 
 // Fixed PCI slot assignments on the q35 root complex (pcie.0).
 //
@@ -21,7 +27,7 @@ import (
 //
 // The machine owns both ends of the bus: 0x00 is the host bridge and 0x1f the
 // ICH9 function block, which here is the LPC bridge alone — the SATA and SMBus
-// functions beside it are turned off in the machine string, see Shape. 0x01 is
+// functions beside it are turned off in the machine string, see machineOpts. 0x01 is
 // left free — the q35 convention puts VGA there, and this machine has no
 // display adapter at all.
 const (
@@ -195,8 +201,9 @@ type Spec struct {
 	Firmware string
 
 	// BIOS is the firmware the machine runs, a file in Firmware: DefaultBIOS when
-	// empty. Its size is in the fingerprint: it is the size of the ROM a saved
-	// machine carries.
+	// empty. Its size is the pc.bios block a saved machine carries, which the
+	// machine's record holds (QEMU.machine): a checkpoint resumes only where the
+	// block is the same length.
 	// SeaBIOS (bios-256k.bin) is beside it, for comparing the two.
 	BIOS string
 
@@ -232,14 +239,15 @@ type Spec struct {
 	// the least portable: a guest resumed on another host has already been told
 	// through CPUID which instructions exist, and it does not ask again. Restore
 	// it somewhere without AVX-512 and it executes an instruction that is not
-	// there. A checkpoint therefore records the CPU its guest was shown (Saved.CPU),
-	// and resumes only where it can be shown again (CanResume).
+	// there. A checkpoint therefore records the CPU its guest was shown
+	// (Saved.From.CPU), and resumes only where the same CPU is shown (CanResume).
 	//
 	// Naming a model instead — "Skylake-Server-v4", "EPYC-Rome-v3", whichever is
 	// the oldest microarchitecture in the fleet — gives every host the same guest
-	// CPU, so checkpoints cross hosts and the host model drops out of the
-	// fingerprint. The cost is that guests never see anything newer than the
-	// model names, on any machine.
+	// CPU, so checkpoints cross hosts. The cost is that guests never see anything
+	// newer than the model names, on any machine, and a slower first login: 27 ms
+	// on the bench for the newest model it could run (lab 44855890737, 2026-11-21).
+	// CPUWithout is the other way to the same end.
 	//
 	// The portable choice is a named microarchitecture, and not an x86-64-v2/v3/v4
 	// baseline: those are psABI levels that compilers target, and QEMU 11.1.1
@@ -250,6 +258,13 @@ type Spec struct {
 	// it forever and buy nothing over naming the oldest microarchitecture in the
 	// fleet — which is what libvirt and every cluster manager do.
 	CPU string
+
+	// CPUWithout are features the guest is not shown although its model has them: under
+	// host, the features some host of a pool lacks (Unshared), so that every host of the
+	// pool shows the same CPU and a checkpoint of one resumes on any (spin-stack/spin#1417).
+	// Args takes each away from -cpu; what the guest is shown is read off the vCPU
+	// (QEMU.CPU), not from this list.
+	CPUWithout []string
 
 	// Accel is what executes the guest's instructions. Empty is "kvm".
 	//
@@ -263,8 +278,8 @@ type Spec struct {
 	// TCG can present — QEMU refuses it with "CPU model 'host' requires KVM or HVF" — so
 	// the default below is "max" here and "host" under KVM.
 	//
-	// Checkpoints do not cross the two: the accelerator is in the shape, which the fingerprint
-	// hashes, and a guest's state under TCG is not a guest's state under KVM.
+	// Checkpoints do not cross the two: the accelerator is in the machine's record, and a
+	// guest's state under TCG is not a guest's state under KVM.
 	Accel string
 
 	// Disks are the places for disks the machine is started with, on fixed slots in this
@@ -287,9 +302,9 @@ type Spec struct {
 	// to see a disk against 1.5; and ~6 s for it to let one go - pciehp waits out an
 	// attention button's cancel window - against under 1.
 	//
-	// The controller is in the fingerprint and the count is not: every position is a
-	// target of the same controller, so machines that differ only in how many disks they
-	// may be given have one fingerprint, and raising the count strands no checkpoint.
+	// The count is the controller's max_target, which a checkpoint resumes across when it
+	// grows (mayHaveMore): raising it strands no checkpoint, and lowering it strands every
+	// one taken with more.
 	HotplugDisks int
 
 	// VsockCID, when non-zero, gives the machine a vhost-vsock device with that
@@ -303,9 +318,8 @@ type Spec struct {
 	VsockFD int
 
 	// KVMFDSet is /dev/kvm as a descriptor set, for the same QEMU. Only under KVM, which
-	// is the accelerator that opens a device. The shape still says kvm: where the
-	// accelerator's descriptor came from is not the machine a checkpoint is loaded into, so
-	// it is added to -accel by Args and is in neither Shape nor the fingerprint.
+	// is the accelerator that opens a device. The accelerator is still kvm: where its
+	// descriptor came from is not the machine a checkpoint is loaded into.
 	KVMFDSet int
 
 	// Monitors are the QMP monitors this machine listens on. At least one is needed to
@@ -376,16 +390,14 @@ func (s Spec) validate() error {
 		// directory. Without it the failure is a rom-open error that reads like
 		// something else entirely.
 		return errors.New("no firmware directory: QEMU has no BIOS and no option ROM to enter the kernel through")
-	case strings.ContainsRune(s.BIOS, '/'):
-		// A name QEMU looks up in Firmware, and the file the fingerprint hashes there:
-		// a path would be looked up elsewhere and hashed here.
-		return fmt.Errorf("BIOS %q is a path: it names a file in the firmware directory", s.BIOS)
 	case s.Accel != "" && s.Accel != "kvm" && s.Accel != "tcg":
 		return fmt.Errorf("accelerator %q: this machine runs under kvm or tcg", s.Accel)
-	// A model name, and only that. The options after it are the machine's (Shape), and a
-	// comma here would add options the fingerprint hashes as part of a name.
+	// A model name, and only that. The options after it are the machine's (cpuArg), and a
+	// comma here would add options to -cpu under the name of a model.
 	case strings.ContainsAny(s.CPU, ", \t\n"):
 		return fmt.Errorf("CPU model %q is not a model name: its options are the machine's", s.CPU)
+	case slices.ContainsFunc(s.CPUWithout, func(f string) bool { return !cpuFeature.MatchString(f) }):
+		return fmt.Errorf("CPUWithout %q: each is a CPU feature's name, of a-z, 0-9, '.', '_' and '-'", s.CPUWithout)
 	case s.BootCPUs < 1:
 		return fmt.Errorf("BootCPUs is %d", s.BootCPUs)
 	case s.MaxCPUs != 0 && s.MaxCPUs < s.BootCPUs:
@@ -499,20 +511,8 @@ func (s Spec) Args() ([]string, error) {
 		return nil, err
 	}
 
-	fingerprint, err := s.Fingerprint()
-	if err != nil {
-		return nil, err
-	}
-	shape := s.Shape()
 	args := make([]string, 0, 64)
 	args = append(args,
-		// The machine's fingerprint, as its name: QMP answers it (query-name) to whoever
-		// attaches, which records it with a checkpoint and checks it before a resume
-		// (QEMU.Target), without a second copy of this Spec that could disagree with the
-		// command line. The name is the process's and QMP's; the guest does not see it, and
-		// it is not in Contract, which the fingerprint hashes.
-		"-name", "guest="+fingerprintName+fingerprint,
-
 		"-L", s.Firmware,
 		"-bios", s.bios(),
 
@@ -530,16 +530,16 @@ func (s Spec) Args() ([]string, error) {
 		// done from outside rather than from inside QEMU.
 		"-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
 
-		"-machine", shape.Machine,
-		"-accel", accelArg(shape.Accel, s.KVMFDSet),
-		"-cpu", shape.CPU,
-		"-smp", shape.SMP,
-		"-m", shape.Memory,
+		"-machine", machineOpts,
+		"-accel", accelArg(s.accel(), s.KVMFDSet),
+		"-cpu", s.cpuArg(),
+		"-smp", smpArg(s.BootCPUs, s.MaxCPUs),
+		"-m", memoryArg(s.Memory.SizeMB, s.Memory.MaxMB),
 	)
 	args = appendChipset(args)
 	args = s.appendBoot(args)
 	args = s.appendDevices(args)
-	args, err = s.appendDisks(args)
+	args, err := s.appendDisks(args)
 	if err != nil {
 		return nil, err
 	}

@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/json"
 	"io"
 	"net"
 	"os"
@@ -204,27 +203,6 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 		t.Errorf("args printed %q, want the release's QEMU, held", printed)
 	}
 
-	// fingerprint prints the number together with the shape that went into it.
-	r, w, err = os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
-	err = run([]string{"fingerprint", "--release", dir})
-	os.Stdout = stdout
-	_ = w.Close()
-	printed, _ = io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fp struct {
-		Fingerprint string
-		Shape       struct{ Machine string }
-	}
-	if err := json.Unmarshal(printed, &fp); err != nil || len(fp.Fingerprint) != 64 || fp.Shape.Machine == "" {
-		t.Errorf("fingerprint printed %q (%v), want a sha256 and the shape it hashed", printed, err)
-	}
-
 	for _, tc := range []struct {
 		name string
 		argv []string
@@ -233,7 +211,8 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 		{"no command", nil, "no command given"},
 		{"a release that is not whole", []string{"args", "--release", t.TempDir()}, "is not a whole machine"},
 		{"a machine that cannot be", []string{"args", "--release", dir, "--memory", "0"}, "memory is 0"},
-		{"a flag boot does not take", []string{"fingerprint", "--nope"}, "flag provided but not defined"},
+		{"a flag args does not take", []string{"args", "--nope"}, "flag provided but not defined"},
+		{"a command there is no more", []string{"fingerprint"}, `unknown command "fingerprint"`},
 		{"restore without its socket", []string{"restore", "--from", "x"}, "are required"},
 		{"detach without its socket", []string{"detach"}, "--qmp and --disk-serial are required"},
 		{"start without its socket", []string{"start"}, "--qmp is required"},

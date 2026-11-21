@@ -82,21 +82,15 @@ func TestAReleaseIsBuiltAndPacked(t *testing.T) {
 	docker := `dest=""; prev=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; esac
   [ "$prev" = -v ] && case "$a" in *:/out) dest=${a%:/out};; esac; prev=$a; done
 case "$dest" in */systemd) cp -r ` + fixture + `/systemd/. "$dest"/;; ?*) cp -r ` + fixture + `/. "$dest"/;; esac; exit 0`
-	goTool := `out=""; prev=""; for a; do [ "$prev" = -o ] && out=$a; prev=$a; done
-printf '#!/bin/sh\necho "{\\"fingerprint\\": \\"` + strings.Repeat("d", 64) + `\\"}"\n' > "$out"; chmod +x "$out"`
-	fakes(t, map[string]string{"docker": docker, "go": goTool})
+	// No go: a release ships no spin-machine and needs none to say what it is.
+	fakes(t, map[string]string{"docker": docker, "go": "exit 1"})
 	stdout, stderr, status := verb(t, "release", "--version", "v20261119.11", "--json")
 	if status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
-	if !strings.Contains(stdout, "spin-machine-v20261119.11-linux-x86_64.tar.gz") || !strings.Contains(stdout, strings.Repeat("d", 64)) {
+	if !strings.Contains(stdout, "spin-machine-v20261119.11-linux-x86_64.tar.gz") || !strings.Contains(stdout, `"qemu_sha256"`) {
 		t.Errorf("--json said %s", stdout)
 	}
-	fakes(t, map[string]string{"docker": docker, "go": "exit 1"})
-	if _, stderr, status := verb(t, "release", "--version", "v1"); status != 2 || !strings.Contains(stderr, "building spin-machine") {
-		t.Errorf("a spin-machine that does not build: exit %d, %q", status, stderr)
-	}
-	fakes(t, map[string]string{"docker": docker, "go": goTool})
 	_ = os.Remove(filepath.Join(dir, "LICENSE"))
 	if _, stderr, status := verb(t, "release", "--version", "v1"); status != 2 || !strings.Contains(stderr, "the licence") {
 		t.Errorf("a release missing its licence: exit %d, %q", status, stderr)
@@ -155,11 +149,8 @@ func TestTheNotesSayANewerMachineTypeOnALineOfItsOwn(t *testing.T) {
 	if status != 0 {
 		t.Fatal(status)
 	}
-	if !regexp.MustCompile(`(?m)^Nothing to compare against: this is the first published release\.\n\nQEMU offers pc-q35-99\.0[^\n]*\n\nThe machine as it stood on this date\.\n\n` + "```\nversion=v2\n```\n$").MatchString(stdout) {
+	if !regexp.MustCompile(`^The first release: nothing before it to say what changed against\.\n\nQEMU offers pc-q35-99\.0[^\n]*\n\nThe machine as it stood on this date\.\n\n` + "```\nversion=v2\n```\n$").MatchString(stdout) {
 		t.Errorf("the notes are\n%s", stdout)
-	}
-	if !strings.HasPrefix(stdout, "The first release: nothing before it to say what changed against.\n\n") {
-		t.Errorf("the notes do not begin with what changed:\n%s", stdout)
 	}
 	put(t, filepath.Join(share, "bin/qemu-system-x86_64"), "#!/bin/sh\nexit 1\n", 0o755)
 	if _, _, status := verb(t, "release", "notes", "--version", "v2"); status != 2 {
