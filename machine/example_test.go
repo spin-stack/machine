@@ -23,7 +23,10 @@ func Example() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	spec := rel.Spec() // QEMU, Kernel and Firmware; the rest is the caller's
+	spec, err := rel.Spec("kvm") // QEMU, Kernel, Firmware and Accel; the rest is the caller's
+	if err != nil {
+		log.Fatal(err)
+	}
 	spec.Initrd = "/var/lib/spin/initrd.img"
 	spec.BootCPUs, spec.MaxCPUs = 1, 16
 	spec.Memory = machine.Memory{SizeMB: 128, MaxMB: 8192}

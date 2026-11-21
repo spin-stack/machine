@@ -263,15 +263,10 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 		return fallback
 	}
 
-	s := rel.Spec()
-	// The KVM build refuses -accel tcg, so emulating is a different binary as well as a
-	// different flag, and the release has both.
-	if o.accel == "tcg" && o.qemu == "" {
-		if s.QEMU, err = rel.QEMUTCG(); err != nil {
-			return machine.Spec{}, err
-		}
+	s, err := rel.Spec(o.accel)
+	if err != nil {
+		return machine.Spec{}, err
 	}
-	s.Accel = o.accel
 	s.QEMU = or(o.qemu, s.QEMU)
 	s.Kernel = or(o.kernel, s.Kernel)
 	s.Firmware = or(o.firmware, s.Firmware)

@@ -28,7 +28,15 @@ func checkOnConsole(t *testing.T, rel *machine.Release, root *rawRoot, ok, faile
 // before it starts, and said is given the console so far each time the guest has written to it.
 func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed string, shape func(*machine.Spec), said func(console string)) string {
 	t.Helper()
-	spec := rel.Spec()
+	accel := "kvm"
+	if _, err := os.Stat("/dev/kvm"); err != nil {
+		accel = "tcg"
+		t.Log("TCG: checking functionality only")
+	}
+	spec, err := rel.Spec(accel)
+	if err != nil {
+		t.Fatal(err)
+	}
 	spec.BootCPUs = 2
 	spec.Memory.SizeMB = 1024
 	spec.Disks = []machine.DiskSlot{{Serial: "root"}}
@@ -47,14 +55,6 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 	c.Init = "/sbin/init"
 	spec.Cmdline = c
 	shape(&spec)
-	if _, err := os.Stat("/dev/kvm"); err != nil {
-		tcg, err := rel.QEMUTCG()
-		if err != nil {
-			t.Fatal(err)
-		}
-		spec.QEMU, spec.Accel = tcg, "tcg"
-		t.Log("TCG: checking functionality only")
-	}
 	args, err := spec.Args()
 	if err != nil {
 		t.Fatal(err)

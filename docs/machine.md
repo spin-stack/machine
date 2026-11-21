@@ -6,7 +6,7 @@ kernel argument that stopped working fails here first.
 
 ```go
 rel, err := machine.OpenRelease("/usr/share/spin-stack")  // says which file is missing, if one is
-spec := rel.Spec()                                        // QEMU, Kernel, Firmware
+spec, err := rel.Spec("kvm")                              // QEMU, Kernel, Firmware, Accel; "tcg" takes the TCG build
 spec.Initrd = …                                           // the caller's: a release carries none
 spec.BootCPUs = 2
 spec.Memory = machine.Memory{SizeMB: 2048}

@@ -273,8 +273,9 @@ type Spec struct {
 	// the whole reason it is stated rather than fallen back to — a host that quietly
 	// emulated would present as a fleet that is inexplicably slow, not as one that failed.
 	//
-	// It has to be set together with QEMUTCG: the ordinary build has no TCG compiled in and
-	// refuses -accel tcg outright, which is the good failure. And "host" is not a CPU model
+	// Release.Spec sets it together with QEMU, the TCG build under "tcg": the ordinary build
+	// has no TCG compiled in and refuses -accel tcg outright, which is the good failure, and
+	// why validate does not guess a binary's build from its name. And "host" is not a CPU model
 	// TCG can present — QEMU refuses it with "CPU model 'host' requires KVM or HVF" — so
 	// the default below is "max" here and "host" under KVM.
 	//
