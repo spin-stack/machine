@@ -267,3 +267,18 @@ func TestABuildIsEightJobsByDefaultAndSaysWhenItCannotTellTheWorkflow(t *testing
 		t.Errorf("the build is not eight jobs: %q", read(t, calls))
 	}
 }
+
+// The lab keeps its trees and results under --out, as every other verb keeps its state: relative
+// to the checkout's root, or where an absolute --out says.
+func TestTheLabKeepsItsStateUnderOut(t *testing.T) {
+	was := globals.out
+	t.Cleanup(func() { globals.out = was })
+	globals.out = "elsewhere"
+	if got := outOf("/repo"); got != "/repo/elsewhere" {
+		t.Errorf("outOf with a relative --out = %q, want /repo/elsewhere", got)
+	}
+	globals.out = "/abs/out"
+	if got := outOf("/repo"); got != "/abs/out" {
+		t.Errorf("outOf with an absolute --out = %q, want /abs/out", got)
+	}
+}
