@@ -126,7 +126,7 @@ func openImage(path, format string, writable, below bool, under []string) (_ *os
 		return nil, id, 0, link{}, fmt.Errorf("%s: format %q is not one of %v", path, format, diskFormats)
 	}
 	// O_PATH reads nothing and opens a FIFO or a device without blocking or touching it.
-	pfd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+	pfd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0) // mutate-exempt: the mode is read only with O_CREAT, which this has not
 	if err != nil {
 		return nil, id, 0, link{}, fmt.Errorf("opening %s: %w", path, err)
 	}
@@ -152,7 +152,7 @@ func openImage(path, format string, writable, below bool, under []string) (_ *os
 	if writable {
 		access = unix.O_RDWR
 	}
-	fd, err := unix.Open(proc, access|unix.O_CLOEXEC, 0)
+	fd, err := unix.Open(proc, access|unix.O_CLOEXEC, 0) // mutate-exempt: the mode is read only with O_CREAT, which access never has
 	if err != nil {
 		return nil, id, 0, link{}, fmt.Errorf("opening %s: %w", path, err)
 	}

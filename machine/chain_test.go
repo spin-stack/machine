@@ -256,6 +256,44 @@ func TestADisksChainIsRefusedWhereItLeavesWhatItMayRead(t *testing.T) {
 		{"an encrypted image",
 			DiskPath{Path: header("crypt.qcow2", func(p string) { patch(t, p, 32, put32(1)...) }), Format: "qcow2", Under: under},
 			at("crypt.qcow2") + " is encrypted"},
+		{"an encryption method in the field's high byte",
+			DiskPath{Path: header("crypt-high.qcow2", func(p string) { patch(t, p, 32, put32(1<<24)...) }), Format: "qcow2", Under: under},
+			at("crypt-high.qcow2") + " is encrypted"},
+		{"a backing name past the first cluster, though not past the file",
+			DiskPath{Path: header("cluster.qcow2", func(p string) { patch(t, p, 20, put32(9)...) }), Format: "qcow2", Under: under},
+			at("cluster.qcow2") + " names a backing file past its header"},
+		{"an empty backing format, its extension ending the header",
+			DiskPath{Path: header("edge.qcow2", func(p string) {
+				// The extensions after the first skipped one go: the next is the backing format's,
+				// of length 0, and its eight bytes are the file's last.
+				patch(t, p, v3HeaderLength+16, append(put32(backingFormatExtension), put32(0)...)...)
+				if err := os.Truncate(p, v3HeaderLength+24); err != nil {
+					t.Fatal(err)
+				}
+				patch(t, p, 8, put64(v3HeaderLength)...)
+				patch(t, p, 16, put32(1)...)
+			}), Format: "qcow2", Under: under},
+			`: format "" is not one of [qcow2 raw]`},
+		{"extensions that end with the file, unterminated",
+			DiskPath{Path: header("unterminated.qcow2", func(p string) {
+				patch(t, p, v3HeaderLength+16, append(put32(0x44415441), put32(0)...)...)
+				if err := os.Truncate(p, v3HeaderLength+24); err != nil {
+					t.Fatal(err)
+				}
+				patch(t, p, 8, put64(v3HeaderLength)...)
+				patch(t, p, 16, put32(1)...)
+			}), Format: "qcow2", Under: under},
+			at("unterminated.qcow2") + ": its header extensions run past its header"},
+		{"a backing format whose bytes run past the file",
+			DiskPath{Path: header("short-format.qcow2", func(p string) {
+				patch(t, p, v3HeaderLength+16, append(put32(backingFormatExtension), put32(5)...)...)
+				if err := os.Truncate(p, v3HeaderLength+24); err != nil {
+					t.Fatal(err)
+				}
+				patch(t, p, 8, put64(v3HeaderLength)...)
+				patch(t, p, 16, put32(1)...)
+			}), Format: "qcow2", Under: under},
+			at("short-format.qcow2") + ": its header extensions run past its header"},
 		{"an external data file",
 			DiskPath{Path: header("data.qcow2", func(p string) { patch(t, p, 72, put64(externalDataFile)...) }), Format: "qcow2", Under: under},
 			at("data.qcow2") + " keeps its data in an external file"},
