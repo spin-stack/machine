@@ -349,6 +349,15 @@ spin's forwarder. It also counts a warm login's round trips. The detail under it
 path's commands by place. A traced cold boot runs a shell more than `ssh-first`, so its
 `cold_login` compares only with another traced boot.
 
+`run-delay` is the most a higher host priority for QEMU could win: how long QEMU's threads were
+runnable and waiting for a CPU, from before its exec to the first login, cold and restored. It
+boots and restores as `transport` does, traced, and samples every thread's schedstat every 5 ms.
+It splits the wait at the guest's first run and reads the guest's steal time as a check. Its rows
+are `crowds` (default `0 16`), workspaces already running as `density` boots them, busy with the
+default `load=cpu`. A row such as `16:nice=10` runs the crowd's QEMUs at that nice value, which
+gives the measured QEMU the share it would get at the same value below 0. The detail under its
+table lists each kind of thread's wait.
+
 `lab dispatch` starts lab.yml once no other lab run is queued or running, waits for it, and prints
 its result. The bench fleet measures one run at a time, because two runs side by side measure each
 other. `lab dispatch` is the way to compare. Use `--host bench` (nested, the default) unless the
