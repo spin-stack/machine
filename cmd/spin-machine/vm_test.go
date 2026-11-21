@@ -161,3 +161,19 @@ func TestSaveAndRestoreLeaveTheChannelsToTheMachineUnlessGivenThem(t *testing.T)
 		}
 	}
 }
+
+// save and restore print what the call told, each phase at its time from the first.
+func TestATimelineSaysEachPhaseAtItsTimeFromTheFirst(t *testing.T) {
+	t0 := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	l := timeline{
+		machine.SaveStarted{At: t0},
+		machine.RAMWritten{At: t0.Add(1500 * time.Microsecond), Bytes: 2 << 20, Total: 8 << 30},
+		machine.Sealed{At: t0.Add(12250 * time.Microsecond), Took: 3 * time.Millisecond},
+	}
+	var b bytes.Buffer
+	l.print(&b)
+	want := "     0.00 ms  SaveStarted\n     1.50 ms  RAMWritten 2 MiB\n    12.25 ms  Sealed in 3ms\n"
+	if b.String() != want {
+		t.Errorf("printed\n%s\nwant\n%s", b.String(), want)
+	}
+}
