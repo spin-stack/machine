@@ -167,7 +167,9 @@ func startFake(t *testing.T, ctx context.Context, mode string, s Spec, o StartOp
 	s.BootCPUs, s.Memory.BaseMB = 1, 128
 	shape := o.Cmd
 	o.Cmd = func(c *exec.Cmd) {
-		c.Env = append(os.Environ(), fakeMode+"="+mode)
+		// Under -race a process sleeps a second on its way out (atexit_sleep_ms), which a QEMU does
+		// not, and which Stop would wait out as a QEMU that did not quit.
+		c.Env = append(os.Environ(), fakeMode+"="+mode, "GORACE=atexit_sleep_ms=0")
 		if shape != nil {
 			shape(c)
 		}
