@@ -278,7 +278,7 @@ func TestAQEMUThatEndsBeforeItAnswersFailsTheStartAtOnce(t *testing.T) {
 	if err == nil {
 		t.Fatal("Start of a QEMU that exited succeeded")
 	}
-	for _, want := range []string{"exit status 1", "Host doesn't support requested features", "warning: something on the way"} {
+	for _, want := range []string{"QEMU ended before its monitor answered: exit status 1", "Host doesn't support requested features", "warning: something on the way"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("Start's error %q does not say %q", err, want)
 		}
@@ -555,9 +555,11 @@ func TestThePanicWatchKeepsTheFirstPanicsLine(t *testing.T) {
 			t.Errorf("%q: %q, want %q", tc.writes, got, tc.want)
 		}
 	}
-	broken := &panicWatch{w: &failing{}}
-	if n, _ := broken.Write([]byte("Kernel panic\n")); n != 13 || broken.panicked() != "Kernel panic" {
-		t.Errorf("a failing console stopped the watch: %d %q", n, broken.panicked())
+	f := &failing{}
+	broken := &panicWatch{w: f}
+	_, _ = broken.Write([]byte("boot\n"))
+	if n, _ := broken.Write([]byte("Kernel panic\n")); n != 13 || broken.panicked() != "Kernel panic" || f.n != 1 {
+		t.Errorf("a failing console stopped the watch: %d %q, or was written %d times, want once", n, broken.panicked(), f.n)
 	}
 }
 
