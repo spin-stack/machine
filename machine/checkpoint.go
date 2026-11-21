@@ -199,9 +199,8 @@ type migrationInfo struct {
 // Cost is what a checkpoint cost the guest.
 type Cost struct {
 	// Paused is QEMU's downtime: from the guest's stop to the migration's end, the seal and the
-	// last of the RAM included. The guest stays stopped until Continue, and the caller's clock
-	// read 200-250 ms more from seal to Continue's return (laptop, 1.6 GiB written, 2026-11-21,
-	// docs/memory-and-disk.md).
+	// last of the RAM included. The guest stays stopped until Continue, 6 ms p50 more (laptop,
+	// 1.6 GiB written, 2026-11-21, #399).
 	Paused time.Duration
 	// Total is how long the save took, from its start to its end.
 	Total time.Duration
@@ -396,7 +395,13 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 	if err != nil {
 		return fmt.Errorf("reopening the state's file for QEMU: %w", err)
 	}
-	defer func() { _ = g.Close() }() // QEMU holds its own copy
+	// QEMU holds its own copy and closes it first, so g's close is the file's last, and it is left
+	// to a goroutine. QEMU truncates a state it writes, and ext4 then writes the file's dirty pages
+	// back on its last close (auto_da_alloc). Closed here, before Checkpoint returned, that kept a
+	// 1.6 GiB checkpoint's guest stopped 238 ms p50 from QEMU's completion to cont's return, and
+	// 6 ms closed apart; the caller's sync after Continue takes that time instead (laptop ext4,
+	// 16 saves an arm interleaved, 2026-11-21, #399).
+	defer func() { go func() { _ = g.Close() }() }()
 	set, err := qmp.Do(ctx, m.c, qmp.AddFD, qmp.AddFDArgs{File: g, Opaque: "state"})
 	if err != nil {
 		return fmt.Errorf("handing state to QEMU: %w", err)

@@ -291,6 +291,17 @@ before. The func is called on Checkpoint's and Resume's goroutines, one phase at
 order. `GuestStopped` and `Sealed` are told with the guest stopped, so the func's time is the
 guest's.
 
+**What a 1.6 GiB checkpoint's phases showed** (laptop ext4, spin's shape with 2 GiB plugged and
+1.5 GiB of tmpfs filled, 8 channels, 32 saves, 2026-11-21, #399). QEMU's downtime (`Cost.Paused`)
+runs from the guest's stop to `completed`, the seal included. The RAM the guest dirtied last is
+written after the seal: the last `RAMWritten` before `GuestStopped` was 0.3-0.9 GiB short of
+`Cost.RAM`. From `completed` to `cont`'s return took 238 ms p50 while Checkpoint closed its copy of
+the state's file itself. QEMU truncates the file it writes, so ext4 writes the dirty pages back on
+the file's last close (`auto_da_alloc`), and that last close was Checkpoint's. Closed on a goroutine
+of its own, the same gap took 6 ms p50, and the guest's stop to `cont` fell from 451 ms to 198. The
+caller's `fdatasync` after `Continue` took 259 ms instead of 3, so the time to a durable state did
+not change (−19 ms [−4088, +3963]). It moved off the guest's clock.
+
 ## What is load-bearing and invisible from outside
 
 - **Every device on the command line sits at a fixed slot on bus 0.** A fixed slot makes
