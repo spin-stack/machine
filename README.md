@@ -17,10 +17,11 @@ A checkpoint resumes only on the same hardware it was saved on, and QEMU does no
 So the machine's identity is its contract, and `machine.CanResume` refuses a checkpoint saved on
 another one. `machine.Spec.Fingerprint` hashes the versioned
 machine type (`machine.MachineType`), the shape, every device as the command line gives it, and
-the BIOS's size. Two machines with the same fingerprint take each other's checkpoints, and two
-with different fingerprints do not. A new QEMU of the same machine type, a new kernel, or new
-firmware of the same size is the same machine, and `task boot:compat` holds every release to
-that. One repository and one version keep the four parts from drifting apart.
+the BIOS's size. Two machines with different fingerprints do not take each other's checkpoints.
+Two with the same one do, where the QEMU is as new as the one that saved the checkpoint and the
+host can show the guest every CPU feature it was shown (docs/migration.md). A new QEMU of the
+same machine type, a new kernel, or new firmware of the same size is the same machine, and
+`task boot:compat` holds every release to that. One repository and one version keep the four parts from drifting apart.
 
 ## What a release is
 
@@ -34,12 +35,14 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `bin/mkfs.ext4`, `bin/debugfs`, `bin/e2fsck`, `bin/dumpe2fs`, `e2fsprogs/mke2fs.conf` | static e2fsprogs, and the defaults an ext4 for this kernel is made with |
 | `qemu/qboot.bin` and the other ROMs | qboot.bin is the BIOS a machine boots with |
 | `qemu/patches/`, `qemu/qboot-*.patch`, `qemu/qboot-COPYING` | the changes this tree makes to QEMU and qboot, shipped with the binaries built from them |
-| `kernel/bzImage`, `kernel/vmlinux`, `kernel-config` | the kernel a machine boots, and the same kernel as an ELF |
+| `kernel/bzImage`, `kernel/vmlinux`, `kernel/kernel-config` | the kernel a machine boots, and the same kernel as an ELF |
+| `kernel/sources` | every source and header the kernel compiled, which `spin-machine-dev cves` judges CVEs against |
 | `kernel/patches/` | the changes this tree makes to the kernel |
 | `image/rootfs.qcow2` | the base image, read-only (0444) |
-| `machine.env` | the version, the commit, each file's checksum, and `fingerprint_sha256` |
+| `machine.env` | the version, the commit, the QEMU, kernel and e2fsprogs versions, the checksums of QEMU, `vmlinux`, `qboot.bin`, `pvh.bin` and the base image, and `fingerprint_sha256` |
 | `SOURCES` | every upstream source by version, URL and SHA-256, and the written offer |
 | `packages.txt` | every package and exact version in the base image |
+| `licenses.txt` | the copyright and licence text of each package in the base image |
 
 `LICENSE` and `NOTICE` sit at the tarball's root. `machine.OpenRelease` reads a release and a
 build directory alike. The two share one layout, so no translation between them can lose a file.
@@ -56,8 +59,8 @@ fp, err := spec.Fingerprint()     // which checkpoints this machine may resume
 ```
 
 By hand, `spin-machine` boots a machine, prints its command line or fingerprint, attaches,
-detaches or saves on a running one, and restores a saved one (`spin-machine <command> -h`). To
-run one command in a throwaway guest:
+detaches or saves on a running one, grows or shrinks its vCPUs and memory, and restores a saved
+one (`spin-machine <command> -h`). To run one command in a throwaway guest:
 
 ```sh
 printf '\n\n\n\n\n\n\n\n\n\nmount -t proc proc /proc\necho hello from $(uname -r)\npoweroff -f\n' |
@@ -104,7 +107,6 @@ cost, and nothing chooses TCG silently. Every version, digest and commit taken f
 
 ## Licence
 
-Apache-2.0. Three scripts under `image/mkosi.extra/` came from another Apache-2.0 project, and
-`NOTICE` names them and says which was modified. The licence covers the recipes, not what they
-build. A release is mostly GPL and LGPL binaries, and
+Apache-2.0. The qboot patches carry context from qboot under GPL-2.0, and `NOTICE` says so. The
+licence covers the recipes, not what they build. A release is mostly GPL and LGPL binaries, and
 [docs/releasing.md](docs/releasing.md#what-a-release-owes) says how a release answers for them.

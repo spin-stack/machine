@@ -1,7 +1,10 @@
 # Moving a VM to another machine
 
-A checkpoint is one state file that holds memory, device state and CPU state, written by a
-`migrate` to a file. Moving a VM is carrying that file somewhere else and resuming it there.
+A checkpoint is a state file that holds memory, device state and CPU state, written by a
+`migrate` to a file, and a record beside it (`machine.Saved`): the state's format, the CPU the
+guest was shown, the fingerprint and the QEMU that wrote it. Moving a VM is carrying both
+somewhere else and resuming them there. `machine.CanResume` refuses a resume onto another
+fingerprint, an older QEMU or a CPU that cannot show the guest's features again.
 
 Stopping a VM here and resuming it there is a lifecycle, and this repository does not implement
 it. The repository builds the machine that the lifecycle runs on, and offers the calls the
@@ -11,9 +14,9 @@ lifecycle needs. `Spec.Restore` starts a machine held for a checkpoint (`-incomi
 touches it (QEMU 11.2's fast snapshot load). A checkpoint is written in
 `machine.FormatMappedRAM`. One saved before that format, in `FormatStream`, still loads, in full.
 
-`spin-machine save --qmp … --to state` is the first half by hand, and the second is
-`spin-machine boot --restore --qmp …` followed by `spin-machine restore --qmp … --from state
---disk …`.
+`spin-machine save --qmp … --to state` is the first half by hand, with the record written to
+`state.json`. The second is `spin-machine boot --restore --qmp …` followed by
+`spin-machine restore --qmp … --from state --disk …`.
 
 ## The CPU decides whether a VM can move at all
 

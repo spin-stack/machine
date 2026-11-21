@@ -215,11 +215,11 @@ func TestBootArgsAreTheTreesInTheExperimentsShape(t *testing.T) {
 	}
 	m := &Measurement{Tree: trees("A")[0], Options: spins}
 	want := []string{"boot", "--release", "/A", "--disk", "/o.qcow2", "--memory", "128", "--cpus", "1", "--max-memory", "8192",
-		"--max-cpus", "16", "--hotplug-disks", "4", "--vsock-cid", "9"}
+		"--max-cpus", "16", "--hotplug-disks", "16", "--vsock-cid", "9"}
 	if got := m.BootArgs("/o.qcow2", "--vsock-cid", "9"); !slices.Equal(got, want) {
 		t.Errorf("BootArgs = %v", got)
 	}
-	if got := shapeOf(spins); got != "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login" {
+	if got := shapeOf(spins); got != "1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login" {
 		t.Errorf("spin's shape is said %q", got)
 	}
 	m.Options, err = settle(Probes["ssh-first"], Options{"cpus": "2", "memory": "2048", "max-cpus": "0", "max-memory": "0",
@@ -474,7 +474,7 @@ func TestSpinsLoginIsRootThroughAForwarderToSSHService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := shapeOf(o); got != "1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login" {
+	if got := shapeOf(o); got != "1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login" {
 		t.Errorf("spin's shape sized, logged into as spin does, is said %q", got)
 	}
 	if n := plugNeeds(o); !slices.Contains(n, Need{"memory", "to"}) || plugNeeds(Options{"plugged": "0"}) != nil {

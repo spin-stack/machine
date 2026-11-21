@@ -17,7 +17,7 @@ machine contributes and how it was measured.
 
 | Default | Why (measured) | Where |
 |---|---|---|
-| The overlay is opened writeback; the host keeps a copy of what the guest wrote | Without the host's copy, 16 384 small files read in random order take 1490 ms instead of 530 | spin's launcher |
+| The overlay is opened writeback; the host keeps a copy of what the guest wrote | Without the host's copy, 16 384 small files read in random order take 1490 ms instead of 530 | `Disk.DirectOverBacking` off (`machine/vm.go`), which spin never sets (its `internal/runner/qemu/spec.go`) |
 | `fstrim.timer` hourly in the image, up to 10 minutes' random delay | A trim takes the overlay from 657 to 21 MB on disk and from 657 to 20 MB in the host's cache; the distribution's weekly timer returned it days later | #76, `image/mkosi.extra/usr/local/lib/spin-base/configure-system.sh` |
 | QEMU counts virtio-blk discards | Without upstream's 331ce936, `query-blockstats` reports 0 unmap operations however much a guest trims | #79 carried it until QEMU 11.2.0-rc0 shipped it (3cafd28) |
 | qboot programs the MTRRs, write-back by default | Without MTRRs the guest maps device memory uncached-minus: a virtio-pmem region read at 8.3 MB/s, 1.1 GB/s with them | #75, `qemu/qboot/mtrr.patch` |
@@ -52,10 +52,46 @@ and a 512 MB file, p50 of 5 boots (#57-#59):
 | QEMU's RSS: idle, cache full, after `drop_caches` | 208 / 740 / 386 MB | 206 / 744 / 392 MB |
 
 Firecracker, Lambda and Modal keep the host's cache on purpose for the same reason. What
-bounds it is spin's `memory.max` per machine (the guest's ceiling plus 768 MiB). A
+bounds it is spin's `memory.max` per machine, the guest's ceiling plus 768 MiB (spin's
+`internal/runner/qemu/bounds.go`). A
 `memory.high` of 1280 MB held the overlay's share of the host's cache near 430 MB with small
 reads unchanged (run 36803912357). `memory.max` already bounds it well enough, so no second
 limit was added.
+
+## How a guest's memory grows and shrinks
+
+A machine with a ceiling above its boot memory gets a virtio-mem device over the difference,
+with nothing plugged (`requested-size=0`, `appendDevices` in `machine/machine.go`). The machine
+sets no block size, so QEMU uses its default, the host's THP size: 2 MiB on x86-64
+(`virtio_mem_default_block_size` in QEMU's `hw/virtio/virtio-mem.c`). The guest onlines what
+is plugged as it arrives (`memhp_default_state=online`, `machine/cmdline.go`). The balloon is
+there for free page reporting and `deflate-on-oom`. spin reads the guest's memory statistics
+from it every second and never inflates it.
+
+spin decides the size. The numbers below are spin's main at d4f62bd (read 2026-11-21):
+
+- A workspace boots with 128 MiB (`canonicalMemory`, `internal/runner/vmm/vmm.go`) and may
+  grow to the runner's ceiling, 8 GiB unless the runner or the workspace sets a lower one.
+- Every 10 s spin reads the machine's host cgroup (`memory.current` plus `memory.swap.current`)
+  as a share of the memory the guest holds. That cgroup also holds QEMU's own memory and the
+  host's cache of the overlay. The guest tells the host, too, when it stalls for
+  memory, 150 ms in a 1 s window of PSI (`internal/guest/supervisor/memorypressure`), and spin
+  answers that notice without waiting for the next reading (`internal/runner/hotplug/pressure.go`).
+- It plugs when the share is 85% or more with less than 384 MiB free, or on a stall notice, at
+  most once every 10 s. It plugs the whole deficit in one request: the larger of what is used
+  plus 896 MiB, what is used over 85%, and one more 128 MiB step, rounded up to 128 MiB and held
+  under the ceiling. What it plugs is taken from the host's memory budget, halved while the
+  budget refuses it, down to one step. Six readings short at the ceiling report the workspace
+  out of memory (`internal/runner/hotplug/memory.go`, `controller.go`).
+- It unplugs after six readings in a row under 60%, at most once a minute, and only when 384 MiB
+  would stay free one step down. The new size is one 128 MiB step down, or the size the plug
+  rule above would ask for when that is smaller, and never under the boot memory. spin then
+  asks for no more than the guest's `MemAvailable` beyond the larger of 128 MiB and a tenth of
+  its memory, rounded to the block size (`shrinkFloor` in spin's
+  `internal/runner/qemu/qmp/memory.go`). virtio-mem takes back only the blocks the guest can
+  empty.
+
+What the guest gives back inside the memory it keeps is free page reporting's, below.
 
 ## Giving the guest's cache back
 
@@ -77,7 +113,14 @@ DAMON is slower and takes part of the working set. MGLRU's eviction, as driven h
 everything older than the last aging, working set included. A first `lru_gen` attempt did
 nothing at all. The kernel charges the cache to the memcg of the service that read it, and an
 `lru_gen` command acts on one memcg, while `memory.reclaim` on the root walks the hierarchy.
-spin's guest supervisor runs `memory.reclaim` (spin #214, `spin-reclaim.service`).
+spin's guest runs `memory.reclaim`, and not as the probe did. Its `spin-reclaim.service`
+(spin's `deploy/guest/extension/supervisor/units/`) runs `spin-supervisor reclaim`, at nice 19
+and on the idle scheduler. Every 10 s it reads the guest's `/proc/pressure/memory` and
+`/proc/meminfo`. While `some avg10` stays under 0.1%, it asks the root cgroup's `memory.reclaim`
+for the smaller of 2% of `MemTotal` and the file cache above a sixteenth of `MemTotal`. Under a
+stall it asks for nothing until the stall ends (spin's `internal/guest/supervisor/reclaim/reclaim.go`,
+spin's main at d4f62bd, read 2026-11-21). The table measured one request of 512M. The stepped reclaim has not
+been measured here.
 
 ### What stays after the guest frees it
 
@@ -86,7 +129,13 @@ RAM mapping, QEMU has a constant ~49 MB resident, and most of it is not QEMU's o
 the kernel image QEMU maps, a file whose pages every machine on the host shares. 7.4 MB is
 QEMU's binary, shared the same way. The other 6.9 MB is anonymous memory, and that is what one
 more machine adds (run 43564203014, on the bench fleet, 2026-11-14, the probe's note at its idle
-step). The rest of the ~200 MB is guest RAM that the guest freed and free page reporting has not
+step). That run booted `vmlinux` through PVH, and QEMU's ELF loader maps the file
+(`g_mapped_file_new_from_fd` in `include/hw/elf_ops.h.inc`). Since 2026-11-19 the machine boots
+`kernel/bzImage` (`machine/release.go`). For a bzImage QEMU's `x86_load_linux`
+(`hw/i386/x86-common.c`) reads the file into memory it allocates and keeps for fw_cfg, so the
+kernel is now anonymous memory in every QEMU, the bzImage's size each, and no longer a file the
+machines share. The 34.7 and 6.9 MB above are from before that and have not been measured again.
+The rest of the ~200 MB is guest RAM that the guest freed and free page reporting has not
 handed back. Reporting returns free blocks of `page_reporting_order` and up (9, or 2 MiB, by
 default), and what `memory.reclaim` frees is scattered (runs 36879800428, 36881456066,
 36931619739, p50 of 3).
@@ -114,7 +163,7 @@ Two things made it look broken first:
   freed extents yet, and it skips busy extents. The probe runs `sync` first.
 - QEMU 11.1.1's virtio-blk never starts accounting for a DISCARD, so `query-blockstats`
   reported 0 unmap operations beside 1.1 GiB trimmed. Upstream fixed it in 331ce936
-  (2026-09-11, in no tag yet). This tree carried the fix (#79) until QEMU 11.2.0-rc0
+  (2026-09-11). This tree carried the fix (#79) until QEMU 11.2.0-rc0
   shipped it (3cafd28, 2026-11-19). With it, the caches probe counted 10-12 operations and
   1123 MB (run 36884702758), and it failed when a trim went uncounted.
 
@@ -132,7 +181,8 @@ into the overlay. 2000 random 4 KiB `O_DIRECT` writes into a 106 MB file of the 
 | 128 KiB clusters, 4 KiB subclusters (`extended_l2=on`) | 13 MB | 3090 ms | 3030 ms |
 
 The time is one `dd` process per write and hides the copy's latency. The measured gain is space
-and cache. spin makes every layer this way (spin #220).
+and cache. spin makes every layer this way (spin #220, `LayerOptions` in its
+`internal/storage/qcow/chain.go`).
 
 ## Device memory and the MTRRs
 
@@ -154,7 +204,7 @@ No boot cost was measured (kernel and init 103.5 vs 103.1 ms over 20 boots).
 | The overlay `O_DIRECT` | The host keeps 2 MB instead of 657; a writer beside it 1.7 GB/s with p99 20 ms for its neighbour | Small reads 3x slower (1490 vs 530 ms) |
 | DAMON_RECLAIM, MGLRU eviction | Above | Slower, or not selective |
 | A lower `page_reporting_order` | Above | Huge pages lost for good, for a transient gain |
-| KSM | - | Rowhammer-style page-deduplication attacks (Flip Feng Shui); Firecracker asks for it off; spin turns it off |
+| KSM | - | Rowhammer-style page-deduplication attacks (Flip Feng Shui). Firecracker asks for it off, and spin's runner writes 2 to `/sys/kernel/mm/ksm/run` (its `internal/installation/boot/runner.go`) |
 | Free page hinting | - | QEMU uses it for migration only; Firecracker warns of corruption |
 | virtio-fs DAX | - | SHMEM_MAP is not merged in QEMU; Cloud Hypervisor deprecated it |
 | virtio-mem together with an inflated balloon | - | Incompatible in one VM |

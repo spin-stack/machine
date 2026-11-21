@@ -2,8 +2,8 @@
 
 ## CI
 
-The workflows are split by cost. `ci.yml` runs on every push and builds none of the three
-artefacts. Its gates are `task lint`, `task test`, `task coverage` and `task mutate`, and lint and
+The workflows are split by cost. `ci.yml` runs on every pull request and every push to main,
+and builds none of the three artefacts. Its gates are `task lint`, `task test`, `task coverage` and `task mutate`, and lint and
 test are fast and catch most mistakes. It also *pulls* one artefact: `spin-machine-dev fetch qemu`
 unpacks the published QEMU of the pinned version in seconds, and `spin-machine-dev verify args`
 hands it the command line `machine.Spec.Args` builds. `qemu/devices.mak` decides the device set,
@@ -41,22 +41,25 @@ Either way, it tags the commit once its files are signed, and writes the notes:
   machine, by the part they changed; the pins that moved; the kernel options turned on, off or
   changed; and the patches added, changed or removed.
 - Whether checkpoints carry over (`internal/release`'s verdict).
-- The checksums.
+- Whether the QEMU shipped offers a machine type newer than the one checkpoints are saved on.
+- The release's `machine.env`, with the checksums of its parts.
 
 Each file the release offers carries two Sigstore bundles beside it. The files are the tarball, its
-`.sha256` and `machine.env`. The bundles are `<file>.sigstore.json`, the signature of the workflow
+`.sha256`, `machine.env` and the SBOM beside the tarball. The bundles are `<file>.sigstore.json`, the signature of the workflow
 that built the file, and `<file>.provenance.sigstore.json`, its SLSA provenance (go-tools'
 `provenance`: this workflow at its commit, and every pin in `versions.yaml`). [Verify a release file](#verify-a-release-file) says how to check them.
 
 The release's CycloneDX SBOM says what the release is made of. `spin-machine-dev release` writes it
 from what the builds recorded: the apk databases QEMU and e2fsprogs were statically linked in (each
-build's `/lib/apk/db/installed`, extracted to `_output/sbom/`), the image's `packages.txt`, the pins
-in `versions.yaml`, and each shipped file by its hash. go-tools' `sbom check` checks the SBOM, and a
-component with no version fails the release. The SBOM is inside the tarball at
-`usr/share/spin-stack/sbom/machine.cdx.json`, beside it as `<tarball>.cdx.json`, and attested over
-the tarball as `<tarball>.cdx.sigstore.json` (`cosign verify-blob-attestation --type cyclonedx`,
-with the identity in "Verify a release file"). QEMU, the kernel and qboot carry their patches as pedigree: each patch
-file by name and hash, so the SBOM says the binary is upstream's source plus these patches.
+build's `/lib/apk/db/installed`, extracted to `_output/sbom/`), the image's `packages.txt`, the
+`versions.yaml` pins of the sources it is built from, and each shipped file by its hash. go-tools'
+`sbom.Check` checks the SBOM, and a component with no version fails the release. The SBOM is inside
+the tarball at `usr/share/spin-stack/sbom/machine.cdx.json`, beside it as
+`spin-machine-VERSION-linux-x86_64.cdx.json`, and attested over the tarball as
+`spin-machine-VERSION-linux-x86_64.tar.gz.cdx.sigstore.json` (`cosign verify-blob-attestation --type
+cyclonedx`, with the identity in "Verify a release file"). QEMU, the kernel and qboot carry their
+patches as pedigree: each patch by its file name and its text, so the SBOM says the binary is
+upstream's source plus these patches.
 
 The builders' packages come from a commit, not from the mirror on the day of the build. QEMU and
 e2fsprogs compile on builder images, pinned by digest in `versions.yaml` (`qemu-builder`,
@@ -92,7 +95,7 @@ The job measures a release with the release before it, and not alone, because a 
 between two releases booted in the same run. The bench moves between runs by as much as a release
 does. v20261120.01's restore to first login was 158.9 ms p50 in one run and 167.0 in another (labs
 44641240861, 44727451080). The page's Δ from records measured alone said v20261120.02's restore was
-1.8 ms faster, where, interleaved, it was +0.6 [-2.1, +5.4], within noise. So the page's Δ comes
+1.8 ms faster, where, interleaved, it was +1.1 [-2.0, +6.1], within noise (run 44820465606). So the page's Δ comes
 only from a record's pair, and is blank for the records measured alone until they are measured
 again. Each run pays for that with the second release's boots. To decide between two releases
 further apart, measure the two together: `spin-machine-dev lab ladder --newest B --releases N` boots

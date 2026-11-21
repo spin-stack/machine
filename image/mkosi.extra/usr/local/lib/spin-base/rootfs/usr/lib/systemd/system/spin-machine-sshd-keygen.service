@@ -21,10 +21,12 @@ Description=Generate SSH host keys for this VM
 # without default dependencies - and not by the first sshd that needs the keys. The first login
 # over vsock is accepted by a per-connection sshd@.service, which waits for this unit (its
 # drop-in, sshd@.service.d/keygen.conf) before it sends its banner, so a keygen started by that
-# connection put the key generation inside the login. Started from the boot, it is done before
-# sysinit.target is, and sshd-vsock.socket listens only after that: accept to first login went
-# from 177 to 155 ms p50, and the first login from 486 to 468, 20 boots of each interleaved on
-# the bench fleet (task boot:ssh-first, lab run 43463472762, 2026-11-13).
+# connection put the key generation inside the login. Started from the boot, it runs while the
+# boot does: accept to first login went from 177 to 155 ms p50, and the first login from 486 to
+# 468, 20 boots of each interleaved on the bench fleet (task boot:ssh-first, lab run 43463472762,
+# 2026-11-13). sshd-vsock.socket then listened after sysinit.target. Since the lane
+# (sshd-vsock.socket.d/10-lane.conf, lab 43518915618) it listens from the first dispatch too, and
+# a connection that arrives before the keys waits for them through sshd@.service.d/keygen.conf.
 #
 # Wanted by sysinit.target but not ordered before it: nothing in sysinit waits for host keys,
 # and ordering it there would hold the vsock socket behind the key generation instead.

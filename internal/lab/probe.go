@@ -78,7 +78,10 @@ func (o Options) Fields(name string) []string { return strings.Fields(o[name]) }
 // shape is the machine every probe boots unless a run asks for another: the one spin boots a
 // workspace in, so that the goal is measured on the machine its users get. spin-stack/spin at
 // c12bd87 (2026-11-20): internal/runner/vmm/vmm.go's canonicalBootCPUs, canonicalMemory,
-// defaultMaxCPUs and defaultMaxMemory, and internal/runner/qemu/spec.go's hotplugDisks. spin plugs
+// defaultMaxCPUs and defaultMaxMemory. The hotplug controller's targets are spin's
+// controllerTargets (internal/runner/qemu/spec.go, 16 since c0ffbc0, 2026-11-20): 4 for disks
+// attached at run time and the rest for extensions. 16 against the 4 the probes booted before read
+// within noise, first login -3.8 [-11.1, +4.5] (lab 44847364468, 2026-11-21). spin plugs
 // cores before the boot only for a workspace that asks for more than one, which the canonical
 // workspace does not. Its ceilings cost the boot: the kernel took 86.6 ms to "Freeing" in it
 // against 62 in the 2 vCPUs and 2 GiB with no hotplug the probes booted before (lab 44587603255).
@@ -93,7 +96,7 @@ var shape = []Option{
 	{"max-cpus", "16", "the vCPU hotplug ceiling (0: no hotplug)"},
 	{"memory", "128", "MiB of memory at boot"},
 	{"max-memory", "8192", "MiB the memory may grow to through virtio-mem (0: fixed)"},
-	{"hotplug-disks", "4", "targets on the hotplug controller"},
+	{"hotplug-disks", "16", "targets on the hotplug controller"},
 	{"plugged", "2048", "MiB the guest is sized to through virtio-mem right after its start, as spin sizes a workspace (0: left at memory)"},
 	{"login", "spin", "spin: as root, through a forwarder to ssh.service on 127.0.0.1:22, spin's path; lane: as spin, through systemd's vsock sshd, an sshd@ a connection"},
 	{"flags", "", "more spin-machine boot flags for every boot"},
@@ -363,9 +366,12 @@ func (m *Measurement) Launch(stdout io.Writer, args ...string) (*Machine, error)
 func (mc *Machine) PID() int { return mc.cmd.Process.Pid }
 
 // rssMiB is VmRSS in a /proc/PID/status, in MiB.
-func rssMiB(status string) (float64, bool) {
+func rssMiB(status string) (float64, bool) { return statusMiB(status, "VmRSS") }
+
+// statusMiB is the field of a /proc/PID/status given in kB, in MiB.
+func statusMiB(status, field string) (float64, bool) {
 	for line := range strings.Lines(status) {
-		if v, ok := strings.CutPrefix(line, "VmRSS:"); ok {
+		if v, ok := strings.CutPrefix(line, field+":"); ok {
 			f := strings.Fields(v)
 			if len(f) != 2 || f[1] != "kB" {
 				return 0, false
