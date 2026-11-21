@@ -209,6 +209,8 @@ func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
 		{"dispatch", "counter"},
 		{"dispatch", "counter", "--tree", "bad"},
 		{"dispatch", "counter", "--tree", "a=--from release", "--opt", "x"},
+		{"dispatch", "check:rollback"},
+		{"dispatch", "check:rollback", "--tree", "bad"},
 	} {
 		_, _, err := runLab(t, args...)
 		if !errors.As(err, &e) || e.code != 2 {
@@ -375,5 +377,29 @@ func TestLabLadderMeasuresReleases(t *testing.T) {
 	l, err := lab.ReadLadder(filepath.Join(out, "ladder.json"))
 	if err != nil || len(l.Releases) != 2 || len(l.Results) == 0 {
 		t.Errorf("ladder %+v, %v", l, err)
+	}
+}
+
+// A check on the bench prints its step's last lines whatever it concluded, and exits 1 unless the
+// run succeeded.
+func TestACheckOnTheBenchSaysHowItEnded(t *testing.T) {
+	log := []byte("x ##[group]Run go tool task lab:ci\nx --- PASS: TestY\nx ##[group]Run actions/upload-artifact@cf43\nx uploaded\n")
+	var out bytes.Buffer
+	if err := checkOutcome(&out, "check:y", lab.Run{ID: 7, Conclusion: "success"}, log); err != nil ||
+		out.String() != "x ##[group]Run go tool task lab:ci\nx --- PASS: TestY\ncheck:y on lab run 7: success\n" {
+		t.Errorf("a success: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	var e exitError
+	err := checkOutcome(&out, "check:y", lab.Run{ID: 7, Conclusion: "failure"}, log)
+	if !errors.As(err, &e) || e.code != 1 || !strings.Contains(err.Error(), "check:y on lab run 7: failure") ||
+		!strings.Contains(out.String(), "--- PASS: TestY") || strings.Contains(out.String(), "success") {
+		t.Errorf("a failure: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	long := "x ##[group]Run go tool task lab:ci\n" + strings.Repeat("x line\n", 100)
+	if err := checkOutcome(&out, "check:y", lab.Run{ID: 7, Conclusion: "success"}, []byte(long)); err != nil ||
+		strings.Count(out.String(), "x line\n") != 60 {
+		t.Errorf("a long step printed %d of its lines, want its last 60: %v", strings.Count(out.String(), "x line\n"), err)
 	}
 }

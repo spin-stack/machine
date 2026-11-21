@@ -486,15 +486,21 @@ func labDispatch(probes map[string]lab.Probe) *cobra.Command {
 	var reps int
 	var host, ref string
 	c := &cobra.Command{
-		Use:   "dispatch PROBE",
-		Short: "Run a probe on the bench fleet through lab.yml and print its result",
+		Use:   "dispatch PROBE|check:TARGET",
+		Short: "Run a probe or a check on the bench fleet through lab.yml and print its result",
 		Long: `Dispatch lab.yml with PROBE over the trees given, wait for it and print its result. Each run is
 its own bench instance, so dispatches go at once and the fleet queues past its cap. Each --tree is
-NAME=SPEC, made on the runner.`,
+NAME=SPEC, made on the runner.
+
+check:TARGET runs boot:TARGET on the first tree instead, for each check:TARGET lab.yml on --ref
+offers (GitHub refuses any other). A check keeps no result: dispatch prints the tail of its step's
+log and exits 1 when the run did not succeed.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			if _, ok := probes[args[0]]; !ok {
-				return couldNot(fmt.Errorf("no probe %q; the probes are: %s", args[0], probeNames(probes)))
+			_, probe := probes[args[0]]
+			check := strings.HasPrefix(args[0], "check:")
+			if !probe && !check {
+				return couldNot(fmt.Errorf("no probe %q; the probes are: %s, and check:TARGET runs one of lab.yml's checks", args[0], probeNames(probes)))
 			}
 			if len(specs) == 0 {
 				return couldNot(errors.New("dispatch measures the trees it is given: --tree NAME=SPEC"))
@@ -519,6 +525,13 @@ NAME=SPEC, made on the runner.`,
 			if run, err = gh.Wait(c.Context(), run.ID); err != nil {
 				return couldNot(err)
 			}
+			if check {
+				log, err := gh.JobLog(run.ID)
+				if err != nil {
+					return couldNot(fmt.Errorf("lab run %d %s and its log could not be read: %w", run.ID, run.Conclusion, err))
+				}
+				return checkOutcome(c.OutOrStdout(), args[0], run, log)
+			}
 			path, err := resultOf(strconv.FormatInt(run.ID, 10))
 			if err != nil {
 				return couldNot(fmt.Errorf("lab run %d %s and left no result: %w", run.ID, run.Conclusion, err))
@@ -538,6 +551,20 @@ NAME=SPEC, made on the runner.`,
 	return c
 }
 
+// labStep is the run of lab.yml's step that makes the trees and runs the probe or the check.
+const labStep = "go tool task lab:ci"
+
+// checkOutcome prints the tail of a lab.yml check's step from its run's log, then fails unless the
+// run succeeded.
+func checkOutcome(w io.Writer, check string, run lab.Run, log []byte) error {
+	_, _ = fmt.Fprintln(w, lab.StepTail(log, labStep, 60))
+	if run.Conclusion != "success" {
+		return exitError{code: 1, err: fmt.Errorf("%s on lab run %d: %s", check, run.ID, run.Conclusion)}
+	}
+	_, _ = fmt.Fprintf(w, "%s on lab run %d: success\n", check, run.ID)
+	return nil
+}
+
 // mutate-lane: TestLabCheckRunsABootTarget
 func labCheck() *cobra.Command {
 	var spec string
@@ -545,8 +572,8 @@ func labCheck() *cobra.Command {
 		Use:   "check TARGET",
 		Short: "Run a boot/ Task target - a pass/fail check, or a probe not yet a lab probe - on one tree",
 		Long: `Run boot:TARGET with the tree as the release it boots (SPIN_MACHINE_OUTPUT): the functional
-checks (firmware, record, rollback, compat, hotadd, logind, lockdown) and the probes still Go tests
-(firmware-stages, waits), on a tree made like any other. A second tree is
+checks (firmware, record, rollback, checkpoint-pause, compat, hotadd, logind, lockdown) and the
+probes still Go tests (firmware-stages, waits), on a tree made like any other. A second tree is
 SPIN_MACHINE_OUTPUT_B, which firmware-stages boots interleaved with the first. Exits with the
 target's status.`,
 		Args: cobra.ExactArgs(1),

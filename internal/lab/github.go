@@ -197,6 +197,41 @@ func (g *GitHub) Wait(ctx context.Context, id int64) (Run, error) {
 	}
 }
 
+// JobLog is the log of run id's first job, lab.yml's one, through the API.
+//
+// mutate-lane: TestTheLabTalksToGitHub
+func (g *GitHub) JobLog(id int64) ([]byte, error) {
+	out, err := g.gh("api", fmt.Sprintf("repos/%s/actions/runs/%d/jobs", g.Repo, id), "--jq", ".jobs[0].id // empty")
+	if err != nil {
+		return nil, err
+	}
+	job := strings.TrimSpace(string(out))
+	if job == "" {
+		return nil, fmt.Errorf("run %d has no job", id)
+	}
+	return g.gh("api", fmt.Sprintf("repos/%s/actions/jobs/%s/logs", g.Repo, job))
+}
+
+// StepTail is the last n lines of the step in a job's log whose run is step, up to the step after
+// it, or of the whole log when no step runs it.
+func StepTail(log []byte, step string, n int) string {
+	lines := strings.Split(strings.TrimRight(string(log), "\n"), "\n")
+	for i, l := range lines {
+		if !strings.HasSuffix(l, "##[group]Run "+step) {
+			continue
+		}
+		lines = lines[i:]
+		for j, l := range lines[1:] {
+			if strings.Contains(l, "##[group]Run ") {
+				lines = lines[:j+1]
+				break
+			}
+		}
+		break
+	}
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
+}
+
 // mutate-lane: TestTheLabTalksToGitHub
 func sleep(ctx context.Context, d time.Duration) error {
 	select {
