@@ -4,7 +4,6 @@ package machine
 
 import (
 	"context"
-	"net"
 	"os"
 	"testing"
 	"time"
@@ -25,42 +24,24 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 	qemu, firmware := qemuTCG(t)
 	kernel := bzImageStub(t)
 
-	socket := qmpSocket(t)
 	spec := Spec{
 		QEMU:         qemu,
+		Accel:        "tcg",
 		Kernel:       kernel,
 		Firmware:     firmware,
 		BootCPUs:     2,
 		Memory:       Memory{BaseMB: 512},
 		Cmdline:      DefaultCmdline(),
-		Monitors:     []Monitor{{Socket: socket}, {Socket: socket + ".2"}},
 		HotplugDisks: 2,
-	}
-	args, err := spec.Args()
-	if err != nil {
-		t.Fatal(err)
-	}
-	args, rewrites, err := tcgOnly(args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range rewrites {
-		t.Logf("rewritten for the TCG binary: %s", r)
-	}
-
-	vm := startQEMU(t, qemu, args)
-	askStatus(t, socket, vm)
-
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket + ".2", Net: "unix"})
-	if err != nil {
-		vm.fail(t, "dialling the second monitor", err)
-	}
-	m, err := connect(conn)
-	if err != nil {
-		vm.fail(t, "attaching", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	p, err := Start(ctx, spec, StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Kill() })
+	m := p.QEMU
 
 	image := qcow2In(t, qemu, t.TempDir(), "extension.qcow2", "")
 	disk := func(serial string) Disk {
