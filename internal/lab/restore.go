@@ -4,12 +4,14 @@ package lab
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -125,7 +127,7 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 	// own start, after QEMU's instead of beside it, in the login this probe measures. What QEMU's
 	// whole start costs a restore is prestart's restored row against its restored-into-prestarted.
 	m.RecordMs("listening", time.Since(t0))
-	args := append([]string{"restore", "--release", m.Tree.Dir, "--qmp", qmp, "--from", c.state, "--disk", c.overlay}, channels...)
+	args := c.restoreArgs(m, qmp, channels...)
 	if fast {
 		if err := userfaultfd(); err != nil {
 			return err
@@ -156,6 +158,61 @@ type checkpoint struct {
 func (c *checkpoint) bootFlags(m *Measurement, qmp string, extra ...string) []string {
 	return append([]string{"--vsock-cid", fmt.Sprint(c.cid), "--qmp", qmp, "--console", "file:" + qmp + ".console",
 		"--append", m.Tree.Cmdline()}, extra...)
+}
+
+// restoreArgs are `spin-machine restore`'s arguments for c into the machine on qmp: its state and
+// overlay, the tree's record when the experiment read one (Measurement.Target), and the given
+// flags after them.
+func (c *checkpoint) restoreArgs(m *Measurement, qmp string, more ...string) []string {
+	args := []string{"restore", "--release", m.Tree.Dir, "--qmp", qmp, "--from", c.state, "--disk", c.overlay}
+	if m.Target != "" {
+		args = append(args, "--target", m.Target)
+	}
+	return append(args, more...)
+}
+
+// targetNeeds are what reading a tree's record and handing it to a restore run. A spin-machine
+// from before 2026-11-21 has neither.
+var targetNeeds = []Need{{"target", "qmp"}, {"restore", "target"}}
+
+// readTarget boots a machine of m's tree held for a checkpoint, as a restore boots it - the
+// experiment's shape, the same flags - asks it for its record with `spin-machine target`, ends
+// it, and returns the file it wrote the record to: spin reads its host's once, when its runner
+// starts, and hands it to every resume (machine.QEMU.Resume). It is "" for a tree whose
+// spin-machine cannot print the record or take one, and boots nothing.
+func readTarget(m *Measurement) (string, error) {
+	if lacks(m.Tree, targetNeeds) != nil {
+		return "", nil
+	}
+	// boot --restore binds no disk - restore does - so the overlay is named and never opened.
+	c := &checkpoint{overlay: filepath.Join(m.Dir, "overlay.qcow2"), cid: NewCID()}
+	qmp := filepath.Join(m.Socks, "record.qmp")
+	mc, err := m.Launch(nil, m.BootArgs(c.overlay, c.bootFlags(m, qmp, "--restore")...)...)
+	if err != nil {
+		return "", err
+	}
+	defer mc.Stop()
+	// Until the monitor is there, or the machine is gone saying why: a refusal is not waited out.
+	for deadline := time.Now().Add(30 * time.Second); !fileExists(qmp); time.Sleep(5 * time.Millisecond) {
+		if err := mc.Exited(); err != nil {
+			return "", err
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("the machine held to read the record opened no monitor in 30s: %s", strings.TrimSpace(mc.Stderr.String()))
+		}
+	}
+	cmd := exec.Command(m.Tree.SpinMachine(), "target", "--qmp", qmp)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("spin-machine target: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	path := filepath.Join(m.Dir, "record.json")
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return "", fmt.Errorf("keeping the record: %w", err)
+	}
+	return path, nil
 }
 
 // coldSave boots a fresh overlay of the tree, logs in, saves - which ends the machine - and evicts

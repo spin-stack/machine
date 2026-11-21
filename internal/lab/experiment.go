@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -60,30 +61,75 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 		r.Trees = append(r.Trees, t.Manifest)
 	}
 
-	var ms []*Measurement
+	// made is every measurement, cleaned up at the end; ms are the ones the phases measure.
+	var made, ms []*Measurement
 	defer func() {
-		for _, m := range ms {
+		for _, m := range made {
 			for i := len(m.cleanup) - 1; i >= 0; i-- {
 				m.cleanup[i]()
 			}
 		}
 	}()
+	measurement := func(t *Tree, row string, rep int) (*Measurement, error) {
+		dir, err := os.MkdirTemp(e.Scratch, "m")
+		if err != nil {
+			return nil, fmt.Errorf("making a measurement's directory under %s: %w", e.Scratch, err)
+		}
+		socks, err := shortDir()
+		if err != nil {
+			return nil, err
+		}
+		m := &Measurement{Tree: t, Row: row, Rep: rep, Options: opts, Dir: dir, Socks: socks, Key: key,
+			values: map[string]float64{}, detail: map[string]float64{}, log: e.Log}
+		m.Cleanup(removeAll(dir))
+		m.Cleanup(removeAll(socks))
+		made = append(made, m)
+		return m, nil
+	}
 	for rep := range e.Reps {
 		for _, t := range e.Trees {
 			for _, row := range r.Rows {
-				dir, err := os.MkdirTemp(e.Scratch, "m")
-				if err != nil {
-					return nil, fmt.Errorf("making a measurement's directory under %s: %w", e.Scratch, err)
-				}
-				socks, err := shortDir()
+				m, err := measurement(t, row, rep)
 				if err != nil {
 					return nil, err
 				}
-				m := &Measurement{Tree: t, Row: row, Rep: rep, Options: opts, Dir: dir, Socks: socks, Key: key,
-					values: map[string]float64{}, detail: map[string]float64{}, log: e.Log}
-				m.Cleanup(removeAll(dir))
-				m.Cleanup(removeAll(socks))
 				ms = append(ms, m)
+			}
+		}
+	}
+	// Every measurement of a tree still to come is lost with a refusal of it, said once.
+	refuse := func(m *Measurement, why string) {
+		for _, o := range ms {
+			if o.Tree == m.Tree && o.missed == "" {
+				o.missed = "refused: " + why
+			}
+		}
+		m.Logf("refused, and its measurements still to come with it: %s", why)
+	}
+	// A probe that restores hands every restore its tree's record (Measurement.Target), read once
+	// for each tree before anything is measured, as spin reads its host's when its runner starts.
+	if slices.ContainsFunc(e.Probe.Needs(opts), func(n Need) bool { return n.Command == "restore" }) {
+		for _, t := range e.Trees {
+			m, err := measurement(t, "before measuring", 0)
+			if err != nil {
+				return nil, err
+			}
+			target, err := readTarget(m)
+			var refused *RefusedError
+			switch {
+			case errors.As(err, &refused):
+				refuse(m, refused.Why)
+			case err != nil:
+				return nil, fmt.Errorf("reading tree %s's record: %w", t.Name(), err)
+			case target == "":
+				m.Logf("its spin-machine cannot print the machine's record or take one: each restore asks the machine it restores into")
+			default:
+				m.Logf("the machine's record read, and handed to every restore")
+			}
+			for _, o := range ms {
+				if o.Tree == t {
+					o.Target = target
+				}
 			}
 		}
 	}
@@ -104,13 +150,7 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 				m.missed = miss.Why
 				m.Logf("lost: %s", miss.Why)
 			case errors.As(err, &refused):
-				// Every measurement of the tree still to come is lost with this one, said once.
-				for _, o := range ms {
-					if o.Tree == m.Tree && o.missed == "" {
-						o.missed = "refused: " + refused.Why
-					}
-				}
-				m.Logf("refused, and its measurements still to come with it: %s", refused.Why)
+				refuse(m, refused.Why)
 			case err != nil:
 				return nil, fmt.Errorf("%s, %s, repetition %d: %w", m.Tree.Name(), m.Row, m.Rep+1, err)
 			}

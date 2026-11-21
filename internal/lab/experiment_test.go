@@ -27,6 +27,7 @@ type recorder struct {
 	miss    string // tree/row/rep/phase whose measurement is lost
 	fail    string // tree/row/rep/phase whose measurement stops the experiment
 	refuse  string // tree/row/rep/phase whose measurement refuses its tree
+	spins   []bool // each measurement's key, whether it logs in by spin's path
 }
 
 func (r *recorder) Name() string  { return "recorder" }
@@ -47,6 +48,7 @@ func (r *recorder) Needs(Options) []Need { return nil }
 func (r *recorder) Measure(_ context.Context, m *Measurement) error {
 	at := fmt.Sprintf("%s/%s/%d/%d", m.Tree.Name(), m.Row, m.Rep, m.Phase)
 	r.calls = append(r.calls, at)
+	r.spins = append(r.spins, m.Key != nil && m.Key.SpinsPath)
 	switch at {
 	case r.miss:
 		return Miss("never answered: %d", 7)
@@ -204,6 +206,24 @@ func TestAnOptionIsOneTheProbeTakesAndOfItsKind(t *testing.T) {
 	}
 	if !slices.Equal(p.Rows(o), []string{"extra"}) {
 		t.Errorf("rows %v", p.Rows(o))
+	}
+}
+
+// login=spin, the default, logs into every machine the experiment boots by spin's path, and lane
+// by the image's own.
+func TestTheLoginOptionIsHowEveryMachineIsLoggedInto(t *testing.T) {
+	for login, spins := range map[string]bool{"": true, "spin": true, "lane": false} {
+		p := &recorder{phases: 1, rows: []string{"x"}}
+		o := Options{}
+		if login != "" {
+			o["login"] = login
+		}
+		if _, err := (Experiment{Probe: p, Trees: trees("A"), Reps: 2, Options: o, Scratch: t.TempDir(), Log: io.Discard}).Run(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if want := []bool{spins, spins}; !slices.Equal(p.spins, want) {
+			t.Errorf("login=%q: by spin's path %v, want %v", login, p.spins, want)
+		}
 	}
 }
 

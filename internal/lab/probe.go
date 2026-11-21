@@ -179,6 +179,11 @@ type Measurement struct {
 	Socks string
 	// Key logs into every machine the experiment boots.
 	Key *Key
+	// Target is the file holding the tree's machine record, which a probe's restores are handed
+	// (restore --target) so that none reads it on its clock: read once before anything is measured
+	// (readTarget), for a probe that restores. It is empty for a tree whose spin-machine cannot
+	// print one or take one, whose restores ask the machine as every restore did before.
+	Target string
 	// State is the probe's, from one phase to the next.
 	State any
 

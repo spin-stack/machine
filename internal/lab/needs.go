@@ -19,9 +19,12 @@ var bootNeeds = []Need{{"boot", "release"}, {"boot", "disk"}, {"boot", "memory"}
 // CanRun says why tree t's spin-machine cannot run probe p with options o, or nil when it can,
 // before anything boots: a release older than what the probe asks of it is a row that says so,
 // not an experiment that stops halfway.
-func CanRun(p Probe, o Options, t *Tree) error {
+func CanRun(p Probe, o Options, t *Tree) error { return lacks(t, p.Needs(o)) }
+
+// lacks says which of needs tree t's spin-machine has not, or nil when it has them all.
+func lacks(t *Tree, needs []Need) error {
 	help := map[string]string{}
-	for _, need := range p.Needs(o) {
+	for _, need := range needs {
 		out, seen := help[need.Command]
 		if !seen {
 			// A command it has prints its usage on -h; one it has not prints the command's.
