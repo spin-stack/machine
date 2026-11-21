@@ -80,8 +80,8 @@ func (vm *qemuVM) fail(t *testing.T, what string, err error) {
 	t.Fatal(b.String())
 }
 
-// qmp is a monitor of a qemuVM, past the greeting and the capabilities handshake.
-type qmp struct {
+// rawMonitor is a monitor of a qemuVM, past the greeting and the capabilities handshake.
+type rawMonitor struct {
 	t   *testing.T
 	vm  *qemuVM
 	enc *json.Encoder
@@ -95,7 +95,7 @@ type qmp struct {
 // whose CPU model the accelerator refused left a listening socket behind and had already
 // exited. An answer on it proves it, which is why the callers that ask whether a machine
 // started send query-status and not only read the greeting.
-func dialQMP(t *testing.T, socket string, vm *qemuVM) *qmp {
+func dialQMP(t *testing.T, socket string, vm *qemuVM) *rawMonitor {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	var conn net.Conn
@@ -120,7 +120,7 @@ func dialQMP(t *testing.T, socket string, vm *qemuVM) *qmp {
 	if err := conn.SetDeadline(time.Now().Add(20 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	q := &qmp{t: t, vm: vm, enc: json.NewEncoder(conn), dec: json.NewDecoder(conn)}
+	q := &rawMonitor{t: t, vm: vm, enc: json.NewEncoder(conn), dec: json.NewDecoder(conn)}
 	var greeting struct {
 		QMP *struct{} `json:"QMP"`
 	}
@@ -136,7 +136,7 @@ func dialQMP(t *testing.T, socket string, vm *qemuVM) *qmp {
 
 // try sends one command and returns its reply, or QEMU's refusal as an error. Events in
 // between are skipped.
-func (q *qmp) try(command string, args any) (json.RawMessage, error) {
+func (q *rawMonitor) try(command string, args any) (json.RawMessage, error) {
 	q.t.Helper()
 	req := map[string]any{"execute": command}
 	if args != nil {
@@ -167,7 +167,7 @@ func (q *qmp) try(command string, args any) (json.RawMessage, error) {
 }
 
 // do is try, failing the test on a refusal.
-func (q *qmp) do(command string, args any) json.RawMessage {
+func (q *rawMonitor) do(command string, args any) json.RawMessage {
 	q.t.Helper()
 	reply, err := q.try(command, args)
 	if err != nil {

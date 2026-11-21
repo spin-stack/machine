@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/spin-stack/machine/internal/qmpdef"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // QEMU is a machine running under QEMU, reached through one of its monitors. Like the monitor, it
@@ -39,26 +42,69 @@ func Attach(conn *net.UnixConn) (*QEMU, error) {
 // Close lets the monitor go. The machine runs on: a monitor's client leaving is nothing to QEMU.
 func (m *QEMU) Close() error { return m.q.c.Close() }
 
+var (
+	quit        = qmpdef.Define[qmp.None, qmp.None]("quit")
+	queryStatus = qmpdef.Define[qmp.None, runStatus]("query-status")
+	// deviceAdd's arguments are a device's driver, its id and its own properties, which QEMU's
+	// schema does not list: device_add takes any property the device has. So a map is what they
+	// are, and Check holds the command, not the properties, to QEMU.
+	deviceAdd = qmpdef.Define[map[string]any, qmp.None]("device_add")
+	deviceDel = qmpdef.Define[deviceID, qmp.None]("device_del")
+)
+
+type runStatus struct {
+	Status runState `json:"status"`
+}
+
+// runState is QEMU's run state, of the ones the machine tells apart: prelaunch for a machine held
+// for a boot (-S), inmigrate for one held for a checkpoint (-incoming defer), and paused for one
+// stopped.
+type runState string
+
+const (
+	prelaunch runState = "prelaunch"
+	inmigrate runState = "inmigrate"
+	paused    runState = "paused"
+)
+
+func init() { qmpdef.Enum(prelaunch, inmigrate, paused) }
+
+type deviceID struct {
+	ID string `json:"id"`
+}
+
 // Quit ends QEMU. Its reply may never arrive, because QEMU can close the monitor before sending
 // it, so a connection that ends instead is the quit having worked.
 func (m *QEMU) Quit(ctx context.Context) error {
-	err := m.q.run(ctx, "quit", nil, nil)
+	_, err := do(ctx, m.q, quit, qmp.None{})
 	if err != nil && !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "EOF") {
 		return fmt.Errorf("quitting: %w", err)
 	}
 	return nil
 }
 
-// status is QEMU's run state: prelaunch for a machine held for a boot (-S), inmigrate for one
-// held for a checkpoint (-incoming defer).
-func (m *QEMU) status(ctx context.Context) (string, error) {
-	var st struct {
-		Status string `json:"status"`
+func (m *QEMU) status(ctx context.Context) (runState, error) {
+	st, err := do(ctx, m.q, queryStatus, qmp.None{})
+	return st.Status, err
+}
+
+// unplug removes the device id and returns once QEMU has reported it gone. The event may arrive
+// with device_del's own reply, so it is looked for there first.
+func (m *QEMU) unplug(ctx context.Context, id string) error {
+	m.q.removing, m.q.removed = id, false
+	if _, err := do(ctx, m.q, deviceDel, deviceID{id}); err != nil {
+		return err
 	}
-	if err := m.q.run(ctx, "query-status", nil, &st); err != nil {
-		return "", err
+	for !m.q.removed {
+		// A query to read what QEMU has sent meanwhile, events included.
+		if _, err := m.status(ctx); err != nil {
+			return fmt.Errorf("waiting for %s to go: %w", id, err)
+		}
+		if err := sleep(ctx, pollInterval); err != nil {
+			return fmt.Errorf("waiting for %s to go: %w", id, err)
+		}
 	}
-	return st.Status, nil
+	return nil
 }
 
 // Boot binds the disks to their places and lets the vCPUs go.
@@ -67,7 +113,7 @@ func (m *QEMU) Boot(ctx context.Context, disks ...Disk) error {
 	if err != nil {
 		return fmt.Errorf("booting: %w", err)
 	}
-	if st != "prelaunch" {
+	if st != prelaunch {
 		// inmigrate takes a cont and stays inmigrate: QEMU only notes that the machine is to
 		// run once a migration has arrived. A machine for a boot is started without
 		// Spec.Restore.
@@ -76,7 +122,7 @@ func (m *QEMU) Boot(ctx context.Context, disks ...Disk) error {
 	if err := m.bindAll(ctx, disks, nil); err != nil {
 		return fmt.Errorf("booting: %w", err)
 	}
-	if err := m.q.run(ctx, "cont", nil, nil); err != nil {
+	if _, err := do(ctx, m.q, qmp.Cont, qmp.None{}); err != nil {
 		return fmt.Errorf("booting: %w", err)
 	}
 	return nil
@@ -84,7 +130,7 @@ func (m *QEMU) Boot(ctx context.Context, disks ...Disk) error {
 
 // Continue runs a machine a checkpoint left stopped.
 func (m *QEMU) Continue(ctx context.Context) error {
-	if err := m.q.run(ctx, "cont", nil, nil); err != nil {
+	if _, err := do(ctx, m.q, qmp.Cont, qmp.None{}); err != nil {
 		return fmt.Errorf("continuing the machine: %w", err)
 	}
 	return nil
