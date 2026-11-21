@@ -1072,24 +1072,6 @@ func TestAttachRefusesAMonitorThatDoesNotGreet(t *testing.T) {
 	}
 }
 
-// A DEVICE_DELETED waited on is used up: a second wait for the same id waits for another.
-func TestADeletionIsWaitedOnOnce(t *testing.T) {
-	f := &fakeQEMU{answer: func(c call) string { return ret(`{"status": "running"}`) }}
-	m := f.attach(t)
-	m.q.deleted = []string{"a", "b"}
-	if err := m.q.waitDeleted(ctx(t), "a"); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(m.q.deleted, []string{"b"}) {
-		t.Errorf("deletions left %v, want only b", m.q.deleted)
-	}
-	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	if err := m.q.waitDeleted(short, "a"); err == nil {
-		t.Error("a deletion was waited on twice")
-	}
-}
-
 // A checkpoint's vCPU is added again only as a vCPU in a slot: its record is what the saved
 // machine's QEMU answered, and device_add attaches whatever it is given.
 func TestACheckpointsVCPUIsOnlyAVCPU(t *testing.T) {

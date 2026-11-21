@@ -366,10 +366,7 @@ func (m *QEMU) DetachDisk(ctx context.Context, serial string) error {
 		return fmt.Errorf("no disk %q was attached to this machine while it ran", serial)
 	}
 	id := hotDiskID(hot[i].Target)
-	if err := m.q.run(ctx, "device_del", map[string]any{"id": id}, nil); err != nil {
-		return fmt.Errorf("detaching disk %q: %w", serial, err)
-	}
-	if err := m.q.waitDeleted(ctx, id); err != nil {
+	if err := m.q.deviceDel(ctx, id); err != nil {
 		return fmt.Errorf("detaching disk %q: %w", serial, err)
 	}
 	return m.releaseImages(ctx, serial)

@@ -105,7 +105,7 @@ func TestDeletionsNobodyWaitsOnAreNotKept(t *testing.T) {
 		_, _ = w.WriteString(ok + "\n")
 	})
 	before := heap()
-	if err := removeDevice(q, ctx(t), "x"); err != nil {
+	if err := q.deviceDel(ctx(t), "x"); err != nil {
 		t.Fatal(err)
 	}
 	if grew := heap() - before; grew > events*idLen/8 {
@@ -128,16 +128,30 @@ func TestAnEarlierDeletionDoesNotEndAWait(t *testing.T) {
 	}
 	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if err := removeDevice(q, short, "x"); !errors.Is(err, context.DeadlineExceeded) {
+	if err := q.deviceDel(short, "x"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("a removal whose deletion never came = %v, want it to wait out its deadline", err)
 	}
 }
 
-func removeDevice(q *qmpClient, ctx context.Context, id string) error {
-	if err := q.run(ctx, "device_del", map[string]any{"id": id}, nil); err != nil {
-		return err
+// A DEVICE_DELETED ends one removal: the next removal of a device with the same id waits for
+// its own.
+func TestADeletionEndsOneRemoval(t *testing.T) {
+	first := true
+	q := hostileMonitor(t, func(command string, w *bufio.Writer) {
+		if command == "device_del" && first {
+			_, _ = w.WriteString(`{"event": "DEVICE_DELETED", "data": {"device": "x"}}` + "\n")
+			first = false
+		}
+		_, _ = w.WriteString(ok + "\n")
+	})
+	if err := q.deviceDel(ctx(t), "x"); err != nil {
+		t.Fatal(err)
 	}
-	return q.waitDeleted(ctx, id)
+	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := q.deviceDel(short, "x"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a second removal = %v, want it to wait out its deadline", err)
+	}
 }
 
 func heap() int64 {

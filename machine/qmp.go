@@ -10,20 +10,21 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"slices"
 	"syscall"
 	"time"
 )
 
 // qmpClient is the smallest QMP client the machine needs: one command at a time, a descriptor sent
-// with a command where QEMU takes one (add-fd), and the one event anything here waits on kept
+// with a command where QEMU takes one (add-fd), and the one event anything here waits on noted
 // when it arrives in between.
 type qmpClient struct {
 	c  *net.UnixConn
 	in *bufio.Reader
-	// deleted is the id of every device QEMU has reported DEVICE_DELETED for and nothing has
-	// waited on yet.
-	deleted []string
+	// removing is the device deviceDel is removing, and removed whether QEMU has reported it
+	// gone. A DEVICE_DELETED for any other device is dropped: nothing can wait on it, and QEMU
+	// is not trusted to send a bounded number of them.
+	removing string
+	removed  bool
 }
 
 // qmpError is QEMU refusing a command, in its own words.
@@ -48,15 +49,14 @@ func newQMP(c *net.UnixConn) (*qmpClient, error) {
 	q := &qmpClient{c: c, in: bufio.NewReader(c)}
 	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
 	defer cancel()
-	if err := q.deadline(ctx); err != nil {
-		return nil, err
+	release := q.bound(ctx)
+	line, err := q.readLine()
+	release()
+	if err != nil {
+		return nil, fmt.Errorf("reading QEMU's greeting: %w", cause(ctx, err))
 	}
 	var greeting struct {
 		QMP json.RawMessage `json:"QMP"`
-	}
-	line, err := q.in.ReadBytes('\n')
-	if err != nil {
-		return nil, fmt.Errorf("reading QEMU's greeting: %w", err)
 	}
 	if err := json.Unmarshal(line, &greeting); err != nil || greeting.QMP == nil {
 		return nil, fmt.Errorf("the monitor's first line is not QEMU's greeting: %q", line)
@@ -67,15 +67,32 @@ func newQMP(c *net.UnixConn) (*qmpClient, error) {
 	return q, nil
 }
 
-func (q *qmpClient) deadline(ctx context.Context) error {
-	d, ok := ctx.Deadline()
-	if !ok {
-		d = time.Time{}
+// bound ends whatever read or write of the monitor is waiting when ctx ends, by setting a deadline
+// in the past: a deadline taken from ctx would leave a ctx that is cancelled, or has none, nothing
+// to end a read with. The returned func lets go of ctx, and waits for an interruption that has
+// begun, so that it cannot land on the next command.
+func (q *qmpClient) bound(ctx context.Context) (release func()) {
+	// A closed connection refuses the deadline, and says so again on the read or write.
+	_ = q.c.SetDeadline(time.Time{})
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = q.c.SetDeadline(time.Unix(1, 0))
+		close(interrupted)
+	})
+	return func() {
+		if !stop() {
+			<-interrupted
+		}
 	}
-	if err := q.c.SetDeadline(d); err != nil {
-		return fmt.Errorf("bounding the monitor by the caller's deadline: %w", err)
+}
+
+// cause is err in the caller's words when the caller's ctx is what ended the read or write: the
+// deadline bound set says only "i/o timeout".
+func cause(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
-	return nil
+	return err
 }
 
 // run sends one command and reads until its reply, decoding the reply's return into out when
@@ -87,9 +104,7 @@ func (q *qmpClient) run(ctx context.Context, command string, args, out any) erro
 // send is run with f sent beside the command as SCM_RIGHTS: QEMU takes it as the descriptor
 // the command (add-fd, getfd) is about, and keeps its own copy.
 func (q *qmpClient) send(ctx context.Context, command string, args any, f *os.File, out any) error {
-	if err := q.deadline(ctx); err != nil {
-		return err
-	}
+	defer q.bound(ctx)()
 	msg := map[string]any{"execute": command}
 	if args != nil {
 		msg["arguments"] = args
@@ -104,12 +119,12 @@ func (q *qmpClient) send(ctx context.Context, command string, args any, f *os.Fi
 		oob = syscall.UnixRights(int(f.Fd()))
 	}
 	if _, _, err := q.c.WriteMsgUnix(b, oob, nil); err != nil {
-		return fmt.Errorf("sending %s: %w", command, err)
+		return fmt.Errorf("sending %s: %w", command, cause(ctx, err))
 	}
 	for {
-		line, err := q.in.ReadBytes('\n')
+		line, err := q.readLine()
 		if err != nil {
-			return fmt.Errorf("reading the reply to %s: %w", command, err)
+			return fmt.Errorf("reading the reply to %s: %w", command, cause(ctx, err))
 		}
 		var m struct {
 			Event string `json:"event"`
@@ -123,8 +138,8 @@ func (q *qmpClient) send(ctx context.Context, command string, args any, f *os.Fi
 			return fmt.Errorf("reading the reply to %s: %w", command, err)
 		}
 		switch {
-		case m.Event == "DEVICE_DELETED":
-			q.deleted = append(q.deleted, m.Data.Device)
+		case m.Event == "DEVICE_DELETED" && m.Data.Device == q.removing:
+			q.removed = true
 		case m.Event != "":
 		case m.Error != nil:
 			return fmt.Errorf("%s: %w", command, m.Error)
@@ -139,14 +154,30 @@ func (q *qmpClient) send(ctx context.Context, command string, args any, f *os.Fi
 	}
 }
 
-// waitDeleted returns once QEMU has reported the device gone. The event may have arrived with
-// an earlier reply, so it is looked for there first.
-func (q *qmpClient) waitDeleted(ctx context.Context, id string) error {
+// readLine is the next line QEMU wrote, refused once it runs past maxQMPLine.
+func (q *qmpClient) readLine() ([]byte, error) {
+	var line []byte
 	for {
-		if i := slices.Index(q.deleted, id); i >= 0 {
-			q.deleted = slices.Delete(q.deleted, i, i+1)
-			return nil
+		chunk, err := q.in.ReadSlice('\n')
+		if len(line)+len(chunk) > maxQMPLine {
+			return nil, fmt.Errorf("QEMU sent a line longer than %d bytes", maxQMPLine)
 		}
+		line = append(line, chunk...)
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return line, err
+		}
+	}
+}
+
+// deviceDel removes the device id and returns once QEMU has reported it gone. The event may
+// arrive with device_del's own reply, so it is looked for there first.
+func (q *qmpClient) deviceDel(ctx context.Context, id string) error {
+	q.removing, q.removed = id, false
+	defer func() { q.removing = "" }()
+	if err := q.run(ctx, "device_del", map[string]any{"id": id}, nil); err != nil {
+		return err
+	}
+	for !q.removed {
 		// A query to read what QEMU has sent meanwhile, events included.
 		if err := q.run(ctx, "query-status", nil, nil); err != nil {
 			return fmt.Errorf("waiting for %s to go: %w", id, err)
@@ -155,6 +186,7 @@ func (q *qmpClient) waitDeleted(ctx context.Context, id string) error {
 			return fmt.Errorf("waiting for %s to go: %w", id, err)
 		}
 	}
+	return nil
 }
 
 // pollInterval is how often a wait asks QEMU again. Whatever is left of it when the thing waited
