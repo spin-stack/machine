@@ -23,10 +23,11 @@ import (
 // machine is not asked for it.
 func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "vm.state")
-	completed := `{"return": {"status": "completed"}}`
+	// The migration's end, as QEMU sends it before its answer to migrate or migrate-incoming.
+	completed := `{"event": "MIGRATION", "data": {"status": "completed"}, "timestamp": {"seconds": 1, "microseconds": 2}}` + "\n" + ok
 
-	saving := newMonitor(t, slices.Concat([]string{ok, `{"return": []}`, `{"return": []}`, ok, ok, `{"return": {"fdset-id": 1}}`, ok},
-		readRecord, []string{completed, ok, ok})...)
+	saving := newMonitor(t, slices.Concat([]string{ok, `{"return": []}`, `{"return": []}`, ok, ok, `{"return": {"fdset-id": 1}}`, completed},
+		readRecord, []string{ok, ok})...)
 	if err := save(saveFlags{qmp: saving.socket, to: state, channels: 4, timeout: time.Minute}); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +39,7 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 		}
 	}
 	want := slices.Concat([]string{"qmp_capabilities", "query-hotpluggable-cpus", "qom-list", "migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate"},
-		readRecordAsked, []string{"query-migrate", "remove-fd", "quit"})
+		readRecordAsked, []string{"remove-fd", "quit"})
 	if !slices.Equal(asked, want) {
 		t.Errorf("save asked %v, want %v", asked, want)
 	}
@@ -70,7 +71,7 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 	if machine.DefaultChannels > 1 { // migrate-set-parameters: a mapped-ram state loads by the default's channels
 		load = append(load, ok)
 	}
-	load = append(load, `{"return": {"fdset-id": 1}}`, ok, completed, ok, `{"return": {"status": "running"}}`)
+	load = append(load, `{"return": {"fdset-id": 1}}`, completed, ok, `{"return": {"status": "running"}}`)
 	m, err := restoring("", slices.Concat(readRecord, load)...)
 	if err != nil {
 		t.Errorf("restore into the machine it was taken on: %v", err)

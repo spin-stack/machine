@@ -11,7 +11,6 @@ import (
 	"maps"
 	"os"
 	"slices"
-	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -119,6 +118,9 @@ var (
 	migrateContinue        = qmpdef.Define[migrationState, qmp.None]("migrate-continue")
 	migrateCancel          = qmpdef.Define[qmp.None, qmp.None]("migrate_cancel")
 	queryMigrate           = qmpdef.Define[qmp.None, migrationInfo]("query-migrate")
+	// migrationEvent is sent at each change of a migration's state, either direction, once the
+	// events capability is on: every wait on a migration waits on it.
+	migrationEvent = qmpdef.DefineEvent[migrationNews]("MIGRATION")
 )
 
 type migrateArgs struct {
@@ -133,6 +135,7 @@ const (
 	pauseBeforeSwitchover migrationCapability = "pause-before-switchover"
 	postcopyRAM           migrationCapability = "postcopy-ram"
 	multifd               migrationCapability = "multifd"
+	events                migrationCapability = "events"
 )
 
 type capabilities struct {
@@ -162,7 +165,7 @@ const (
 )
 
 func init() {
-	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd)
+	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd, events)
 	qmpdef.Enum(preSwitchover, postcopyActive, completed, failed, cancelled)
 }
 
@@ -175,20 +178,59 @@ type migrationInfo struct {
 	ErrorDesc string          `json:"error-desc"`
 }
 
-// pollInterval is how often a wait asks QEMU again. Whatever is left of it when the thing waited
-// for happens is added to the wait, and a resume waits on one: a poll is one round trip on a
-// local socket, so 1 ms costs nothing worth having.
-const pollInterval = time.Millisecond
+// migrationNews is MIGRATION's data.
+type migrationNews struct {
+	Status migrationStatus `json:"status"`
+}
 
-func sleep(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
+// ended is whether a migration in st has ended without completing.
+func ended(st migrationStatus) bool { return st == failed || st == cancelled }
+
+// expectMigration starts listening for the migration reaching one of states, or ending without
+// completing. Armed before the command that moves the migration, it misses no state: QEMU can
+// send one before its answer.
+func (m *QEMU) expectMigration(states ...migrationStatus) *qmp.Expected[migrationNews] {
+	return qmp.Expect(m.c, migrationEvent, func(n migrationNews) bool {
+		return slices.Contains(states, n.Status) || ended(n.Status)
+	})
+}
+
+// saving is the state x waited for in a save, or an error for a save that ended without
+// completing, with QEMU's reason: the event carries the state alone, and query-migrate the reason,
+// which a saving QEMU keeps.
+func (m *QEMU) saving(ctx context.Context, x *qmp.Expected[migrationNews]) (migrationStatus, error) {
+	n, err := x.Wait(ctx)
+	if err != nil || !ended(n.Status) {
+		return n.Status, err
 	}
+	info, err := qmp.Do(ctx, m.c, queryMigrate, qmp.None{})
+	if err != nil {
+		return "", fmt.Errorf("the migration %s, and asking why: %w", n.Status, err)
+	}
+	return "", fmt.Errorf("the migration %s: %s", n.Status, cmp.Or(info.ErrorDesc, "QEMU said nothing more"))
+}
+
+// loading returns once x matched, or an error for a load that failed.
+func loading(ctx context.Context, x *qmp.Expected[migrationNews]) error {
+	n, err := x.Wait(ctx)
+	if err != nil {
+		return err
+	}
+	return loadEnded(n.Status)
+}
+
+// loadEnded is the error for a load in st, nil unless it ended without completing.
+//
+// A loading QEMU has no reason to give its monitor: it exits once a load fails (migrate-incoming's
+// exit-on-error, on by default), right after MIGRATION{failed}, and says why on its stderr. QEMU
+// 11.2.0-rc0 given half a state sent setup, active and failed, printed "Unknown ramblock" and
+// exited, and the query-migrate after the event found the connection reset
+// (TestACheckpointIsWaitedOnByItsEvents, 2026-11-21).
+func loadEnded(st migrationStatus) error {
+	if ended(st) {
+		return fmt.Errorf("the load %s; QEMU exits on a failed load and says why on its stderr", st)
+	}
+	return nil
 }
 
 // Checkpoint saves the machine to a file in FormatMappedRAM, its memory written by save.Channels
@@ -213,7 +255,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		return Saved{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
 	}
 	channels := save.channels()
-	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1}
+	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1, events: true}
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
@@ -224,13 +266,15 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	if _, err := qmp.Do(ctx, m.c, migrateSetParameters, params); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
+	at := m.expectMigration(preSwitchover, completed)
+	defer at.Stop()
 	writing := func() error {
 		// Read before the migration, the record's round trips made `spin-machine save` 7.0 and
 		// 10.6 ms slower (bench, lab 44866054104); read here they overlap the RAM being written,
 		// and the record is the same (laptop, 2026-11-21). Target keeps what it read, and is
 		// asked again below, where an error counts.
 		_, _ = m.Target(ctx)
-		return m.switchover(ctx, seal)
+		return m.switchover(ctx, at, seal)
 	}
 	if err := m.migrate(ctx, migrateOut, to, os.O_WRONLY, writing); err != nil {
 		// A migration left at pre-switchover holds the guest paused with nobody to continue
@@ -245,41 +289,23 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	return Saved{Format: FormatMappedRAM, From: from, Added: again}, nil
 }
 
-// switchover runs seal at pre-switchover and waits for the migration to complete.
-func (m *QEMU) switchover(ctx context.Context, seal func(context.Context) error) error {
-	for {
-		st, err := m.migration(ctx)
-		if err != nil {
-			return err
-		}
-		switch st {
-		case completed:
-			return nil
-		case preSwitchover:
-			if err := seal(ctx); err != nil {
-				return fmt.Errorf("sealing: %w", err)
-			}
-			if _, err := qmp.Do(ctx, m.c, migrateContinue, migrationState{State: preSwitchover}); err != nil {
-				return err
-			}
-		}
-		if err := sleep(ctx, pollInterval); err != nil {
-			return err
-		}
+// switchover runs seal at pre-switchover and waits for the migration to complete. at is the wait
+// for pre-switchover, armed before the migration started.
+func (m *QEMU) switchover(ctx context.Context, at *qmp.Expected[migrationNews], seal func(context.Context) error) error {
+	st, err := m.saving(ctx, at)
+	if err != nil || st == completed {
+		return err
 	}
-}
-
-// migration is the state of the migration in flight, either direction, or an error for one that
-// failed.
-func (m *QEMU) migration(ctx context.Context) (migrationStatus, error) {
-	info, err := qmp.Do(ctx, m.c, queryMigrate, qmp.None{})
-	if err != nil {
-		return "", err
+	if err := seal(ctx); err != nil {
+		return fmt.Errorf("sealing: %w", err)
 	}
-	if info.Status == failed || info.Status == cancelled {
-		return "", fmt.Errorf("the migration %s: %s", info.Status, cmp.Or(info.ErrorDesc, "QEMU said nothing more"))
+	done := m.expectMigration(completed)
+	defer done.Stop()
+	if _, err := qmp.Do(ctx, m.c, migrateContinue, migrationState{State: preSwitchover}); err != nil {
+		return err
 	}
-	return info.Status, nil
+	_, err = m.saving(ctx, done)
+	return err
 }
 
 func (m *QEMU) setCapabilities(ctx context.Context, caps map[migrationCapability]bool) error {
@@ -349,7 +375,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		return fmt.Errorf("resuming: %w", err)
 	}
 	channels := load.channels(saved.Format)
-	caps := map[migrationCapability]bool{pauseBeforeSwitchover: false}
+	caps := map[migrationCapability]bool{pauseBeforeSwitchover: false, events: true}
 	switch {
 	case saved.Format == FormatMappedRAM:
 		caps[mappedRAM] = true
@@ -400,21 +426,13 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 			return fmt.Errorf("resuming: %w", err)
 		}
 	}
-	running := func() error {
-		for {
-			st, err := m.migration(ctx)
-			if err != nil {
-				return err
-			}
-			if st == completed || (load.Fast && st == postcopyActive) {
-				return nil
-			}
-			if err := sleep(ctx, pollInterval); err != nil {
-				return err
-			}
-		}
+	until := []migrationStatus{completed}
+	if load.Fast {
+		until = append(until, postcopyActive)
 	}
-	if err := m.migrate(ctx, migrateIn, state, os.O_RDONLY, running); err != nil {
+	running := m.expectMigration(until...)
+	defer running.Stop()
+	if err := m.migrate(ctx, migrateIn, state, os.O_RDONLY, func() error { return loading(ctx, running) }); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
 	// A machine saved stopped comes back stopped: QEMU carries the source's run state across.
@@ -469,18 +487,20 @@ func prefetch(state *os.File) {
 	}()
 }
 
-// Loaded returns once the load is complete.
+// Loaded returns once the load is complete, which it may be before Loaded is called: the client
+// keeps the last MIGRATION it saw, and the wait is armed before that is read, so a completion
+// between the two is in one or the other.
 func (m *QEMU) Loaded(ctx context.Context) error {
-	for {
-		st, err := m.migration(ctx)
-		if err != nil {
-			return fmt.Errorf("finishing the load: %w", err)
-		}
-		if st == completed {
-			return nil
-		}
-		if err := sleep(ctx, pollInterval); err != nil {
-			return fmt.Errorf("finishing the load: %w", err)
-		}
+	done := m.expectMigration(completed)
+	defer done.Stop()
+	var err error
+	if n, ok := qmp.Last(m.c, migrationEvent); ok && (n.Status == completed || ended(n.Status)) {
+		err = loadEnded(n.Status)
+	} else {
+		err = loading(ctx, done)
 	}
+	if err != nil {
+		return fmt.Errorf("finishing the load: %w", err)
+	}
+	return nil
 }

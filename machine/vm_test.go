@@ -38,6 +38,17 @@ type fakeQEMU struct {
 	mu     sync.Mutex
 	calls  []call
 	answer func(c call) string
+	// wmu guards w, which serve answers on and send sends events on.
+	wmu sync.Mutex
+	w   *bufio.Writer
+}
+
+// send writes lines to the client, as QEMU sends an event of its own accord.
+func (f *fakeQEMU) send(lines string) {
+	f.wmu.Lock()
+	defer f.wmu.Unlock()
+	_, _ = f.w.WriteString(lines)
+	_ = f.w.Flush()
 }
 
 // recorded is a copy of the calls so far.
@@ -119,9 +130,10 @@ func withID(reply string, id json.RawMessage) string {
 // serve answers each command with what f.answer says, or, for an answer of nothing, closes the
 // monitor without one, as QEMU does when it quits.
 func (f *fakeQEMU) serve(c *net.UnixConn) {
-	w := bufio.NewWriter(c)
-	_, _ = w.WriteString(`{"QMP": {"version": {"qemu": {"major": 11, "minor": 2, "micro": 0}, "package": ""}, "capabilities": []}}` + "\n")
-	_ = w.Flush()
+	f.wmu.Lock()
+	f.w = bufio.NewWriter(c)
+	f.wmu.Unlock()
+	f.send(`{"QMP": {"version": {"qemu": {"major": 11, "minor": 2, "micro": 0}, "package": ""}, "capabilities": []}}` + "\n")
 	buf := make([]byte, 1<<16)
 	oob := make([]byte, syscall.CmsgSpace(4))
 	var pending []byte
@@ -166,8 +178,7 @@ func (f *fakeQEMU) serve(c *net.UnixConn) {
 			if reply == "" {
 				return
 			}
-			_, _ = w.WriteString(withID(reply, req.ID) + "\n")
-			_ = w.Flush()
+			f.send(withID(reply, req.ID) + "\n")
 		}
 	}
 }
@@ -378,19 +389,47 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// migrations answers query-migrate with each status in turn, then the last one forever.
+// migrationEvents is QEMU's MIGRATION for each of statuses, one line each.
+func migrationEvents(statuses ...string) string {
+	var b strings.Builder
+	for _, st := range statuses {
+		b.WriteString(`{"event": "MIGRATION", "data": {"status": "` + st + `"}, "timestamp": {"seconds": 1, "microseconds": 2}}` + "\n")
+	}
+	return b.String()
+}
+
+// migrations sends a MIGRATION for each status in turn, as QEMU does with the events capability
+// on: those up to pre-switchover before the answer to migrate or migrate-incoming, the rest before
+// the answer to migrate-continue. query-migrate answers the last status sent, and a failed one
+// with its reason.
 func migrations(then func(c call) string, statuses ...string) func(c call) string {
-	i := 0
+	sent := 0
+	upTo := func(stop string) string {
+		from := sent
+		for sent < len(statuses) {
+			sent++
+			if statuses[sent-1] == stop {
+				break
+			}
+		}
+		return migrationEvents(statuses[from:sent]...)
+	}
 	return func(c call) string {
-		if c.Command != "query-migrate" {
-			return then(c)
+		switch c.Command {
+		case "migrate", "migrate-incoming":
+			return upTo("pre-switchover") + then(c)
+		case "migrate-continue":
+			return upTo("") + then(c)
+		case "query-migrate":
+			if sent > 0 && statuses[sent-1] == "failed" {
+				return ret(`{"status": "failed", "error-desc": "No space left on device"}`)
+			}
+			if sent > 0 {
+				return ret(`{"status": "` + statuses[sent-1] + `"}`)
+			}
+			return ret(`{}`)
 		}
-		st := statuses[min(i, len(statuses)-1)]
-		i++
-		if st == "failed" {
-			return ret(`{"status": "failed", "error-desc": "No space left on device"}`)
-		}
-		return ret(`{"status": "` + st + `"}`)
+		return then(c)
 	}
 }
 
@@ -445,12 +484,13 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get",
 		"migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate",
 		"query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock",
-		"query-migrate", "query-migrate", "migrate-continue", "query-migrate", "remove-fd"}
+		"migrate-continue", "remove-fd"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Errorf("commands\n%v\nwant\n%v", got, want)
 	}
 	caps := f.sent("migrate-set-capabilities")[0]["capabilities"]
 	wantCaps := []any{
+		map[string]any{"capability": "events", "state": true},
 		map[string]any{"capability": "mapped-ram", "state": true},
 		map[string]any{"capability": "multifd", "state": DefaultChannels > 1},
 		map[string]any{"capability": "pause-before-switchover", "state": true},
@@ -610,19 +650,18 @@ func TestResume(t *testing.T) {
 		statuses []string
 		after    string // the run state once loaded
 		caps     map[string]bool
-		polls    int
 		cont     bool
 	}{
 		{"fast, at postcopy-active", mapped, LoadOptions{Fast: true}, 1, []string{"setup", "postcopy-active"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false}, 2, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false, "events": true}, false},
 		{"in full, past postcopy-active, which it never asked for", mapped, LoadOptions{}, DefaultChannels, []string{"active", "postcopy-active", "completed"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": DefaultChannels > 1}, 3, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": DefaultChannels > 1, "events": true}, false},
 		{"in full, by one channel, named", mapped, LoadOptions{Channels: 1}, 1, []string{"active", "completed"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false}, 2, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false, "events": true}, false},
 		{"in full, by two channels", mapped, LoadOptions{Channels: 2}, 2, []string{"active", "completed"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true}, 2, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true, "events": true}, false},
 		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream, From: from}, LoadOptions{}, 1, []string{"completed"}, "paused",
-			map[string]bool{"mapped-ram": false, "pause-before-switchover": false}, 1, true},
+			map[string]bool{"mapped-ram": false, "pause-before-switchover": false, "events": true}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status := "inmigrate"
@@ -661,8 +700,8 @@ func TestResume(t *testing.T) {
 				tc.channels <= 1 && len(params) != 0 {
 				t.Errorf("parameters %v, want multifd-channels only for more than one channel", params)
 			}
-			if got := len(f.sent("query-migrate")); got != tc.polls {
-				t.Errorf("asked for the migration's state %d times, want %d", got, tc.polls)
+			if got := len(f.sent("query-migrate")); got != 0 {
+				t.Errorf("asked for the migration's state %d times: the load is waited on by its events", got)
 			}
 			if got := len(f.sent("cont")) == 1; got != tc.cont {
 				t.Errorf("continued: %t, want %t", got, tc.cont)
@@ -717,15 +756,50 @@ func TestResumeRefuses(t *testing.T) {
 	}
 }
 
-// Loaded waits for the last page, and a load that failed after the guest ran is an error.
-func TestLoaded(t *testing.T) {
-	f := &fakeQEMU{answer: migrations(machineAnswers("running"), "postcopy-active", "postcopy-active", "completed")}
-	if err := f.attach(t).Loaded(ctx(t)); err != nil || len(f.recorded()) != 3 {
-		t.Errorf("Loaded = %v after %d polls, want nil after 3", err, len(f.recorded()))
+// A load that fails is the resume's error, without asking a QEMU that exits on it why.
+func TestAFailedLoadFailsTheResume(t *testing.T) {
+	from := fakeTarget(t)
+	f := &fakeQEMU{answer: migrations(machineAnswers("inmigrate", "root"), "setup", "active", "failed")}
+	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{},
+		Disk{Serial: "root", Images: []Image{image(t, "qcow2")}})
+	if err == nil || !strings.Contains(err.Error(), "the load failed") {
+		t.Errorf("Resume = %v, want the load's failure", err)
 	}
-	f = &fakeQEMU{answer: migrations(machineAnswers("running"), "postcopy-active", "failed")}
-	if err := f.attach(t).Loaded(ctx(t)); err == nil {
-		t.Error("a failed load was reported loaded")
+	if slices.Contains(f.commands(), "query-migrate") {
+		t.Error("asked why of a QEMU that exits on a failed load")
+	}
+}
+
+// Loaded waits for the last page, which may have come before it was called, and a load that failed
+// after the guest ran is an error.
+func TestLoaded(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		before, then []string // the MIGRATIONs sent before Loaded, and while it waits
+		want         string
+	}{
+		{"completed while it waits", []string{"setup", "postcopy-active"}, []string{"completed"}, ""},
+		{"completed before", []string{"postcopy-active", "completed"}, nil, ""},
+		{"failed while it waits", []string{"postcopy-active"}, []string{"failed"}, "the load failed"},
+		{"failed before", []string{"postcopy-active", "failed"}, nil, "the load failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeQEMU{answer: func(c call) string { return migrationEvents(tc.before...) + machineAnswers("running")(c) }}
+			m := f.attach(t)
+			if _, err := m.status(ctx(t)); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- m.Loaded(ctx(t)) }()
+			f.send(migrationEvents(tc.then...))
+			err := <-done
+			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Errorf("Loaded = %v, want %q", err, tc.want)
+			}
+			if got := f.commands(); len(got) != 1 {
+				t.Errorf("asked %v, want nothing after the status: the load is waited on by its events", got)
+			}
+		})
 	}
 }
 
