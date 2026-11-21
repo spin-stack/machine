@@ -440,7 +440,7 @@ func taskScheds(task string) map[int]threadSched {
 // threadKind is a thread's name without the pid the kernel's workers carry (vhost-1234,
 // iou-wrk-1234), so that one kind of thread adds up across boots.
 func threadKind(name string) string {
-	if i := strings.LastIndexByte(name, '-'); i >= 0 {
+	if i := strings.LastIndexByte(name, '-'); i >= 0 { // mutate-exempt: >= 1 differs only on a name that is all "-pid", which no thread has
 		if _, err := strconv.Atoi(name[i+1:]); err == nil {
 			return name[:i]
 		}

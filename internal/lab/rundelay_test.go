@@ -309,6 +309,22 @@ func TestRunDelayMissesAWaitItCannotRead(t *testing.T) {
 	if w, ok := m.values["cold_wait"]; !ok || w != 0 {
 		t.Errorf("a QEMU that never waited recorded a wait of %v (%v)", w, ok)
 	}
+	// One thread seen is a QEMU seen; none is a miss.
+	one := schedSummary{threads: 1, ran: time.Millisecond}
+	if err := recordDelay(m, "restore", time.Second, one, qmpTrace{Running: time.Now()}, 0, 0); err != nil {
+		t.Errorf("recordDelay of a QEMU with one thread = %v", err)
+	}
+	var miss *MissError
+	if err := recordDelay(m, "restore", time.Second, schedSummary{}, qmpTrace{Running: time.Now()}, 0, 0); !errors.As(err, &miss) {
+		t.Errorf("recordDelay of no thread = %v, want a miss", err)
+	}
+}
+
+// Run-delay measures a cold boot, then a restore of the checkpoint the cold boot left.
+func TestRunDelayHasTwoPhases(t *testing.T) {
+	if p := (runDelay{}).Phases(); p != 2 {
+		t.Errorf("phases = %d, want 2", p)
+	}
 }
 
 // A row that is not a crowd stops the experiment before anything boots, and a crowd that cannot be
