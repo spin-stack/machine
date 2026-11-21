@@ -501,6 +501,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 		map[string]any{"capability": "multifd", "state": DefaultChannels > 1},
 		map[string]any{"capability": "pause-before-switchover", "state": true},
 		map[string]any{"capability": "postcopy-ram", "state": false},
+		map[string]any{"capability": "x-defer-disk-flush", "state": true},
 	}
 	if !reflect.DeepEqual(caps, wantCaps) {
 		t.Errorf("capabilities %v, want %v", caps, wantCaps)
