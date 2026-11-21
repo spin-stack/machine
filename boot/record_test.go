@@ -170,7 +170,7 @@ func (r *recorder) selfResume(t *testing.T) {
 	sock, cid, mac := r.next()
 	raw := filepath.Join(r.dir, "raw.sock")
 	args, start := machineArgs(t, r.cli, r.out, slices.Concat(spinsShape, []string{"--qmp", sock, "--vsock-cid", fmt.Sprint(cid)}, disk))
-	// A second monitor, for what machine.VM has no call for: the balloon.
+	// A second monitor, for what machine.QEMU has no call for: inflating the balloon.
 	args = append(args, "-qmp", "unix:"+raw+",server=on,wait=off")
 	a := startGuest(t, append(args, spinsNIC(mac)...))
 	start(t)
@@ -180,23 +180,18 @@ func (r *recorder) selfResume(t *testing.T) {
 	if err := src.SetMemory(ctx, 1024); err != nil {
 		t.Fatal(err)
 	}
-	for mb := 0; mb != 1024; {
+	for size := (machine.MemorySize{}); size.Now != 1024; {
 		var err error
-		if mb, err = src.Memory(ctx); err != nil {
+		if size, err = src.Memory(ctx); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	q := dial(t, raw, a.said)
-	var anon []struct{ Name, Type string }
-	if err := json.Unmarshal(q.do(t, "qom-list", map[string]any{"path": "/machine/peripheral-anon"}), &anon); err != nil {
+	// The first call turns the balloon's polling on, which is state the stream carries.
+	if _, err := src.GuestMemory(ctx); err != nil && !errors.Is(err, machine.ErrNoGuestStats) {
 		t.Fatal(err)
 	}
-	i := slices.IndexFunc(anon, func(p struct{ Name, Type string }) bool { return p.Type == "child<virtio-balloon-pci>" })
-	if i < 0 {
-		t.Fatalf("no balloon among %v", anon)
-	}
-	q.do(t, "qom-set", map[string]any{"path": "/machine/peripheral-anon/" + anon[i].Name, "property": "guest-stats-polling-interval", "value": 2})
+	q := dial(t, raw, a.said)
 	q.do(t, "balloon", map[string]any{"value": 960 << 20})
 	q.close()
 	if err := src.SetCPUs(ctx, 2); err != nil {
@@ -219,7 +214,7 @@ func (r *recorder) selfResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = state.Close() }()
-	saved, err := src.Checkpoint(ctx, state, machine.SaveOptions{}, func(context.Context) error { return nil })
+	saved, _, err := src.Checkpoint(ctx, state, machine.SaveOptions{}, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatalf("checkpointing: %v\n%s", err, a.said())
 	}

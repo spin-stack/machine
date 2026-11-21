@@ -22,10 +22,12 @@ tasks:
       an extra vsock, SeaBIOS for qboot, more base RAM - is refused by name, and more hotplug
       targets are not; the BIOS block is the BIOS file's size (record_test.go). A checkpoint's
       save and its loads, in full and fast, send the MIGRATION events the machine waits on, in the
-      order it relies on (events_test.go). Needs a built release, /dev/kvm and /dev/vhost-vsock.
+      order it relies on (events_test.go). What QEMU says of a machine's end, a checkpoint's cost,
+      Hold and the guest's memory reports, on real guests (verbs_test.go). Needs a built release,
+      /dev/kvm and /dev/vhost-vsock.
     deps: [':tools']
     cmds:
-      - SPIN_RECORD_TEST=1 go test ./boot/ -run '^(TestTheRecordRefusesWhatQEMULoadsSilently|TestACheckpointIsWaitedOnByItsEvents)$' -count=1 -v -timeout 5m
+      - SPIN_RECORD_TEST=1 go test ./boot/ -run '^(TestTheRecordRefusesWhatQEMULoadsSilently|TestACheckpointIsWaitedOnByItsEvents|TestTheMachineSaysHowItEnded|TestACheckpointedMachineIsHeldThenContinued)$' -count=1 -v -timeout 5m
 
   buildkit:
     desc: >-

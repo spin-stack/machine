@@ -69,7 +69,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := src.Checkpoint(ctx, f, machine.SaveOptions{}, func(context.Context) error { return nil })
+	saved, _, err := src.Checkpoint(ctx, f, machine.SaveOptions{}, func(context.Context) error { return nil })
 	_ = f.Close()
 	if err != nil {
 		t.Fatalf("checkpointing: %v\n%s", err, a.said())
