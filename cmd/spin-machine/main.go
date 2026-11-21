@@ -276,8 +276,8 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 	s.BootCPUs = o.cpus
 	s.MaxCPUs = o.maxCPUs
 	s.Memory = machine.Memory{
-		SizeMB: o.memoryMB,
-		MaxMB:  o.maxMemMB,
+		BaseMB:    o.memoryMB,
+		CeilingMB: o.maxMemMB,
 	}
 	s.HotplugDisks = o.hotplugDisks
 	s.VsockCID = o.vsockCID

@@ -25,7 +25,7 @@ func TestAHeldMachineAnswersTheRunnersVerbs(t *testing.T) {
 		Firmware: firmware,
 		BootCPUs: 1,
 		MaxCPUs:  4,
-		Memory:   Memory{SizeMB: 512, MaxMB: 1536},
+		Memory:   Memory{BaseMB: 512, CeilingMB: 1536},
 		Cmdline:  DefaultCmdline(),
 		Monitors: []Monitor{{Socket: socket}, {Socket: socket + ".2"}},
 	}

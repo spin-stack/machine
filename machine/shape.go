@@ -78,7 +78,7 @@ func (s Spec) accel() string {
 // its own -accel, because that is the only form that can also carry the /dev/kvm
 // descriptor (KVMFDSet), and QEMU refuses the two together — "The -accel and
 // "-machine accel=" options are incompatible" (11.1.1). One form for every machine is one string,
-// whose options a machine's record reads back (QEMU.machine).
+// whose options a machine's record reads back (Target.Hardware).
 //
 // hpet=off: the HPET is a timer the guest would enumerate, initialise and
 // then not use, because a KVM guest reads the TSC and the KVM clock.

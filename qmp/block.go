@@ -10,9 +10,10 @@ import (
 	"github.com/spin-stack/machine/internal/qmpdef"
 )
 
-// The commands both the machine and spin's storage agent send: a disk's descriptors and block
-// nodes, and the vCPUs stopped and let go around a change to them. A command one caller alone
-// sends is defined, unexported, beside that caller.
+// The commands spin's storage agent sends, some of them the machine's too: a disk's descriptors
+// and block nodes, and the vCPUs stopped and let go around a change to them. They are exported
+// because spin cannot define a command (qmpdef is internal). A command only the machine sends is
+// defined, unexported, beside the code that sends it.
 var (
 	// Stop pauses the vCPUs.
 	Stop = qmpdef.Define[None, None]("stop")
@@ -256,24 +257,24 @@ type BlockNodeInfo struct {
 	Driver   string `json:"drv"`
 	// File is the node's filename: a set's Path for a node over a descriptor, or json:{...} for a
 	// node whose children were given as options.
-	File     string `json:"file"`
-	ReadOnly bool   `json:"ro"`
-	Image    Image  `json:"image"`
+	File     string    `json:"file"`
+	ReadOnly bool      `json:"ro"`
+	Image    ImageInfo `json:"image"`
 }
 
-// Image is a node's image as QEMU reads it, and the image under it.
-type Image struct {
+// ImageInfo is a node's image as QEMU reads it, and the image under it.
+type ImageInfo struct {
 	Filename string
 	// Corrupt is qcow2 having found the image's metadata inconsistent, which leaves it unwritable.
 	Corrupt bool
-	Backing *Image
+	Backing *ImageInfo
 }
 
 // UnmarshalJSON reads QEMU's ImageInfo, in which Corrupt is a qcow2 image's format-specific data.
-func (i *Image) UnmarshalJSON(b []byte) error {
+func (i *ImageInfo) UnmarshalJSON(b []byte) error {
 	var info struct {
-		Filename       string `json:"filename"`
-		Backing        *Image `json:"backing-image"`
+		Filename       string     `json:"filename"`
+		Backing        *ImageInfo `json:"backing-image"`
 		FormatSpecific struct {
 			Data struct {
 				Corrupt bool `json:"corrupt"`
@@ -283,6 +284,6 @@ func (i *Image) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &info); err != nil {
 		return err
 	}
-	*i = Image{Filename: info.Filename, Corrupt: info.FormatSpecific.Data.Corrupt, Backing: info.Backing}
+	*i = ImageInfo{Filename: info.Filename, Corrupt: info.FormatSpecific.Data.Corrupt, Backing: info.Backing}
 	return nil
 }

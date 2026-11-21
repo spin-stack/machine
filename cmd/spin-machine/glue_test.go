@@ -430,10 +430,10 @@ func TestBootRefusesBeforeStartingAnything(t *testing.T) {
 	if err := os.WriteFile(garbage, []byte{0, 1, 2, 3}, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	spec := machine.Spec{QEMU: garbage, Kernel: kernelIn(t, dir), Firmware: dir, BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
+	spec := machine.Spec{QEMU: garbage, Kernel: kernelIn(t, dir), Firmware: dir, BootCPUs: 1, Memory: machine.Memory{BaseMB: 64},
 		Monitors: []machine.Monitor{{Socket: "/q"}}}
 	invalid := spec
-	invalid.Memory.SizeMB = 0
+	invalid.Memory.BaseMB = 0
 	absent := spec
 	absent.QEMU = filepath.Join(dir, "absent")
 	for _, tc := range []struct {
@@ -463,7 +463,7 @@ func TestBootCommandIsHeld(t *testing.T) {
 	if err := os.WriteFile(qemu, nil, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s := machine.Spec{QEMU: qemu, Kernel: kernelIn(t, dir), Firmware: dir, BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
+	s := machine.Spec{QEMU: qemu, Kernel: kernelIn(t, dir), Firmware: dir, BootCPUs: 1, Memory: machine.Memory{BaseMB: 64},
 		Monitors: []machine.Monitor{{Socket: "/run/q"}}}
 	for _, tc := range []struct {
 		name         string
@@ -507,7 +507,7 @@ func TestBootCommandIsHeld(t *testing.T) {
 func TestBootExecsQEMUHeld(t *testing.T) {
 	if argv := os.Getenv("SPIN_MACHINE_TEST_ARGV"); argv != "" {
 		qemu := os.Getenv("SPIN_MACHINE_TEST_QEMU")
-		s := machine.Spec{QEMU: qemu, Kernel: filepath.Join(filepath.Dir(qemu), "bzImage"), Firmware: filepath.Dir(qemu), BootCPUs: 1, Memory: machine.Memory{SizeMB: 64},
+		s := machine.Spec{QEMU: qemu, Kernel: filepath.Join(filepath.Dir(qemu), "bzImage"), Firmware: filepath.Dir(qemu), BootCPUs: 1, Memory: machine.Memory{BaseMB: 64},
 			Monitors: []machine.Monitor{{Socket: "/run/q"}}}
 		o := machineFlags{qmp: "/run/q"}
 		if os.Getenv("SPIN_MACHINE_TEST_RESTORE") != "" {

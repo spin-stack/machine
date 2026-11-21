@@ -39,7 +39,7 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 		t.Fatal(err)
 	}
 	spec.BootCPUs = 2
-	spec.Memory.SizeMB = 1024
+	spec.Memory.BaseMB = 1024
 	spec.Places = []machine.Place{{Serial: "root"}}
 	spec.Console = "stdio"
 	// The machine starts held, and is booted through this monitor once the disk is bound. In a

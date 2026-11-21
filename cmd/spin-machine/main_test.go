@@ -111,7 +111,7 @@ func TestBootBecomesQEMU(t *testing.T) {
 		dir := filepath.Dir(qemu)
 		// Held, so that nothing is started beside QEMU to boot it.
 		err := boot(machine.Spec{QEMU: qemu, Kernel: filepath.Join(dir, "bzImage"), Firmware: dir, BootCPUs: 1,
-			Memory: machine.Memory{SizeMB: 64}, Monitors: []machine.Monitor{{Socket: "/q"}}},
+			Memory: machine.Memory{BaseMB: 64}, Monitors: []machine.Monitor{{Socket: "/q"}}},
 			machineFlags{held: true, qmp: "/q"}, nil)
 		// Reached only if the exec failed.
 		fmt.Fprintln(os.Stderr, err)

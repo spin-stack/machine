@@ -28,7 +28,7 @@ func spec(t *testing.T) Spec {
 		Kernel:   write("bzImage", strings.Repeat("\x00", 0x202)+"HdrS"),
 		Firmware: dir,
 		BootCPUs: 2,
-		Memory:   Memory{SizeMB: 512},
+		Memory:   Memory{BaseMB: 512},
 		Monitors: []Monitor{{Socket: "/run/qmp"}},
 	}
 }
@@ -178,7 +178,7 @@ func TestArgs(t *testing.T) {
 		// no slots=, and the device holds the region between boot memory and ceiling
 		// with nothing plugged until somebody asks.
 		name: "a memory ceiling",
-		set:  func(s *Spec) { s.Memory.SizeMB, s.Memory.MaxMB = 2048, 8192 },
+		set:  func(s *Spec) { s.Memory.BaseMB, s.Memory.CeilingMB = 2048, 8192 },
 		want: []string{
 			"-m 2048,maxmem=8192M ",
 			"memory-backend-ram,id=mem.growth,size=6144M ",
@@ -187,7 +187,7 @@ func TestArgs(t *testing.T) {
 		absent: []string{"slots="},
 	}, {
 		name:   "fixed memory",
-		set:    func(s *Spec) { s.Memory.SizeMB = 2048 },
+		set:    func(s *Spec) { s.Memory.BaseMB = 2048 },
 		want:   []string{"-m 2048 "},
 		absent: []string{"maxmem", "virtio-mem"},
 	}, {
@@ -399,10 +399,10 @@ func TestValidateRefuses(t *testing.T) {
 		{"a feature to take away with no name", func(s *Spec) { s.CPUWithout = []string{"avx2", ""} }},
 		{"no boot CPUs", func(s *Spec) { s.BootCPUs = 0 }},
 		{"a vCPU ceiling below the boot count", func(s *Spec) { s.BootCPUs, s.MaxCPUs = 4, 2 }},
-		{"no memory", func(s *Spec) { s.Memory.SizeMB = 0 }},
+		{"no memory", func(s *Spec) { s.Memory.BaseMB = 0 }},
 		// A ceiling below the boot size: memoryArg drops it, so without this the
 		// caller gets a machine that cannot grow having asked for one that can.
-		{"a memory ceiling below the boot size", func(s *Spec) { s.Memory.SizeMB, s.Memory.MaxMB = 2048, 512 }},
+		{"a memory ceiling below the boot size", func(s *Spec) { s.Memory.BaseMB, s.Memory.CeilingMB = 2048, 512 }},
 		{"more disks than the slot range holds", func(s *Spec) {
 			s.Places = make([]Place, maxDisks+1)
 			for i := range s.Places {
@@ -505,7 +505,7 @@ func TestValidateRefuses(t *testing.T) {
 	// The least each bound allows: one megabyte, one vCPU, and the first descriptor that is
 	// not stdin, stdout or stderr.
 	s = spec(t)
-	s.Memory.SizeMB = 1
+	s.Memory.BaseMB = 1
 	s.BootCPUs = 1
 	s.VsockCID, s.VsockFD = 3, 3
 	if err := s.validate(); err != nil {

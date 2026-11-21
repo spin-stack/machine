@@ -140,7 +140,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      # The builders are published under this repository: ghcr.io/spin-stack/spin-machine/builder-*.
+      # The builders are published under the repository's former name, kept for their pins:
+      # ghcr.io/spin-stack/spin-machine/builder-*.
       packages: write
     steps:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0

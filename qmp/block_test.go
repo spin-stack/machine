@@ -78,14 +78,14 @@ func TestABlockDeviceIsReadWithItsImages(t *testing.T) {
 	}
 	want := []BlockInfo{
 		{QDev: "/machine/peripheral/disk0/virtio-backend", Inserted: &BlockNodeInfo{NodeName: "slot0", Driver: "throttle", File: "json:{}", ReadOnly: true,
-			Image: Image{Filename: "/dev/fdset/3", Corrupt: true, Backing: &Image{Filename: "/dev/fdset/4"}}}},
+			Image: ImageInfo{Filename: "/dev/fdset/3", Corrupt: true, Backing: &ImageInfo{Filename: "/dev/fdset/4"}}}},
 		{Device: "cd", QDev: "cd0"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		g, _ := json.Marshal(got)
 		t.Errorf("read %s", g)
 	}
-	var img Image
+	var img ImageInfo
 	if err := json.Unmarshal([]byte(`{"filename": 3}`), &img); err == nil {
 		t.Error("an image whose filename is a number was read")
 	}

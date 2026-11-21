@@ -25,12 +25,13 @@ parts from drifting apart.
 
 ## Layout
 
-`machine/` is the only public API. spin imports it, and nothing else here is meant to be
+`machine/` and `qmp/` are the public API. spin imports both, and nothing else here is meant to be
 imported. Every other directory is this repository's own and changes without notice.
 
 | directory | what it is |
 |---|---|
 | [`machine/`](machine/) | the machine as Go: the `Spec` and its QEMU command line, the record a checkpoint is held to, and the `VM` that boots, resumes and checkpoints one |
+| [`qmp/`](qmp/) | QEMU's machine protocol: the `Client` with `Do`, `Expect` and `Last`, and the commands and block nodes spin sends |
 | [`cmd/spin-machine/`](cmd/spin-machine/) | the tool that boots and drives one machine by hand |
 | [`cmd/spin-machine-dev/`](cmd/spin-machine-dev/) | the tool that builds, verifies, measures and releases the machine ([docs/cli.md](docs/cli.md)) |
 | [`internal/`](internal/) | what `spin-machine-dev` is made of: the builds, the release, its notes, the lab and the CVE and OSV checks |

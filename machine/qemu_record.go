@@ -38,7 +38,7 @@ type humanReadable struct {
 }
 
 // Target is what this machine is, read from QEMU: its version, the formats this package reads,
-// the CPU its vCPU has and the machine it was started with (QEMU.machine).
+// the CPU its vCPU has and the machine it was started with (Target.Hardware).
 //
 // Read once and kept, because none of it changes for the life of the process: a device the
 // machine was started with cannot be unplugged from pcie.0, a device's properties are fixed once
