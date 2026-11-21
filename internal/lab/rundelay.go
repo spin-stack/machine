@@ -363,13 +363,13 @@ func (w *schedWatch) run() {
 				qemu = p
 			}
 		}
-		for tid, t := range taskScheds(w.boot) {
+		for tid, t := range taskScheds(fmt.Sprintf("/proc/%d/task", w.boot)) {
 			spin[tid] = t
 		}
 		if qemu == 0 {
 			return
 		}
-		for tid, t := range taskScheds(qemu) {
+		for tid, t := range taskScheds(fmt.Sprintf("/proc/%d/task", qemu)) {
 			threads[tid] = t
 		}
 		var waited time.Duration
@@ -385,7 +385,7 @@ func (w *schedWatch) run() {
 		select {
 		case <-w.stop:
 			sample()
-			w.done <- summarize(qemu, threads, spin, points, preemptions(qemu, threads))
+			w.done <- summarize(qemu, threads, spin, points, preemptions(fmt.Sprintf("/proc/%d/task", qemu), threads))
 			return
 		case <-tick.C:
 		}
@@ -414,10 +414,10 @@ func isVCPU(name string) bool {
 	return strings.HasPrefix(name, "CPU ") && strings.HasSuffix(name, "/KVM")
 }
 
-// taskScheds is every live thread of pid, by tid.
-func taskScheds(pid int) map[int]threadSched {
+// taskScheds is every live thread in a process's task directory (/proc/PID/task), by tid.
+func taskScheds(task string) map[int]threadSched {
 	out := map[int]threadSched{}
-	dirs, _ := filepath.Glob(fmt.Sprintf("/proc/%d/task/*", pid))
+	dirs, _ := filepath.Glob(filepath.Join(task, "*"))
 	for _, d := range dirs {
 		tid, err := strconv.Atoi(filepath.Base(d))
 		if err != nil {
@@ -452,24 +452,25 @@ func threadKind(name string) string {
 func parseSchedstat(s string) (ran, waited time.Duration, ok bool) {
 	f := strings.Fields(s)
 	if len(f) != 3 {
-		return 0, 0, false
+		return 0, 0, false // mutate-exempt: no caller reads the times beside false
 	}
 	r, err1 := strconv.ParseInt(f[0], 10, 64)
 	w, err2 := strconv.ParseInt(f[1], 10, 64)
 	if err1 != nil || err2 != nil {
-		return 0, 0, false
+		return 0, 0, false // mutate-exempt: no caller reads the times beside false
 	}
 	return time.Duration(r), time.Duration(w), true
 }
 
-// preemptions is the involuntary context switches of qemu's vCPU threads still running.
-func preemptions(qemu int, threads map[int]threadSched) float64 {
+// preemptions is the involuntary context switches of the vCPU threads still running in QEMU's task
+// directory (/proc/PID/task).
+func preemptions(task string, threads map[int]threadSched) float64 {
 	var n float64
 	for tid, t := range threads {
 		if !isVCPU(t.name) {
 			continue
 		}
-		b, err := os.ReadFile(fmt.Sprintf("/proc/%d/task/%d/status", qemu, tid))
+		b, err := os.ReadFile(filepath.Join(task, strconv.Itoa(tid), "status"))
 		if err != nil {
 			continue
 		}
@@ -489,7 +490,7 @@ func statSteal(stat string) (time.Duration, bool) {
 	first, _, _ := strings.Cut(stat, "\n")
 	f := strings.Fields(first)
 	if len(f) < 9 || f[0] != "cpu" {
-		return 0, false
+		return 0, false // mutate-exempt: no caller reads the steal beside false
 	}
 	ticks, ok := counted(f[8])
 	return time.Duration(ticks) * 10 * time.Millisecond, ok
