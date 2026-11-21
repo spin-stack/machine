@@ -30,8 +30,6 @@ import (
 // boot's (it once put "Freeing unused kernel image" at 931 ms in a boot of about 200).
 type initcalls struct{}
 
-func init() { register(initcalls{}) }
-
 func (initcalls) Name() string { return "initcalls" }
 func (initcalls) About() string {
 	return "ms of the kernel's boot from its ring buffer, initcall_debug with the console quiet"

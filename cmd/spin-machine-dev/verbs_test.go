@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/spin-stack/spin-machine/internal/build"
 	"github.com/spin-stack/spin-machine/machine"
 )
@@ -68,7 +70,11 @@ func read(t *testing.T, path string) string {
 // verb runs the command with args, and says what it wrote and the status it exits with.
 func verb(t *testing.T, args ...string) (stdout, stderr string, status int) {
 	t.Helper()
-	c := root()
+	return execute(root(), args...)
+}
+
+// execute runs c with args as the command line, as verb runs root.
+func execute(c *cobra.Command, args ...string) (stdout, stderr string, status int) {
 	c.SetArgs(args)
 	var o, e bytes.Buffer
 	c.SetOut(&o)

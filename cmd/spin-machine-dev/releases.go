@@ -18,8 +18,6 @@ import (
 	"github.com/spin-stack/spin-machine/internal/lab"
 )
 
-func init() { verbs = append(verbs, releasesCommand) }
-
 // releasesCommand is each release's numbers kept in the repository, one small file a release, and
 // the page that reads them together.
 func releasesCommand() *cobra.Command {

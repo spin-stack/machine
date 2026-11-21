@@ -209,28 +209,24 @@ func TestOneFileUnattestedIsRefused(t *testing.T) {
 
 func TestVsockMakesTheDeviceUsableOrSaysItIsNotThere(t *testing.T) {
 	checkout(t)
-	was := vsockDevice
-	t.Cleanup(func() { vsockDevice = was })
-	vsockDevice = filepath.Join(t.TempDir(), "absent")
 	calls := fakes(t, map[string]string{"sudo": ""})
-	if _, stderr, status := verb(t, "vsock"); status != 0 || !strings.Contains(stderr, "no vhost_vsock here") {
+	if _, stderr, status := execute(vsockCmd(filepath.Join(t.TempDir(), "absent"))); status != 0 || !strings.Contains(stderr, "no vhost_vsock here") {
 		t.Errorf("no device: exit %d, %q", status, stderr)
 	}
 	if got := read(t, calls); got != "sudo modprobe vhost_vsock\nsudo udevadm settle\n" {
 		t.Errorf("sudo ran %q", got)
 	}
-	vsockDevice = filepath.Join(t.TempDir(), "file")
-	put(t, vsockDevice, "", 0o644)
-	if _, stderr, _ := verb(t, "vsock"); !strings.Contains(stderr, "no vhost_vsock here") {
+	file := filepath.Join(t.TempDir(), "file")
+	put(t, file, "", 0o644)
+	if _, stderr, _ := execute(vsockCmd(file)); !strings.Contains(stderr, "no vhost_vsock here") {
 		t.Errorf("a file that is not a device was taken for one: %q", stderr)
 	}
-	vsockDevice = "/dev/null"
 	calls = fakes(t, map[string]string{"sudo": ""})
-	if _, stderr, status := verb(t, "vsock"); status != 0 || !strings.Contains(read(t, calls), "sudo chmod 0666 /dev/null") {
+	if _, stderr, status := execute(vsockCmd("/dev/null")); status != 0 || !strings.Contains(read(t, calls), "sudo chmod 0666 /dev/null") {
 		t.Errorf("a device: exit %d, %q, %q", status, stderr, read(t, calls))
 	}
 	fakes(t, map[string]string{"sudo": `[ "$1" = chmod ] && exit 1; exit 0`})
-	if _, stderr, status := verb(t, "vsock"); status != 2 || !strings.Contains(stderr, "making /dev/null usable") {
+	if _, stderr, status := execute(vsockCmd("/dev/null")); status != 2 || !strings.Contains(stderr, "making /dev/null usable") {
 		t.Errorf("a chmod that failed: exit %d, %q", status, stderr)
 	}
 }

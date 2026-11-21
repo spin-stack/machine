@@ -25,10 +25,6 @@ import (
 	"github.com/spin-stack/spin-machine/machine"
 )
 
-func init() {
-	verbs = append(verbs, outdatedCmd, bumpCmd, refreshCmd)
-}
-
 func outdatedCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "outdated",

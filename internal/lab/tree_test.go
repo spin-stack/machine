@@ -4,6 +4,7 @@ package lab
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -264,6 +265,21 @@ func TestTheLaneEditIsThisCheckoutsLane(t *testing.T) {
 	}
 	if s := systemdPackages("/x/debs").Setup; !strings.Contains(s, "debs=/x/debs") || !strings.Contains(s, "test \"$replaced\" -gt 0") {
 		t.Errorf("systemd's edit: %q", s)
+	}
+}
+
+// The edits an unknown name is told about are the ones a tree can ask for, each one an edit.
+func TestEveryEditTheErrorNamesIsOne(t *testing.T) {
+	_, err := namedEdit("nope", checkoutRoot(t))
+	_, list, ok := strings.Cut(fmt.Sprint(err), "the edits are: ")
+	if !ok {
+		t.Fatalf("an unknown edit: %v", err)
+	}
+	for name := range strings.SplitSeq(list, ", ") {
+		e, err := namedEdit(name, checkoutRoot(t))
+		if err != nil || len(e.Files)+len(e.Links) == 0 && e.Setup == "" {
+			t.Errorf("edit %s: %+v, %v", name, e, err)
+		}
 	}
 }
 

@@ -34,6 +34,11 @@ type Probe interface {
 	// restores any, because a cold boot after a restored guest had run was ~1.8x slower on the
 	// bench fleet (2026-11-13) and would have measured that.
 	Phases() int
+	// Needs are the spin-machine commands and flags the probe runs with options o, which not
+	// every release's has: a release's tree runs the spin-machine of its own commit
+	// (TreeSpec.SpinMachine "release"), and boot --restore, --held and start arrived with
+	// v20261119.02.
+	Needs(o Options) []Need
 	// Measure does one pass of one measurement, recording into m. An error made by Miss loses the
 	// measurement and the experiment goes on; any other stops it.
 	Measure(ctx context.Context, m *Measurement) error
@@ -405,9 +410,14 @@ func (m *Measurement) SpinMachine(args ...string) error {
 }
 
 // Probes are the probes there are, by name.
-var Probes = map[string]Probe{}
-
-func register(p Probe) { Probes[p.Name()] = p }
+var Probes = map[string]Probe{
+	"density":          density{},
+	"initcalls":        initcalls{},
+	"prestart":         prestart{},
+	"restore-first":    restoreFirst{},
+	"restore-together": restoreTogether{},
+	"ssh-first":        sshFirst{},
+}
 
 // ProbeNames are the probes' names, sorted.
 func ProbeNames() []string { return slices.Sorted(maps.Keys(Probes)) }

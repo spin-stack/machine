@@ -23,10 +23,6 @@ import (
 	"github.com/spin-stack/spin-machine/internal/release"
 )
 
-func init() {
-	verbs = append(verbs, osvCmd, cvesCmd)
-}
-
 // newestRelease is the newest published release's tag: what anything takes next, so what is
 // scanned. One still pinned somewhere is its consumer's to scan.
 func newestRelease(ctx context.Context) (string, error) {

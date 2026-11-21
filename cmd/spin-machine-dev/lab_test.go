@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -79,15 +80,23 @@ func (counter) About() string { return "counts" }
 func (counter) Options() []lab.Option {
 	return []lab.Option{{Name: "cpus", Default: "2"}, {Name: "memory", Default: "2048"}, {Name: "flags"}}
 }
-func (counter) Metrics() []lab.Metric     { return []lab.Metric{{Name: "n", Unit: "count"}} }
-func (counter) Rows(lab.Options) []string { return []string{"one"} }
-func (counter) Phases() int               { return 1 }
+func (counter) Metrics() []lab.Metric        { return []lab.Metric{{Name: "n", Unit: "count"}} }
+func (counter) Rows(lab.Options) []string    { return []string{"one"} }
+func (counter) Phases() int                  { return 1 }
+func (counter) Needs(lab.Options) []lab.Need { return nil }
 func (counter) Measure(_ context.Context, m *lab.Measurement) error {
 	if m.Tree.Name() == "lost" {
 		return lab.Miss("gone")
 	}
 	m.Record("n", float64(m.Rep+1))
 	return nil
+}
+
+// testProbes are the probes there are and counter.
+func testProbes() map[string]lab.Probe {
+	probes := maps.Clone(lab.Probes)
+	probes["counter"] = counter{}
+	return probes
 }
 
 // fakeRelease is a directory laid out as a release, every file a few bytes.
@@ -114,9 +123,8 @@ func fakeRelease(t *testing.T) string {
 func runLab(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	// A command of its own each time: root's verbs are made once, at init, and a flag set in one
-	// run would still be set in the next.
-	c := labCommand()
+	// A command of its own each time: a flag set in one run would still be set in the next.
+	c := labCommand(testProbes())
 	c.SetArgs(args)
 	c.SetOut(&out)
 	c.SetErr(&errOut)
@@ -125,8 +133,6 @@ func runLab(t *testing.T, args ...string) (string, string, error) {
 }
 
 func TestLabRunMakesItsTreesMeasuresThemAndWritesTheResult(t *testing.T) {
-	lab.Probes["counter"] = counter{}
-	t.Cleanup(func() { delete(lab.Probes, "counter") })
 	base := fakeRelease(t)
 	t.Setenv("TMPDIR", "")
 	// Off a runner: a runner's scratch may be its instance store, which a unit test leaves alone.
@@ -245,9 +251,9 @@ func TestAResultIsFoundByDirectoryOrRun(t *testing.T) {
 }
 
 func TestLabsHelpNamesEveryProbe(t *testing.T) {
-	c := labCommand()
+	c := labCommand(lab.Probes)
 	for _, p := range lab.ProbeNames() {
-		if p != "counter" && !strings.Contains(c.Long, p) {
+		if !strings.Contains(c.Long, p) {
 			t.Errorf("lab --help does not name %s", p)
 		}
 	}

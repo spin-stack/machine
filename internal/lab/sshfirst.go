@@ -28,8 +28,6 @@ import (
 // the user's manager. The console's prompt is timed in the same boot, the getty an echo.
 type sshFirst struct{}
 
-func init() { register(sshFirst{}) }
-
 func (sshFirst) Name() string { return "ssh-first" }
 func (sshFirst) About() string {
 	return "ms from the moment before QEMU is exec'd to sshd accepting on vsock, and to `true` run over SSH, as spin or, on spin's login, root"

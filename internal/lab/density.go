@@ -24,8 +24,6 @@ import (
 // nested and on metal alike).
 type density struct{}
 
-func init() { register(density{}) }
-
 func (density) Name() string { return "density" }
 func (density) About() string {
 	return "ms from the moment before QEMU is exec'd to `true` run as spin over SSH, with the row's number of workspaces already running"
