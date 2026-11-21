@@ -2,15 +2,18 @@
 
 package qmpdef
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // isolated gives the test a registry of its own: what it defines is gone after it, and what the
 // binary links is out of its way.
 func isolated(t *testing.T) {
 	t.Helper()
-	saved := defs
-	defs = map[string][]def{}
-	t.Cleanup(func() { defs = saved })
+	savedDefs, savedEnums := defs, enums
+	defs, enums = map[string][]def{}, map[reflect.Type][]string{}
+	t.Cleanup(func() { defs, enums = savedDefs, savedEnums })
 }
 
 // A definition carries its name to the wire, and only a defined event is an event: a command's
