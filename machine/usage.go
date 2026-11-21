@@ -35,18 +35,24 @@ type Usage struct {
 	Guest *GuestUsage
 }
 
-// CPUUsage is cpu.stat, and cpu.pressure's some total.
+// CPUUsage is cpu.stat, and cpu.pressure's some total. Throttled and Throttles are cpu.max's
+// throttling: how long, and how many times.
 type CPUUsage struct {
 	Used, Throttled, Stalled time.Duration
+	Throttles                uint64
 }
 
-// MemoryUsage is memory.current and memory.stat, in bytes, and memory.pressure's some total.
+// MemoryUsage is memory.current and memory.stat, in bytes, memory.pressure's some total, and
+// memory.events: how many times QEMU's memory was reclaimed at memory.high (High) and memory.max
+// (Max), and the OOM killer ran (OOMs) and killed (OOMKills) at memory.max.
 type MemoryUsage struct {
 	Current, Anon, File, Dirty, Writeback int64
 	Stalled                               time.Duration
+	High, Max, OOMs, OOMKills             uint64
 }
 
-// IOUsage is io.stat over every device, and io.pressure's some total.
+// IOUsage is io.stat over every device, and io.pressure's some total. cgroup v2 counts nothing of
+// what io.max throttled (Linux 7.0, 2026-11-21): a Limited of IO is IO that ran at its limit.
 type IOUsage struct {
 	Read, Written, Reads, Writes int64
 	Stalled                      time.Duration
@@ -156,6 +162,7 @@ func cgroupUsage(dir string) (Usage, error) {
 	}
 	cpu := keyed(b)
 	u.CPU.Used, u.CPU.Throttled = time.Duration(cpu["usage_usec"])*time.Microsecond, time.Duration(cpu["throttled_usec"])*time.Microsecond
+	u.CPU.Throttles = uint64(cpu["nr_throttled"])
 	if b, err = read("memory.current"); err != nil {
 		return u, err
 	}
@@ -167,21 +174,15 @@ func cgroupUsage(dir string) (Usage, error) {
 	}
 	mem := keyed(b)
 	u.Memory.Anon, u.Memory.File, u.Memory.Dirty, u.Memory.Writeback = mem["anon"], mem["file"], mem["file_dirty"], mem["file_writeback"]
+	if b, err = read("memory.events"); err != nil {
+		return u, err
+	}
+	ev := keyed(b)
+	u.Memory.High, u.Memory.Max, u.Memory.OOMs, u.Memory.OOMKills = uint64(ev["high"]), uint64(ev["max"]), uint64(ev["oom"]), uint64(ev["oom_kill"])
 	if b, err = read("io.stat"); err != nil {
 		return u, err
 	}
-	// One line a device: "259:0 rbytes=1 wbytes=2 rios=3 wios=4 dbytes=0 dios=0".
-	for line := range bytes.Lines(b) {
-		f := bytes.Fields(line)
-		if len(f) < 2 {
-			continue
-		}
-		io := map[string]int64{}
-		for _, kv := range f[1:] {
-			k, v, _ := bytes.Cut(kv, []byte("="))
-			n, _ := strconv.ParseInt(string(v), 10, 64)
-			io[string(k)] = n
-		}
+	for _, io := range devices(b) {
 		u.IO.Read += io["rbytes"]
 		u.IO.Written += io["wbytes"]
 		u.IO.Reads += io["rios"]
