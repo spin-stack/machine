@@ -447,7 +447,7 @@ func releaseTree(t *testing.T) string {
 
 // releaseDir is the release tree the benchmarks boot: _output, or SPIN_MACHINE_OUTPUT - a tree
 // laid out the same way, for measuring a kernel or an image built somewhere else without writing
-// it over what `task build` made.
+// it over what `spin-machine-dev build` made.
 func releaseDir(t *testing.T) string {
 	t.Helper()
 	out := releaseTree(t)
@@ -455,7 +455,7 @@ func releaseDir(t *testing.T) string {
 		"bin/spin-machine", "bin/qemu-img", "kernel/vmlinux", "image/rootfs.qcow2",
 	} {
 		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
-			t.Skipf("no %s in %s — run: task build", f, out)
+			t.Skipf("no %s in %s — run: spin-machine-dev build", f, out)
 		}
 	}
 	if _, err := os.Stat("/dev/kvm"); err != nil {

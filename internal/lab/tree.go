@@ -153,7 +153,7 @@ func (t *Tree) Cmdline() string {
 type TreeSpec struct {
 	Name string
 	// From is the tree the rest is laid over: "release" (the newest), "release:vYYYYMMDD.NN", or
-	// a directory laid out as a release (_output after `task build`).
+	// a directory laid out as a release (_output after `spin-machine-dev build`).
 	From string
 	// Kernel and QEMU replace those parts: "run:N" for a parts.yml run (or a Kernel or QEMU workflow run from before it), or a path
 	// (a bzImage; a directory holding bin/qemu-system-x86_64 and qemu/).

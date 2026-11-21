@@ -35,7 +35,7 @@ const qbootSize = 64 << 10
 var E2fsprogsBinaries = []string{"mkfs.ext4", "e2fsck", "dumpe2fs", "debugfs"}
 
 // VerifyQEMU asserts the QEMU tree carries what every consumer needs, that it runs here, and that
-// only the CI binary can emulate. Backwards, the last is a fleet running at a tenth of the speed or
+// only the CI binary can emulate. Backwards, the last is a fleet running ~17 times slower or
 // a lane that cannot boot at all; it is not visible in a file listing.
 func VerifyQEMU(o Options) error {
 	for _, b := range QEMUBinaries {

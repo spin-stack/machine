@@ -9,14 +9,14 @@
 # machine whose builder was created the ordinary way), or a container run with the
 # privileges mkosi needs. The second is one flag on one `docker run`.
 #
-# So: this file pins the tools, image/build.sh is the build, Taskfile.yml joins them.
+# So: this file pins the tools, image/build.sh is the build, `spin-machine-dev build image` joins them.
 #
 # ubuntu:26.04 and not debian, because the image being built is Ubuntu 26.04 (resolute) and
 # this is where mkosi's keyring and apt come from. Debian's mkosi can build an Ubuntu image
 # too, with ubuntu-keyring installed by hand; using the same distribution removes the
 # question.
 #
-# By digest, from versions.yaml (image/Taskfile.yml hands it in), like every other base here.
+# By digest, from versions.yaml (`spin-machine-dev build image` hands it in), like every other base here.
 ARG UBUNTU_IMAGE
 FROM ${UBUNTU_IMAGE}
 

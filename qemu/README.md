@@ -20,8 +20,8 @@ Measured before adopting it, same host and machine line: process start to a QMP 
 load, where musl's allocator and its smaller default thread stack differ from glibc's.
 
 The build makes two binaries: one for KVM alone, and a TCG one for runners with no `/dev/kvm`.
-A host serving tenants must fail at start-up rather than run a tenant's VM at a tenth of the
-speed. The build asserts both halves, since neither is visible in a file listing.
+A host serving tenants must fail at start-up rather than run a tenant's VM ~17 times slower
+(TCG's first login, 7.6 s against 455 ms, lab 44848049631, 2026-11-21). The build asserts both halves, since neither is visible in a file listing.
 
 `--enable-tools` ships `qemu-img`, which is not a convenience: a container's writable layer
 is a qcow2 overlay created by running it, so a release with the emulator and without it
@@ -33,5 +33,6 @@ loads and enters them itself. The bzImage's decompressor is where KASLR picks th
 random base. Until 2026-11-19 the machine entered an ELF `vmlinux` through its Xen PVH notes
 and `pvh.bin`, which skips that decompressor and left the kernel at the same address on every
 boot. There is no bootloader and no UEFI: the same guest under UEFI + Secure Boot was measured
-at +356 ms and rejected. The BIOS is qboot, patched and built here as
+at +356 ms and rejected, before this repository existed (the number came with it, 2afac47,
+2026-09-07, and no run of it is kept). The BIOS is qboot, patched and built here as
 [qboot/README.md](qboot/README.md) describes, with SeaBIOS shipped as the fallback.

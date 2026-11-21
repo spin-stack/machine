@@ -16,8 +16,8 @@
 # Debian trixie: gcc 14.2, binutils 2.44, pahole 1.30, since 2026-09-14 (from bookworm: gcc
 # 12.2, binutils 2.40, pahole 1.24).
 #
-# Both are versions.yaml's `debian` and `debian-snapshot`, handed in by kernel/Taskfile.yml with
-# no default here. To move them: `task bump NAME=debian` and `task bump NAME=debian-snapshot`,
+# Both are versions.yaml's `debian` and `debian-snapshot`, handed in by `spin-machine-dev build kernel`
+# with no default here. To move them: `spin-machine-dev bump debian` and `spin-machine-dev bump debian-snapshot`,
 # together, and the boot measured again (`task boot:ssh-first`).
 ARG DEBIAN_IMAGE
 ARG DEBIAN_SNAPSHOT
@@ -80,7 +80,7 @@ RUN --mount=type=cache,sharing=locked,id=kernel-aptlib,target=/var/lib/apt \
 ARG KERNEL_VERSION
 ARG KERNEL_SHA256
 # The series, major.minor, which names the configuration: a stable release within it builds
-# from the same file (kernel/Taskfile.yml derives it from the version).
+# from the same file (`spin-machine-dev build kernel` derives it from the version).
 ARG KERNEL_SERIES
 ARG KERNEL_ARCH="x86_64"
 ARG KERNEL_NPROC="16"

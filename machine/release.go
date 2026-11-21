@@ -117,8 +117,8 @@ func IsBzImage(path string) error {
 // QEMUTCG is the emulating build, for a machine with no /dev/kvm — a CI runner,
 // a laptop outside the kvm group. It is a different binary and not a flag
 // because a host serving tenants should not be able to fall back to software
-// emulation by accident: that failure presents as a VM that is fifty times
-// slower, not as one that did not start.
+// emulation by accident: that failure presents as a VM ~17 times
+// slower (lab 44848049631, 2026-11-21), not as one that did not start.
 //
 // It is not part of a machine's identity and must never run one that a KVM guest
 // will later restore from.

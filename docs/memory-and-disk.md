@@ -134,7 +134,11 @@ step). That run booted `vmlinux` through PVH, and QEMU's ELF loader maps the fil
 `kernel/bzImage` (`machine/release.go`). For a bzImage QEMU's `x86_load_linux`
 (`hw/i386/x86-common.c`) reads the file into memory it allocates and keeps for fw_cfg, so the
 kernel is now anonymous memory in every QEMU, the bzImage's size each, and no longer a file the
-machines share. The 34.7 and 6.9 MB above are from before that and have not been measured again.
+machines share. Measured on v20261120.04 in spin's shape after the second login, QEMU's mapped
+files are 6.6 MiB resident (`RssFile`) against the 42 MB above, and its anonymous memory, guest RAM
+included, is 225 MiB (`RssAnon`, `RssShmem` 0; `ssh-first`, lab 44847770977, 2026-11-21, 10
+boots). The split of that anonymous memory between the guest's RAM and QEMU's own is not
+measured.
 The rest of the ~200 MB is guest RAM that the guest freed and free page reporting has not
 handed back. Reporting returns free blocks of `page_reporting_order` and up (9, or 2 MiB, by
 default), and what `memory.reclaim` frees is scattered (runs 36879800428, 36881456066,

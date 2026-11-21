@@ -12,7 +12,7 @@ import (
 )
 
 // TestEveryProbeMeasuresATree is the VM lane: every probe once over a tree made from a built
-// release (SPIN_LAB_LANE, _output after `task build`), this checkout's spin-machine and the lane
+// release (SPIN_LAB_LANE, _output after `spin-machine-dev build`), this checkout's spin-machine and the lane
 // edit, each measurement whole. It holds what only a booted machine reaches - overlays edited
 // through NBD, a machine launched, logged into over vsock, saved, restored, its ring buffer read -
 // and needs KVM, /dev/vhost-vsock and sudo.

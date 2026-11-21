@@ -371,7 +371,7 @@ func firmwareFile(t *testing.T, name, dflt string) string {
 		return envFile(t, name)
 	}
 	if _, err := os.Stat(dflt); err != nil {
-		t.Skipf("no %s — run: task qemu:qboot (or set %s)", dflt, name)
+		t.Skipf("no %s — run: spin-machine-dev build qemu (or set %s)", dflt, name)
 	}
 	return dflt
 }

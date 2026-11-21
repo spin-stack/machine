@@ -274,7 +274,7 @@ ENV QEMU_FLAGS="\
 # Two builds, differing in one flag: whether TCG is compiled in.
 #
 # /opt/qemu is what a host serving tenants runs, and it cannot emulate. A machine with no
-# /dev/kvm gets an error at start-up instead of a guest at a tenth of the speed producing
+# /dev/kvm gets an error at start-up instead of a guest ~17 times slower producing
 # timings that read like measurements.
 #
 # /opt/qemu-tcg is for CI, where the runner has no /dev/kvm. Only its system binary is
@@ -361,7 +361,7 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
 #
 # The last two lines are the split itself, and neither half is visible in a file listing:
 # the binary a tenant's host runs must refuse to emulate, and CI's must be able to. Getting
-# them backwards is a fleet quietly running at a tenth of the speed, or a CI lane that
+# them backwards is a fleet quietly running ~17 times slower, or a CI lane that
 # cannot boot at all.
 RUN Q=/opt/qemu/bin/qemu-system-x86_64 && \
     $Q -device help 2>&1 | grep -q 'virtio-blk-pci' && \
