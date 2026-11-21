@@ -34,14 +34,17 @@ const (
 	writeWait = time.Second
 )
 
+// mutate-lane: TestTheSenderReportsTheHostsOwnPressure
 func main() {
-	if err := run(); err != nil {
+	if err := run(&sender{fd: -1, connect: hostVsock}); err != nil {
 		fmt.Fprintln(os.Stderr, "spin-machine-pressure:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+// run arms the triggers and watches, and writes what they say through s until it fails.
+// mutate-lane: TestTheSenderReportsTheHostsOwnPressure
+func run(s *sender) error {
 	var triggers []pressure.Trigger
 	for _, r := range pressure.Resources() {
 		t, err := pressure.Arm(filepath.Join("/proc/pressure", r.String()), r)
@@ -54,7 +57,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	s := sender{fd: -1}
 	kills, err := oomKills("/proc/vmstat")
 	if err != nil {
 		return err
@@ -128,20 +130,30 @@ type sender struct {
 	fd     int
 	next   time.Time
 	redial time.Duration
+	// connect dials the host: hostVsock.
+	connect func() (int, error)
+}
+
+// hostVsock is a connection to the host's pressure port, whose writes give up after writeWait.
+func hostVsock() (int, error) {
+	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0) // mutate-exempt: only a guest dials the host, in machine's TestThePressureProbeReportsEachPressure, which fails without the connection
+	if err != nil {
+		return -1, err // mutate-exempt: the descriptor beside an error is never read
+	}
+	err = unix.Connect(fd, &unix.SockaddrVM{CID: unix.VMADDR_CID_HOST, Port: pressure.Port})
+	if err == nil {
+		tv := unix.NsecToTimeval(writeWait.Nanoseconds())
+		err = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_SNDTIMEO, &tv)
+	}
+	if err != nil {
+		_ = unix.Close(fd)
+		return -1, err // mutate-exempt: the descriptor beside an error is never read
+	}
+	return fd, nil
 }
 
 func (s *sender) dial(kills uint64) {
-	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
-	if err == nil {
-		err = unix.Connect(fd, &unix.SockaddrVM{CID: unix.VMADDR_CID_HOST, Port: pressure.Port})
-		if err == nil {
-			tv := unix.NsecToTimeval(writeWait.Nanoseconds())
-			err = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_SNDTIMEO, &tv)
-		}
-		if err != nil {
-			_ = unix.Close(fd)
-		}
-	}
+	fd, err := s.connect()
 	if err != nil {
 		s.redial = min(max(2*s.redial, firstRedial), lastRedial)
 		s.next = time.Now().Add(s.redial)
@@ -153,13 +165,13 @@ func (s *sender) dial(kills uint64) {
 
 // send writes l to the host, and drops the connection when the host does not take it.
 func (s *sender) send(l pressure.Line) {
-	if s.fd < 0 {
+	if s.fd < 0 { // mutate-exempt: descriptor 0 is the service's stdin, never the connection
 		return
 	}
 	// A part of a line would run into the next one, which the host refuses: a short write is a
 	// failed one.
 	b := l.Append(nil)
-	if n, err := unix.Write(s.fd, b); err != nil || n != len(b) {
+	if n, err := unix.Write(s.fd, b); err != nil || n != len(b) { // mutate-exempt: && differs only on a short write with no error, which no test can make the kernel do
 		s.drop()
 	}
 }
