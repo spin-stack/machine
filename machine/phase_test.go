@@ -31,7 +31,7 @@ func (p *phases) names() []string {
 	var names []string
 	for _, ph := range p.told {
 		n := strings.TrimPrefix(fmt.Sprintf("%T", ph), "machine.")
-		if len(names) == 0 || names[len(names)-1] != n {
+		if n != "RAMWritten" || names[len(names)-1] != n {
 			names = append(names, n)
 		}
 	}
@@ -80,8 +80,9 @@ func TestACheckpointTellsItsPhasesInOrder(t *testing.T) {
 		after func(m *QEMU) []func(context.Context) error
 		last  []string
 	}{
-		{"continued", func(m *QEMU) []func(context.Context) error { return []func(context.Context) error{m.Continue} },
-			[]string{"GuestRunning"}},
+		{"continued, twice", func(m *QEMU) []func(context.Context) error {
+			return []func(context.Context) error{m.Continue, m.Continue}
+		}, []string{"GuestRunning"}},
 		{"held, then continued", func(m *QEMU) []func(context.Context) error {
 			return []func(context.Context) error{m.Hold, m.Continue}
 		}, []string{"GuestHeld"}},
@@ -159,8 +160,10 @@ func TestAResumeTellsItsPhases(t *testing.T) {
 			}
 			if tc.load.Fast {
 				f.send(migrationEvents("completed"))
-				if err := m.Loaded(ctx(t)); err != nil {
-					t.Fatal(err)
+				for range 2 {
+					if err := m.Loaded(ctx(t)); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			if got := p.names(); !reflect.DeepEqual(got, tc.want) {
