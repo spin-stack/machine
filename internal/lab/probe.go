@@ -422,6 +422,7 @@ var Probes = map[string]Probe{
 	"restore-first":    restoreFirst{},
 	"restore-together": restoreTogether{},
 	"ssh-first":        sshFirst{},
+	"transport":        transport{},
 }
 
 // ProbeNames are the probes' names, sorted.
