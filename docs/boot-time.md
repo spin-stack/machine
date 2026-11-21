@@ -78,11 +78,13 @@ not a measurement: it says how far each phase has to move.
 | Phase | p50 | Source | How well known | For 100 ms |
 |---|---|---|---|---|
 | QEMU's exec to a guest ready to run | ~28 | cold 456 less the boot into a QEMU started ahead, 428 (report 44811347183) | by difference, one run | 0, started ahead |
+| … of it, QMP: QEMU's main loop free to `cont` answered, 14 commands | 6.2 | `transport` `cold_qmp`, lab 44912471522 (v20261121.01); 4.5 of it QEMU waiting on spin-machine's next command | measured | |
 | qboot and the bzImage's decompression, to the kernel's clock | 33.6 | `boot:firmware-stages`, lab 44787491631 (v20261120.02's kernel); ~21 of it is the decompression KASLR needs | measured, another run | 5 |
 | The kernel's clock to "Freeing unused kernel image" | 79.9 | report 44811347183 | measured | 25 |
 | PID 1 to sshd accepting | ~255 | sshd accepts 396 (lab 44841266997) less the three rows above | by difference, across runs | 35 |
 | sshd's accept to the first login | 68.4 | `ssh-first` `accept_to_login`, lab 44841266997 | measured | 35 |
 | … of it, what any login costs (a second login) | 35.9 | `ssh-first` `second_login`, the same | measured | |
+| … of a login, vsock: 10 round trips of 57.5 µs through the forwarder | 0.6 | `transport` `login_turns`, `forward_rtt`, lab 44912471522 | measured | |
 | **Total** | **465** | lab 44841266997, v20261120.04 (456 in the report's run) | | **100** |
 
 **PID 1 to sshd is more than half the cold boot.** On one vCPU, everything systemd starts before
@@ -96,9 +98,10 @@ started ahead. Each phase from the first row to the fourth has to shrink to reac
 | Phase | p50 | Source | How well known | For 100 ms |
 |---|---|---|---|---|
 | spin-machine's exec and its dial | 2.3 | `split` (a probe on branch `restore-split-lab`, not on main), lab 44809015139 (v20261120.03) | measured, one run | 1 |
-| QMP round trips to `migrate-incoming` (~20 of them) | 8.3 | the same | measured, one run | 3 |
+| QMP round trips to `migrate-incoming` (17 of them) | 6.7 | `transport` `restore_qmp`, lab 44912471522 (v20261121.01); 5.2 of it QEMU waiting on spin-machine. The read-ahead runs beside it | measured, one run | 3 |
 | The RAM load (8 channels, 181 MiB of data, evicted) | 38.8 before the read-ahead; ~27 after it | the same; the read-ahead −11.9 to running (lab 44809512339) | measured, then by difference | 25 |
 | Device state and `cont` | 4.5 | the same | measured, one run | 3 |
+| … after it, the guest running to the restore's last answer (`remove-fd`, `query-status`) | 2.7 | `transport` `restore_after`, lab 44912471522 | measured, one run | |
 | Running to the first login | ~35 | 83.2 less running (~47); laptop: the connection ~5, to "Accepted publickey" ~22, the session ~4 | by difference; split on a laptop | 35 |
 | **Total** | **83.2** | report 44811347183 | | **67** |
 
@@ -290,6 +293,22 @@ and a row measured in another shape than spin's has such a reason.
 | Base memory in a shared file, left out of the checkpoint (`x-ignore-shared`) | state 0.3 MiB, save 15 ms, but neither goal number improves: cold 1089 ms on disk, 709-719 on tmpfs | ladder | labs 44663272360, 44664989139, #306 | 11-20 |
 | 16 multifd channels as the default | −10.1 alone, but +3.2 [+1.1, +5.8] against 8 when 4 restore at once | spin | lab 44792429636 | 11-20 |
 | `direct-io` (O_DIRECT) on the channels | within the noise evicted, +45 ms cached | laptop | log.md, 11-21 | 11-21 |
+
+### QMP and vsock
+
+Both transports were measured in spin's shape on the bench, 20 boots, with the `transport` probe
+(lab 44912471522, v20261121.01, 2026-11-21). Each ceiling is what the goal number would gain if the
+part cost nothing. None is above the noise (±7-9 ms cold, ±13 restored at 20 boots), so none was
+built.
+
+| Idea | Result | Shape | Source | Date |
+|---|---|---|---|---|
+| Faster QMP in general | the cold boot waits on 14 commands, 6.2 ms from QEMU's main loop being free to `cont` answered (1.3% of 470). A restore waits on 17 before `migrate-incoming`, 6.7 ms, and 2.7 after the guest runs. The commands' own run is ~1.2 ms of each path. The rest is round trips: query-status alone is 131 µs from the client, 18 µs in QEMU. spin-machine's start and dial are off the path: its first command waits 17 ms (cold) and 19.5 (restored) for QEMU | spin | lab 44912471522 | 11-21 |
+| Pipelining the bind (every command sent before the first answer) | ceiling: QEMU's wait on the client, 4.5 ms cold and 5.2 restored, under the noise. The read-ahead overlaps the restore's half, so its share is smaller | spin | the same | 11-21 |
+| Fewer round trips (no `query-status` before the bind, places read from the Spec instead of `query-block` and `qom-get`, `Last(RESUME)` for the `query-status` after a load) | ceiling ~1.3 ms cold, ~1.9 restored | spin | the same, the detail by command | 11-21 |
+| Smaller answers | nothing large is on either path: `query-block` runs in 0.12 ms. The record's 125 KB answers left the restore's clock with `Resume(here)` | spin | the same | 11-21 |
+| QMP over vsock, SEQPACKET, ivshmem, virtio-serial, gRPC or protobuf framing | QMP does not ride vsock: it is a Unix socket between the host and QEMU. vsock carries the login, and a login is 10 round trips of 47.8 µs (57.5 through the forwarder), 0.6 ms of a 32.8 ms warm login. Every vsock change shares that ceiling | spin | the same | 11-21 |
+| `kvm.halt_poll_ns`, CPU pinning, for vsock | bounded by the same 0.6 ms a login. What they do to the boot's other wake-ups is a different question, not measured here | spin | the same | 11-21 |
 
 ### Memory and the host
 
