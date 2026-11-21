@@ -35,17 +35,18 @@ type CompatRow struct {
 
 // Compat is boot:compat over the releases, newest first, until one whose machine is not this one:
 // a host that skipped releases resumes a checkpoint from any of them, not only the one before. A
-// release's checkpoint is taken at spin's shape on its own QEMU, kernel and firmware, and this
-// machine refuses it or resumes it (resume); the first it refuses, by its differences, is where
-// the machine moved, and every older release is past it. It stops as well at the first release
-// with no bzImage, which no spin-machine since v20261119.02 boots, and every older release has
-// none either. For each release it also holds the other direction: a checkpoint written by here's
+// release's checkpoint is taken at spin's shape on its own machine - its QEMU, kernel and firmware,
+// started by the spin-machine of the commit it was made from - and this machine refuses it or
+// resumes it (resume); the first it refuses, by its differences, is where the machine moved, and
+// every older release is past it. It stops as well at the first release with no bzImage, which no
+// spin-machine since v20261119.02 boots, and every older release has none either. For each release it also holds the other direction: a checkpoint written by here's
 // QEMU is one CanResume refuses on a release whose QEMU is older (QEMU loads what an older version
 // wrote, never the reverse).
 //
-// resume is ResumeHere on here with previous as the release before: the refusal when this machine
-// refused the checkpoint, or the failure when it did not go on running.
-func Compat(here string, tags []string, src Sources, resume func(previous string) (refused string, err error), log io.Writer) ([]CompatRow, error) {
+// resume is ResumeHere on here with previous as the release before and previousCLI as its
+// spin-machine: the refusal when this machine refused the checkpoint, or the failure when it did
+// not go on running.
+func Compat(here string, tags []string, src Sources, resume func(previous, previousCLI string) (refused string, err error), log io.Writer) ([]CompatRow, error) {
 	hereQEMU, err := qemuVersion(filepath.Join(here, "bin", "qemu-system-x86_64"))
 	if err != nil {
 		return nil, err
@@ -67,8 +68,15 @@ func Compat(here string, tags []string, src Sources, resume func(previous string
 		if err := oneWay(hereQEMU, relQEMU); err != nil {
 			return nil, fmt.Errorf("%s: %w", tag, err)
 		}
+		// The release's machine is the one its own spin-machine starts: here's command line is
+		// here's machine, and it gave v20261120.02's QEMU a property only v20261120.03's has
+		// (virtio-scsi-pci's max_target), which that QEMU refused (2026-11-21).
+		cli := filepath.Join(src.Cache, "releases", tag, "spin-machine")
+		if _, err := src.releaseSpinMachine(dir, cli); err != nil {
+			return nil, err
+		}
 		_, _ = fmt.Fprintf(log, "compat: a checkpoint of %s, resumed here\n", tag)
-		refused, err := resume(dir)
+		refused, err := resume(dir, cli)
 		switch {
 		case refused != "":
 			rows = append(rows, CompatRow{Release: tag, Moved: true, Why: refused})
@@ -136,19 +144,20 @@ func CompatTable(rows []CompatRow) string {
 
 // ResumeHere says whether a checkpoint the release at previous saves resumes on the machine of the
 // built release at here, and holds CanResume's answer to QEMU's. The guest is booted at spin's
-// shape on previous's QEMU, kernel and firmware, over an overlay of its base image, with a counter
-// printing on its console; here's spin-machine saves it, which records the machine as that QEMU
-// reports it. A machine of here's QEMU, held for a checkpoint over the same overlay, says whether
-// it resumes it (machine.CanResume); if so it is restored with that record (restore --target), as
-// spin hands Resume its host's, and the counter has to go on from where it was and the disk has to
-// answer.
+// shape on previous's machine - its QEMU, kernel and firmware, on the command line its own
+// spin-machine, previousCLI, prints and started by it - over an overlay of its base image, with a
+// counter printing on its console; here's spin-machine saves it, which records the machine as that
+// QEMU reports it. A machine of here's QEMU, held for a checkpoint over the same overlay, says
+// whether it resumes it (machine.CanResume); if so it is restored with that record (restore
+// --target), as spin hands Resume its host's, and the counter has to go on from where it was and
+// the disk has to answer.
 //
 // When here's machine refuses the checkpoint, the machine moved and no checkpoint of previous is
 // meant to resume: refused is every difference, and nothing is held.
 //
 // It was a test lab compat ran with `go test`, which a release tree missing a part or a renamed
 // test passed: a skip, or "no tests to run", exits 0.
-func ResumeHere(ctx context.Context, here, previous string, log io.Writer) (refused string, err error) {
+func ResumeHere(ctx context.Context, here, previous, previousCLI string, log io.Writer) (refused string, err error) {
 	for _, f := range []string{"bin/spin-machine", "bin/qemu-img", "kernel/vmlinux", "image/rootfs.qcow2"} {
 		if !fileExists(filepath.Join(here, f)) {
 			return "", fmt.Errorf("no %s in %s: run spin-machine-dev build", f, here)
@@ -175,9 +184,9 @@ func ResumeHere(ctx context.Context, here, previous string, log io.Writer) (refu
 	cid := 3500000 + os.Getpid()%100000*10 // mutate-exempt: where this run's context ids start; any start clear of the host's own (0-2) and of another run's holds
 
 	// machineOf is a machine of release on the overlay, its console on stdin and stdout: QEMU run
-	// with the command line `spin-machine args` prints, then let go by `spin-machine start`, or held
+	// with the command line release's spin-machine, cli, prints, then let go by its start, or held
 	// for a checkpoint with restore.
-	machineOf := func(release, sock string, n int, restore bool) (*console, error) {
+	machineOf := func(release, cli, sock string, n int, restore bool) (*console, error) {
 		flags := append(spinsFlags(), "--qmp", sock, "--vsock-cid", fmt.Sprint(cid+n), // mutate-exempt: any two context ids apart, clear of the host's own (0-2), are two machines' own
 			"--disk", overlay, "--disk-format", "qcow2", "--init", "/bin/sh")
 		mode := []string{"args", "--release", release}
@@ -201,13 +210,13 @@ func ResumeHere(ctx context.Context, here, previous string, log io.Writer) (refu
 		if o, err := exec.CommandContext(ctx, cli, "start", "--release", release, "--qmp", sock,
 			"--disk", overlay, "--disk-format", "qcow2").CombinedOutput(); err != nil {
 			g.kill()
-			return nil, fmt.Errorf("spin-machine start: %w: %s", err, o)
+			return nil, fmt.Errorf("spin-machine start: %w: %s\n%s", err, o, g.said())
 		}
 		return g, nil
 	}
 
 	aSock := filepath.Join(socks, "a")
-	a, err := machineOf(previous, aSock, 1, false)
+	a, err := machineOf(previous, previousCLI, aSock, 1, false)
 	if err != nil {
 		return "", err
 	}
@@ -225,7 +234,7 @@ func ResumeHere(ctx context.Context, here, previous string, log io.Writer) (refu
 	a.kill()
 
 	bSock := filepath.Join(socks, "b")
-	b, err := machineOf(here, bSock, 2, true)
+	b, err := machineOf(here, cli, bSock, 2, true)
 	if err != nil {
 		return "", err
 	}
@@ -317,23 +326,27 @@ func recordOf(ctx context.Context, cli, sock, path string, g *console) (machine.
 type console struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
-	mu    sync.Mutex
-	out   bytes.Buffer
+	// w is the console's end QEMU writes to, and read is closed once out holds all it wrote.
+	w    *io.PipeWriter
+	read chan struct{}
+	mu   sync.Mutex
+	out  bytes.Buffer
 }
 
 func startConsole(args []string) (*console, error) {
-	g := &console{cmd: exec.Command(args[0], args[1:]...)}
+	g := &console{cmd: exec.Command(args[0], args[1:]...), read: make(chan struct{})}
 	stdin, err := g.cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("the console's stdin: %w", err)
 	}
 	g.stdin = stdin
 	r, w := io.Pipe()
-	g.cmd.Stdout, g.cmd.Stderr = w, w
+	g.w, g.cmd.Stdout, g.cmd.Stderr = w, w, w
 	if err := g.cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting QEMU: %w", err)
 	}
 	go func() {
+		defer close(g.read)
 		buf := make([]byte, 4096) // mutate-exempt: the read size; the console keeps every byte whatever it is
 		for {
 			n, err := r.Read(buf)
@@ -386,9 +399,13 @@ func (g *console) lastTick() int {
 	return last
 }
 
+// kill ends QEMU, and returns once the console holds everything it said: a QEMU that refused its
+// command line said why on its way out, and the failure carries it.
 func (g *console) kill() {
 	if g.cmd.Process != nil {
 		_ = g.cmd.Process.Kill()
 		_ = g.cmd.Wait()
+		_ = g.w.Close()
+		<-g.read
 	}
 }
