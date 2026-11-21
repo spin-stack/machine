@@ -102,13 +102,13 @@ func TestArgs(t *testing.T) {
 		// that moved off its slot is a device the guest may not find, with no error.
 		// One place is enough for the group its node is in.
 		name: "one place",
-		set:  func(s *Spec) { s.Disks = []DiskSlot{{Serial: "root"}} },
+		set:  func(s *Spec) { s.Places = []Place{{Serial: "root"}} },
 		want: []string{"-object throttle-group,id=places "},
 	}, {
 		name: "fixed slots",
 		set: func(s *Spec) {
 			s.VsockCID = 7
-			s.Disks = []DiskSlot{{Serial: "root"}, {Serial: "home", Readonly: true}}
+			s.Places = []Place{{Serial: "root"}, {Serial: "home", Readonly: true}}
 			s.NICs = []NIC{nic()}
 		},
 		want: []string{
@@ -399,9 +399,9 @@ func TestValidateRefuses(t *testing.T) {
 		// caller gets a machine that cannot grow having asked for one that can.
 		{"a memory ceiling below the boot size", func(s *Spec) { s.Memory.SizeMB, s.Memory.MaxMB = 2048, 512 }},
 		{"more disks than the slot range holds", func(s *Spec) {
-			s.Disks = make([]DiskSlot, maxDisks+1)
-			for i := range s.Disks {
-				s.Disks[i] = DiskSlot{Serial: fmt.Sprintf("d%d", i)}
+			s.Places = make([]Place, maxDisks+1)
+			for i := range s.Places {
+				s.Places[i] = Place{Serial: fmt.Sprintf("d%d", i)}
 			}
 		}},
 		{"more NICs than the slot range holds", func(s *Spec) {
@@ -413,10 +413,10 @@ func TestValidateRefuses(t *testing.T) {
 		{"more hotplug disks than the controller addresses", func(s *Spec) { s.HotplugDisks = maxHotplugDisks + 1 }},
 		{"a negative number of hotplug disks", func(s *Spec) { s.HotplugDisks = -1 }},
 		// A disk is bound to its place by serial, and the serial names its nodes.
-		{"a place for a disk with no serial", func(s *Spec) { s.Disks = []DiskSlot{{}} }},
-		{"a serial QEMU would take as more options", func(s *Spec) { s.Disks = []DiskSlot{{Serial: "x,addr=0x2"}} }},
-		{"a serial longer than virtio-blk's 20 bytes", func(s *Spec) { s.Disks = []DiskSlot{{Serial: strings.Repeat("a", 21)}} }},
-		{"two places with one serial", func(s *Spec) { s.Disks = []DiskSlot{{Serial: "a"}, {Serial: "a"}} }},
+		{"a place for a disk with no serial", func(s *Spec) { s.Places = []Place{{}} }},
+		{"a serial QEMU would take as more options", func(s *Spec) { s.Places = []Place{{Serial: "x,addr=0x2"}} }},
+		{"a serial longer than virtio-blk's 20 bytes", func(s *Spec) { s.Places = []Place{{Serial: strings.Repeat("a", 21)}} }},
+		{"two places with one serial", func(s *Spec) { s.Places = []Place{{Serial: "a"}, {Serial: "a"}} }},
 		// Held until a monitor says what to do: with none it never starts.
 		{"no monitor", func(s *Spec) { s.Monitors = nil }},
 		{"a descriptor set given twice", func(s *Spec) {
@@ -509,15 +509,41 @@ func TestValidateRefuses(t *testing.T) {
 
 	// A console is a path or a descriptor set, and either alone is not half of a conflict.
 	s = spec(t)
-	s.Serial = "stdio"
+	s.Console = "stdio"
 	if err := s.validate(); err != nil {
 		t.Fatalf("a console by path does not validate: %v", err)
 	}
 	s = spec(t)
 	s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 10}}}}
-	s.SerialFDSet = 1
+	s.ConsoleFDSet = 1
 	if err := s.validate(); err != nil {
 		t.Fatalf("a console by descriptor does not validate: %v", err)
+	}
+}
+
+// The kernel prints to the console the spec names: a chardev by path, a descriptor set, or none.
+func TestTheConsoleIsWhatTheSpecNames(t *testing.T) {
+	for _, tc := range []struct {
+		console string
+		fdset   int
+		want    string
+	}{
+		{"file:/run/console.log", 0, "file:/run/console.log"},
+		{"", 1, "chardev:serial0"},
+		{"", 0, "none"},
+	} {
+		s := spec(t)
+		s.Console, s.ConsoleFDSet = tc.console, tc.fdset
+		if tc.fdset != 0 {
+			s.FDSets = []FDSet{{ID: tc.fdset, FDs: []FD{{Num: 10}}}}
+		}
+		args, err := s.Args()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := argValue(args, "-serial"); got != tc.want {
+			t.Errorf("console %q, descriptor set %d: -serial %q, want %q", tc.console, tc.fdset, got, tc.want)
+		}
 	}
 }
 

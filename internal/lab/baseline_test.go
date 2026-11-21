@@ -27,7 +27,7 @@ func TestATreesCPUIsBaselineOrNothing(t *testing.T) {
 	}
 }
 
-// serveQMP answers on l as a held QEMU on a nested Xeon would answer the questions Models asks:
+// serveQMP answers on l as a held QEMU on a nested Xeon would answer the questions CPUModels asks:
 // which named models run here, and each one's features.
 func serveQMP(l net.Listener) {
 	c, err := l.Accept()

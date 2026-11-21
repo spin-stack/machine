@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// The versioned q35 the machine is pinned to (machine.MachineType), watched against the QEMU it runs
+// The versioned q35 the machine is pinned to (machine.Type), watched against the QEMU it runs
 // on.
 //
 // checkMachineType reads a built QEMU's machine types: it fails when the pinned one is missing or
@@ -39,7 +39,7 @@ func MachineType(qemu string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	notice, err := checkMachineType(help, machine.MachineType)
+	notice, err := checkMachineType(help, machine.Type)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", filepath.Base(qemu), err)
 	}
@@ -95,7 +95,7 @@ func checkMachineType(help, pinned string) (notice string, err error) {
 		v := q35Version{x, y}
 		if v == want {
 			if m[3] != "" {
-				return "", fmt.Errorf("this QEMU deprecates %s, the machine type every checkpoint is saved on: move machine.MachineType, a change of hardware under every guest, before QEMU removes it", pinned)
+				return "", fmt.Errorf("this QEMU deprecates %s, the machine type every checkpoint is saved on: move machine.Type, a change of hardware under every guest, before QEMU removes it", pinned)
 			}
 			found = true
 		}
@@ -107,7 +107,7 @@ func checkMachineType(help, pinned string) (notice string, err error) {
 		return "", fmt.Errorf("this QEMU offers no %s, the machine type every checkpoint is saved on", pinned)
 	}
 	if newest.newer(want) {
-		return fmt.Sprintf("QEMU offers pc-q35-%d.%d; this machine stays on %s (machine.MachineType), and moving it is a new machine: spin-machine-dev bump qemu says what would change.",
+		return fmt.Sprintf("QEMU offers pc-q35-%d.%d; this machine stays on %s (machine.Type), and moving it is a new machine: spin-machine-dev bump qemu says what would change.",
 			newest.major, newest.minor, pinned), nil
 	}
 	return "", nil
@@ -148,7 +148,7 @@ func array(src, name string) (string, error) {
 	return src[start[0] : start[0]+end+2], nil
 }
 
-// QEMUCompat is what QEMU's newer machine types change against the pinned one (machine.MachineType),
+// QEMUCompat is what QEMU's newer machine types change against the pinned one (machine.Type),
 // read from the source of the QEMU pins names, checked against its sha256: what a QEMU bump's pull
 // request says moving the type would change.
 func QEMUCompat(ctx context.Context, pins *versions.Versions) (string, error) {
@@ -185,9 +185,9 @@ func QEMUCompat(ctx context.Context, pins *versions.Versions) (string, error) {
 		}
 		src = append(src, string(b))
 	}
-	out, err := machineTypeCompat(strings.Join(src, "\n"), machine.MachineType)
+	out, err := machineTypeCompat(strings.Join(src, "\n"), machine.Type)
 	if errors.Is(err, errNoCompatArray) {
-		return machine.MachineType + " is the newest type in this QEMU: nothing newer to differ from it", nil
+		return machine.Type + " is the newest type in this QEMU: nothing newer to differ from it", nil
 	}
 	return out, err
 }

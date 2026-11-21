@@ -35,7 +35,7 @@ type Cmdline struct {
 
 	// Root, when set, is passed as root= and tells the kernel to mount a block
 	// device rather than stay on an initramfs. "/dev/vda" is the first disk in
-	// Spec.Disks. RootReadonly passes ro instead of rw.
+	// Spec.Places. RootReadonly passes ro instead of rw.
 	Root         string
 	RootReadonly bool
 

@@ -110,8 +110,8 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	defaults := base
 	defaults.BootCPUs = 2
 	defaults.Memory = machine.Memory{SizeMB: 2048}
-	defaults.Serial = "mon:stdio"
-	defaults.Disks = []machine.DiskSlot{{Serial: "root"}}
+	defaults.Console = "mon:stdio"
+	defaults.Places = []machine.Place{{Serial: "root"}}
 	defaults.Cmdline = machine.DefaultCmdline()
 	defaults.Cmdline.Root = "/dev/vda"
 
@@ -124,8 +124,8 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	every.HotplugDisks, every.VsockCID = 2, 7
 	every.Monitors = []machine.Monitor{{Socket: "/qmp"}}
 	every.Restore = true
-	every.Serial = ""
-	every.Disks = []machine.DiskSlot{{Serial: "ser", Readonly: true}}
+	every.Console = ""
+	every.Places = []machine.Place{{Serial: "ser", Readonly: true}}
 	every.Cmdline = machine.DefaultCmdline()
 	every.Cmdline.Init, every.Cmdline.Root, every.Cmdline.RootReadonly = "/bin/sh", "/dev/vdb", true
 	every.Cmdline = every.Cmdline.Profiling()
@@ -136,7 +136,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	emulated.Accel, emulated.QEMU = "tcg", filepath.Join(dir, "bin/qemu-system-x86_64-tcg")
 
 	noDisk := defaults
-	noDisk.Disks = nil
+	noDisk.Places = nil
 	noDisk.Cmdline = machine.DefaultCmdline()
 
 	for _, tc := range []struct {

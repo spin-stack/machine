@@ -143,7 +143,7 @@ func TestTheNotesSayANewerMachineTypeOnALineOfItsOwn(t *testing.T) {
 	dir := checkout(t)
 	share := filepath.Join(dir, "_output/release/spin-machine-v2-linux-x86_64/usr/share/spin-stack")
 	put(t, filepath.Join(share, "machine.env"), "version=v2\n", 0o644)
-	put(t, filepath.Join(share, "bin/qemu-system-x86_64"), "#!/bin/sh\nprintf 'pc-q35-99.0 newer\\n"+machine.MachineType+" q35\\n'\n", 0o755)
+	put(t, filepath.Join(share, "bin/qemu-system-x86_64"), "#!/bin/sh\nprintf 'pc-q35-99.0 newer\\n"+machine.Type+" q35\\n'\n", 0o755)
 	fakes(t, map[string]string{"gh": `[ "$1 $2" = "release list" ] && echo v2; exit 0`})
 	stdout, _, status := verb(t, "release", "notes", "--version", "v2")
 	if status != 0 {

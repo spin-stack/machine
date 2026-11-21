@@ -31,7 +31,7 @@ func script(t *testing.T, path, body string) {
 // alone emulating, and the firmware with a 64 KiB qboot.
 func qemuTree(t *testing.T, out string) {
 	t.Helper()
-	machines := "Supported machines are:\\n" + machine.MachineType + "  Standard PC (Q35 + ICH9, 2009)"
+	machines := "Supported machines are:\\n" + machine.Type + "  Standard PC (Q35 + ICH9, 2009)"
 	answer := func(tcg bool) string {
 		accels := "Accelerators supported in QEMU binary:\\nkvm"
 		if tcg {
@@ -108,7 +108,7 @@ func TestAQEMUTreeVerifiesOnlyWhole(t *testing.T) {
 func TestANewerMachineTypeIsSaidAndNotFailed(t *testing.T) {
 	out := t.TempDir()
 	qemuTree(t, out)
-	script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) echo kvm;; -machine) printf 'pc-q35-99.0  newer\n`+machine.MachineType+`  pinned\n';; esac`)
+	script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) echo kvm;; -machine) printf 'pc-q35-99.0  newer\n`+machine.Type+`  pinned\n';; esac`)
 	var said bytes.Buffer
 	if err := VerifyQEMU(Options{Out: out, Stderr: &said}); err != nil {
 		t.Fatal(err)
@@ -361,7 +361,7 @@ func TestASummaryIsEachPartsHashes(t *testing.T) {
 			t.Errorf("Summary(%s) = %q, %v; want %q", part, got, err, want)
 		}
 	}
-	script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `printf 'pc-q35-99.0 x\n`+machine.MachineType+` y\n'`)
+	script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `printf 'pc-q35-99.0 x\n`+machine.Type+` y\n'`)
 	if got, _ := Summary(Options{Out: out}, "qemu"); len(got) != 2 || !strings.Contains(got[1], "pc-q35-99.0") {
 		t.Errorf("a newer machine type is not in QEMU's summary: %q", got)
 	}

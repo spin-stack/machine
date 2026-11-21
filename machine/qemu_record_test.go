@@ -149,10 +149,10 @@ func TestTargetIsWhatTheMachineRuns(t *testing.T) {
 		{"ram pc.ram", "134217728"},
 	}
 	want := Target{
-		VMM:     "qemu 11.2.0",
-		Formats: []string{FormatMappedRAM, FormatStream},
-		CPU:     CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx512f", "sse2"}},
-		Machine: Machine{exact: wantExact, atLeast: []count{{"device 1a.0 max_target", 15}}},
+		VMM:      "qemu 11.2.0",
+		Formats:  []string{FormatMappedRAM, FormatStream},
+		CPU:      CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx512f", "sse2"}},
+		Hardware: Hardware{exact: wantExact, atLeast: []count{{"device 1a.0 max_target", 15}}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		g, _ := json.MarshalIndent(got, "", " ")
@@ -287,7 +287,7 @@ func TestResumeRefusesAnotherMachine(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: migrations(machineAnswers("inmigrate"), "completed")}
-			err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: tc.from}, this, Load{})
+			err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: tc.from}, this, LoadOptions{})
 			var r *Refusal
 			switch {
 			case tc.want == nil && err != nil:

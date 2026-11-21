@@ -286,7 +286,7 @@ and a row measured in another shape than spin's has such a reason.
 | Idea | Result | Shape | Source | Date |
 |---|---|---|---|---|
 | mapped-ram with multifd ×4, 11-13 | not comparable by its own run's log; channels were measured again on 11-20 and kept | ladder | #246, lab 43483852339 | 11-13 |
-| Fast snapshot load (mapped-ram and postcopy-ram on a `file:` URI) as the restore | running at 38 ms, but the login at 293/325 instead of 152/161: every page touched is a fault served by one read. `Load.Fast` stays for large states | ladder | lab 44585840498 | 11-19 |
+| Fast snapshot load (mapped-ram and postcopy-ram on a `file:` URI) as the restore | running at 38 ms, but the login at 293/325 instead of 152/161: every page touched is a fault served by one read. `LoadOptions.Fast` stays for large states | ladder | lab 44585840498 | 11-19 |
 | Base memory in a shared file, left out of the checkpoint (`x-ignore-shared`) | state 0.3 MiB, save 15 ms, but neither goal number improves: cold 1089 ms on disk, 709-719 on tmpfs | ladder | labs 44663272360, 44664989139, #306 | 11-20 |
 | 16 multifd channels as the default | −10.1 alone, but +3.2 [+1.1, +5.8] against 8 when 4 restore at once | spin | lab 44792429636 | 11-20 |
 | `direct-io` (O_DIRECT) on the channels | within the noise evicted, +45 ms cached | laptop | log.md, 11-21 | 11-21 |
@@ -336,7 +336,7 @@ No lab run answers these questions.
 - **musl under long-running load.** No run has measured it (`31a57e7`).
 - **`page_reporting_order`.** Revisit only if memory per host becomes the limit
   (`docs/memory-and-disk.md`).
-- **`MachineType` off pc-q35-11.1.** QEMU is 11.2 and the machine is still pc-q35-11.1
+- **`machine.Type` off pc-q35-11.1.** QEMU is 11.2 and the machine is still pc-q35-11.1
   (`machine/shape.go`, `internal/build/machinetype.go`). It is a change of its own.
 - **The kernel CVE judge.** 9 CVEs apply with a fix later in 7.3, and 1 has no fix (`0ce27ad`,
   against 7.3.1; the kernel is 7.3.5 on 2026-11-20).

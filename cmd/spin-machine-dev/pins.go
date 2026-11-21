@@ -40,7 +40,7 @@ func bumpCmd() *cobra.Command {
 		Long: `Pin one entry of versions.yaml at a version, the newest by default. Nothing is built: the entry's
 note says what the bump is checked with.
 
-A QEMU bump keeps the machine type (machine.MachineType), and prints what QEMU's newer types change
+A QEMU bump keeps the machine type (machine.Type), and prints what QEMU's newer types change
 against it - hw_compat_X_Y and pc_compat_X_Y, from the source of the version just pinned, checked
 against its sha256 - for the bump's pull request.`,
 		Args: cobra.RangeArgs(1, 2),

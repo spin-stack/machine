@@ -244,7 +244,7 @@ func qemuSource(t *testing.T) string {
 	t.Helper()
 	src := t.TempDir()
 	answer := func(accels string) string {
-		return `case "$1" in --version) echo QEMU;; -accel) printf '` + accels + `\n';; -machine) echo "` + machine.MachineType + ` q35";; esac`
+		return `case "$1" in --version) echo QEMU;; -accel) printf '` + accels + `\n';; -machine) echo "` + machine.Type + ` q35";; esac`
 	}
 	put(t, filepath.Join(src, "bin/qemu-system-x86_64"), "#!/bin/sh\n"+answer("kvm")+"\n", 0o755)
 	put(t, filepath.Join(src, "bin/qemu-system-x86_64-tcg"), "#!/bin/sh\n"+answer("kvm\\ntcg")+"\n", 0o755)
@@ -492,7 +492,7 @@ func TestReleaseNotesSayWhatChanged(t *testing.T) {
 	dir := checkout(t)
 	share := filepath.Join(dir, "_output/release/spin-machine-v2-linux-x86_64/usr/share/spin-stack")
 	put(t, filepath.Join(share, "machine.env"), "version=v2\nqemu_sha256=q1\n", 0o644)
-	put(t, filepath.Join(share, "bin/qemu-system-x86_64"), "#!/bin/sh\necho '"+machine.MachineType+" q35'\n", 0o755)
+	put(t, filepath.Join(share, "bin/qemu-system-x86_64"), "#!/bin/sh\necho '"+machine.Type+" q35'\n", 0o755)
 	gitRepo(t, dir, "v1")
 	fakes(t, map[string]string{"gh": `[ "$1 $2" = "release list" ] && printf 'v2\nv1\n'; exit 0`})
 	stdout, stderr, status := verb(t, "release", "notes", "--version", "v2")

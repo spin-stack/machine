@@ -10,7 +10,7 @@ spec, err := rel.Spec("kvm")                              // QEMU, Kernel, Firmw
 spec.Initrd = …                                           // the caller's: a release carries none
 spec.BootCPUs = 2
 spec.Memory = machine.Memory{SizeMB: 2048}
-spec.Disks = []machine.DiskSlot{{Serial: "root"}}         // a place: the images come at Boot
+spec.Places = []machine.Place{{Serial: "root"}}           // a place: the images come at Boot
 spec.VsockCID = 7
 spec.Monitors = []machine.Monitor{{Socket: "/run/vm/qmp.sock"}}
 spec.Cmdline = machine.DefaultCmdline()
@@ -20,7 +20,7 @@ args, err := spec.Args()             // the QEMU command line
 m, err := machine.Attach(conn)
 here, err := m.Target(ctx)           // what this machine is, as QEMU reports it: read once for a host
 err = machine.CanResume(saved, here) // nil, or a *machine.Refusal naming every difference
-err = m.Resume(ctx, state, saved, here, machine.Load{}, root) // trusts here: QEMU is not asked again
+err = m.Resume(ctx, state, saved, here, machine.LoadOptions{}, root) // trusts here: QEMU is not asked again
 ```
 
 `Args` validates first. Each spec it refuses would otherwise boot and be subtly wrong: two disk
@@ -64,7 +64,7 @@ such as a NIC's MTU or `ICH9-LPC.disable_s3`. The record names each of them. It 
 - the CPU the guest is shown, read off its vCPU: the vendor, the model, and the features it has
   on, by their canonical names. The features compare as one set. See
   [migration.md](migration.md).
-- the machine: its **versioned** type (`machine.MachineType`, `pc-q35-11.1`), the accelerator,
+- the machine: its **versioned** type (`machine.Type`, `pc-q35-11.1`), the accelerator,
   each `-machine` option, `-smp` and `-m`, as QEMU reads them back.
 - every device the machine was started with. A device on the root complex is named by its slot
   (`device 02.0`), any other by its type (`device i8257/2` for the second one on its bus). Each
@@ -103,7 +103,7 @@ then refuses as a part the checkpoint's machine did not have. `task boot:compat`
 to what the record says: a checkpoint the newest release saved resumes on this tree's build, or
 the run names every difference.
 
-Moving `machine.MachineType` moves every guest to new hardware. It is a decision, never a side
+Moving `machine.Type` moves every guest to new hardware. It is a decision, never a side
 effect of a QEMU bump. `spin-machine-dev verify qemu` says when a QEMU offers a newer type and
 fails once the pinned one is deprecated, and `spin-machine-dev bump qemu` prints what the newer
 types change against it.

@@ -91,7 +91,7 @@ func TestOnlyAFullLoadOfAMappedRAMStateIsReadAhead(t *testing.T) {
 		{FormatMappedRAM, true, false},
 		{FormatStream, false, false},
 	} {
-		if got := prefetches(Saved{Format: c.format}, Load{Fast: c.fast}); got != c.want {
+		if got := prefetches(Saved{Format: c.format}, LoadOptions{Fast: c.fast}); got != c.want {
 			t.Errorf("%s, fast %v: reads ahead %v", c.format, c.fast, got)
 		}
 	}

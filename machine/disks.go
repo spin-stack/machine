@@ -74,7 +74,7 @@ func (d Disk) validate() error {
 // place included.
 func diskNode(serial string, j int) string { return fmt.Sprintf("d-%s-%d", serial, j) }
 
-// slot is one place for a disk the machine was started with (Spec.Disks).
+// slot is one place for a disk the machine was started with (Spec.Places).
 type slot struct {
 	index    int
 	serial   string
