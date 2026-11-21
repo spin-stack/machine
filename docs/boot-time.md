@@ -1,4 +1,4 @@
-# Lab: where boot time stands, and how it is measured
+# Boot time: where it stands, and how it is measured
 
 The goal's two numbers (AGENTS.md, "The goal"): where each stands, where its time goes, how a
 number is taken, what the machine carries for it and what it earns, what was tried and rejected,

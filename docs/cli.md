@@ -156,7 +156,7 @@ lane as this checkout builds it, put into a published release's overlays), `--ed
 not lingering, as this checkout builds the image), `--edit forwarder-early` (`login=spin`'s
 forwarder, which stands for spin's supervisor, without systemd's default dependencies), `--edit carry-masks`,
 `carry-generators`, `carry-logging` and `carry-coldplug` (what optimize-systemd.sh and the coldplug filter do for boot time
-alone, taken back: docs/lab.md, "What the machine carries"; after `--edit lane`), `--systemd PATCH`
+alone, taken back: docs/boot-time.md, "What the machine carries"; after `--edit lane`), `--systemd PATCH`
 (image/systemd/experiments). Nothing is written through the tree it starts from: parts are links,
 and a replaced part is a copy. A tree whose manifest is missing, names no source for a part, or
 does not match the file is refused before anything boots - a probe is handed trees, never a path

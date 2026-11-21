@@ -3,59 +3,45 @@
 [![CI](https://github.com/spin-stack/spin-machine/actions/workflows/ci.yml/badge.svg)](https://github.com/spin-stack/spin-machine/actions/workflows/ci.yml)
 [![Parts](https://github.com/spin-stack/spin-machine/actions/workflows/parts.yml/badge.svg)](https://github.com/spin-stack/spin-machine/actions/workflows/parts.yml)
 
-A virtual machine: QEMU, the guest kernel, the base image, and the definition of the
-machine they make.
+A virtual machine: QEMU, the guest kernel, the base image, and the definition of the machine
+they make. spin boots every workspace from it.
 
-The four are one thing, and the reason is not tidiness. A VM resumed from a checkpoint
-loads device and CPU state into a machine that has to be the same hardware as the one the
-checkpoint was saved on, and nothing checks that at run time. So the machine's identity
-is its contract — `machine.Spec.Fingerprint` hashes the versioned machine type
-(`machine.MachineType`, `pc-q35-11.1`), the shape, every device as the command line gives it,
-and the BIOS's size. Two machines with the same fingerprint can take each other's checkpoints,
-and two with different fingerprints cannot. A new QEMU of the same machine type, a new kernel or
-new firmware of the same size is the same machine: QEMU promises a newer release loads what an
-older one of the same machine type saved, and `task boot:compat` holds every release to it.
+**The goal is a cold boot to the first SSH login in under 100 ms**, and a checkpoint restored to
+the same login as the second number (AGENTS.md). Where both stand and where their time goes is
+[docs/boot-time.md](docs/boot-time.md). Each release's numbers are
+[docs/releases.md](docs/releases.md).
 
-One repository, one version per release, and checkpoints that resume across releases until the
-machine itself changes.
+## Why one repository
 
-Its goal is a cold boot to the first SSH login in under 100 ms (AGENTS.md). Whatever gets a
-workspace there may be part of a release, an init or a guest agent included.
+A checkpoint resumes only on the same hardware it was saved on, and nothing checks that at run
+time. So the machine's identity is its contract. `machine.Spec.Fingerprint` hashes the versioned
+machine type (`machine.MachineType`), the shape, every device as the command line gives it, and
+the BIOS's size. Two machines with the same fingerprint take each other's checkpoints, and two
+with different fingerprints do not. A new QEMU of the same machine type, a new kernel, or new
+firmware of the same size is the same machine, and `task boot:compat` holds every release to
+that. One repository and one version keep the four parts from drifting apart.
 
-## What it publishes
+## What a release is
 
-One tarball:
+One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 
 | path under `usr/share/spin-stack/` | |
 |---|---|
-| `bin/qemu-system-x86_64` | static; KVM only — it refuses to emulate, on purpose |
+| `bin/qemu-system-x86_64` | static, KVM only: it refuses to emulate, on purpose |
 | `bin/qemu-system-x86_64-tcg` | for CI, which has no `/dev/kvm` |
 | `bin/qemu-img` | |
-| `bin/mkfs.ext4` | static e2fsprogs; read `e2fsprogs/mke2fs.conf` through `MKE2FS_CONFIG` |
-| `bin/debugfs`, `bin/e2fsck`, `bin/dumpe2fs` | the same e2fsprogs build; the `boot/` probes edit a copy of the base image with this `debugfs` |
-| `e2fsprogs/mke2fs.conf` | the defaults an ext4 made for this kernel is made with |
-| `qemu/{qboot.bin,bios.bin,bios-256k.bin,linuxboot_dma.bin,pvh.bin,kvmvapic.bin,efi-virtio.rom}` | qboot.bin is the BIOS a machine boots with |
+| `bin/mkfs.ext4`, `bin/debugfs`, `bin/e2fsck`, `bin/dumpe2fs`, `e2fsprogs/mke2fs.conf` | static e2fsprogs, and the defaults an ext4 for this kernel is made with |
+| `qemu/qboot.bin` and the other ROMs | qboot.bin is the BIOS a machine boots with |
 | `qemu/patches/`, `qemu/qboot-*.patch`, `qemu/qboot-COPYING` | the changes this tree makes to QEMU and qboot, shipped with the binaries built from them |
-| `kernel/bzImage` | the kernel a machine boots; `kernel/vmlinux` is the same kernel as an ELF, plus `kernel-config` |
-| `image/rootfs.qcow2` | read-only, 0444 |
-| `machine.env` | the version, the commit it was built from, each file's checksum, and `fingerprint_sha256`, the contract that decides whether a checkpoint resumes |
+| `kernel/bzImage`, `kernel/vmlinux`, `kernel-config` | the kernel a machine boots, and the same kernel as an ELF |
+| `image/rootfs.qcow2` | the base image, read-only (0444) |
+| `machine.env` | the version, the commit, each file's checksum, and `fingerprint_sha256` |
 | `SOURCES` | every upstream source by version, URL and SHA-256, and the written offer |
 | `packages.txt` | every package and exact version in the base image |
 
-`LICENSE` and `NOTICE` sit at the root of the tarball.
-
-`spin-machine-dev build` writes that same tree into `_output/`, and `machine.OpenRelease` reads
-either. What a release has beyond a build directory is what `spin-machine-dev release` creates or
-copies when it names one: `machine.env` and `SOURCES` it writes, and the QEMU and qboot
-patches under `qemu/` it takes from this repository, not from the build. A tree without
-a manifest is still a release for every purpose except being named — the fingerprint
-decides whether checkpoints resume, and it is computed from the machine's definition and its
-BIOS, not from `machine.env`. `_output/bin/` holds one thing more: `spin-machine`,
-which `spin-machine-dev build spin-machine` builds for working in this repository and `spin-machine-dev release` does not ship —
-a release is the machine, not the tool that boots it. There is one layout: nothing rearranges
-the files on the way out of a build, into a tarball or into a consumer. Let the three differ
-and what falls out of the translation between them is a path that exists and holds the
-previous release's kernel.
+`LICENSE` and `NOTICE` sit at the tarball's root. `machine.OpenRelease` reads a release or a
+build directory alike: there is one layout, so no translation between them can lose a file.
+`spin-machine`, the tool that boots one by hand, is built into `_output/bin/` and not shipped.
 
 ## Using it
 
@@ -67,42 +53,18 @@ args, err := spec.Args()          // the QEMU command line
 fp, err := spec.Fingerprint()     // which checkpoints this machine may resume
 ```
 
-By hand, `spin-machine` (`spin-machine-dev build spin-machine`) boots one, prints its command line or its
-fingerprint, attaches, detaches or saves on a running one, and restores a saved one; `spin-machine <command> -h`
-lists each command's flags.
-
-To run a command inside a throwaway guest and read what it printed, boot it
-non-interactively. The guest's console is on stdin/stdout, so a script on stdin is
-what the guest's shell runs; `poweroff -f` ends the boot.
+By hand, `spin-machine` boots a machine, prints its command line or fingerprint, attaches,
+detaches or saves on a running one, and restores a saved one (`spin-machine <command> -h`). To
+run one command in a throwaway guest:
 
 ```sh
-spin-machine-dev build                       # once; a boot reads _output/
 printf '\n\n\n\n\n\n\n\n\n\nmount -t proc proc /proc\necho hello from $(uname -r)\npoweroff -f\n' |
-  _output/bin/spin-machine boot --release _output \
-    --init /bin/sh --console stdio --memory 1024 --cpus 2
+  _output/bin/spin-machine boot --release _output --init /bin/sh --console stdio --memory 1024 --cpus 2
 ```
 
-`--init /bin/sh` skips systemd and runs the commands as PID 1 with nothing mounted,
-so the script mounts `/proc` itself — `poweroff` refuses without it. The leading blank
-lines are load-bearing: the guest's shell is not reading its console when QEMU starts
-feeding it, so the first bytes of the first line are lost, and the blanks absorb that
-instead of the first real command. How far that window reaches is host timing, not a
-line count — a quiet host may lose nothing — so treat the number of blanks as
-insurance, not a figure to trim: a blank costs one prompt. Nothing touches the base
-image — without `--disk`, QEMU boots it under a throwaway overlay (`-snapshot`).
-
-Read the output by grepping a marker, since the guest's prompt and the kernel's boot
-chatter share stdout: `| grep -a MARKER`. The exit status is QEMU's, so a script that
-ends in `poweroff -f` returns 0.
-
-What the guest answers is a property of the machine, not of the host that ran it.
-`uname -r` reports `kernel/bzImage`'s version, not the host kernel's. `grep -c -E 'vmx|svm'
-/proc/cpuinfo` is 0 because the machine removes both from the CPU it shows (`-cpu
-host,migratable=on,-vmx,-svm`: nothing inside a guest may nest, and exposing the flags
-would hand a guest's root the host's nested-virtualisation code), and there is no
-`/dev/kvm` to open because this kernel is built without KVM and without loadable modules.
-So a check run inside a guest can prove things about the guest and can never establish
-anything about its host's KVM — read those on the host.
+Why the blank lines matter, and the rest of driving a guest, is in AGENTS.md, "Trying the
+machine". A guest proves things about the guest, never about its host. The machine hides `vmx`
+and `svm` from the CPU it shows, and the kernel has no KVM, so nothing inside a guest can nest.
 
 ## Building
 
@@ -112,49 +74,34 @@ spin-machine-dev build                # everything that is missing or stale, int
 spin-machine-dev shell                # boot the machine and look around inside it
 go tool task lint                     # gofmt, vet, and go-tools' gates
 go tool task test                     # the machine definition and the verbs
-spin-machine-dev verify args          # and whether the QEMU in _output/ accepts what it produces
-_output/bin/spin-machine fingerprint --release _output   # this machine's identity
 spin-machine-dev release              # one tarball, one version
 ```
 
-`spin-machine-dev` is how this machine is built, verified and released (`docs/cli.md`); the
-Taskfile holds the gates CI runs and the probes. `task` is [taskfile.dev](https://taskfile.dev),
-not GNU task, at the version go.mod pins: `go tool task` runs it with nothing installed, and is
-what CI runs. The part builds run in containers (`qemu/Dockerfile`, `kernel/Dockerfile`,
-`e2fsprogs/Dockerfile`, `image/Dockerfile`), so a container engine is needed to build; a boot is
-not, and neither is a build directory - a consumer points `--release` at an unpacked release tree
-instead.
-A boot needs `/dev/kvm` readable and writable by whoever runs it, the same requirement
-`docs/releasing.md` states for the lab runner; a host without it boots the release's TCG
-build with `--accel tcg`, at perhaps fifty times the cost, which is why it is stated and
-never silently fallen back to.
-
-A part's build is its directory's Dockerfile, run by `spin-machine-dev build <part>`
-(`internal/build`), and each build ends in the part's verification. Every version, digest and
-commit a build takes from outside is in `versions.yaml`: `spin-machine-dev outdated` says what is
-behind, `spin-machine-dev bump <entry>` moves one.
+`spin-machine-dev` builds, verifies, measures and releases the machine (`docs/cli.md`). Each
+part's build is its directory's Dockerfile, so building needs a container engine. Booting needs
+only `/dev/kvm`, read-write, or `--accel tcg` at about fifty times the cost, which is never
+chosen silently. Every version, digest and commit taken from outside is pinned in
+`versions.yaml`. `spin-machine-dev outdated` says what is behind, and `spin-machine-dev bump
+<entry>` moves one entry.
 
 ## Where to read next
 
 | | |
 |---|---|
+| [AGENTS.md](AGENTS.md) | how to work here: the goal, what must not break, and how a change is decided |
+| [docs/boot-time.md](docs/boot-time.md) | where the two goal numbers stand, where their time goes, how a number is measured, and what was kept, rejected and is open |
+| [docs/releases.md](docs/releases.md) | each release's numbers, measured on the bench |
+| [docs/log.md](docs/log.md) | what was tried, when, why, and what it measured |
+| [docs/cli.md](docs/cli.md) | `spin-machine-dev`: building, verifying, measuring, releasing |
 | [docs/machine.md](docs/machine.md) | the definition: fixed slots, vmgenid, and what the fingerprint hashes |
 | [docs/migration.md](docs/migration.md) | one VM moved to another host, and why the CPU model decides it |
-| [docs/memory-and-disk.md](docs/memory-and-disk.md) | what a guest's page cache, freed memory and disk cost its host: the defaults, what was measured to choose them, and what was turned down |
+| [docs/memory-and-disk.md](docs/memory-and-disk.md) | what a guest's page cache, freed memory and disk cost its host, and what the host must set |
 | [docs/releasing.md](docs/releasing.md) | CI, versions, and what a release owes its upstreams |
-| [docs/lab.md](docs/lab.md) | where the two goal numbers stand, what each phase of them costs, how a number is measured, and what was kept, rejected and is next |
-| [docs/log.md](docs/log.md) | what was tried, when, why, and what it measured |
 | [qemu/](qemu/README.md), [kernel/](kernel/README.md), [image/](image/README.md), [e2fsprogs/](e2fsprogs/README.md) | why each part is built the way it is |
-| [boot/](boot/phases.go) | what a boot costs, measured from the host |
-| [CLAUDE.md](CLAUDE.md) | how to work in here: the release invariants, and the rules for changing them |
 
 ## Licence
 
-Apache-2.0, matching the rest of this stack — and not only for consistency: three scripts
-under `image/mkosi.extra/` came from another Apache-2.0 project here, so a different licence
-would make this a mixed-licence tree for nothing. `NOTICE` names them and states which was
-modified, as section 4(b) requires.
-
-That licence covers the recipes, not what they build: a release is mostly GPL and LGPL
-binaries, and [docs/releasing.md](docs/releasing.md#what-a-release-owes) says how a release
-answers for them.
+Apache-2.0. Three scripts under `image/mkosi.extra/` came from another Apache-2.0 project, and
+`NOTICE` names them and says which was modified. The licence covers the recipes, not what they
+build: a release is mostly GPL and LGPL binaries, and
+[docs/releasing.md](docs/releasing.md#what-a-release-owes) says how a release answers for them.
