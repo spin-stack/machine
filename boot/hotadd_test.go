@@ -3,12 +3,12 @@
 package boot_test
 
 import (
-	"encoding/json"
-	"maps"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spin-stack/machine/machine"
 )
@@ -62,25 +62,12 @@ func TestACoreAttachedBeforeSystemdStartsComesOnline(t *testing.T) {
 				return
 			}
 			attached = true
-			q := dial(t, monitor, func() string { return console })
-			defer q.close()
-			var slots []struct {
-				Type  string         `json:"type"`
-				Props map[string]any `json:"props"`
-				Path  string         `json:"qom-path"`
+			m := attachTo(t, monitor, func() string { return console })
+			defer func() { _ = m.Close() }()
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			if err := m.SetCPUs(ctx, 2); err != nil {
+				t.Fatalf("attaching the second core: %v", err)
 			}
-			if err := json.Unmarshal(q.do(t, "query-hotpluggable-cpus", nil), &slots); err != nil {
-				t.Fatal(err)
-			}
-			for _, slot := range slots {
-				if slot.Path != "" {
-					continue
-				}
-				add := map[string]any{"driver": slot.Type, "id": "core1"}
-				maps.Copy(add, slot.Props)
-				q.do(t, "device_add", add)
-				return
-			}
-			t.Fatal("the machine has no free core to attach")
 		}))
 }

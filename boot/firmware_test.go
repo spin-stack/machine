@@ -3,10 +3,8 @@
 package boot_test
 
 import (
-	"cmp"
-	"encoding/json"
+	"context"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,6 +89,9 @@ func TestFirmwareRuns(t *testing.T) {
 const (
 	withVMGenID = true
 	noVMGenID   = false
+
+	cold     = false
+	incoming = true
 )
 
 type probe struct {
@@ -108,7 +109,8 @@ type vm struct {
 	qmp    string
 }
 
-func (p *probe) start(t *testing.T, variant string, gen bool, incoming, kernel, initrd, cpu string) *vm {
+// start launches QEMU, held for a checkpoint to be resumed into when restore is set.
+func (p *probe) start(t *testing.T, variant string, gen, restore bool) *vm {
 	t.Helper()
 	// Numbered: a probe starts dozens, and a reused path is a QMP connection to the previous
 	// one's corpse.
@@ -122,21 +124,21 @@ func (p *probe) start(t *testing.T, variant string, gen bool, incoming, kernel, 
 	args := []string{
 		"-L", p.firmware,
 		"-machine", "q35,sata=off,smbus=off",
-		"-accel", "kvm", "-cpu", cmp.Or(cpu, "host"),
+		"-accel", "kvm", "-cpu", "host",
 		"-m", "2048", "-smp", "2",
 		"-nodefaults", "-display", "none", "-serial", "stdio", "-monitor", "none",
 		"-qmp", "unix:" + qmp + ",server=on,wait=off",
 		"-bios", p.bios[variant],
-		"-kernel", cmp.Or(kernel, p.kernel),
-		"-initrd", cmp.Or(initrd, p.initrd),
+		"-kernel", p.kernel,
+		"-initrd", p.initrd,
 		"-append", "console=ttyS0 quiet loglevel=3 pci=lastbus=0 no_timer_check " +
 			"tsc=reliable TERM=dumb rdinit=/init",
 	}
 	if gen {
 		args = append(args, "-device", "vmgenid,guid=auto")
 	}
-	if incoming != "" {
-		args = append(args, "-incoming", "file:"+incoming)
+	if restore {
+		args = append(args, "-incoming", "defer")
 	}
 
 	r, w, err := os.Pipe()
@@ -186,9 +188,12 @@ func (v *vm) close() {
 	_ = v.stdout.Close()
 }
 
+// said is what the console has shown so far.
+func (v *vm) said() string { return string(v.out) }
+
 func (p *probe) reach(t *testing.T, variant string, gen bool, marker string, timeout time.Duration) (float64, error) {
 	t.Helper()
-	v := p.start(t, variant, gen, "", "", "", "")
+	v := p.start(t, variant, gen, cold)
 	defer v.close()
 	return v.wait(marker, timeout)
 }
@@ -202,8 +207,9 @@ func (p *probe) mustReach(t *testing.T, variant string, gen bool, marker string)
 	return ms
 }
 
-// mustPublishVMGenID boots qboot, saves the machine, restores it into a new
-// QEMU with a fresh GUID, and requires the guest to say it noticed.
+// mustPublishVMGenID boots qboot, checkpoints the machine, resumes it into a new QEMU with a
+// fresh GUID, and requires the guest to say it noticed. The checkpoint and the resume are
+// machine.QEMU's, the ones spin takes and resumes workspaces with.
 //
 // The reseed is the whole reason the device is on the machine's command line: two guests
 // resumed from one checkpoint share its memory, and that memory contains the state of the
@@ -212,7 +218,7 @@ func (p *probe) mustReach(t *testing.T, variant string, gen bool, marker string)
 // reports a fault.
 func (p *probe) mustPublishVMGenID(t *testing.T) {
 	t.Helper()
-	v := p.start(t, "qboot", withVMGenID, "", "", "", "")
+	v := p.start(t, "qboot", withVMGenID, cold)
 	ms, err := v.wait("SPIN-READY", 8*time.Second)
 	if err != nil {
 		v.close()
@@ -225,146 +231,38 @@ func (p *probe) mustPublishVMGenID(t *testing.T) {
 	}
 	t.Logf("qboot, vmgenid on: %.1f ms to SPIN-READY, table present", ms)
 
-	state := filepath.Join(p.dir, "state")
-	q := dial(t, v.qmp, func() string { return string(v.out) })
-	q.do(t, "stop", nil)
-	q.do(t, "migrate", map[string]any{"uri": "file:" + state})
-	q.until(t, "query-migrate", "completed", 20*time.Second)
-	q.close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	state, err := os.Create(filepath.Join(p.dir, "state"))
+	if err != nil {
+		v.close()
+		t.Fatal(err)
+	}
+	defer func() { _ = state.Close() }()
+	src := attachTo(t, v.qmp, v.said)
+	saved, _, err := src.Checkpoint(ctx, state, machine.SaveOptions{}, func(context.Context) error { return nil })
+	_ = src.Close()
 	v.close()
+	if err != nil {
+		t.Fatalf("checkpointing qboot's machine: %v\nconsole was:\n%s", err, tail(v.out, 800))
+	}
 
-	r := p.start(t, "qboot", withVMGenID, state, "", "", "")
+	r := p.start(t, "qboot", withVMGenID, incoming)
 	defer r.close()
-	q = dial(t, r.qmp, func() string { return string(r.out) })
-	defer q.close()
-	// cont only once the incoming migration is done: a cont into a machine still loading
-	// state is a race that passes most of the time.
-	q.untilNot(t, "query-status", "inmigrate", 20*time.Second)
-	q.do(t, "cont", nil)
+	dst := attachTo(t, r.qmp, r.said)
+	here, err := dst.Target(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.Resume(ctx, state, saved, here, machine.LoadOptions{}); err != nil {
+		t.Fatalf("resuming qboot's machine: %v", err)
+	}
 	if _, err := r.wait("crng reseeded due to virtual machine fork", 20*time.Second); err != nil {
 		t.Fatalf("the restored guest never reseeded, so the GUID did not reach it "+
 			"— every VM resumed from one checkpoint would share its random pool: %v", err)
 	}
 	t.Log("restored guest reseeded: the WRITE_POINTER path carries the GUID")
 }
-
-// rawMonitor sends commands one at a time, with no pipelining: every call here is followed by a
-// decision. Each read has 30 s, the greeting and every command alike, so how long a caller
-// waits for a state is its own timeout and not the connection's age.
-type rawMonitor struct {
-	conn net.Conn
-	enc  *json.Encoder
-	dec  *json.Decoder
-}
-
-// dial connects to QEMU's monitor and negotiates it. said is what QEMU has printed so far,
-// read when a failure needs it.
-func dial(t *testing.T, socket string, said func() string) *rawMonitor {
-	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		conn, err := net.Dial("unix", socket)
-		if err == nil {
-			q := &rawMonitor{conn: conn, enc: json.NewEncoder(conn), dec: json.NewDecoder(conn)}
-			q.extend(t)
-			var greeting struct {
-				QMP *struct{} `json:"QMP"`
-			}
-			if err := q.dec.Decode(&greeting); err != nil {
-				t.Fatalf("reading the QMP greeting: %v\n\nQEMU said:\n%s", err, tail([]byte(said()), 800))
-			}
-			q.do(t, "qmp_capabilities", nil)
-			return q
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("QEMU never answered on %s: %v\n\nQEMU said:\n%s",
-				filepath.Base(socket), err, tail([]byte(said()), 800))
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-}
-
-func (q *rawMonitor) extend(t *testing.T) {
-	t.Helper()
-	if err := q.conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func (q *rawMonitor) do(t *testing.T, cmd string, args map[string]any) json.RawMessage {
-	t.Helper()
-	q.extend(t)
-	req := map[string]any{"execute": cmd}
-	if args != nil {
-		req["arguments"] = args
-	}
-	if err := q.enc.Encode(req); err != nil {
-		t.Fatalf("sending %s: %v", cmd, err)
-	}
-	for {
-		var reply struct {
-			Return json.RawMessage `json:"return"`
-			Error  *struct {
-				Desc string `json:"desc"`
-			} `json:"error"`
-			Event string `json:"event"`
-		}
-		if err := q.dec.Decode(&reply); err != nil {
-			t.Fatalf("reading the reply to %s: %v", cmd, err)
-		}
-		if reply.Error != nil {
-			t.Fatalf("%s was refused: %s", cmd, reply.Error.Desc)
-		}
-		// Events arrive interleaved with replies, and a migration emits several.
-		if reply.Event != "" {
-			continue
-		}
-		return reply.Return
-	}
-}
-
-// until polls cmd until its "status" field reads want, and fails on "failed" rather than
-// waiting out the deadline: a migration that has already given up has nothing to say later.
-func (q *rawMonitor) until(t *testing.T, cmd, want string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		var s struct{ Status string }
-		if err := json.Unmarshal(q.do(t, cmd, nil), &s); err != nil {
-			t.Fatalf("reading %s: %v", cmd, err)
-		}
-		if s.Status == want {
-			return
-		}
-		if s.Status == "failed" {
-			t.Fatalf("%s reported failed while waiting for %s", cmd, want)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s stayed %q for %s, waiting for %q", cmd, s.Status, timeout, want)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func (q *rawMonitor) untilNot(t *testing.T, cmd, unwanted string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		var s struct{ Status string }
-		if err := json.Unmarshal(q.do(t, cmd, nil), &s); err != nil {
-			t.Fatalf("reading %s: %v", cmd, err)
-		}
-		if s.Status != unwanted {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s stayed %q for %s", cmd, unwanted, timeout)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func (q *rawMonitor) close() { _ = q.conn.Close() }
 
 // firmwareFile takes the override if there is one and the built firmware otherwise, and
 // skips rather than failing when neither is there: this compares firmware no release carries,
