@@ -546,7 +546,7 @@ func (c *panicWatch) Write(p []byte) (int, error) {
 
 // keep adds b to the line so far, which is cut at 512 bytes: a panic's line is shorter.
 func (c *panicWatch) keep(b []byte) {
-	c.line = append(c.line, b[:min(len(b), max(0, 512-len(c.line)))]...)
+	c.line = append(c.line, b[:min(len(b), 512-len(c.line))]...)
 }
 
 func (c *panicWatch) panicked() string {
