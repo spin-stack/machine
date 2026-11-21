@@ -51,12 +51,12 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 		t.Fatal(err)
 	}
 	defer p.Kill()
-	f, err := os.OpenFile(root.path, os.O_RDWR, 0) // #nosec G304 -- the root this test made
+	d, err := machine.OpenDisk(machine.DiskPath{Serial: "root", Path: root.path, Format: "raw"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = f.Close() }()
-	if err := p.Boot(ctx, machine.Disk{Serial: "root", Images: []machine.Image{{File: f, Format: "raw"}}}); err != nil {
+	defer func() { _ = d.Close() }()
+	if err := p.Boot(ctx, d); err != nil {
 		t.Fatalf("booting: %v", err)
 	}
 	for {
