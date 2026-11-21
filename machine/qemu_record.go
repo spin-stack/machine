@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -66,6 +67,39 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 		Hardware: machine,
 	}
 	m.record = &t
+	return t, nil
+}
+
+// ReadTarget is the record of a machine of s (QEMU.Target), read from one started held and
+// ended once it has said. It is what a caller that resumes checkpoints into machines of s reads
+// once for its host and hands every Resume: spin reads it when its runner starts
+// (spin-stack/spin#1416).
+//
+// The machine is s but for what is one machine's and not the record's, so that the caller hands
+// it the Spec its machines are started with. s's monitors are left out: they are the caller's
+// sockets, and ReadTarget asks through the monitor Start adds. Each NIC is on a hub port, so
+// neither a TAP nor /dev/vhost-net is needed: the record leaves a NIC's backend and MAC out. A
+// console writes nowhere, but the machine still has the serial port the record names. The vsock's
+// context id is s's, and has to be free on the host. o is Start's: Cmd shapes QEMU as the caller
+// shapes its machines.
+func ReadTarget(ctx context.Context, s Spec, o StartOptions) (Target, error) {
+	s.Monitors = nil
+	s.NICs = slices.Clone(s.NICs)
+	for i := range s.NICs {
+		s.NICs[i].hub = true
+	}
+	if s.Console != "" || s.ConsoleFDSet != 0 {
+		o.Console = io.Discard
+	}
+	p, err := Start(ctx, s, o)
+	if err != nil {
+		return Target{}, fmt.Errorf("reading the record of a machine held for it: %w", err)
+	}
+	defer p.Stop(context.WithoutCancel(ctx))
+	t, err := p.Target(ctx)
+	if err != nil {
+		return Target{}, fmt.Errorf("reading the record of a machine held for it: %w", err)
+	}
 	return t, nil
 }
 

@@ -508,6 +508,7 @@ func TestValidateRefuses(t *testing.T) {
 	s.Memory.BaseMB = 1
 	s.BootCPUs = 1
 	s.VsockCID, s.VsockFD = 3, 3
+	s.NICs = []NIC{{TapFD: 3, VhostFD: 3, MAC: "52:54:00:00:00:01"}}
 	if err := s.validate(); err != nil {
 		t.Fatalf("the least each bound allows does not validate: %v", err)
 	}

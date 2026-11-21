@@ -430,7 +430,7 @@ func (h *handover) devices(s *Spec, open func(string) (*os.File, error)) error {
 	}
 	s.NICs = slices.Clone(s.NICs)
 	for i := range s.NICs {
-		if s.NICs[i].VhostFD != 0 {
+		if s.NICs[i].VhostFD != 0 || s.NICs[i].hub {
 			continue
 		}
 		f, err := open("/dev/vhost-net")

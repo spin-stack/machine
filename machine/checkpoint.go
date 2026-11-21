@@ -381,9 +381,9 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 // anything, and before a byte of its state is read.
 //
 // here is this machine's Target, and Resume trusts it: it does not ask QEMU. The caller is
-// responsible for here describing this machine. spin reads it once, when its runner starts, from
-// a machine started held in the shape it resumes workspaces into, and holds each machine of its
-// pool to it once, when it starts it (spin-stack/spin#1416). A caller with no such constant asks
+// responsible for here describing this machine. spin reads it once, when its runner starts, with
+// ReadTarget of the Spec it resumes workspaces into, and holds each machine of its pool to it
+// once, when it starts it (spin-stack/spin#1416). A caller with no such constant asks
 // Target first. Read here, the record cost restore-first's first login +4.3 ms [+0.2, +7.5] with
 // the state on the disk and +8.2 [+6.2, +10.8] from the page cache (bench, lab 44868324811,
 // 2026-11-21), and no part of it could leave the clock: QEMU's main loop is busy from its exec to

@@ -17,7 +17,7 @@ spec.Cmdline = machine.DefaultCmdline()
 
 m, err := machine.Start(ctx, spec, machine.StartOptions{Stderr: w}) // ctx bounds the start alone
 defer m.Stop(ctx)
-here, err := m.Target(ctx)           // what this machine is, as QEMU reports it: read once for a host
+here, err := machine.ReadTarget(ctx, spec, machine.StartOptions{}) // what a machine of spec is: read once for a host
 err = machine.CanResume(saved, here) // nil, or a *machine.Refusal naming every difference
 err = m.Resume(ctx, state, saved, here, machine.LoadOptions{}, root) // trusts here: QEMU is not asked again
 ```
@@ -191,8 +191,20 @@ records are equal bytes.
 `Resume` does not read it. The caller hands `Resume` the record of the machine it resumes into,
 and `Resume` refuses with `CanResume` before it asks QEMU anything. The caller is responsible for
 that record describing the machine. The record is a constant of a host: its QEMU binary, its CPU
-and the shape it resumes into. spin reads it once, when its runner starts, from a machine started
-held in that shape, and holds each machine of its pool to it once (spin-stack/spin#1416). Read
+and the shape it resumes into. spin reads it once, when its runner starts, and holds each machine
+of its pool to it once (spin-stack/spin#1416).
+
+`machine.ReadTarget(ctx, spec, opts)` is that read: it starts a machine of `spec` held, reads its
+`Target` and stops it. The caller hands it the Spec its machines are started with, so that the
+record is read off the same devices and ceilings that `CanResume` will compare. What is one
+machine's is changed, because the record leaves it out. The caller's monitors are dropped, since
+their sockets belong to its own machines. Each NIC is put on a hub port, so no TAP and no
+`/dev/vhost-net` is needed. The console writes nowhere, but the serial port is still there. A
+machine of spin's shape whose NIC was on a real TAP with vhost read the same record, byte for
+byte, as `ReadTarget`'s (laptop, v20261121.01, 2026-11-21). The vsock's context id is the Spec's
+and has to be free. One call took 72-76 ms p50 over 20 at spin's shape: QEMU's start to its
+monitor's answer 28 ms, the record 11 and the quit, until QEMU has exited, 37 (laptop,
+2026-11-21). It runs at a runner's start, never on either goal number's clock. Read
 inside `Resume`, it cost restore-first's first login +4.3 ms [+0.2, +7.5] with the state on the
 disk and +8.2 ms [+6.2, +10.8] from the page cache (bench, lab 44868324811). No part of that read
 could leave the clock: QEMU's main loop is busy from its exec to the end of the load, and QEMU

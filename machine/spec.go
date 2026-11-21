@@ -155,6 +155,10 @@ type NIC struct {
 	// parameter the guest parses — is advice that root inside the machine can
 	// ignore, and the tenant is root.
 	MTU int
+
+	// hub puts the NIC on a hub port in place of a TAP: ReadTarget's, whose machine never runs.
+	// The record leaves the backend out (perVM), so the NIC reads the same either way.
+	hub bool
 }
 
 // Memory describes guest RAM.
@@ -498,7 +502,7 @@ func (s Spec) fdSets() (map[int]bool, error) {
 func (n NIC) validate() error {
 	switch {
 	// TapFD has no "absent": a NIC is its TAP, and the zero value is stdin.
-	case n.TapFD < 3:
+	case n.TapFD < 3 && !n.hub:
 		return fmt.Errorf("a TAP descriptor of %d is stdin, stdout or stderr", n.TapFD)
 	case n.VhostFD != 0 && n.VhostFD < 3:
 		return errors.New("a /dev/vhost-net descriptor below 3 is stdin, stdout or stderr")
@@ -743,7 +747,10 @@ func (s Spec) appendNICs(args []string) []string {
 			dev += fmt.Sprintf(",host_mtu=%d", n.MTU)
 		}
 		netdev := fmt.Sprintf("tap,id=net%d,fd=%d,vhost=on", i, n.TapFD)
-		if n.VhostFD != 0 {
+		switch {
+		case n.hub:
+			netdev = fmt.Sprintf("hubport,id=net%d,hubid=0", i)
+		case n.VhostFD != 0:
 			netdev += fmt.Sprintf(",vhostfd=%d", n.VhostFD)
 		}
 		args = append(args, "-netdev", netdev, "-device", dev)
