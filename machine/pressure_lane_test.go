@@ -42,19 +42,21 @@ func TestThePressureProbeReportsEachPressure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the sender task boot:pressure built (SPIN_PRESSURE_SENDER): %v", err)
 	}
-	const unit = "/usr/lib/systemd/system/spin-machine-pressure.service"
-	unitText, err := os.ReadFile(filepath.Join("..", "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", unit))
-	if err != nil {
-		t.Fatal(err)
-	}
 	check, err := os.ReadFile(filepath.Join("testdata", "pressure-check.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	root.write("/usr/libexec/spin-machine-pressure", string(sender))
 	root.debugfs("set_inode_field /usr/libexec/spin-machine-pressure mode 0100755")
-	root.write(unit, string(unitText))
-	root.debugfs("symlink /etc/systemd/system/multi-user.target.wants/spin-machine-pressure.service " + unit)
+	for _, unit := range []string{"spin-machine-pressure.service", "spin-machine-pressure.timer"} {
+		path := "/usr/lib/systemd/system/" + unit
+		text, err := os.ReadFile(filepath.Join("..", "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		root.write(path, string(text))
+	}
+	root.debugfs("symlink /etc/systemd/system/timers.target.wants/spin-machine-pressure.timer /usr/lib/systemd/system/spin-machine-pressure.timer")
 	root.write("/pressure-check.sh", string(check))
 	// OOMPolicy=continue: by default systemd stops a service one of whose processes the OOM killer
 	// killed, and the check would end at its oom phase.
