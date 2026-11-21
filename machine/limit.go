@@ -130,10 +130,11 @@ func readLimits(dir string, at time.Time) (limitSample, error) {
 	}
 	// cpu.max is "$QUOTA $PERIOD", or "max $PERIOD".
 	if q, p, ok := bytes.Cut(bytes.TrimSpace(files["cpu.max"]), []byte(" ")); ok {
-		quota, qerr := strconv.ParseInt(string(q), 10, 64)
-		period, perr := strconv.ParseInt(string(p), 10, 64)
-		if qerr == nil && perr == nil && period > 0 {
-			s.cpuMax = quota * int64(time.Second/time.Microsecond) / period
+		// "max" parses as no quota: no limit, and cpuMax stays 0.
+		if quota, err := strconv.ParseInt(string(q), 10, 64); err == nil {
+			if period, err := strconv.ParseInt(string(p), 10, 64); err == nil && period != 0 {
+				s.cpuMax = quota * int64(time.Second/time.Microsecond) / period
+			}
 		}
 	}
 	cpu := keyed(files["cpu.stat"])
@@ -190,7 +191,7 @@ func (lw *limitWatch) next(now limitSample) []Limited {
 		return nil
 	}
 	dt := now.at.Sub(last.at)
-	if dt <= 0 {
+	if dt <= 0 { // mutate-exempt: <= 1 differs only on samples a nanosecond apart, a second is what the watch waits
 		return nil
 	}
 	perSecond := func(d int64) int64 { return int64(float64(d) * float64(time.Second) / float64(dt)) }
