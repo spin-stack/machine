@@ -18,9 +18,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/spin-stack/spin-machine/internal/build"
-	"github.com/spin-stack/spin-machine/internal/kernelcves"
-	"github.com/spin-stack/spin-machine/internal/osvissues"
 	"github.com/spin-stack/spin-machine/internal/release"
+	"github.com/spin-stack/spin-machine/internal/scan"
 )
 
 // newestRelease is the newest published release's tag: what anything takes next, so what is
@@ -78,14 +77,22 @@ gets fixed. Needs gh, cosign and the network.`,
 			if !issues {
 				return nil
 			}
-			if code := osvissues.Run([]string{"-release", tag, "-findings", findings}, osvissues.GH, c.OutOrStdout(), c.ErrOrStderr()); code != 0 {
-				return exitError{code: code}
+			if err := scan.SyncIssues(tag, findings, ghLogged, c.OutOrStdout()); err != nil {
+				return exitError{code: 1, err: err}
 			}
 			return nil
 		},
 	}
 	c.Flags().BoolVar(&issues, "issues", false, "bring the repository's issues to the findings")
 	return c
+}
+
+// ghLogged runs the GitHub CLI, which reads its token and repository from the environment, with
+// gh's own words on stderr for the job's log.
+func ghLogged(args ...string) ([]byte, error) {
+	cmd := exec.Command("gh", args...)
+	cmd.Stderr = os.Stderr // mutate-exempt: gh's own words go to the job's log for a person; SyncIssues reads only its exit status and output
+	return cmd.Output()
 }
 
 // osvScan writes OSV's findings against tag's SBOM to findings, and says how many.
@@ -125,14 +132,14 @@ func osvScan(ctx context.Context, w workspace, tag, findings string) (int, error
 	if len(lines) > 0 {
 		text += "\n"
 	}
-	if err := os.WriteFile(findings, []byte(text), 0o644); err != nil { //nolint:gosec // findings, for a person and osvissues
+	if err := os.WriteFile(findings, []byte(text), 0o644); err != nil { //nolint:gosec // findings, for a person and scan.SyncIssues
 		return 0, fmt.Errorf("writing %s: %w", findings, err)
 	}
 	return len(lines), nil
 }
 
 // OSVFindings are osv-scanner's JSON as one line a finding - id, package@version, summary, a tab
-// between them - sorted, each once: what osvissues reads.
+// between them - sorted, each once: what scan.SyncIssues reads.
 func OSVFindings(r io.Reader) ([]string, error) {
 	var report struct {
 		Results []struct {
@@ -197,18 +204,21 @@ release.`,
 			} else if version, sources, err = releaseKernel(c.Context(), filepath.Join(dir, "release")); err != nil {
 				return couldNot(err)
 			}
-			var out, errs bytes.Buffer
-			args := []string{"-published", filepath.Join(dir, "vulns", "cve", "published"), "-version", version, "-sources", sources}
-			if code := kernelcves.Run(args, &out, &errs); code != 0 {
-				return exitError{code: code, err: errors.New(strings.TrimSpace(errs.String()))}
-			}
-			if err := os.WriteFile(filepath.Join(dir, "summary.md"), out.Bytes(), 0o644); err != nil { //nolint:gosec // a summary, for a person
-				return couldNot(fmt.Errorf("writing the summary: %w", err))
-			}
-			if err := summary(out.String()); err != nil {
+			v, err := scan.ParseKernelVersion(version)
+			if err != nil {
 				return couldNot(err)
 			}
-			for line := range strings.Lines(out.String()) {
+			out, err := scan.KernelCVEs(filepath.Join(dir, "vulns", "cve", "published"), v, sources)
+			if err != nil {
+				return exitError{code: 1, err: err}
+			}
+			if err := os.WriteFile(filepath.Join(dir, "summary.md"), []byte(out), 0o644); err != nil { //nolint:gosec // a summary, for a person
+				return couldNot(fmt.Errorf("writing the summary: %w", err))
+			}
+			if err := summary(out); err != nil {
+				return couldNot(err)
+			}
+			for line := range strings.Lines(out) {
 				if strings.HasPrefix(line, "|") {
 					_, _ = fmt.Fprint(c.OutOrStdout(), line)
 				}
@@ -221,8 +231,8 @@ release.`,
 }
 
 // records is the kernel CNA's published CVE records, as they are today, in dir: data, read the way
-// osv reads OSV's database, so not a pin in versions.yaml. Only cve/published, which kernelcves
-// reads, and not the repository's history.
+// osv reads OSV's database, so not a pin in versions.yaml. Only cve/published, which
+// scan.KernelCVEs reads, and not the repository's history.
 func records(ctx context.Context, c *cobra.Command, dir string) error {
 	run := func(args ...string) error { return command(ctx, c, "", "git", args...) }
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {

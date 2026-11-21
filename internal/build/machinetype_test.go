@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package machinetype
+package build
 
 import (
 	"errors"
@@ -39,14 +39,14 @@ func TestThePinnedTypeAgainstAQEMU(t *testing.T) {
 		{name: "a pin that is no versioned q35", help: real, pinned: "q35", err: "is not a pc-q35-X.Y"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			notice, err := Check(tc.help, tc.pinned)
+			notice, err := checkMachineType(tc.help, tc.pinned)
 			switch {
 			case tc.err != "":
 				if err == nil || !strings.Contains(err.Error(), tc.err) {
-					t.Fatalf("Check: %v, want %q", err, tc.err)
+					t.Fatalf("checkMachineType: %v, want %q", err, tc.err)
 				}
 			case err != nil:
-				t.Fatalf("Check: %v", err)
+				t.Fatalf("checkMachineType: %v", err)
 			case tc.notice == "" && notice != "":
 				t.Errorf("a notice %q with nothing newer", notice)
 			case !strings.Contains(notice, tc.notice):
@@ -75,8 +75,8 @@ GlobalProperty pc_compat_11_1[] = {
 };
 `
 
-func TestCompatIsThePinnedTypesArrays(t *testing.T) {
-	got, err := Compat(source+pcSource, "pc-q35-11.1")
+func TestMachineTypeCompatIsThePinnedTypesArrays(t *testing.T) {
+	got, err := MachineTypeCompat(source+pcSource, "pc-q35-11.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,17 +89,17 @@ func TestCompatIsThePinnedTypesArrays(t *testing.T) {
 		t.Errorf("compat\n%s\nholds the array of another type", got)
 	}
 	// QEMU writes an array with nothing to switch back off as one line (pc_compat_11_0 in 11.1.2).
-	empty, err := Compat(source+"\nGlobalProperty pc_compat_11_1[] = {};\n", "pc-q35-11.1")
+	empty, err := MachineTypeCompat(source+"\nGlobalProperty pc_compat_11_1[] = {};\n", "pc-q35-11.1")
 	if err != nil || !strings.HasSuffix(empty, "GlobalProperty pc_compat_11_1[] = {};") {
 		t.Errorf("an empty array: %q, %v", empty, err)
 	}
-	if _, err := Compat(source, "pc-q35-11.1"); !errors.Is(err, ErrNoArray) {
+	if _, err := MachineTypeCompat(source, "pc-q35-11.1"); !errors.Is(err, ErrNoCompatArray) {
 		t.Errorf("no pc_compat_11_1: %v", err)
 	}
-	if _, err := Compat("GlobalProperty hw_compat_11_1[] = { { ", "pc-q35-11.1"); err == nil || errors.Is(err, ErrNoArray) {
+	if _, err := MachineTypeCompat("GlobalProperty hw_compat_11_1[] = { { ", "pc-q35-11.1"); err == nil || errors.Is(err, ErrNoCompatArray) {
 		t.Errorf("an array with no end: %v", err)
 	}
-	if _, err := Compat(source, "q35"); err == nil {
+	if _, err := MachineTypeCompat(source, "q35"); err == nil {
 		t.Error("an unversioned pin")
 	}
 }
@@ -112,9 +112,9 @@ func TestAnArrayIsItsDeclarationWhole(t *testing.T) {
 	}
 }
 
-// Help asks a real binary: one that is not there is an error, not an empty answer.
-func TestHelpAsksTheBinary(t *testing.T) {
-	if _, err := Help(filepath.Join(t.TempDir(), "no-qemu")); err == nil {
+// machineHelp asks a real binary: one that is not there is an error, not an empty answer.
+func TestMachineHelpAsksTheBinary(t *testing.T) {
+	if _, err := machineHelp(filepath.Join(t.TempDir(), "no-qemu")); err == nil {
 		t.Error("no binary answered")
 	}
 }

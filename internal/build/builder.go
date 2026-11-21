@@ -9,9 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
-
-	"github.com/spin-stack/spin-machine/internal/apklock"
 )
 
 // Builders are the parts compiled on an Alpine builder image of their own (builder/Dockerfile),
@@ -100,7 +99,8 @@ func PublishBuilder(ctx context.Context, o Options, b Builder) (string, error) {
 	return "", fmt.Errorf("docker says no digest of %s in %s after pushing it", remote, e.Source)
 }
 
-// installed is image's apk database as name=version lines.
+// installed is image's apk database as name=version lines: a builder's tag is a hash of them, and a
+// proposed builder says which of them moved (spin-machine-dev refresh builders).
 func installed(ctx context.Context, o Options, image string) (string, error) {
 	var db strings.Builder
 	run := o
@@ -108,7 +108,35 @@ func installed(ctx context.Context, o Options, image string) (string, error) {
 	if err := docker(ctx, run, "run", "--rm", "--platform", "linux/amd64", "--entrypoint", "cat", image, "/lib/apk/db/installed"); err != nil {
 		return "", fmt.Errorf("reading the packages of %s: %w", image, err)
 	}
-	return apklock.Lock(db.String())
+	return installedPackages(db.String())
+}
+
+// installedPackages is an apk installed database's packages as name=version lines, sorted.
+func installedPackages(db string) (string, error) {
+	var pins []string
+	for _, block := range strings.Split(db, "\n\n") {
+		var name, version string
+		for _, line := range strings.Split(block, "\n") {
+			switch k, v, _ := strings.Cut(line, ":"); k {
+			case "P":
+				name = v
+			case "V":
+				version = v
+			}
+		}
+		switch {
+		case name == "" && version == "":
+			continue
+		case name == "" || version == "":
+			return "", fmt.Errorf("a package with name %q and version %q", name, version)
+		}
+		pins = append(pins, name+"="+version)
+	}
+	if len(pins) == 0 {
+		return "", fmt.Errorf("no package installed")
+	}
+	slices.Sort(pins)
+	return strings.Join(pins, "\n") + "\n", nil
 }
 
 // sourceRepo is the GitHub repository a ghcr.io image of it is under: ghcr.io/owner/repo/name.

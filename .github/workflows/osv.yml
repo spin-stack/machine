@@ -42,7 +42,7 @@ jobs:
         run: go tool task bin
 
       # And the issues brought to the findings: one a package, which a release closes once it has
-      # no finding in it (internal/osvissues says why a package and not a finding).
+      # no finding in it (internal/scan's SyncIssues says why a package and not a finding).
       - name: Scan the newest release, and bring the issues to the findings
         env:
           GH_TOKEN: ${{ github.token }}

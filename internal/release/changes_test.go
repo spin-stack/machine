@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package releasenotes
+package release
 
 import (
 	"fmt"
@@ -117,11 +117,10 @@ func TestTheNotesSayWhatChangedInTheMachine(t *testing.T) {
 		".github/workflows/release.yml": s("on: workflow_dispatch\n"),
 	})
 
-	var b, stderr strings.Builder
-	if code := Run([]string{"-from", "v1"}, r.dir, &b, &stderr); code != 0 {
-		t.Fatalf("exit %d: %s", code, stderr.String())
+	notes, err := Changes(r.dir, "v1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	notes := b.String()
 	t.Log(notes)
 
 	// Each wanted line, and the heading it must be under.
@@ -165,36 +164,42 @@ func underHeading(from string) string {
 	return from
 }
 
-// What the command answers, and with what exit, for a command line it cannot use, a ref git does
-// not know, and a release built from the same tree as the one before it.
-func TestTheCommandSaysWhyItWroteNothing(t *testing.T) {
+// What the changes are against a ref git does not know, and against a release built from the same
+// tree as the one before it.
+func TestTheChangesSayWhyThereAreNone(t *testing.T) {
 	r := newRepo(t)
 	r.commit("the first release", map[string]*string{"versions.yaml": s(fmt.Sprintf(versionsAt, "11.1.1", digestA))})
 	r.git("tag", "v1")
-	for _, tc := range []struct {
-		name   string
-		args   []string
-		code   int
-		stdout string
-		stderr string
-	}{
-		{"no previous release", nil, 2, "", "-from is required"},
-		{"a flag it does not take", []string{"-since", "v1"}, 2, "", "flag provided but not defined"},
-		{"a ref git does not know", []string{"-from", "v0"}, 1, "", "git log"},
-		{"the same tree", []string{"-from", "v1"}, 0, "Nothing: this is the tree v1 was built from.", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var stdout, stderr strings.Builder
-			if code := Run(tc.args, r.dir, &stdout, &stderr); code != tc.code {
-				t.Errorf("exit %d, want %d; stderr: %s", code, tc.code, stderr.String())
-			}
-			if !strings.Contains(stdout.String(), tc.stdout) || (tc.stdout == "" && stdout.Len() > 0) {
-				t.Errorf("stdout %q, want %q", stdout.String(), tc.stdout)
-			}
-			if !strings.Contains(stderr.String(), tc.stderr) || (tc.stderr == "" && stderr.Len() > 0) {
-				t.Errorf("stderr %q, want %q", stderr.String(), tc.stderr)
-			}
-		})
+	if got, err := Changes(r.dir, "v0"); err == nil || !strings.Contains(err.Error(), "git log") || got != "" {
+		t.Errorf("against a ref git does not know: %q, %v", got, err)
+	}
+	got, err := Changes(r.dir, "v1")
+	if err != nil || !strings.Contains(got, "Nothing: this is the tree v1 was built from.") {
+		t.Errorf("against the same tree: %q, %v", got, err)
+	}
+}
+
+// A pin that appears is listed with the version it starts at, and one that goes with the version it
+// was at.
+func TestThePinsThatAppearOrGo(t *testing.T) {
+	r := newRepo(t)
+	both := fmt.Sprintf(versionsAt, "11.1.1", digestA)
+	qemu, debian, _ := strings.Cut(both, "- name: debian")
+	r.commit("debian only", map[string]*string{"versions.yaml": s("- name: debian" + debian)})
+	r.git("tag", "v1")
+	r.commit("qemu only", map[string]*string{"versions.yaml": s(qemu)})
+	got, err := Changes(r.dir, "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.Index(got, "### Pins")
+	if head < 0 {
+		t.Fatalf("no pins heading:\n%s", got)
+	}
+	for _, want := range []string{"- `qemu` added at `11.1.1`", "- `debian` removed (was `trixie`)"} {
+		if !strings.Contains(underHeading(got[head:]), want) {
+			t.Errorf("the pins lack %q:\n%s", want, got)
+		}
 	}
 }
 

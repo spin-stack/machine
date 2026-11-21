@@ -20,7 +20,6 @@ import (
 
 	"github.com/spin-stack/spin-machine/internal/build"
 	"github.com/spin-stack/spin-machine/internal/release"
-	"github.com/spin-stack/spin-machine/internal/releasenotes"
 )
 
 // oidcIssuer is who issues the token a release is signed with.
@@ -258,11 +257,9 @@ func notesOf(ctx context.Context, w workspace, version string) (string, error) {
 			return "", err
 		}
 		verdict = release.Verdict(previous, then, release.ParseEnv(string(raw)))
-		var out, errs bytes.Buffer
-		if code := releasenotes.Run([]string{"-from", previous, "-to", "HEAD"}, w.root, &out, &errs); code != 0 {
-			return "", fmt.Errorf("what changed since %s: %s", previous, strings.TrimSpace(errs.String()))
+		if changes, err = release.Changes(w.root, previous); err != nil {
+			return "", fmt.Errorf("what changed since %s: %w", previous, err)
 		}
-		changes = out.String()
 	}
 	// Whether the QEMU shipped offers a machine type newer than the one every checkpoint is saved
 	// on: said, never acted on (machine.MachineType).

@@ -418,7 +418,7 @@ RUN cd linux && make ARCH=${KERNEL_ARCH} -j${KERNEL_NPROC} \
 
 # What this kernel is made of, one source or header a line: the union of the dependency lists
 # the build writes beside every object it compiled (.<object>.o.cmd: source_ and deps_). A CVE
-# whose files are none of these is in code this kernel does not contain, and hack/kernelcves
+# whose files are none of these is in code this kernel does not contain, and internal/scan
 # reads it to say so from the build rather than from a guess about which CONFIG_ symbol builds
 # which file. scripts/ and tools/ are the build's own programs, which never run in a guest, and an
 # absolute path is the compiler's own header. A list of under 5000 is a build the pattern no longer

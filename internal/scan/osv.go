@@ -1,87 +1,58 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package osvissues keeps one issue per package of the base image for what OSV knows against the
-// newest release (spin-machine-dev osv): it opens one for a package that has findings, rewrites its list as
-// the findings change, and closes it once the release has none in that package.
+package scan
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+// SyncIssues keeps one issue per package of the base image for what OSV knows against release,
+// the newest one (spin-machine-dev osv --issues): it opens one for a package that has findings,
+// rewrites its list as the findings change, and closes it once the release has none in that
+// package. findings is spin-machine-dev osv's file: id, package@version and summary, a tab between
+// them. gh runs the GitHub CLI against the repository, and each action taken is said on stdout.
 //
 // One issue a package and not a finding, because a package is what gets fixed: Ubuntu ships one
 // version of curl that answers a notice and the nineteen CVEs it names, and a new release closes
 // all of them at once. An issue per finding made nineteen issues of one fix, and a notice and the
 // CVEs it covers two issues of one finding.
 //
-// A closed issue is an answer - fixed, or judged not to matter - and stays closed while its
-// package has only the findings it listed. A finding it did not list reopens it.
-package osvissues
-
-import (
-	"bufio"
-	"encoding/json"
-	"flag"
-	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"regexp"
-	"slices"
-	"strings"
-)
-
-// Run plans against the repository's issues and applies the plan through cli: 0 when every
-// action was taken, 2 for a command line it cannot use, 1 when reading or acting failed.
-func Run(args []string, cli func(args ...string) ([]byte, error), stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("osvissues", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	release := fs.String("release", "", "the release the findings are of")
-	findingsPath := fs.String("findings", "", "spin-machine-dev osv's findings: id, package@version and summary, a tab between them")
-	dryRun := fs.Bool("n", false, "say what would be done, and do nothing")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if *release == "" || *findingsPath == "" {
-		fmt.Fprintln(stderr, "osvissues: -release and -findings are required")
-		return 2
-	}
-	f, err := os.Open(*findingsPath)
+// A closed issue is an answer, fixed or judged not to matter, and stays closed while its package
+// has only the findings it listed. A finding it did not list reopens it.
+func SyncIssues(release, findings string, gh func(args ...string) ([]byte, error), stdout io.Writer) error {
+	f, err := os.Open(findings)
 	if err != nil {
-		fmt.Fprintln(stderr, "osvissues:", err)
-		return 1
+		return fmt.Errorf("reading the findings: %w", err)
 	}
 	defer f.Close()
-	findings, err := readFindings(f)
+	found, err := readFindings(f)
 	if err != nil {
-		fmt.Fprintln(stderr, "osvissues:", err)
-		return 1
+		return err
 	}
 	// Every issue and not a search: the search index lags the issues by minutes, and an issue
 	// it has not seen yet is one opened again.
-	out, err := cli("issue", "list", "--state", "all", "--limit", "1000", "--json", "number,title,state,body")
+	out, err := gh("issue", "list", "--state", "all", "--limit", "1000", "--json", "number,title,state,body")
 	if err != nil {
-		fmt.Fprintln(stderr, "osvissues: listing issues:", err)
-		return 1
+		return fmt.Errorf("listing issues: %w", err)
 	}
 	var issues []issue
 	if err := json.Unmarshal(out, &issues); err != nil {
-		fmt.Fprintln(stderr, "osvissues: listing issues:", err)
-		return 1
+		return fmt.Errorf("listing issues: %w", err)
 	}
-	for _, a := range plan(*release, findings, issues) {
+	for _, a := range plan(release, found, issues) {
 		fmt.Fprintln(stdout, a.describe())
-		if *dryRun {
-			continue
-		}
-		if _, err := cli(a.args()...); err != nil {
-			fmt.Fprintf(stderr, "osvissues: %s: %v\n", a.describe(), err)
-			return 1
+		if _, err := gh(a.args()...); err != nil {
+			return fmt.Errorf("%s: %w", a.describe(), err)
 		}
 	}
-	return 0
-}
-
-// GH runs the GitHub CLI, which reads its token and repository from the environment.
-func GH(args ...string) ([]byte, error) {
-	cmd := exec.Command("gh", args...)
-	cmd.Stderr = os.Stderr // mutate-exempt: gh's own words go to the job's log for a person; run reads only its exit status and output
-	return cmd.Output()
+	return nil
 }
 
 type finding struct {

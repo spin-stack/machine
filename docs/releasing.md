@@ -37,7 +37,7 @@ A release is release.yml dispatched on main, and nothing else. A pushed tag star
 version, the workflow makes that one. With no input, it generates the next sequence for today.
 Either way, it tags the commit once its files are signed, and writes the notes:
 
-- What changed since the release before (`internal/releasenotes`): the commits that reached the
+- What changed since the release before (`internal/release`'s `Changes`): the commits that reached the
   machine, by the part they changed; the pins that moved; the kernel options turned on, off or
   changed; and the patches added, changed or removed.
 - Whether checkpoints carry over (`internal/release`'s verdict).

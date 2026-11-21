@@ -1,18 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package releasenotes says what a release changed against the one before it, in Markdown for
-// the release's notes: the commits that reached the machine, grouped by the part they changed;
-// the pins that moved; the kernel options that were turned on, off or changed; and the patches
-// added, removed or changed. Everything is read from git at the two refs, so it says what is
-// in the tree, not what somebody remembered to write down.
-//
-// The fingerprint verdict (internal/release) and the boot report's comparison are the
-// notes' other two parts; this is the one that says why they moved.
-package releasenotes
+package release
 
 import (
 	"cmp"
-	"flag"
 	"fmt"
 	"io"
 	"os/exec"
@@ -23,25 +14,20 @@ import (
 	"github.com/spin-stack/go-tools/versions"
 )
 
-// Run is the command against the repository at dir: 0 with the notes on stdout, 2 for a
-// command line it cannot use, 1 when git could not answer.
-func Run(args []string, dir string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("releasenotes", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	from := fs.String("from", "", "the previous release's tag")
-	to := fs.String("to", "HEAD", "the commit this release is built from")
-	if err := fs.Parse(args); err != nil {
-		return 2
+// Changes is what HEAD of the repository at repo changed against from, the release before it, in
+// Markdown for the release's notes: the commits that reached the machine, grouped by the part they
+// changed, the pins that moved, the kernel options that were turned on, off or changed, and the
+// patches added, removed or changed. Everything is read from the repository at the two refs, so
+// it says what is in the tree, not what somebody remembered to write down.
+//
+// The fingerprint verdict (Verdict) and the boot report's comparison are the notes' other two
+// parts. This is the one that says why they moved.
+func Changes(repo, from string) (string, error) {
+	var b strings.Builder
+	if err := write(&b, repo, from, "HEAD"); err != nil {
+		return "", err
 	}
-	if *from == "" {
-		fmt.Fprintln(stderr, "releasenotes: -from is required")
-		return 2
-	}
-	if err := write(stdout, dir, *from, *to); err != nil {
-		fmt.Fprintln(stderr, "releasenotes:", err)
-		return 1
-	}
-	return 0
+	return b.String(), nil
 }
 
 // parts are what a release is made of, in the order the notes list them, each with the paths
