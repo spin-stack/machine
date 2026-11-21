@@ -288,6 +288,8 @@ func loadEnded(st migrationStatus) error {
 // Its Cost is what QEMU reports of the migration once it has completed, asked once after it: the
 // state still says what the save cost. A checkpoint is not on either goal number's clock.
 //
+// Checkpoint returns with the machine Postmigrate, for Hold or Continue (finished).
+//
 // Checkpoint does not sync the state to its disk, and QEMU does not either: what the page cache
 // still holds when it returns is the caller's to fdatasync, after Continue. A sync inside seal
 // keeps the guest stopped while the disk writes, 275 ms p50 at 1.6 GiB, and syncing every 100 ms
@@ -349,9 +351,39 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: reading what it cost: %w", err)
 	}
 	cost := Cost{Paused: time.Duration(info.Downtime) * time.Millisecond, Total: time.Duration(info.TotalTime) * time.Millisecond, RAM: info.RAM.Transferred}
+	if err := m.finished(ctx); err != nil {
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
+	}
 	tell(save.Phases, SaveCompleted{At: completedAt, Cost: cost})
 	m.then = save.Phases
 	return Saved{Format: FormatMappedRAM, From: from, Added: again}, cost, nil
+}
+
+// finishPoll is how long finished waits between two asks. QEMU leaves finish-migrate as soon as its
+// migration thread takes the BQL back, which the monitor's commands hold in turn.
+const finishPoll = time.Millisecond
+
+// finished returns once QEMU has left finish-migrate, which it does after it said completed, or
+// once ctx ends the query-status it is waiting on.
+//
+// QEMU 11.2.0-rc0's migration thread sends MIGRATION{completed} and lets the BQL go
+// (migration_completion_end), and moves the run state to postmigrate only once it has the BQL
+// again (migration_iteration_finish). cont is refused in between ("Migration is not finalized
+// yet"), and blockdev-set-active is not, leaving a Hold that is not postmigrate. No event marks
+// the move, so the run state is asked for, in the common case once. Before this wait, a Continue
+// right after Checkpoint was refused once in about 235 checkpoints with a writer in the guest, and
+// in 102 of 300 with QEMU sharing two busy host CPUs (laptop, 2026-11-21, #421).
+func (m *QEMU) finished(ctx context.Context) error {
+	for {
+		st, err := m.Status(ctx)
+		if err != nil {
+			return fmt.Errorf("waiting for QEMU to leave %s: %w", finishMigrate, err)
+		}
+		if st != finishMigrate {
+			return nil
+		}
+		time.Sleep(finishPoll)
+	}
 }
 
 // switchover runs seal at pre-switchover, waits for the migration to complete and returns when

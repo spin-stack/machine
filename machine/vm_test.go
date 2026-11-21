@@ -490,7 +490,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get",
 		"migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate",
 		"query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock",
-		"migrate-continue", "remove-fd", "query-migrate"}
+		"migrate-continue", "remove-fd", "query-migrate", "query-status"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Errorf("commands\n%v\nwant\n%v", got, want)
 	}
@@ -610,6 +610,34 @@ func TestACheckpointReturnsOnceQEMUHasLeftFinishMigrate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A checkpoint whose QEMU never leaves finish-migrate waits as long as its context, and says what
+// it waited for.
+func TestACheckpointWaitsForFinishMigrateNoLongerThanItsContext(t *testing.T) {
+	f := &fakeQEMU{answer: migrations(func(c call) string {
+		if r, ok := recordAnswers(c); ok {
+			return r
+		}
+		switch c.Command {
+		case "query-hotpluggable-cpus", "qom-list":
+			return ret(`[]`)
+		case "add-fd":
+			return ret(`{"fdset-id": 3}`)
+		case "query-status":
+			return ret(`{"status": "finish-migrate"}`)
+		}
+		return ok
+	}, "completed")}
+	c, cancel := context.WithTimeout(ctx(t), 100*time.Millisecond)
+	defer cancel()
+	_, _, err := f.attach(t).Checkpoint(c, image(t, "raw").File, SaveOptions{}, func(context.Context) error { return nil })
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "leave finish-migrate") {
+		t.Fatalf("Checkpoint = %v, want the wait for finish-migrate to end with its context", err)
+	}
+	if asked := len(f.sent("query-status")); asked < 2 {
+		t.Errorf("asked the run state %d times, want it asked again until the context ended", asked)
 	}
 }
 
