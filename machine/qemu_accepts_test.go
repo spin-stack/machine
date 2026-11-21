@@ -13,7 +13,7 @@ import (
 // The rest of this package's tests assert on the strings Args produces, which
 // proves the package agrees with itself. This one asks the binary.
 //
-// Every device and property named in machine.go — free-page-reporting,
+// Every device and property named in spec.go — free-page-reporting,
 // deflate-on-oom, requested-size, romfile=, the ICH9-LPC globals, the four
 // -sandbox restrictions — is a string agreed with a QEMU built from
 // qemu/devices.mak, and the two halves move independently: a device dropped from

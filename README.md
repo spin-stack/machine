@@ -23,6 +23,27 @@ host can show the guest every CPU feature it was shown (docs/migration.md). A ne
 same machine type, a new kernel, or new firmware of the same size is the same machine, and
 `task boot:compat` holds every release to that. One repository and one version keep the four parts from drifting apart.
 
+## Layout
+
+`machine/` is the only public API. spin imports it, and nothing else here is meant to be
+imported. Every other directory is this repository's own and changes without notice.
+
+| directory | what it is |
+|---|---|
+| [`machine/`](machine/) | the machine as Go: the `Spec` and its QEMU command line, the fingerprint, and the `VM` that boots, resumes and checkpoints one |
+| [`cmd/spin-machine/`](cmd/spin-machine/) | the tool that boots and drives one machine by hand |
+| [`cmd/spin-machine-dev/`](cmd/spin-machine-dev/) | the tool that builds, verifies, measures and releases the machine ([docs/cli.md](docs/cli.md)) |
+| [`internal/`](internal/) | what `spin-machine-dev` is made of: the builds, the release, its notes, the lab and the CVE and OSV checks |
+| [`boot/`](boot/) | the probes that measure a boot from the host, run as Task targets |
+| [`qemu/`](qemu/README.md) | QEMU and qboot: the build, the device list and the patches |
+| [`kernel/`](kernel/README.md) | the guest kernel: the build, the config and the patches |
+| [`image/`](image/README.md) | the base image, and the systemd it installs |
+| [`e2fsprogs/`](e2fsprogs/README.md) | the static `mkfs.ext4`, `e2fsck`, `dumpe2fs` and `debugfs` that make and check the image |
+| [`builder/`](builder/) | the Alpine image the static parts are compiled on |
+| [`versions/`](versions/) | the test that holds every pin to `versions.yaml` |
+| [`workflows/`](workflows/) | the test that holds CI's workflows to their attestation rules |
+| [`docs/`](docs/) | how the machine is measured, defined, migrated and released |
+
 ## What a release is
 
 One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
@@ -50,13 +71,10 @@ build directory alike. The two share one layout, so no translation between them 
 
 ## Boot a machine from Go or by hand
 
-```go
-rel, err := machine.OpenRelease("/usr/share/spin-stack")  // says which file is missing, if one is
-spec := rel.Spec()                                        // QEMU, Kernel, Firmware
-// … the caller's initrd, memory, CPUs, disks, monitors
-args, err := spec.Args()          // the QEMU command line
-fp, err := spec.Fingerprint()     // which checkpoints this machine may resume
-```
+From Go, [`machine/example_test.go`](machine/example_test.go) is the whole flow spin runs, as
+code that compiles. It opens a release, fills a `Spec`, starts QEMU from `Spec.Args`, attaches,
+boots or resumes, attaches a disk and takes a checkpoint. The package doc
+(`go doc ./machine`) lists the same steps.
 
 By hand, `spin-machine` boots a machine, prints its command line or fingerprint, attaches,
 detaches or saves on a running one, grows or shrinks its vCPUs and memory, and restores a saved

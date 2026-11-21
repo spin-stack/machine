@@ -7,9 +7,9 @@ and builds none of the three artefacts. Its gates are `task lint`, `task test`, 
 test are fast and catch most mistakes. It also *pulls* one artefact: `spin-machine-dev fetch qemu`
 unpacks the published QEMU of the pinned version in seconds, and `spin-machine-dev verify args`
 hands it the command line `machine.Spec.Args` builds. `qemu/devices.mak` decides the device set,
-and `machine/machine.go` writes the device and property names out by hand. Nothing else connects
+and `machine/spec.go` writes the device and property names out by hand. Nothing else connects
 the two. A device dropped from the allowlist reads exactly like a typo added in
-`machine/machine.go`: a VM that does not start, found by whoever boots one.
+`machine/spec.go`: a VM that does not start, found by whoever boots one.
 
 Each artefact is a job of `parts.yml` that runs when a change reaches it, because QEMU and the
 kernel take tens of minutes each and the base image is ~1.5 GB of apt. The `parts` job says whether
