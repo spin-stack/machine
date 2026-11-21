@@ -55,7 +55,8 @@ func TestACoreAttachedBeforeSystemdStartsComesOnline(t *testing.T) {
 		func(s *machine.Spec) {
 			s.BootCPUs, s.MaxCPUs = 1, 2
 			s.Cmdline.Init = "/hotadd-init.sh"
-			s.Monitors = []machine.Monitor{{Socket: monitor}}
+			// Beside checkGuest's own, which boots the machine through it.
+			s.Monitors = append(s.Monitors, machine.Monitor{Socket: monitor})
 		},
 		func(console string) {
 			if attached || !strings.Contains(console, "HOTADD_WAITING") {
