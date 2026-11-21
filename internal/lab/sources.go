@@ -195,15 +195,16 @@ func (s Sources) buildSpinMachine(to string) (string, error) {
 	return "built from " + s.Checkout, nil
 }
 
-// module is this repository's Go module, which a release's spin-machine is built from by commit.
-const module = "github.com/spin-stack/spin-machine"
-
-// mutate-lane: TestTheLabTalksToGitHub, with SPIN_LAB_RELEASE set: it builds through the proxy.
-//
 // releaseSpinMachine builds, at to, the spin-machine of the commit the release tree at base was
 // made from (machine.env's source_commit): the machine as that release defined it - its devices,
-// its places, its checkpoints - which this checkout's would not be. Through the module proxy, so
-// that no clone of the history is needed.
+// its places, its checkpoints - which this checkout's would not be.
+//
+// It builds that commit's tree, fetched alone into a repository of its own from wherever this
+// checkout's origin points. It used go install through the module proxy, which fetches a module
+// by the path its go.mod declares: after the module became github.com/spin-stack/machine (#376),
+// the proxy could fetch no release from before it, and none after it until GitHub had the new
+// name. A fetch by commit names neither. The checkout is only read: CI's is shallow, and a fetch
+// into it would deepen it, or make a full clone shallow.
 func (s Sources) releaseSpinMachine(base, to string) (string, error) {
 	env, err := readEnv(filepath.Join(base, "machine.env"))
 	if err != nil {
@@ -213,21 +214,31 @@ func (s Sources) releaseSpinMachine(base, to string) (string, error) {
 	if commit == "" {
 		return "", fmt.Errorf("%s names no source_commit to build its spin-machine from", filepath.Join(base, "machine.env"))
 	}
-	bin, err := os.MkdirTemp(filepath.Dir(to), ".gobin")
+	origin, err := exec.Command("git", "-C", s.Checkout, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", fmt.Errorf("finding %s's origin, to fetch %s's spin-machine from: %w", s.Checkout, env["version"], err)
+	}
+	tree, err := os.MkdirTemp(filepath.Dir(to), ".source")
 	if err != nil {
 		return "", fmt.Errorf("making a directory to build %s's spin-machine in: %w", env["version"], err)
 	}
-	defer func() { _ = os.RemoveAll(bin) }()
-	cmd := exec.Command("go", "install", module+"/cmd/spin-machine@"+commit)
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOBIN="+bin)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("building %s's spin-machine at %s: %w: %s", env["version"], commit, err, out)
+	defer func() { _ = os.RemoveAll(tree) }()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"fetch", "-q", "--depth=1", strings.TrimSpace(string(origin)), commit},
+		{"-c", "advice.detachedHead=false", "checkout", "-q", commit},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", tree}, args...)...).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("checking out %s's spin-machine at %s: %w: %s", env["version"], commit, err, out)
+		}
 	}
 	if err := os.Remove(to); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("removing %s: %w", to, err)
 	}
-	if err := os.Rename(filepath.Join(bin, "spin-machine"), to); err != nil {
-		return "", fmt.Errorf("placing %s's spin-machine: %w", env["version"], err)
+	cmd := exec.Command("go", "build", "-o", to, "./cmd/spin-machine")
+	cmd.Dir, cmd.Env = tree, append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("building %s's spin-machine at %s: %w: %s", env["version"], commit, err, out)
 	}
 	return "built from " + commit + ", " + env["version"] + "'s", nil
 }
