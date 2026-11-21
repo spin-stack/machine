@@ -38,5 +38,17 @@ sleep 3
 echo PHASE oom
 head -c 3000M /dev/zero | tail > /dev/null
 sleep 3
+# Each limit spin sets on QEMU's cgroup, which the host sets as the phase starts and lifts as the
+# next one does. One loop on the one vCPU, against cpu.max of a fifth of a CPU.
+echo PHASE cpulimit; loops 1 5; sleep 2
+# The second disk, which is on a block device of the host, read again and again: the host caches
+# what QEMU reads in QEMU's cgroup, past the memory.high the host set just above what QEMU held.
+echo PHASE memlimit
+timeout 5 sh -c 'while :; do dd if=/dev/disk/by-id/virtio-lim of=/dev/null bs=1M iflag=direct status=none; done'
+sleep 2
+# The same disk, out of the host's cache, against io.max's rbps.
+echo PHASE iolimit
+timeout 5 dd if=/dev/disk/by-id/virtio-lim of=/dev/null bs=64k iflag=direct status=none
+sleep 2
 echo PHASE done; sleep 1
 echo PRESSURE_CHECK_OK
