@@ -25,8 +25,10 @@ type QEMU struct {
 	// runner reads the guest's memory from more than one goroutine.
 	polling atomic.Bool
 	// then is the Phases of the checkpoint or fast resume whose last phase another call tells:
-	// Continue or Hold after a checkpoint, Loaded after a fast resume.
+	// Continue or Hold after a checkpoint, Loaded after a fast resume. data is the fast resume's
+	// state's data, for the StateLoaded Loaded tells.
 	then func(Phase)
+	data int64
 }
 
 var _ VM = (*QEMU)(nil)

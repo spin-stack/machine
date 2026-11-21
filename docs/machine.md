@@ -276,7 +276,7 @@ err = m.Resume(ctx, state, saved, here, machine.LoadOptions{Phases: func(p machi
 | `GuestRunning` | `cont` returned, from `Continue` or inside `Resume` | |
 | `GuestHeld` | `Hold` took the disks back, the guest still stopped | |
 | `LoadStarted` | QEMU took `migrate-incoming` | |
-| `StateLoaded` | the whole state read: in `Resume`, or in `Loaded` after a fast load | |
+| `StateLoaded` | the whole state read: in `Resume`, or in `Loaded` after a fast load | `Bytes`, the data the state's file holds |
 
 The phases are per call, not per machine. spin keeps one timeline per snapshot (spin-stack/spin#1481)
 and adds its own steps to it, such as the guest's flush, the upload and the publish. A func per
@@ -284,7 +284,7 @@ call needs no snapshot id to sort a machine's stream by. `Continue`, `Hold` and 
 last phase of the call before them, because a checkpoint ends with the guest stopped and the caller
 decides when it runs.
 
-**They cost the goal paths nothing.** A resume's phases ask QEMU nothing more. A checkpoint's
+**They cost the goal paths nothing.** A resume's phases ask QEMU nothing more, and cost one `fstat` of the state. A checkpoint's
 `RAMWritten` costs one `query-migrate` every 100 ms, but only while the guest runs and only for a
 caller that takes the phases. Without `Phases`, a checkpoint and a resume send the same commands as
 before. The func is called on Checkpoint's and Resume's goroutines, one phase at a time and in

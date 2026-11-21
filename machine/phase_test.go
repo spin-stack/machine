@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -129,32 +130,39 @@ func TestACheckpointTellsItsPhasesInOrder(t *testing.T) {
 	}
 }
 
-// A resume tells its phases: a full load its state loaded before the guest runs, and a fast one
-// the guest running first, and its state loaded from Loaded.
+// A resume tells its phases: a full load its state loaded before the guest runs, one saved stopped
+// the guest running once it is continued, and a fast one the guest running first, and its state
+// loaded from Loaded.
 func TestAResumeTellsItsPhases(t *testing.T) {
 	from := fakeTarget(t)
 	for _, tc := range []struct {
 		name     string
 		load     LoadOptions
 		statuses []string
+		after    string // the run state once loaded
 		want     []string
 	}{
-		{"in full", LoadOptions{}, []string{"active", "completed"}, []string{"LoadStarted", "StateLoaded", "GuestRunning"}},
-		{"fast", LoadOptions{Fast: true}, []string{"active", "postcopy-active"}, []string{"LoadStarted", "GuestRunning", "StateLoaded"}},
+		{"in full", LoadOptions{}, []string{"active", "completed"}, "running", []string{"LoadStarted", "StateLoaded", "GuestRunning"}},
+		{"in full, saved stopped", LoadOptions{}, []string{"active", "completed"}, "paused", []string{"LoadStarted", "StateLoaded", "GuestRunning"}},
+		{"fast", LoadOptions{Fast: true}, []string{"active", "postcopy-active"}, "running", []string{"LoadStarted", "GuestRunning", "StateLoaded"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{}
 			places := machineAnswers("inmigrate", "root")
 			f.answer = migrations(func(c call) string {
 				if c.Command == "query-status" && strings.Contains(strings.Join(f.commands(), " "), "migrate-incoming") {
-					return ret(`{"status": "running"}`)
+					return ret(`{"status": "` + tc.after + `"}`)
 				}
 				return places(c)
 			}, tc.statuses...)
 			m := f.attach(t)
 			p := &phases{}
 			tc.load.Phases = p.tell
-			if err := m.Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from}, from, tc.load,
+			state := image(t, "raw").File
+			if _, err := state.Write(make([]byte, 64<<10)); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Resume(ctx(t), state, Saved{Format: FormatMappedRAM, From: from}, from, tc.load,
 				Disk{Serial: "root", Images: []Image{image(t, "qcow2")}}); err != nil {
 				t.Fatal(err)
 			}
@@ -168,6 +176,16 @@ func TestAResumeTellsItsPhases(t *testing.T) {
 			}
 			if got := p.names(); !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("phases %v, want %v", got, tc.want)
+			}
+			fi, err := state.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data := fi.Sys().(*syscall.Stat_t).Blocks * 512 // what du says the file holds
+			for _, ph := range p.told {
+				if l, ok := ph.(StateLoaded); ok && (l.Bytes != data || data < 64<<10) {
+					t.Errorf("%+v, want the %d bytes of data the state holds", l, data)
+				}
 			}
 		})
 	}
