@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"sync/atomic"
+	"time"
 
 	"github.com/spin-stack/machine/internal/qmpdef"
 	"github.com/spin-stack/machine/qmp"
@@ -23,6 +24,9 @@ type QEMU struct {
 	// polling is whether GuestMemory has turned the balloon's reports on. Atomic because spin's
 	// runner reads the guest's memory from more than one goroutine.
 	polling atomic.Bool
+	// then is the Phases of the checkpoint or fast resume whose last phase another call tells:
+	// Continue or Hold after a checkpoint, Loaded after a fast resume.
+	then func(Phase)
 }
 
 var _ VM = (*QEMU)(nil)
@@ -161,6 +165,8 @@ func (m *QEMU) Hold(ctx context.Context) error {
 	if _, err := qmp.Do(ctx, m.c, blockdevSetActive, activeArgs{Active: true}); err != nil {
 		return fmt.Errorf("taking the machine's disks back: %w", err)
 	}
+	tell(m.then, GuestHeld{At: time.Now()})
+	m.then = nil
 	return nil
 }
 
@@ -231,6 +237,8 @@ func (m *QEMU) Continue(ctx context.Context) error {
 	if _, err := qmp.Do(ctx, m.c, qmp.Cont, qmp.None{}); err != nil {
 		return fmt.Errorf("continuing the machine: %w", err)
 	}
+	tell(m.then, GuestRunning{At: time.Now()})
+	m.then = nil
 	return nil
 }
 

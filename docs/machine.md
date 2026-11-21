@@ -254,6 +254,43 @@ with the signal, actuator and owner table (#396). Not yet explained: the 175-950
 under small synced writes on a contended host disk (#391), and QMP's round trip during a load
 (#392).
 
+## Phases
+
+A checkpoint stops the guest, and a caller showing it to a person needs to say for how long and
+why. `SaveOptions.Phases` and `LoadOptions.Phases` take a func that is told each step of one call
+as it happens. Each `machine.Phase` is a typed value with the time the host learned of it:
+
+```go
+saved, cost, err := m.Checkpoint(ctx, f, machine.SaveOptions{Phases: func(p machine.Phase) { /* quick */ }}, seal)
+err = m.Continue(ctx)            // tells the checkpoint's last phase, GuestRunning
+err = m.Resume(ctx, state, saved, here, machine.LoadOptions{Phases: func(p machine.Phase) {}}, root)
+```
+
+| Phase | When | Carries |
+|---|---|---|
+| `SaveStarted` | QEMU took `migrate` and writes the RAM while the guest runs | |
+| `RAMWritten` | every 100 ms while the guest runs | `Bytes` written, `Total` of the RAM blocks at their ceilings |
+| `GuestStopped` | pre-switchover: the guest stopped and its disks quiet | |
+| `Sealed` | the caller's seal returned | `Took` |
+| `SaveCompleted` | QEMU said `completed` | the `Cost` Checkpoint returns |
+| `GuestRunning` | `cont` returned, from `Continue` or inside `Resume` | |
+| `GuestHeld` | `Hold` took the disks back, the guest still stopped | |
+| `LoadStarted` | QEMU took `migrate-incoming` | |
+| `StateLoaded` | the whole state read: in `Resume`, or in `Loaded` after a fast load | |
+
+The phases are per call, not per machine. spin keeps one timeline per snapshot (spin-stack/spin#1481)
+and adds its own steps to it, such as the guest's flush, the upload and the publish. A func per
+call needs no snapshot id to sort a machine's stream by. `Continue`, `Hold` and `Loaded` tell the
+last phase of the call before them, because a checkpoint ends with the guest stopped and the caller
+decides when it runs.
+
+**They cost the goal paths nothing.** A resume's phases ask QEMU nothing more. A checkpoint's
+`RAMWritten` costs one `query-migrate` every 100 ms, but only while the guest runs and only for a
+caller that takes the phases. Without `Phases`, a checkpoint and a resume send the same commands as
+before. The func is called on Checkpoint's and Resume's goroutines, one phase at a time and in
+order. `GuestStopped` and `Sealed` are told with the guest stopped, so the func's time is the
+guest's.
+
 ## What is load-bearing and invisible from outside
 
 - **Every device on the command line sits at a fixed slot on bus 0.** A fixed slot makes
