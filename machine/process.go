@@ -254,6 +254,9 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 		}
 	}
 	p.QEMU = Attach(c)
+	if p.host != nil {
+		p.host.machine.Store(p.QEMU)
+	}
 	p.attached <- p.QEMU
 	return p, nil
 }

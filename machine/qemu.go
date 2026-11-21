@@ -29,6 +29,8 @@ type QEMU struct {
 	// state's data, for the StateLoaded Loaded tells.
 	then func(Phase)
 	data int64
+	// held is each disk SetDiskLimit holds, which the probe's watch reads from its own goroutine.
+	held heldDisks
 }
 
 var _ VM = (*QEMU)(nil)

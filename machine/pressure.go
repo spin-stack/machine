@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -424,6 +425,9 @@ type hostTriggers struct {
 	triggers []pressure.Trigger
 	stop     *os.File
 	done     chan struct{}
+	// machine is the machine once Start has its monitor, whose held disks are read with the
+	// cgroup's limits: the watch starts before the monitor's handshake.
+	machine atomic.Pointer[QEMU]
 }
 
 // armHost arms the cgroup's triggers and watches them until close. A cgroup's pressure files take
@@ -457,6 +461,13 @@ func (h *hostTriggers) watch(stop *os.File, w *PressureWatch) {
 	// The last sample is taken as the watch stops, at QEMU's exit: an OOM kill by memory.max is why.
 	sample := func(at time.Time) time.Time {
 		if s, err := readLimits(h.cgroup, at); err == nil {
+			if m := h.machine.Load(); m != nil {
+				// A second's counters QEMU did not give in time are a second unread, and the
+				// next one has no rate against it.
+				ctx, cancel := context.WithTimeout(context.Background(), limitTick/2)
+				_ = m.heldSample(ctx, &s)
+				cancel()
+			}
 			for _, l := range limits.next(s) {
 				w.notify(l)
 			}

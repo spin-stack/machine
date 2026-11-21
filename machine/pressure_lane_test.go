@@ -22,7 +22,8 @@ import (
 // copy of its root, put under each pressure in turn (testdata/pressure-check.sh): its CPU short,
 // the host taking its vCPU's core, its disk, its memory, an OOM, then each limit the host sets on
 // QEMU's cgroup: cpu.max, memory.high and io.max on a second disk in SPIN_PRESSURE_DISK_DIR, which
-// must be on a block device. Each phase must bring the Pressure that names it, from the vantage
+// must be on a block device, and last a DiskLimit on that disk inside QEMU (SetDiskLimit). Each
+// phase must bring the Pressure that names it, from the vantage
 // that sees it, no phase before the limits a Limited, and Usage's counters must move. Root, for
 // the host's triggers and the cgroup QEMU runs in, KVM and /dev/vhost-vsock: task boot:pressure.
 func TestThePressureProbeReportsEachPressure(t *testing.T) {
@@ -198,12 +199,21 @@ func TestThePressureProbeReportsEachPressure(t *testing.T) {
 			}
 			set("io.max", limDev+" rbps=4194304")
 			lift = func() { set("io.max", limDev+" rbps=max") }
+		case "disklimit":
+			if err := p.SetDiskLimit(ctx, "lim", DiskLimit{ReadBytes: 4 << 20}); err != nil {
+				t.Errorf("limiting the second disk: %v", err)
+			}
+			lift = func() {
+				if err := p.SetDiskLimit(ctx, "lim", DiskLimit{}); err != nil {
+					t.Errorf("clearing the second disk's limit: %v", err)
+				}
+			}
 		}
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	for _, ph := range []string{"boot", "idle", "cpu", "steal", "io", "memory", "oom", "cpulimit", "memlimit", "iolimit", "done"} {
+	for _, ph := range []string{"boot", "idle", "cpu", "steal", "io", "memory", "oom", "cpulimit", "memlimit", "iolimit", "disklimit", "done"} {
 		for _, p := range seen[ph] {
 			t.Logf("%-6s %T %+v", ph, p, p)
 		}
@@ -239,6 +249,12 @@ func TestThePressureProbeReportsEachPressure(t *testing.T) {
 	limited("cpulimit", CPUMax)
 	limited("memlimit", MemoryHigh)
 	limited("iolimit", IOReadBytes)
+	limited("disklimit", DiskReadBytes)
+	for _, p := range seen["disklimit"] {
+		if x, ok := p.(Limited); ok && x.Limit == DiskReadBytes && (x.Device != "lim" || x.Set != 4<<20) {
+			t.Errorf("the second disk's limit was reported as %+v, want disk lim at 4 MiB/s", x)
+		}
+	}
 	for _, ph := range []string{"boot", "idle", "cpu", "steal", "io", "memory", "oom"} {
 		for _, p := range seen[ph] {
 			if x, ok := p.(Limited); ok {
