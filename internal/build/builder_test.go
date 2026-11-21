@@ -6,8 +6,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spin-stack/go-tools/versions"
 )
 
 // builderRoot is a tree with part's apk.list.
@@ -157,5 +160,95 @@ func TestTheInstalledPackagesAreEveryOneOfThem(t *testing.T) {
 		if _, err := installedPackages(db); err == nil {
 			t.Errorf("%s: read as installed packages", name)
 		}
+	}
+}
+
+func TestPackagesMovedSaysWhatMoved(t *testing.T) {
+	got := packagesMoved("a=1\nb=1\nc=1\n", "a=1\nb=2\nd=1\n")
+	if got != "- b 1 → 2\n- d 1 (new)\n- c (gone)\n" {
+		t.Errorf("moved %q", got)
+	}
+	if got := packagesMoved("a=1\n", "a=1\n"); !strings.Contains(got, "no package moved") {
+		t.Errorf("nothing moved, said %q", got)
+	}
+}
+
+// pinnedAt is versions.yaml with entry's version at version.
+func pinnedAt(t *testing.T, entry, version string) *versions.Versions {
+	t.Helper()
+	v := pins(t)
+	w := *v
+	w.Entries = slices.Clone(v.Entries)
+	for i := range w.Entries {
+		if w.Entries[i].Name == entry {
+			w.Entries[i].Version = version
+		}
+	}
+	return &w
+}
+
+// A builder made again is moved when its tag is not the one pinned, and current when it is.
+func TestABuilderMadeAgainHasMovedOrIsCurrent(t *testing.T) {
+	root := builderRoot(t, "musl\n")
+	fakeDocker(t, `[ "$1" = run ] && printf 'P:musl\nV:1.2.5-r10\n'; exit 0`)
+	moved, current, err := MovedBuilders(context.Background(), Options{Root: root, Pins: pins(t)})
+	if err != nil || len(moved) != 2 || len(current) != 0 {
+		t.Fatalf("moved %v, current %v, %v", moved, current, err)
+	}
+	moved, current, err = MovedBuilders(context.Background(), Options{Root: root, Pins: pinnedAt(t, "qemu-builder", moved[0].Tag)})
+	if err != nil || len(moved) != 1 || moved[0].Part != "e2fsprogs" || len(current) != 1 || current[0].Part != "qemu" {
+		t.Errorf("one pinned at its tag: moved %v, current %v, %v", moved, current, err)
+	}
+	fakeDocker(t, "exit 1")
+	if _, _, err := MovedBuilders(context.Background(), Options{Root: root, Pins: pins(t)}); err == nil {
+		t.Error("a builder that could not be made: compared")
+	}
+}
+
+// Each builder that moved is published and pinned by its digest, and says what moved in its
+// packages against the builder pinned before it, or that there was none to read.
+func TestABuilderThatMovedIsPublishedAndPinned(t *testing.T) {
+	digest := map[string]string{"qemu": "sha256:" + strings.Repeat("a", 64), "e2fsprogs": "sha256:" + strings.Repeat("b", 64)}
+	docker := func(pinned string) string {
+		return `case "$1" in
+run) ` + pinned + `printf 'P:musl\nV:1.2.5-r10\n';;
+inspect) case "$4" in
+  *builder-qemu*) echo ghcr.io/spin-stack/spin-machine/builder-qemu@` + digest["qemu"] + `;;
+  *) echo ghcr.io/spin-stack/spin-machine/builder-e2fsprogs@` + digest["e2fsprogs"] + `;;
+  esac;;
+esac`
+	}
+	fakeDocker(t, docker(""))
+	moved := []Builder{
+		{Part: "qemu", Local: "q", Tag: "0123456789ab", Packages: "musl=1.2.6-r0\n"},
+		{Part: "e2fsprogs", Local: "e", Tag: "ba9876543210", Packages: "musl=1.2.5-r10\n"},
+	}
+	file, pinned, err := PinBuilders(context.Background(), Options{Pins: pins(t)}, moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := versions.Parse(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, b := range moved {
+		e, _ := now.Get(BuilderEntry(b.Part))
+		if e.Version != b.Tag || e.Pin != digest[b.Part] {
+			t.Errorf("%s pinned at %s", b.Part, e.Ref())
+		}
+		if p := pinned[i]; p.Entry != BuilderEntry(b.Part) || p.Tag != b.Tag || p.Pin != digest[b.Part] {
+			t.Errorf("pinned %+v", p)
+		}
+	}
+	if pinned[0].Changes != "- musl 1.2.5-r10 → 1.2.6-r0\n" || !strings.Contains(pinned[1].Changes, "no package moved") {
+		t.Errorf("changes %q and %q", pinned[0].Changes, pinned[1].Changes)
+	}
+	fakeDocker(t, docker(`case "$*" in *@sha256:*) exit 1;; esac; `))
+	if _, pinned, err := PinBuilders(context.Background(), Options{Pins: pins(t)}, moved[:1]); err != nil || pinned[0].Changes != "no builder was pinned to compare with\n" {
+		t.Errorf("no pinned builder to read: %+v, %v", pinned, err)
+	}
+	fakeDocker(t, `[ "$1" = push ] && exit 1; exit 0`)
+	if _, _, err := PinBuilders(context.Background(), Options{Pins: pins(t)}, moved); err == nil {
+		t.Error("a builder that could not be published: pinned")
 	}
 }

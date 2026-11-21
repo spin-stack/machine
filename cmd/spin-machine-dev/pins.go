@@ -5,15 +5,10 @@ package main
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,7 +16,6 @@ import (
 	"github.com/spin-stack/go-tools/versions"
 
 	"github.com/spin-stack/spin-machine/internal/build"
-	"github.com/spin-stack/spin-machine/machine"
 )
 
 func outdatedCmd() *cobra.Command {
@@ -65,7 +59,7 @@ against its sha256 - for the bump's pull request.`,
 			if err != nil {
 				return err
 			}
-			out, err := qemuCompat(c.Context(), w)
+			out, err := build.QEMUCompat(c.Context(), w.pins)
 			if err != nil {
 				return couldNot(err)
 			}
@@ -73,49 +67,6 @@ against its sha256 - for the bump's pull request.`,
 			return nil
 		},
 	}
-}
-
-// qemuCompat is what QEMU's newer machine types change against the pinned one, read from the
-// pinned QEMU's source.
-func qemuCompat(ctx context.Context, w workspace) (string, error) {
-	e, err := w.pins.Get("qemu")
-	if err != nil {
-		return "", err
-	}
-	dir, err := os.MkdirTemp("", "qemu-compat")
-	if err != nil {
-		return "", fmt.Errorf("making a place for QEMU's source: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	tarball := filepath.Join(dir, "qemu.tar.xz")
-	if out, err := exec.CommandContext(ctx, "curl", "-fsSL", e.URL(), "-o", tarball).CombinedOutput(); err != nil { //nolint:gosec // the pin's URL
-		return "", fmt.Errorf("fetching %s: %w: %s", e.URL(), err, out)
-	}
-	raw, err := os.ReadFile(tarball) //nolint:gosec // what was just fetched
-	if err != nil {
-		return "", fmt.Errorf("reading QEMU's source: %w", err)
-	}
-	if sum := sha256.Sum256(raw); hex.EncodeToString(sum[:]) != e.Pin {
-		return "", fmt.Errorf("%s does not have the sha256 versions.yaml pins", e.URL())
-	}
-	prefix := "qemu-" + e.Version + "/"
-	files := []string{prefix + "hw/core/machine.c", prefix + "hw/i386/pc.c"}
-	if out, err := exec.CommandContext(ctx, "tar", append([]string{"-xJf", tarball, "-C", dir}, files...)...).CombinedOutput(); err != nil { //nolint:gosec // the pin's files
-		return "", fmt.Errorf("unpacking QEMU's machine types: %w: %s", err, out)
-	}
-	var src []string
-	for _, f := range files {
-		b, err := os.ReadFile(filepath.Join(dir, f)) //nolint:gosec // a file of the source just checked
-		if err != nil {
-			return "", fmt.Errorf("reading %s: %w", f, err)
-		}
-		src = append(src, string(b))
-	}
-	out, err := build.MachineTypeCompat(strings.Join(src, "\n"), machine.MachineType)
-	if errors.Is(err, build.ErrNoCompatArray) {
-		return machine.MachineType + " is the newest type in this QEMU: nothing newer to differ from it", nil
-	}
-	return out, err
 }
 
 func refreshCmd() *cobra.Command {
@@ -168,22 +119,15 @@ compiles on it here; boot:compat after merge says checkpoints resume on the new 
 // pins it: as a pull request from main, or as a commit on any other branch.
 func proposeBuilders(ctx context.Context, c *cobra.Command, w workspace) error {
 	o := build.Options{Root: w.root, Pins: w.pins, Stdout: c.ErrOrStderr(), Stderr: c.ErrOrStderr()}
-	var moved []build.Builder
+	moved, current, err := build.MovedBuilders(ctx, o)
+	if err != nil {
+		return couldNot(err)
+	}
+	for _, b := range current {
+		say(c, "%s is current (%s)", build.BuilderEntry(b.Part), b.Tag)
+	}
 	var tags []string
-	for _, part := range build.Builders {
-		b, err := build.MakeBuilder(ctx, o, part)
-		if err != nil {
-			return couldNot(err)
-		}
-		e, err := w.pins.Get(build.BuilderEntry(part))
-		if err != nil {
-			return couldNot(err)
-		}
-		if e.Version == b.Tag {
-			say(c, "%s is current (%s)", e.Name, b.Tag)
-			continue
-		}
-		moved = append(moved, b)
+	for _, b := range moved {
 		tags = append(tags, b.Tag)
 	}
 	if len(moved) == 0 {
@@ -201,27 +145,14 @@ func proposeBuilders(ctx context.Context, c *cobra.Command, w workspace) error {
 			return nil
 		}
 	}
-	pins := w.pins
-	var file []byte
+	file, pinned, err := build.PinBuilders(ctx, o, moved)
+	if err != nil {
+		return couldNot(err)
+	}
 	body := buildersBody
-	for _, b := range moved {
-		changes := "no builder was pinned to compare with\n"
-		if old, err := build.PinnedPackages(ctx, o, b.Part); err == nil {
-			changes = packagesMoved(old, b.Packages)
-		}
-		pin, err := build.PublishBuilder(ctx, o, b)
-		if err != nil {
-			return couldNot(err)
-		}
-		entry := build.BuilderEntry(b.Part)
-		if file, err = pins.Set(entry, b.Tag, pin); err != nil {
-			return couldNot(err)
-		}
-		if pins, err = versions.Parse(file); err != nil {
-			return couldNot(err)
-		}
-		body += "\n### " + entry + " " + b.Tag + "\n\n" + changes
-		say(c, "%s: %s@%s", entry, b.Tag, pin)
+	for _, p := range pinned {
+		body += "\n### " + p.Entry + " " + p.Tag + "\n\n" + p.Changes
+		say(c, "%s: %s@%s", p.Entry, p.Tag, p.Pin)
 	}
 	if err := os.WriteFile(filepath.Join(w.root, versions.File), file, 0o644); err != nil { //nolint:gosec // the tree's own file
 		return couldNot(fmt.Errorf("writing %s: %w", versions.File, err))
@@ -271,34 +202,6 @@ func proposeBuilders(ctx context.Context, c *cobra.Command, w workspace) error {
 		}
 	}
 	return nil
-}
-
-// packagesMoved is what moved from one builder's packages to another's, as name=version lines,
-// for a person deciding whether to take it.
-func packagesMoved(old, now string) string {
-	was := map[string]string{}
-	for line := range strings.Lines(old) {
-		name, version, _ := strings.Cut(strings.TrimSpace(line), "=")
-		was[name] = version
-	}
-	var lines []string
-	for line := range strings.Lines(now) {
-		name, version, _ := strings.Cut(strings.TrimSpace(line), "=")
-		switch before, ok := was[name]; {
-		case !ok:
-			lines = append(lines, "- "+name+" "+version+" (new)")
-		case before != version:
-			lines = append(lines, "- "+name+" "+before+" → "+version)
-		}
-		delete(was, name)
-	}
-	for _, name := range slices.Sorted(maps.Keys(was)) {
-		lines = append(lines, "- "+name+" (gone)")
-	}
-	if len(lines) == 0 {
-		return "no package moved: the Alpine or the list did\n"
-	}
-	return strings.Join(lines, "\n") + "\n"
 }
 
 // currentBranch is the branch checked out in root, or "" when none is.

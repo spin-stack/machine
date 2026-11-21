@@ -3,12 +3,16 @@
 package build
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/spin-stack/go-tools/versions"
 	"github.com/spin-stack/spin-machine/machine"
 )
 
@@ -76,7 +80,7 @@ GlobalProperty pc_compat_11_1[] = {
 `
 
 func TestMachineTypeCompatIsThePinnedTypesArrays(t *testing.T) {
-	got, err := MachineTypeCompat(source+pcSource, "pc-q35-11.1")
+	got, err := machineTypeCompat(source+pcSource, "pc-q35-11.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,17 +93,17 @@ func TestMachineTypeCompatIsThePinnedTypesArrays(t *testing.T) {
 		t.Errorf("compat\n%s\nholds the array of another type", got)
 	}
 	// QEMU writes an array with nothing to switch back off as one line (pc_compat_11_0 in 11.1.2).
-	empty, err := MachineTypeCompat(source+"\nGlobalProperty pc_compat_11_1[] = {};\n", "pc-q35-11.1")
+	empty, err := machineTypeCompat(source+"\nGlobalProperty pc_compat_11_1[] = {};\n", "pc-q35-11.1")
 	if err != nil || !strings.HasSuffix(empty, "GlobalProperty pc_compat_11_1[] = {};") {
 		t.Errorf("an empty array: %q, %v", empty, err)
 	}
-	if _, err := MachineTypeCompat(source, "pc-q35-11.1"); !errors.Is(err, ErrNoCompatArray) {
+	if _, err := machineTypeCompat(source, "pc-q35-11.1"); !errors.Is(err, errNoCompatArray) {
 		t.Errorf("no pc_compat_11_1: %v", err)
 	}
-	if _, err := MachineTypeCompat("GlobalProperty hw_compat_11_1[] = { { ", "pc-q35-11.1"); err == nil || errors.Is(err, ErrNoCompatArray) {
+	if _, err := machineTypeCompat("GlobalProperty hw_compat_11_1[] = { { ", "pc-q35-11.1"); err == nil || errors.Is(err, errNoCompatArray) {
 		t.Errorf("an array with no end: %v", err)
 	}
-	if _, err := MachineTypeCompat(source, "q35"); err == nil {
+	if _, err := machineTypeCompat(source, "q35"); err == nil {
 		t.Error("an unversioned pin")
 	}
 }
@@ -116,5 +120,87 @@ func TestAnArrayIsItsDeclarationWhole(t *testing.T) {
 func TestMachineHelpAsksTheBinary(t *testing.T) {
 	if _, err := machineHelp(filepath.Join(t.TempDir(), "no-qemu")); err == nil {
 		t.Error("no binary answered")
+	}
+}
+
+// qemuSource is a tarball of the pinned QEMU's two machine-type files, less one whose body is "",
+// and pins with its sha256 as QEMU's pin.
+func qemuSource(t *testing.T, machineC, pcC string) (string, *versions.Versions) {
+	t.Helper()
+	v := pins(t)
+	q, _ := v.Get("qemu")
+	src := t.TempDir()
+	for name, body := range map[string]string{"hw/core/machine.c": machineC, "hw/i386/pc.c": pcC} {
+		if body == "" {
+			continue
+		}
+		path := filepath.Join(src, "qemu-"+q.Version, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tarball := filepath.Join(t.TempDir(), "q.tar.xz")
+	if out, err := exec.Command("tar", "-cJf", tarball, "-C", src, "qemu-"+q.Version).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	sum, err := FileSHA256(tarball)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := *v
+	w.Entries = slices.Clone(v.Entries)
+	for i := range w.Entries {
+		if w.Entries[i].Name == "qemu" {
+			w.Entries[i].Pin = sum
+		}
+	}
+	return tarball, &w
+}
+
+// fakeCurl puts a curl on the PATH whose body is script, $4 the file it writes to.
+func fakeCurl(t *testing.T, script string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "curl"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// A QEMU bump says what QEMU's newer types change against the pinned one, from the source the pin
+// names, and only once that source is the pin's.
+func TestAQEMUBumpSaysWhatNewerTypesChange(t *testing.T) {
+	tarball, v := qemuSource(t, source, pcSource)
+	fakeCurl(t, `cp `+tarball+` "$4"`)
+	got, err := QEMUCompat(context.Background(), v)
+	if err != nil || !strings.Contains(got, `"x-new-feature", "off"`) || !strings.Contains(got, `"x-something", "false"`) {
+		t.Errorf("QEMUCompat = %q, %v", got, err)
+	}
+	if _, err := QEMUCompat(context.Background(), pins(t)); err == nil || !strings.Contains(err.Error(), "sha256") {
+		t.Errorf("a source not the pin's: %v", err)
+	}
+	tarball, v = qemuSource(t, "GlobalProperty hw_compat_99_0[] = {};\n", "GlobalProperty pc_compat_99_0[] = {};\n")
+	fakeCurl(t, `cp `+tarball+` "$4"`)
+	if got, err := QEMUCompat(context.Background(), v); err != nil || got != machine.MachineType+" is the newest type in this QEMU: nothing newer to differ from it" {
+		t.Errorf("a QEMU with nothing newer: %q, %v", got, err)
+	}
+	tarball, v = qemuSource(t, source, "")
+	fakeCurl(t, `cp `+tarball+` "$4"`)
+	if _, err := QEMUCompat(context.Background(), v); err == nil || !strings.Contains(err.Error(), "unpacking") {
+		t.Errorf("a source without hw/i386/pc.c: %v", err)
+	}
+	fakeCurl(t, "exit 22")
+	if _, err := QEMUCompat(context.Background(), v); err == nil || !strings.Contains(err.Error(), "fetching") {
+		t.Errorf("a source that could not be fetched: %v", err)
+	}
+	fakeCurl(t, `echo nothing > "$4"`)
+	if _, err := QEMUCompat(context.Background(), v); err == nil {
+		t.Error("a source that is not QEMU's: compared")
+	}
+	if _, err := QEMUCompat(context.Background(), pinsWithout(t, "qemu")); err == nil {
+		t.Error("no QEMU pinned: compared")
 	}
 }

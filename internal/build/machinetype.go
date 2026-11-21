@@ -8,22 +8,27 @@
 // this fires years before a QEMU stops loading the checkpoints it saved - and says, without
 // failing, when QEMU offers a newer one, for the build log and the release's notes.
 //
-// MachineTypeCompat returns what the newer types change, from QEMU's own source: the properties
+// machineTypeCompat returns what the newer types change, from QEMU's own source: the properties
 // hw_compat_X_Y (hw/core/machine.c) and pc_compat_X_Y (hw/i386/pc.c) switch back off for the
-// pinned X.Y. That list is what moving the pin would change under every guest, and spin-machine-dev bump
-// NAME=qemu prints it from the tarball the pin names.
+// pinned X.Y. That list is what moving the pin would change under every guest, and QEMUCompat reads
+// it from the tarball the pin names, for spin-machine-dev bump qemu to print.
 
 package build
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/spin-stack/go-tools/versions"
 	"github.com/spin-stack/spin-machine/machine"
 )
 
@@ -108,9 +113,9 @@ func checkMachineType(help, pinned string) (notice string, err error) {
 	return "", nil
 }
 
-// MachineTypeCompat is QEMU's source's hw_compat_X_Y and pc_compat_X_Y for pinned's X.Y, each array as the
+// machineTypeCompat is QEMU's source's hw_compat_X_Y and pc_compat_X_Y for pinned's X.Y, each array as the
 // source writes it: what every type newer than pinned turns on that pinned keeps off.
-func MachineTypeCompat(src, pinned string) (string, error) {
+func machineTypeCompat(src, pinned string) (string, error) {
 	v, ok := parseQ35(pinned)
 	if !ok {
 		return "", fmt.Errorf("%q is not a pc-q35-X.Y", pinned)
@@ -126,19 +131,63 @@ func MachineTypeCompat(src, pinned string) (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-// ErrNoCompatArray is a source in which QEMU has not yet given pinned's type a compat array: no newer
+// errNoCompatArray is a source in which QEMU has not yet given pinned's type a compat array: no newer
 // type exists there to differ from it.
-var ErrNoCompatArray = errors.New("no such array: this QEMU has no machine type newer than the pinned one")
+var errNoCompatArray = errors.New("no such array: this QEMU has no machine type newer than the pinned one")
 
 // array is the declaration `GlobalProperty <name>[] = { ... };` in src, whole.
 func array(src, name string) (string, error) {
 	start := regexp.MustCompile(`GlobalProperty\s+` + regexp.QuoteMeta(name) + `\[\]\s*=\s*\{`).FindStringIndex(src)
 	if start == nil {
-		return "", fmt.Errorf("%s: %w", name, ErrNoCompatArray)
+		return "", fmt.Errorf("%s: %w", name, errNoCompatArray)
 	}
 	end := strings.Index(src[start[0]:], "};")
 	if end < 0 { // mutate-exempt: the match starts with "GlobalProperty", so "};" is never at its offset 0
 		return "", fmt.Errorf("%s has no end in the source", name)
 	}
 	return src[start[0] : start[0]+end+2], nil
+}
+
+// QEMUCompat is what QEMU's newer machine types change against the pinned one (machine.MachineType),
+// read from the source of the QEMU pins names, checked against its sha256: what a QEMU bump's pull
+// request says moving the type would change.
+func QEMUCompat(ctx context.Context, pins *versions.Versions) (string, error) {
+	e, err := pins.Get("qemu")
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "qemu-compat")
+	if err != nil {
+		return "", fmt.Errorf("making a place for QEMU's source: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	tarball := filepath.Join(dir, "qemu.tar.xz")
+	if out, err := exec.CommandContext(ctx, "curl", "-fsSL", e.URL(), "-o", tarball).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("fetching %s: %w: %s", e.URL(), err, out)
+	}
+	raw, err := os.ReadFile(tarball)
+	if err != nil {
+		return "", fmt.Errorf("reading QEMU's source: %w", err)
+	}
+	if sum := sha256.Sum256(raw); hex.EncodeToString(sum[:]) != e.Pin {
+		return "", fmt.Errorf("%s does not have the sha256 versions.yaml pins", e.URL())
+	}
+	prefix := "qemu-" + e.Version + "/"
+	files := []string{prefix + "hw/core/machine.c", prefix + "hw/i386/pc.c"}
+	if out, err := exec.CommandContext(ctx, "tar", append([]string{"-xJf", tarball, "-C", dir}, files...)...).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("unpacking QEMU's machine types: %w: %s", err, out)
+	}
+	var src []string
+	for _, f := range files {
+		b, err := os.ReadFile(filepath.Join(dir, f))
+		if err != nil {
+			return "", fmt.Errorf("reading %s: %w", f, err)
+		}
+		src = append(src, string(b))
+	}
+	out, err := machineTypeCompat(strings.Join(src, "\n"), machine.MachineType)
+	if errors.Is(err, errNoCompatArray) {
+		return machine.MachineType + " is the newest type in this QEMU: nothing newer to differ from it", nil
+	}
+	return out, err
 }
