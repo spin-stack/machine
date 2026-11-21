@@ -55,6 +55,18 @@ tasks:
     cmds:
       - SPIN_PAUSE_TEST=1 go test ./boot/ -run '^TestACheckpointPausesTheGuestBriefly$' -count=1 -v -timeout 15m
 
+  finish-migrate:
+    desc: >-
+      A Continue right after a checkpoint is never refused while QEMU is in finish-migrate (#421):
+      spin's shape plugged to 2 GiB with a writer in the guest, QEMU pinned to two host CPUs a spin
+      loop each keeps busy, SPIN_FINISH_SAVES checkpoints (default 300), each continued at once
+      (finish_test.go). Not in CI: an idle host does not reach the window, and this takes minutes.
+      It is how a qemu bump is checked for it (versions.yaml). Needs a built release, /dev/kvm,
+      three host CPUs and taskset.
+    deps: [':tools']
+    cmds:
+      - SPIN_FINISH_TEST=1 go test ./boot/ -run '^TestACheckpointIsContinuedAtOnceOnABusyHost$' -count=1 -v -timeout 30m
+
   disk-limit:
     desc: >-
       A disk limit (machine.QEMU.SetDiskLimit) on a real guest at spin's shape with two disks

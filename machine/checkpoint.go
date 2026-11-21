@@ -133,9 +133,10 @@ const checkpointBandwidth = int64(64) << 30
 const checkpointDowntime = 30
 
 var (
-	migrateOut             = qmpdef.Define[migrateArgs, qmp.None]("migrate")
-	migrateIn              = qmpdef.Define[migrateArgs, qmp.None]("migrate-incoming")
-	migrateSetCapabilities = qmpdef.Define[capabilities, qmp.None]("migrate-set-capabilities")
+	migrateOut = qmpdef.Define[migrateArgs, qmp.None]("migrate")
+	migrateIn  = qmpdef.Define[migrateArgs, qmp.None]("migrate-incoming")
+	// Unstable: it sends x-defer-disk-flush, the capability qemu/patches adds.
+	migrateSetCapabilities = qmpdef.Define[capabilities, qmp.None]("migrate-set-capabilities", qmpdef.Unstable)
 	migrateSetParameters   = qmpdef.Define[migrationParameters, qmp.None]("migrate-set-parameters")
 	migrateContinue        = qmpdef.Define[migrationState, qmp.None]("migrate-continue")
 	migrateCancel          = qmpdef.Define[qmp.None, qmp.None]("migrate_cancel")
@@ -158,6 +159,7 @@ const (
 	postcopyRAM           migrationCapability = "postcopy-ram"
 	multifd               migrationCapability = "multifd"
 	events                migrationCapability = "events"
+	deferDiskFlush        migrationCapability = "x-defer-disk-flush"
 )
 
 type capabilities struct {
@@ -188,7 +190,7 @@ const (
 )
 
 func init() {
-	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd, events)
+	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd, events, deferDiskFlush)
 	qmpdef.Enum(preSwitchover, postcopyActive, completed, failed, cancelled)
 }
 
@@ -309,7 +311,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
 	}
 	channels := save.channels()
-	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1, events: true}
+	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1, events: true, deferDiskFlush: true}
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
