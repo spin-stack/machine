@@ -157,6 +157,12 @@ func (k *Key) Login(cid uint32, kex string) (time.Duration, error) {
 // connect and what it wrote.
 // mutate-lane: TestEveryProbeMeasuresATree
 func (k *Key) Run(cid uint32, kex, command string) (time.Duration, string, error) {
+	return k.run(cid, kex, command, func(c net.Conn) net.Conn { return c })
+}
+
+// run is Run over the connection wrap makes of the vsock one.
+// mutate-lane: TestEveryProbeMeasuresATree
+func (k *Key) run(cid uint32, kex, command string, wrap func(net.Conn) net.Conn) (time.Duration, string, error) {
 	t0 := time.Now()
 	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
@@ -175,7 +181,7 @@ func (k *Key) Run(cid uint32, kex, command string) (time.Duration, string, error
 		_ = unix.Close(fd)
 		return 0, "", fmt.Errorf("making the vsock socket non-blocking: %w", err)
 	}
-	conn := vsockConn{os.NewFile(uintptr(fd), "vsock")}
+	conn := wrap(vsockConn{os.NewFile(uintptr(fd), "vsock")})
 	defer func() { _ = conn.Close() }()
 	c, chans, reqs, err := xssh.NewClientConn(conn, "vsock", &xssh.ClientConfig{
 		User:            k.User(),
