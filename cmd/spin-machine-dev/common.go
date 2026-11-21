@@ -20,16 +20,20 @@ import (
 )
 
 // globals are the flags every verb takes.
-var globals struct {
-	// out is where builds land and verbs read: _output, unless said otherwise.
+// defaultOut is where builds land and verbs read when --out says nothing.
+const defaultOut = "_output"
+
+var globals = struct {
+	// out is where builds land and verbs read: defaultOut, unless said otherwise. It starts there,
+	// not empty, so a verb built without root's flags (a test's) keeps its state in the same place.
 	out string
 	// json writes one JSON document on stdout, for a program; progress stays on stderr.
 	json bool
-}
+}{out: defaultOut}
 
 // addGlobals registers the flags every verb takes on root.
 func addGlobals(c *cobra.Command) {
-	c.PersistentFlags().StringVar(&globals.out, "out", "_output", "where builds land and verbs read their state")
+	c.PersistentFlags().StringVar(&globals.out, "out", defaultOut, "where builds land and verbs read their state")
 	c.PersistentFlags().BoolVar(&globals.json, "json", false, "write the result as one JSON document on stdout")
 }
 
@@ -56,15 +60,21 @@ type workspace struct {
 	pins      *versions.Versions
 }
 
+// outOf is --out, relative to the checkout's root unless it is absolute: where every verb keeps
+// its state.
+func outOf(root string) string {
+	if filepath.IsAbs(globals.out) {
+		return globals.out
+	}
+	return filepath.Join(root, globals.out)
+}
+
 func open() (workspace, error) {
 	root, err := repo()
 	if err != nil {
 		return workspace{}, err
 	}
-	out := globals.out
-	if !filepath.IsAbs(out) {
-		out = filepath.Join(root, out)
-	}
+	out := outOf(root)
 	pins, err := versions.Load(filepath.Join(root, versions.File))
 	if err != nil {
 		return workspace{}, couldNot(err)

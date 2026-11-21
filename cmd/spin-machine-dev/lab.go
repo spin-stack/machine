@@ -138,7 +138,7 @@ func github() *lab.GitHub {
 }
 
 func sources(root string, log io.Writer) lab.Sources {
-	return lab.Sources{Checkout: root, Cache: filepath.Join(root, "_output", "lab"), GitHub: github(), Log: log}
+	return lab.Sources{Checkout: root, Cache: filepath.Join(outOf(root), "lab"), GitHub: github(), Log: log}
 }
 
 func labTree() *cobra.Command {
@@ -153,7 +153,7 @@ func labTree() *cobra.Command {
 				return couldNot(err)
 			}
 			s.Name = args[0]
-			t, err := lab.MakeTree(filepath.Join(root, "_output", "trees", s.Name), s, sources(root, c.ErrOrStderr()))
+			t, err := lab.MakeTree(filepath.Join(outOf(root), "trees", s.Name), s, sources(root, c.ErrOrStderr()))
 			if err != nil {
 				return couldNot(err)
 			}
@@ -173,14 +173,14 @@ func trees(root string, names, specs []string, log io.Writer) ([]*lab.Tree, erro
 		if err != nil {
 			return nil, err
 		}
-		t, err := lab.MakeTree(filepath.Join(root, "_output", "trees", s.Name), s, sources(root, log))
+		t, err := lab.MakeTree(filepath.Join(outOf(root), "trees", s.Name), s, sources(root, log))
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, t)
 	}
 	for _, name := range names {
-		t, err := lab.OpenTree(filepath.Join(root, "_output", "trees", name))
+		t, err := lab.OpenTree(filepath.Join(outOf(root), "trees", name))
 		if err != nil {
 			return nil, err
 		}
@@ -243,12 +243,12 @@ several in one value. Exits 1 when a measurement was lost, 2 when the experiment
 			if err != nil {
 				return couldNot(err)
 			}
-			scratch, err := lab.Scratch(filepath.Join(root, "_output", "lab"))
+			scratch, err := lab.Scratch(filepath.Join(outOf(root), "lab"))
 			if err != nil {
 				return couldNot(err)
 			}
 			if out == "" {
-				out = filepath.Join(root, "_output", "lab", "results", time.Now().UTC().Format("20060102-150405")+"-"+p.Name())
+				out = filepath.Join(outOf(root), "lab", "results", time.Now().UTC().Format("20060102-150405")+"-"+p.Name())
 			}
 			if err := os.MkdirAll(out, 0o755); err != nil {
 				return couldNot(fmt.Errorf("making %s: %w", out, err))
@@ -318,7 +318,7 @@ the table. Exits 1 when a measurement was lost, 2 when the ladder could not run.
 			if err != nil {
 				return couldNot(err)
 			}
-			scratch, err := lab.Scratch(filepath.Join(root, "_output", "lab"))
+			scratch, err := lab.Scratch(filepath.Join(outOf(root), "lab"))
 			if err != nil {
 				return couldNot(err)
 			}
@@ -327,7 +327,7 @@ the table. Exits 1 when a measurement was lost, 2 when the ladder could not run.
 				return couldNot(err)
 			}
 			if out == "" {
-				out = filepath.Join(root, "_output", "lab", "ladder")
+				out = filepath.Join(outOf(root), "lab", "ladder")
 			}
 			return writeLadder(c.OutOrStdout(), l, out)
 		},
@@ -465,7 +465,7 @@ func resultOf(arg string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(root, "_output", "lab", "runs", arg, "result")
+	dir := filepath.Join(outOf(root), "lab", "runs", arg, "result")
 	if !exists(filepath.Join(dir, "result.json")) && !exists(filepath.Join(dir, "ladder.json")) {
 		if err := github().Artifact(arg, "lab-"+arg, dir); err != nil {
 			return "", err

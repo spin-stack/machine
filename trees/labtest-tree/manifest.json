@@ -1,0 +1,24 @@
+{
+  "name": "labtest-tree",
+  "parts": {
+    "firmware": {
+      "source": "/tmp/TestLabTreeMakesANamedTreeAndSaysWhere1809581651/001"
+    },
+    "image": {
+      "source": "/tmp/TestLabTreeMakesANamedTreeAndSaysWhere1809581651/001"
+    },
+    "kernel": {
+      "source": "/tmp/TestLabTreeMakesANamedTreeAndSaysWhere1809581651/001",
+      "sha256": "aa0bc0d14447bbc99192921131fdb229ca01074bf0669aeede68d29ce167487f"
+    },
+    "qemu": {
+      "source": "/tmp/TestLabTreeMakesANamedTreeAndSaysWhere1809581651/001",
+      "sha256": "4d09264a5878d69746e6712c2bc326f4e9e45d579233f85abd9525eaa802dfce"
+    },
+    "spin-machine": {
+      "source": "/tmp/TestLabTreeMakesANamedTreeAndSaysWhere1809581651/001",
+      "sha256": "5af308bec132bd499660594a6c127c57f910a25c18968eb4f9b976f48df8cb49"
+    }
+  },
+  "append": "quiet"
+}
