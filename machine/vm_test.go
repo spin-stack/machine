@@ -1021,7 +1021,7 @@ func TestMigrateSaysTheFirstFailure(t *testing.T) {
 				return ok
 			}}
 			waited := false
-			err := f.attach(t).migrate(ctx(t), "migrate", image(t, "raw").File, os.O_WRONLY, func() error {
+			err := f.attach(t).migrate(ctx(t), migrateOut, image(t, "raw").File, os.O_WRONLY, func() error {
 				waited = true
 				if f.commands()[len(f.commands())-1] != "migrate" {
 					t.Error("the set was removed before the migration was over")

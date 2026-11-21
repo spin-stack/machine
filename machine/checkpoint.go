@@ -8,10 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/spin-stack/machine/internal/qmpdef"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // LoadOptions is how a checkpoint is read.
@@ -106,6 +110,70 @@ type added struct {
 // network: a checkpoint is a local file.
 const checkpointBandwidth = int64(64) << 30
 
+var (
+	migrateOut             = qmpdef.Define[migrateArgs, qmp.None]("migrate")
+	migrateIn              = qmpdef.Define[migrateArgs, qmp.None]("migrate-incoming")
+	migrateSetCapabilities = qmpdef.Define[capabilities, qmp.None]("migrate-set-capabilities")
+	migrateSetParameters   = qmpdef.Define[migrationParameters, qmp.None]("migrate-set-parameters")
+	migrateContinue        = qmpdef.Define[migrationState, qmp.None]("migrate-continue")
+	migrateCancel          = qmpdef.Define[qmp.None, qmp.None]("migrate_cancel")
+	queryMigrate           = qmpdef.Define[qmp.None, migrationInfo]("query-migrate")
+)
+
+type migrateArgs struct {
+	URI string `json:"uri"`
+}
+
+// migrationCapability is a capability of QEMU's migration the machine sets.
+type migrationCapability string
+
+const (
+	mappedRAM             migrationCapability = "mapped-ram"
+	pauseBeforeSwitchover migrationCapability = "pause-before-switchover"
+	postcopyRAM           migrationCapability = "postcopy-ram"
+	multifd               migrationCapability = "multifd"
+)
+
+type capabilities struct {
+	Capabilities []capabilityState `json:"capabilities"`
+}
+
+type capabilityState struct {
+	Capability migrationCapability `json:"capability"`
+	State      bool                `json:"state"`
+}
+
+// migrationParameters are the parameters the machine sets: each left as it was when not given.
+type migrationParameters struct {
+	MaxBandwidth    int64 `json:"max-bandwidth,omitempty"`
+	MultifdChannels int   `json:"multifd-channels,omitempty"`
+}
+
+// migrationStatus is a state of a migration, of the ones the machine waits on or refuses.
+type migrationStatus string
+
+const (
+	preSwitchover  migrationStatus = "pre-switchover"
+	postcopyActive migrationStatus = "postcopy-active"
+	completed      migrationStatus = "completed"
+	failed         migrationStatus = "failed"
+	cancelled      migrationStatus = "cancelled"
+)
+
+func init() {
+	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd)
+	qmpdef.Enum(preSwitchover, postcopyActive, completed, failed, cancelled)
+}
+
+type migrationState struct {
+	State migrationStatus `json:"state"`
+}
+
+type migrationInfo struct {
+	Status    migrationStatus `json:"status"`
+	ErrorDesc string          `json:"error-desc"`
+}
+
 // Checkpoint saves the machine to a file in FormatMappedRAM, its memory written by save.Channels
 // threads, DefaultChannels when it names none.
 //
@@ -128,15 +196,15 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		return Saved{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
 	}
 	channels := save.channels()
-	caps := map[string]bool{"mapped-ram": true, "pause-before-switchover": true, "postcopy-ram": false, "multifd": channels > 1}
+	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1}
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	params := map[string]any{"max-bandwidth": checkpointBandwidth}
+	params := migrationParameters{MaxBandwidth: checkpointBandwidth}
 	if channels > 1 {
-		params["multifd-channels"] = channels
+		params.MultifdChannels = channels
 	}
-	if err := m.q.run(ctx, "migrate-set-parameters", params, nil); err != nil {
+	if _, err := do(ctx, m.q, migrateSetParameters, params); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	writing := func() error {
@@ -147,10 +215,10 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		_, _ = m.Target(ctx)
 		return m.switchover(ctx, seal)
 	}
-	if err := m.migrate(ctx, "migrate", to, os.O_WRONLY, writing); err != nil {
+	if err := m.migrate(ctx, migrateOut, to, os.O_WRONLY, writing); err != nil {
 		// A migration left at pre-switchover holds the guest paused with nobody to continue
 		// it; a cancel with none running succeeds.
-		cancelErr := m.q.run(context.WithoutCancel(ctx), "migrate_cancel", nil, nil)
+		_, cancelErr := do(context.WithoutCancel(ctx), m.q, migrateCancel, qmp.None{})
 		return Saved{}, errors.Join(fmt.Errorf("checkpointing: %w", err), cancelErr)
 	}
 	from, err := m.Target(ctx)
@@ -168,13 +236,13 @@ func (m *QEMU) switchover(ctx context.Context, seal func(context.Context) error)
 			return err
 		}
 		switch st {
-		case "completed":
+		case completed:
 			return nil
-		case "pre-switchover":
+		case preSwitchover:
 			if err := seal(ctx); err != nil {
 				return fmt.Errorf("sealing: %w", err)
 			}
-			if err := m.q.run(ctx, "migrate-continue", map[string]any{"state": "pre-switchover"}, nil); err != nil {
+			if _, err := do(ctx, m.q, migrateContinue, migrationState{State: preSwitchover}); err != nil {
 				return err
 			}
 		}
@@ -186,31 +254,23 @@ func (m *QEMU) switchover(ctx context.Context, seal func(context.Context) error)
 
 // migration is the state of the migration in flight, either direction, or an error for one that
 // failed.
-func (m *QEMU) migration(ctx context.Context) (string, error) {
-	var info struct {
-		Status    string `json:"status"`
-		ErrorDesc string `json:"error-desc"`
-	}
-	if err := m.q.run(ctx, "query-migrate", nil, &info); err != nil {
+func (m *QEMU) migration(ctx context.Context) (migrationStatus, error) {
+	info, err := do(ctx, m.q, queryMigrate, qmp.None{})
+	if err != nil {
 		return "", err
 	}
-	if info.Status == "failed" || info.Status == "cancelled" {
+	if info.Status == failed || info.Status == cancelled {
 		return "", fmt.Errorf("the migration %s: %s", info.Status, cmp.Or(info.ErrorDesc, "QEMU said nothing more"))
 	}
 	return info.Status, nil
 }
 
-func (m *QEMU) setCapabilities(ctx context.Context, caps map[string]bool) error {
-	names := make([]string, 0, len(caps))
-	for n := range caps {
-		names = append(names, n)
+func (m *QEMU) setCapabilities(ctx context.Context, caps map[migrationCapability]bool) error {
+	var list []capabilityState
+	for _, c := range slices.Sorted(maps.Keys(caps)) {
+		list = append(list, capabilityState{Capability: c, State: caps[c]})
 	}
-	slices.Sort(names)
-	list := make([]map[string]any, 0, len(caps))
-	for _, n := range names {
-		list = append(list, map[string]any{"capability": n, "state": caps[n]})
-	}
-	if err := m.q.run(ctx, "migrate-set-capabilities", map[string]any{"capabilities": list}, nil); err != nil {
+	if _, err := do(ctx, m.q, migrateSetCapabilities, capabilities{Capabilities: list}); err != nil {
 		return fmt.Errorf("setting the migration's capabilities: %w", err)
 	}
 	return nil
@@ -225,7 +285,7 @@ func (m *QEMU) setCapabilities(ctx context.Context, caps map[string]bool) error 
 // f is reopened for access, because QEMU takes from a set only a descriptor whose access mode
 // is the one it opens the file with - write-only to save, read-only to load ("Failed to find file
 // descriptor with matching flags") - and the caller's file need not be either.
-func (m *QEMU) migrate(ctx context.Context, command string, f *os.File, access int, done func() error) error {
+func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp.None], f *os.File, access int, done func() error) error {
 	if f == nil {
 		return errors.New("no file for the state")
 	}
@@ -234,15 +294,15 @@ func (m *QEMU) migrate(ctx context.Context, command string, f *os.File, access i
 		return fmt.Errorf("reopening the state's file for QEMU: %w", err)
 	}
 	defer func() { _ = g.Close() }() // QEMU holds its own copy
-	set, err := m.q.addFD(ctx, g, "state")
+	set, err := do(ctx, m.q, qmp.AddFD, qmp.AddFDArgs{File: g, Opaque: "state"})
 	if err != nil {
-		return err
+		return fmt.Errorf("handing state to QEMU: %w", err)
 	}
-	err = m.q.run(ctx, command, map[string]any{"uri": fmt.Sprintf("file:/dev/fdset/%d", set)}, nil)
+	_, err = do(ctx, m.q, command, migrateArgs{URI: "file:" + set.Path()})
 	if err == nil {
 		err = done()
 	}
-	if rmErr := m.q.run(ctx, "remove-fd", map[string]any{"fdset-id": set}, nil); rmErr != nil && err == nil {
+	if _, rmErr := do(ctx, m.q, qmp.RemoveFD, qmp.RemoveFDArgs{Set: set.Set}); rmErr != nil && err == nil {
 		err = rmErr
 	}
 	return err
@@ -272,18 +332,18 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		return fmt.Errorf("resuming: %w", err)
 	}
 	channels := load.channels(saved.Format)
-	caps := map[string]bool{"pause-before-switchover": false}
+	caps := map[migrationCapability]bool{pauseBeforeSwitchover: false}
 	switch {
 	case saved.Format == FormatMappedRAM:
-		caps["mapped-ram"] = true
-		caps["postcopy-ram"] = load.Fast
-		caps["multifd"] = channels > 1
+		caps[mappedRAM] = true
+		caps[postcopyRAM] = load.Fast
+		caps[multifd] = channels > 1
 	case saved.Format == FormatStream && load.Fast:
 		return errors.New("resuming: a stream checkpoint has no page at a fixed offset to fetch when the guest touches it, and loads only in full")
 	case saved.Format == FormatStream && channels > 1:
 		return errors.New("resuming: a stream checkpoint is one sequence of pages, which one thread reads")
 	case saved.Format == FormatStream:
-		caps["mapped-ram"] = false
+		caps[mappedRAM] = false
 	default:
 		return fmt.Errorf("resuming: a checkpoint in format %q, and this machine reads %s and %s", saved.Format, FormatMappedRAM, FormatStream)
 	}
@@ -300,7 +360,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	if err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	if st != "inmigrate" {
+	if st != inmigrate {
 		return fmt.Errorf("resuming into a machine that is %s: only one started with Spec.Restore takes a checkpoint", st)
 	}
 	if err := m.bindAll(ctx, disks, again.Disks); err != nil {
@@ -311,7 +371,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		if err != nil {
 			return fmt.Errorf("resuming: %w", err)
 		}
-		if err := m.q.run(ctx, "device_add", args, nil); err != nil {
+		if _, err := do(ctx, m.q, deviceAdd, args); err != nil {
 			return fmt.Errorf("resuming: adding vCPU %s: %w", c.ID, err)
 		}
 	}
@@ -319,7 +379,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		return fmt.Errorf("resuming: %w", err)
 	}
 	if channels > 1 {
-		if err := m.q.run(ctx, "migrate-set-parameters", map[string]any{"multifd-channels": channels}, nil); err != nil {
+		if _, err := do(ctx, m.q, migrateSetParameters, migrationParameters{MultifdChannels: channels}); err != nil {
 			return fmt.Errorf("resuming: %w", err)
 		}
 	}
@@ -329,7 +389,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 			if err != nil {
 				return err
 			}
-			if st == "completed" || (load.Fast && st == "postcopy-active") {
+			if st == completed || (load.Fast && st == postcopyActive) {
 				return nil
 			}
 			if err := sleep(ctx, pollInterval); err != nil {
@@ -337,14 +397,14 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 			}
 		}
 	}
-	if err := m.migrate(ctx, "migrate-incoming", state, os.O_RDONLY, running); err != nil {
+	if err := m.migrate(ctx, migrateIn, state, os.O_RDONLY, running); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
 	// A machine saved stopped comes back stopped: QEMU carries the source's run state across.
 	if st, err = m.status(ctx); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	if st == "paused" {
+	if st == paused {
 		return m.Continue(ctx)
 	}
 	return nil
@@ -399,7 +459,7 @@ func (m *QEMU) Loaded(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("finishing the load: %w", err)
 		}
-		if st == "completed" {
+		if st == completed {
 			return nil
 		}
 		if err := sleep(ctx, pollInterval); err != nil {

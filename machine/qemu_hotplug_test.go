@@ -9,6 +9,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/spin-stack/machine/qmp"
 )
 
 // TestADiskArrivesAtItsTargetOnTheHotplugController is the question the hotplug controller
@@ -103,12 +105,8 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 	// Detached, its target, its nodes and its descriptors are free for the next.
 	held := func() int {
 		t.Helper()
-		var sets []struct {
-			FDs []struct {
-				Opaque string `json:"opaque"`
-			} `json:"fds"`
-		}
-		if err := m.q.run(ctx, "query-fdsets", nil, &sets); err != nil {
+		sets, err := do(ctx, m.q, qmp.QueryFDSets, qmp.None{})
+		if err != nil {
 			t.Fatal(err)
 		}
 		n := 0
