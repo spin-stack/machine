@@ -264,6 +264,81 @@ func TestCheckNamesEachDisagreement(t *testing.T) {
 	}
 }
 
+// node is a sealed union of block nodes as package qmp writes one: each variant encodes itself, to
+// write its driver, and blockdev-reopen sends a list of them.
+type (
+	node   interface{ isNode() }
+	reopen struct {
+		Options []node `json:"options"`
+	}
+	fileNode struct {
+		Filename string `json:"filename"`
+	}
+	nullNode struct {
+		Size int `json:"size,omitempty"`
+	}
+	noFile struct {
+		Name string `json:"node-name"`
+	}
+	sizedFile struct {
+		Filename string `json:"filename"`
+		Size     int    `json:"size"`
+	}
+	nowhere struct{}
+)
+
+func (fileNode) isNode()  {}
+func (nullNode) isNode()  {}
+func (noFile) isNode()    {}
+func (sizedFile) isNode() {}
+func (nowhere) isNode()   {}
+
+// Check reads a variant's fields by reflection, and only its driver from what it encodes.
+func (fileNode) MarshalJSON() ([]byte, error)  { return []byte(`{"driver": "file"}`), nil }
+func (nullNode) MarshalJSON() ([]byte, error)  { return []byte(`{"driver": "null-co"}`), nil }
+func (noFile) MarshalJSON() ([]byte, error)    { return []byte(`{"driver": "file"}`), nil }
+func (sizedFile) MarshalJSON() ([]byte, error) { return []byte(`{"driver": "file"}`), nil }
+func (nowhere) MarshalJSON() ([]byte, error)   { return []byte(`{"driver": "nowhere"}`), nil }
+
+// A Union's variants are each held to QEMU's union through the variant their driver names: its
+// base and that variant's members, which they may send, and what both require, which they must.
+func TestCheckHoldsEachVariantToItsOwn(t *testing.T) {
+	isolated(t)
+	Define[reopen, struct{}]("blockdev-reopen")
+	Union[node](fileNode{}, nullNode{})
+	if err := Check(recorded(t)); err != nil {
+		t.Errorf("Check of variants QEMU agrees with:\n%v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		variant node
+		want    string
+	}{
+		{"a member only another variant has", sizedFile{}, `blockdev-reopen arguments.options[] qmpdef.sizedFile: QEMU has no member "size"`},
+		{"a member its own variant requires", noFile{}, `blockdev-reopen arguments.options[] qmpdef.noFile: QEMU requires "filename"`},
+		{"a variant QEMU's union does not have", nowhere{}, `blockdev-reopen arguments.options[] qmpdef.nowhere: QEMU's union has no driver "nowhere"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolated(t)
+			Define[reopen, struct{}]("blockdev-reopen")
+			Union(tc.variant)
+			err := Check(recorded(t))
+			if err == nil || strings.Count(err.Error(), "\n") > 0 || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Check said:\n%v\nwant one line saying %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A Union no definition reaches holds nothing to QEMU, which is said rather than passed over.
+func TestAUnionNothingReachesIsNamed(t *testing.T) {
+	isolated(t)
+	Union[node](fileNode{})
+	if err := Check(recorded(t)); err == nil || !strings.Contains(err.Error(), "Union qmpdef.node is reached by no definition") {
+		t.Errorf("Check = %v, want the Union named", err)
+	}
+}
+
 // An error found before an alternate fits stays found.
 func TestAnAlternateKeepsWhatWasFoundBeforeIt(t *testing.T) {
 	type node struct {
