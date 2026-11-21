@@ -29,7 +29,7 @@ import (
 	"strings"
 
 	"github.com/spin-stack/go-tools/versions"
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // MachineType is what qemu says of the machine type every checkpoint is saved on: an error when it

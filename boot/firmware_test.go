@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/internal/lab"
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/internal/lab"
+	"github.com/spin-stack/machine/machine"
 )
 
 // Whether the machine's firmware runs it, against a diagnostic initrd: qboot boots, publishes

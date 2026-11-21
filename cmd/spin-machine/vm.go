@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // diskFlags is the one disk the commands that bind or attach one take.

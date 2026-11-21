@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // compatDir is a release or a machine whose QEMU says it is version, with a bzImage.

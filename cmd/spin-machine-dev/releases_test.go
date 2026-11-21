@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/internal/lab"
+	"github.com/spin-stack/machine/internal/lab"
 )
 
 // ladderOf writes, under the test's own directory, a ladder of releases whose cold boots read

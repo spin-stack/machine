@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // monitor is a QMP socket that answers from a script and keeps what it was asked, so a test can

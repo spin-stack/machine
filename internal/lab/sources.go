@@ -15,7 +15,7 @@ import (
 
 	"github.com/spin-stack/go-tools/versions"
 
-	"github.com/spin-stack/spin-machine/internal/release"
+	"github.com/spin-stack/machine/internal/release"
 )
 
 // from is the tree a spec starts from and how a manifest names it.
