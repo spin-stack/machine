@@ -1,10 +1,10 @@
 name: Compat
 
 # Whether a checkpoint the newest release saved resumes on this change's machine, and whether the
-# fingerprint still accounts for every ROM the machine maps (boot:compat, boot:roms): after every
-# change on main to what a resumed guest is loaded into - the machine's definition, QEMU, the
-# kernel, the firmware and their pins - and before every release. And whether that kernel, booted,
-# is locked down (boot:lockdown).
+# machine's record still refuses what QEMU loads silently and accepts the machine's own checkpoint
+# (boot:compat, boot:record): after every change on main to what a resumed guest is loaded into -
+# the machine's definition, QEMU, the kernel, the firmware and their pins - and before every
+# release. And whether that kernel, booted, is locked down (boot:lockdown).
 #
 # On the KVM fleet (spin-stack/ci), because it boots: the newest release is unpacked as the machine
 # before, and the machine here is that tree with this change's QEMU, firmware and kernel built over
@@ -12,8 +12,8 @@ name: Compat
 # with. The builds read the BuildKit cache main's lanes export (--cache-registry), so a
 # change that leaves QEMU and the kernel alone compiles neither.
 #
-# The test holds the promise only where it is made: when the two fingerprints differ the contract
-# moved on purpose, the test says so and passes, and the release notes say it for the fleet.
+# The test holds the promise only where it is made: when this machine refuses a release's
+# checkpoint the machine moved on purpose, and the run's summary says so with every difference.
 #
 # Not on a pull request: it is main's and a release's lane, and a branch is tried by dispatch
 # before its pull request merges. It runs on main after a merge that touches the machine, and as
@@ -29,7 +29,7 @@ on:
       - qemu/**
       - kernel/**
       - boot/compat_test.go
-      - boot/roms_test.go
+      - boot/record_test.go
       - boot/lockdown_test.go
       - boot/testdata/lockdown-check.sh
       - versions.yaml
@@ -106,12 +106,12 @@ jobs:
       - name: The machine before, and this one
         run: go tool task boot:here
 
-      - name: Every ROM the machine maps is the fingerprint's
-        run: go tool task boot:roms
+      - name: The machine's record refuses what QEMU loads silently, and not its own checkpoint
+        run: go tool task boot:record
 
-      # Every release since the contract last moved, not only the one before: a host may skip
-      # releases, and its checkpoints still resume.
-      - name: A checkpoint of every release since the contract moved resumes here
+      # Every release until one whose machine is not this one, not only the one before: a host may
+      # skip releases, and its checkpoints still resume.
+      - name: A checkpoint of every release whose machine is this one resumes here
         run: spin-machine-dev lab compat --here "$SPIN_MACHINE_OUTPUT"
 
       # This change's kernel, booted: lockdown at confidentiality that root cannot lower, the BPF

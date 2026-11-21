@@ -154,7 +154,7 @@ jobs:
 
       # The build said what it produced, and whether it still offers the machine type every
       # checkpoint is saved on, on the run's summary. A changed QEMU binary is a new emulator of
-      # the same machine (machine.MachineType stays): it is not in the fingerprint, and whether a
+      # the same machine (machine.MachineType stays), and whether a
       # checkpoint the released QEMU saved resumes on it is compat's to say, on the KVM runner
       # (compat.yml). lab tree --qemu run:<id> finds it by this name.
       - name: Upload the extracted binaries
@@ -181,7 +181,7 @@ jobs:
         run: spin-machine-dev publish qemu
 
   # A changed kernel is every guest's next boot. It does not strand checkpoints - a resumed guest
-  # runs the kernel in its saved memory, and the fingerprint is the machine's contract, not this
+  # runs the kernel in its saved memory, and the machine's record is of the machine, not this
   # binary - but the job prints the checksum of what it produced, so a config change is something
   # somebody looked at.
   kernel:
@@ -221,7 +221,7 @@ jobs:
       # And what it produced, by sha256, on the run's summary: a pull request that changes the
       # config, or bumps the Debian toolchain the kernel is compiled with, changes every guest's
       # next boot, and the change that does it need not look like much. Checkpoints are not
-      # affected: the kernel is not in the fingerprint (machine.Spec.Fingerprint).
+      # affected: a resumed guest runs the kernel in its saved memory.
       - name: Build the kernel
         env:
           # main's lanes write the cache back; everything else only reads it.

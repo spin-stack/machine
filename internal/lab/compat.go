@@ -3,7 +3,6 @@
 package lab
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -16,31 +15,28 @@ import (
 // CompatRow is what one release's checkpoint does on this machine.
 type CompatRow struct {
 	Release string
-	// Resumed is whether a checkpoint the release saved went on running here; Moved, that the
-	// release has another fingerprint, so none of its checkpoints is meant to. NoBzImage is a
-	// release from before v20261119.02, which carries only the vmlinux the machine entered
-	// through PVH then: nothing here boots it, so nothing checks it.
+	// Resumed is whether a checkpoint the release saved went on running here; Moved, that this
+	// machine refused it (machine.CanResume), so none of the release's checkpoints is meant to.
+	// NoBzImage is a release from before v20261119.02, which carries only the vmlinux the machine
+	// entered through PVH then: nothing here boots it, so nothing checks it.
 	Resumed, Moved, NoBzImage bool
-	// Why is the failure, or the fingerprints that differ.
+	// Why is the failure, or the refusal: every difference between the two machines.
 	Why string
 }
 
-// Compat is boot:compat over every release since the fingerprint last moved, newest first: a host
-// that skipped releases resumes a checkpoint from any of them, not only the one before. It stops
-// at the first release whose fingerprint, as here's spin-machine computes it, is not here's - that
-// one and every older one are a contract the release notes said moved. It stops as well at the
-// first release with no bzImage, which no spin-machine since v20261119.02 boots, and every older
-// release has none either. For each release it also holds the other direction: a checkpoint
-// written by here's QEMU is one CanResume refuses on a release whose QEMU is older (QEMU loads
-// what an older version wrote, never the reverse).
+// Compat is boot:compat over the releases, newest first, until one whose machine is not this one:
+// a host that skipped releases resumes a checkpoint from any of them, not only the one before. A
+// release's checkpoint is taken at spin's shape on its own QEMU, kernel and firmware, and this
+// machine refuses it or resumes it (resume); the first it refuses, by its differences, is where
+// the machine moved, and every older release is past it. It stops as well at the first release
+// with no bzImage, which no spin-machine since v20261119.02 boots, and every older release has
+// none either. For each release it also holds the other direction: a checkpoint written by here's
+// QEMU is one CanResume refuses on a release whose QEMU is older (QEMU loads what an older version
+// wrote, never the reverse).
 //
-// resume runs boot:compat's test with previous as the release before.
-func Compat(here string, tags []string, src Sources, resume func(previous string) error, log io.Writer) ([]CompatRow, error) {
-	cli := filepath.Join(here, "bin", "spin-machine")
-	mine, err := fingerprint(cli, here)
-	if err != nil {
-		return nil, err
-	}
+// resume runs boot:compat's test with previous as the release before, and says the refusal when
+// this machine refused the checkpoint, or the failure when it did not go on running.
+func Compat(here string, tags []string, src Sources, resume func(previous string) (refused string, err error), log io.Writer) ([]CompatRow, error) {
 	hereQEMU, err := qemuVersion(filepath.Join(here, "bin", "qemu-system-x86_64"))
 	if err != nil {
 		return nil, err
@@ -55,14 +51,6 @@ func Compat(here string, tags []string, src Sources, resume func(previous string
 			rows = append(rows, CompatRow{Release: tag, NoBzImage: true})
 			break
 		}
-		theirs, err := fingerprint(cli, dir)
-		if err != nil {
-			return nil, err
-		}
-		if theirs != mine {
-			rows = append(rows, CompatRow{Release: tag, Moved: true, Why: fmt.Sprintf("fingerprint %.12s, here %.12s", theirs, mine)})
-			break
-		}
 		relQEMU, err := qemuVersion(filepath.Join(dir, "bin", "qemu-system-x86_64"))
 		if err != nil {
 			return nil, err
@@ -71,11 +59,16 @@ func Compat(here string, tags []string, src Sources, resume func(previous string
 			return nil, fmt.Errorf("%s: %w", tag, err)
 		}
 		_, _ = fmt.Fprintf(log, "compat: a checkpoint of %s, resumed here\n", tag)
-		row := CompatRow{Release: tag, Resumed: true}
-		if err := resume(dir); err != nil {
-			row.Resumed, row.Why = false, err.Error()
+		refused, err := resume(dir)
+		switch {
+		case refused != "":
+			rows = append(rows, CompatRow{Release: tag, Moved: true, Why: refused})
+			return rows, nil
+		case err != nil:
+			rows = append(rows, CompatRow{Release: tag, Why: err.Error()})
+		default:
+			rows = append(rows, CompatRow{Release: tag, Resumed: true})
 		}
-		rows = append(rows, row)
 	}
 	return rows, nil
 }
@@ -97,20 +90,7 @@ func oneWay(here, release string) error {
 	return nil
 }
 
-// fingerprint is `spin-machine fingerprint` of the release at dir, as cli computes it.
-func fingerprint(cli, dir string) (string, error) {
-	b, err := exec.Command(cli, "fingerprint", "--release", dir).Output()
-	if err != nil {
-		return "", fmt.Errorf("fingerprinting %s: %w", dir, err)
-	}
-	var f struct{ Fingerprint string }
-	if err := json.Unmarshal(b, &f); err != nil || f.Fingerprint == "" {
-		return "", fmt.Errorf("fingerprinting %s: no fingerprint in %q (%v)", dir, b, err)
-	}
-	return f.Fingerprint, nil
-}
-
-// qemuVersion is the QEMU at path as a checkpoint records it (machine.Saved.VMM): "qemu 11.1.90",
+// qemuVersion is the QEMU at path as a checkpoint records it (machine.Saved.From.VMM): "qemu 11.1.90",
 // from its own --version, which is what query-version answers.
 func qemuVersion(path string) (string, error) {
 	b, err := exec.Command(path, "--version").Output()
@@ -133,7 +113,7 @@ func CompatTable(rows []CompatRow) string {
 	for _, r := range rows {
 		switch {
 		case r.Moved:
-			fmt.Fprintf(&b, "| %s | not meant to: the contract moved (%s); older releases neither |\n", r.Release, r.Why)
+			fmt.Fprintf(&b, "| %s | not meant to: its machine is not this one (%s); older releases neither |\n", r.Release, r.Why)
 		case r.NoBzImage:
 			fmt.Fprintf(&b, "| %s | not checked: it carries no bzImage, the only kernel this machine boots; older releases neither |\n", r.Release)
 		case r.Resumed:

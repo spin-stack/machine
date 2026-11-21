@@ -4,14 +4,18 @@ package boot_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,18 +23,20 @@ import (
 	"github.com/spin-stack/spin-machine/machine"
 )
 
-// A checkpoint the release before saved resumes on this tree's machine, when the two have one
-// fingerprint: machine.Spec.Fingerprint promises it, by leaving out the QEMU binary, the kernel
-// and the firmware a boot reads, and this is what holds the promise to QEMU's. The guest is
-// booted on the previous release's QEMU, kernel and firmware, over an overlay of its base image,
-// with a counter printing on its console; it is saved, and restored with this tree's QEMU over
-// the same overlay, and the counter has to go on from where it was and the disk has to answer.
+// A checkpoint the release before saved resumes on this tree's machine when the two are one
+// machine, and this holds CanResume's answer to QEMU's. The guest is booted at spin's shape on
+// the previous release's QEMU, kernel and firmware, over an overlay of its base image, with a
+// counter printing on its console; this tree's spin-machine saves it, which records the machine
+// as that QEMU reports it. A machine of this tree's QEMU, held for a checkpoint over the same
+// overlay, says whether it resumes it (machine.CanResume); if so it is restored, and the counter
+// has to go on from where it was and the disk has to answer.
 //
-// When the two fingerprints differ, the contract moved and no checkpoint of the previous release
-// is meant to resume: the test says so and holds nothing, and the release notes say it for the
-// fleet (internal/release's verdict).
+// When this machine refuses the checkpoint, the machine moved and no checkpoint of the previous
+// release is meant to resume: the test says so with every difference, holds nothing, and writes
+// the differences to SPIN_COMPAT_REFUSED for lab compat's row.
 //
 //	SPIN_COMPAT_PREVIOUS=<dir>   the previous release's usr/share/spin-stack (task boot:compat)
+//	SPIN_COMPAT_REFUSED=<file>   where a refusal is said (spin-machine-dev lab compat)
 func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {
 	previous := os.Getenv("SPIN_COMPAT_PREVIOUS")
 	if previous == "" {
@@ -38,41 +44,69 @@ func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {
 	}
 	out := releaseDir(t)
 	cli := filepath.Join(out, "bin", "spin-machine")
-	before, here := fingerprintOf(t, cli, previous), fingerprintOf(t, cli, out)
-	if before != here {
-		t.Skipf("the machine's contract moved (%s, then %s): no checkpoint of %s is meant to resume here", before, here, previous)
-	}
-
 	dir := t.TempDir()
+	socks, err := os.MkdirTemp("/tmp", "compat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socks) })
 	overlay := filepath.Join(dir, "root.qcow2")
 	if b, err := exec.Command(filepath.Join(out, "bin", "qemu-img"), "create", "-q", "-f", "qcow2", //nolint:gosec // this tree's qemu-img
 		"-b", filepath.Join(previous, "image", "rootfs.qcow2"), "-F", "qcow2", overlay).CombinedOutput(); err != nil {
 		t.Fatalf("an overlay of the previous base image: %v: %s", err, b)
 	}
-	disk := []string{"--disk", overlay, "--disk-format", "qcow2", "--init", "/bin/sh"}
 	state := filepath.Join(dir, "state")
+	cid := 3500000 + os.Getpid()%100000*10
+	machineOf := func(release, sock string, n int, more ...string) *guest {
+		args, start := machineArgs(t, cli, release, slices.Concat(spinsShape, []string{"--qmp", sock, "--vsock-cid", fmt.Sprint(cid + n),
+			"--disk", overlay, "--disk-format", "qcow2", "--init", "/bin/sh"}, more))
+		g := startGuest(t, append(args, spinsNIC(fmt.Sprintf("52:54:00:00:01:%02x", n))...))
+		if !slices.Contains(more, "--restore") {
+			start(t)
+		}
+		return g
+	}
 
-	args, start := machineArgs(t, cli, previous, append([]string{"--qmp", filepath.Join(dir, "a.sock")}, disk...))
-	a := startGuest(t, args)
-	start(t)
+	aSock := filepath.Join(socks, "a")
+	a := machineOf(previous, aSock, 1)
 	a.type_(t, "mount -t proc proc /proc; ( i=0; while :; do i=$((i+1)); echo TICK-$i; sleep 0.2; done ) &")
 	a.await(t, regexp.MustCompile(`TICK-5\b`), 60*time.Second)
-	qa := dial(t, filepath.Join(dir, "a.sock"), a.said)
-	qa.do(t, "stop", nil)
+	// #nosec G204 -- this tree's spin-machine
+	if o, err := exec.Command(cli, "save", "--qmp", aSock, "--to", state).CombinedOutput(); err != nil {
+		t.Fatalf("saving: %v: %s\n%s", err, o, a.said())
+	}
 	last := a.lastTick()
-	qa.do(t, "migrate", map[string]any{"uri": "file:" + state})
-	qa.until(t, "query-migrate", "completed", 60*time.Second)
-	qa.close()
 	a.kill()
 
-	// Restored the way every checkpoint is, with its disk bound to its place before the load.
-	// The state was written by migrate over a monitor, as a release before machine.Saved did,
-	// with no record beside it: restore reads it as the stream format, which is what shows
-	// that a checkpoint from before mapped-ram still loads.
-	args, _ = machineArgs(t, cli, out, append([]string{"--qmp", filepath.Join(dir, "b.sock"), "--restore"}, disk...))
-	b := startGuest(t, args)
+	bSock := filepath.Join(socks, "b")
+	b := machineOf(out, bSock, 2, "--restore")
+	var saved machine.Saved
+	if raw, err := os.ReadFile(state + ".json"); err != nil || json.Unmarshal(raw, &saved) != nil {
+		t.Fatalf("what save wrote beside the state: %v", err)
+	}
+	m := attachTo(t, bSock, b)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	here, err := m.Target(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = m.Close()
+	var refusal *machine.Refusal
+	if errors.As(machine.CanResume(saved, here), &refusal) {
+		var ds []string
+		for _, d := range refusal.Differences {
+			ds = append(ds, d.String())
+		}
+		if f := os.Getenv("SPIN_COMPAT_REFUSED"); f != "" {
+			if err := os.WriteFile(f, []byte(strings.Join(ds, "; ")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Skipf("the machine of %s is not this one:\n  %s", previous, strings.Join(ds, "\n  "))
+	}
 	// #nosec G204 -- this tree's spin-machine
-	if o, err := exec.Command(cli, "restore", "--release", out, "--qmp", filepath.Join(dir, "b.sock"), "--from", state,
+	if o, err := exec.Command(cli, "restore", "--release", out, "--qmp", bSock, "--from", state,
 		"--disk", overlay, "--disk-format", "qcow2").CombinedOutput(); err != nil {
 		t.Fatalf("restoring: %v: %s\n%s", err, o, b.said())
 	}
@@ -86,20 +120,6 @@ func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("a checkpoint of %s, saved at TICK-%d, went on counting on this tree's machine", rel.Version(), last)
-}
-
-// fingerprintOf is `spin-machine fingerprint` of the release at dir, as this tree computes it.
-func fingerprintOf(t *testing.T, cli, dir string) string {
-	t.Helper()
-	b, err := exec.Command(cli, "fingerprint", "--release", dir).Output() //nolint:gosec // this tree's spin-machine
-	if err != nil {
-		t.Fatalf("spin-machine fingerprint --release %s: %v", dir, err)
-	}
-	var f struct{ Fingerprint string }
-	if err := json.Unmarshal(b, &f); err != nil || f.Fingerprint == "" {
-		t.Fatalf("spin-machine fingerprint: %q: %v", b, err)
-	}
-	return f.Fingerprint
 }
 
 // guest is one QEMU whose console is its stdin and stdout.
