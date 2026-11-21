@@ -3,16 +3,19 @@
 package boot_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -286,5 +289,76 @@ func attachTo(t *testing.T, sock string, g *guest) *machine.QEMU {
 			t.Fatalf("QEMU never answered on %s: %v\n%s", sock, err, g.said())
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// guest is one QEMU whose console is its stdin and stdout.
+type guest struct {
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	mu    sync.Mutex
+	out   bytes.Buffer
+}
+
+func startGuest(t *testing.T, args []string) *guest {
+	t.Helper()
+	g := &guest{cmd: exec.Command(args[0], args[1:]...)} //nolint:gosec // the machine's own command line
+	stdin, err := g.cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.stdin = stdin
+	r, w := io.Pipe()
+	g.cmd.Stdout, g.cmd.Stderr = w, w
+	if err := g.cmd.Start(); err != nil {
+		t.Fatalf("starting QEMU: %v", err)
+	}
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			g.mu.Lock()
+			g.out.Write(buf[:n])
+			g.mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	t.Cleanup(g.kill)
+	return g
+}
+
+// type_ is a line on the console. The guest's shell is not reading it when QEMU starts, so the
+// first bytes are lost: blank lines go first, each costing only a prompt.
+func (g *guest) type_(t *testing.T, line string) {
+	t.Helper()
+	if _, err := io.WriteString(g.stdin, "\n\n\n\n\n\n\n\n\n\n"+line+"\n"); err != nil {
+		t.Fatalf("typing on the console: %v", err)
+	}
+}
+
+func (g *guest) said() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.out.String()
+}
+
+// await is the console printing what matches re, or the test failing with what it did print.
+func (g *guest) await(t *testing.T, re *regexp.Regexp, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for !re.MatchString(g.said()) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the console never said %s in %s:\n%s", re, timeout, tail([]byte(g.said()), 2000))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (g *guest) kill() {
+	if g.cmd.Process != nil {
+		_ = g.cmd.Process.Kill()
+		_ = g.cmd.Wait()
 	}
 }
