@@ -200,6 +200,46 @@ matter for any device memory a guest maps write-back (pmem, a virtio-fs DAX wind
 RAM. qboot now programs them (#75): write-back by default, with the 32-bit PCI hole uncached.
 No boot cost was measured (kernel and init 103.5 vs 103.1 ms over 20 boots).
 
+## Writing a checkpoint's state
+
+`QEMU.Checkpoint` writes the state through QEMU and syncs nothing. QEMU does not sync it either:
+a trace of a save showed no `fsync` or `fdatasync` from any QEMU thread (QEMU 11.2.0-rc0). The
+caller syncs it, and the question is where. spin synced it inside the seal, where the guest is
+stopped, and also every 100 ms while QEMU wrote, so that less was left for the seal. Its reason
+was that creating the seal's file waits for every dirty page of the filesystem.
+
+Measured on a laptop (ext4 on NVMe, 99% full and shared with other work, 2026-11-21). The machine
+was spin's shape, its guest plugged to 2 GiB with 1.5 GiB of tmpfs filled from `/dev/urandom`,
+so each save wrote 1.6 GiB with mapped-ram and 8 channels. The seal made a 64 KiB file and synced
+it. The arms were interleaved on one guest, 16 saves each. About a third of saves in every arm
+stalled for seconds on the disk. The medians below are over the saves that did not stall:
+
+| The state synced | Sync in the pause | Guest stopped, seal to `cont` | QEMU's total | Durable |
+| --- | --- | --- | --- | --- |
+| inside the seal | 275 ms | 683 ms | 728 ms | 963 ms |
+| every 100 ms, then inside the seal | 167 | 566 | 668 | 877 |
+| after `cont` | 0 | 506 | 492 | 738 |
+
+Over every save, stalls included, a sync after `cont` took the pause's sync from the periodic
+arm's down by 183 ms [−1676, −160] and QEMU's total by 232 [−2027, −124]. The guest's whole pause
+does not resolve over every save, because the stalls are seconds long and hit every arm. The
+sync after `cont` took 2-3 ms: the kernel had written most of the state while QEMU wrote it. The
+seal's file took 2-7 ms with ~830 MiB dirty, so on ext4 it did not wait for the state's pages.
+
+So the periodic sync buys a shorter sync inside the pause, and a sync outside the pause buys
+more, with nothing to stop. Neither belongs in `Checkpoint`. The caller syncs after it has
+continued the guest, before it records the checkpoint. A filesystem where creating a file does
+wait on another file's dirty pages would need this measured on it.
+
+QEMU's downtime (`Cost.Paused`) ends when the migration completes. In every arm the caller's
+clock read 200-250 ms more from the seal to `cont`'s return, the sync aside. That time was not
+traced to its cause.
+
+`Resume` has no bound of its own besides its context. A full load reads the state's written
+blocks, not its length, since a mapped-ram state is sparse. How long that may take depends on the
+host's slowest disk, which the caller knows. spin bounds it at 30 s plus the written blocks at
+50 MB/s.
+
 ## Turned down
 
 | | What was measured | Why not |
