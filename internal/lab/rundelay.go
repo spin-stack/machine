@@ -264,21 +264,21 @@ func (runDelay) Detail(r *Result) string {
 				continue
 			}
 			type named struct {
-				key string
-				p50 float64
+				path, name string
+				p50        float64
 			}
 			var rows []named
 			for k, v := range waits {
 				p, _ := Percentile(v, .5)
-				rows = append(rows, named{k, p})
+				path, name, _ := strings.Cut(k, "\x00")
+				rows = append(rows, named{path, name, p})
 			}
 			slices.SortFunc(rows, func(a, b named) int {
-				return cmp.Or(strings.Compare(strings.Split(a.key, "\x00")[0], strings.Split(b.key, "\x00")[0]), cmp.Compare(b.p50, a.p50))
+				return cmp.Or(strings.Compare(a.path, b.path), cmp.Compare(b.p50, a.p50))
 			})
 			fmt.Fprintf(&b, "\n  %s, crowd %s: p50 ms each of QEMU's threads waited for a CPU, by name\n", t.Name, row)
 			for _, n := range rows {
-				path, name, _ := strings.Cut(n.key, "\x00")
-				fmt.Fprintf(&b, "    %-8s %-24s %8.3f\n", path, name, n.p50)
+				fmt.Fprintf(&b, "    %-8s %-24s %8.3f\n", n.path, n.name, n.p50)
 			}
 		}
 	}
