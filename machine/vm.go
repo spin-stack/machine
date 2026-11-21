@@ -14,8 +14,8 @@ import (
 // the machine to be swappable, so that another VMM can be put behind the same calls and the two
 // compared on the bench fleet with the same probes (2026-11-19). So its words are a VMM's and
 // not QEMU's: nothing in it names QMP, a block node, a descriptor set, a migration capability or
-// a PCI slot. Everything that is QEMU's - the command line (Spec.Args), the fingerprint
-// (Spec.Fingerprint, Contract), the slot layout - stays on the QEMU side.
+// a PCI slot. Everything that is QEMU's - the command line (Spec.Args), what a QEMU machine's
+// record is made of (QEMU.Target), the slot layout - stays on the QEMU side.
 //
 // The shape is the one the other two VMMs worth comparing already have:
 //
@@ -33,11 +33,12 @@ import (
 // seccomp and descriptors are the caller's business, and every VMM is started from a command
 // line of its own. A VM is what is reached once it is running.
 //
-// Which checkpoints a VM may resume is not settled here. The QEMU side has a fingerprint
-// (Spec.Fingerprint), and what it promises between releases of this machine and of spin is an
-// open question (spin-stack/spin#1348). What a VM does promise is the format of what it writes
-// (Saved.Format), which a VM refuses when it does not read it, and the CPU the guest was shown
-// (Saved.CPU), which a VM refuses when it cannot show it again (CanResume).
+// Which checkpoints a VM resumes is one rule for every VMM, CanResume, over two records the VMM
+// gives (Target): the one a checkpoint carries (Saved.From) and the machine's own. A VMM says
+// what its record holds and which facts may grow (Machine); the comparison, and the refusal that
+// names each difference, are the same whatever made them. Another VMM's Target is read from its
+// own API - Cloud Hypervisor's vm.info, Firecracker's GET /vm/config - into the same Target, and
+// a checkpoint of one VMM is refused by another as one difference, the VMM.
 type VM interface {
 	// Boot binds the disks and starts the guest from its firmware. The disks are the ones the
 	// machine was started with places for, matched by Serial; a place no disk names stays
@@ -76,12 +77,13 @@ type VM interface {
 	// Memory is the guest's memory now, in MiB.
 	Memory(ctx context.Context) (int, error)
 
-	// CPU is the CPU the guest is shown: what a checkpoint of it records, and what a machine
-	// a checkpoint is resumed into has to be able to show again (CanResume).
+	// CPU is the CPU the guest is shown, which its Target holds.
 	CPU(ctx context.Context) (CPU, error)
-	// Target is what this machine can resume: the checkpoints CanResume lets into it. A
-	// caller choosing where a checkpoint resumes asks each candidate for its Target before
-	// starting anything, rather than learning from a failed load.
+	// Target is what this machine is, as its VMM reports it: what a checkpoint of it records
+	// (Saved.From), and what CanResume holds a checkpoint resumed into it to. A caller choosing
+	// where a checkpoint resumes asks a machine of the kind that will take it - one started held
+	// for a checkpoint, with the devices a workspace has - before starting anything, rather than
+	// learning from a failed load.
 	Target(ctx context.Context) (Target, error)
 
 	// Quit ends the VMM without asking the guest.

@@ -48,17 +48,50 @@ func rawFile(t *testing.T) string {
 	return p
 }
 
+// checkpointFile is a state with a record of a mapped-ram checkpoint beside it, as save leaves one.
+func checkpointFile(t *testing.T) string {
+	t.Helper()
+	p := rawFile(t)
+	if err := os.WriteFile(p+".json", []byte(`{"format": "qemu-mapped-ram"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 // ev is a reply with the event QEMU sends when a device has gone ahead of it.
 func ev(device, reply string) string {
 	return `{"event": "DEVICE_DELETED", "data": {"device": "` + device + `"}}` + "\n" + reply
 }
 
+// What QEMU answers about its CPU: its vCPUs, the first one's properties, and its model's flags.
+const (
+	cpuFast      = `{"return": [{"qom-path": "/machine/unattached/device[0]"}]}`
+	cpuVCPU      = `{"return": [{"properties": [{"name": "type", "type": "string", "value": "host-x86_64-cpu"}, {"name": "vendor", "type": "string", "value": "GenuineIntel"}, {"name": "sse2", "type": "bool", "value": true}]}]}`
+	cpuExpansion = `{"return": {"model": {"name": "base", "props": {"vendor": "GenuineIntel", "sse2": true}}}}`
+)
+
+// readRecord is what QEMU answers a Target with, in the order it is asked: its version, its CPU,
+// its accelerator, its machine and where its devices are (it has none) and its RAM blocks.
+var readRecord = []string{
+	`{"return": {"qemu": {"major": 11, "minor": 2, "micro": 0}}}`,
+	cpuFast, cpuVCPU, cpuExpansion,
+	`{"return": {"enabled": true}}`,
+	`{"return": [{"properties": [{"name": "type", "type": "string", "value": "pc-q35-11.1-machine"}, ` +
+		`{"name": "smp", "type": "SMPConfiguration", "value": {"cpus": 1}}, {"name": "memory", "type": "x", "value": {"size": 1}}, ` +
+		`{"name": "hpet", "type": "bool", "value": false}, {"name": "acpi", "type": "OnOffAuto", "value": "on"}, ` +
+		`{"name": "sata", "type": "bool", "value": false}, {"name": "smbus", "type": "bool", "value": false}]}, ` +
+		`{"properties": []}, {"properties": []}, {"properties": []}, {"properties": []}]}`,
+	`{"return": []}`,
+	`{"return": {"human-readable-text": "Block Name PSize Offset Used Total HVA RO\npc.bios 4 KiB 0x0 0x10000 0x10000 0x0 ro"}}`,
+}
+
+// readRecordAsked is what a Target asks.
+var readRecordAsked = []string{"query-version", "query-cpus-fast", "qom-list-get", "query-cpu-model-expansion",
+	"query-kvm", "qom-list-get", "qom-list-get", "x-query-ramblock"}
+
 // Each command that acts on a running machine, against a monitor that answers as QEMU does:
 // what it asks, and what it makes of a refusal.
 func TestCommandsOverTheMonitor(t *testing.T) {
-	cpuFast := `{"return": [{"qom-path": "/machine/unattached/device[0]"}]}`
-	cpuType := `{"return": "host-x86_64-cpu"}`
-	cpuExpansion := `{"return": {"model": {"name": "host", "props": {"vendor": "GenuineIntel", "sse2": true}}}}`
 	no := `{"error": {"class": "GenericError", "desc": "no"}}`
 	var out bytes.Buffer
 	for _, tc := range []struct {
@@ -122,11 +155,11 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		printed: "had not reached 1024 MiB",
 	}, {
 		name: "cpu",
-		replies: []string{ok, cpuFast, cpuType, cpuExpansion,
+		replies: []string{ok, cpuFast, cpuVCPU, cpuExpansion,
 			`{"return": [{"name": "Skylake-Client-v4", "unavailable-features": [], "migration-safe": true}]}`,
 			`{"return": {"model": {"name": "base", "props": {"avx2": true}}}}`},
 		do:      func(_ *testing.T, sock string) error { return cpuReport(sock, &out) },
-		asked:   []string{"query-cpus-fast", "qom-get", "query-cpu-model-expansion", "query-cpu-definitions", "query-cpu-model-expansion"},
+		asked:   []string{"query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-cpu-definitions", "query-cpu-model-expansion"},
 		printed: `"name": "Skylake-Client-v4"`,
 	}, {
 		name:    "cpu, its vCPUs unreadable",
@@ -135,7 +168,7 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		wantErr: "listing the machine's vCPUs",
 	}, {
 		name:    "cpu, its models unreadable",
-		replies: []string{ok, cpuFast, cpuType, cpuExpansion, no},
+		replies: []string{ok, cpuFast, cpuVCPU, cpuExpansion, no},
 		do:      func(_ *testing.T, sock string) error { return cpuReport(sock, &out) },
 		wantErr: "listing the CPU models",
 	}, {
@@ -172,14 +205,14 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		name:    "restore with a disk not there",
 		replies: []string{ok},
 		do: func(t *testing.T, sock string) error {
-			return restore(restoreFlags{qmp: sock, from: rawFile(t), disks: diskFlags{path: "/nonexistent/d.raw", format: "raw", serial: "root"}, timeout: time.Minute})
+			return restore(restoreFlags{qmp: sock, from: checkpointFile(t), disks: diskFlags{path: "/nonexistent/d.raw", format: "raw", serial: "root"}, timeout: time.Minute})
 		},
 		wantErr: "opening /nonexistent/d.raw",
 	}, {
 		name:    "restore into a machine held for a boot",
 		replies: []string{ok, `{"return": {"status": "prelaunch"}}`},
 		do: func(t *testing.T, sock string) error {
-			return restore(restoreFlags{qmp: sock, from: rawFile(t), disks: diskFlags{path: "-"}, timeout: time.Minute})
+			return restore(restoreFlags{qmp: sock, from: checkpointFile(t), disks: diskFlags{path: "-"}, timeout: time.Minute})
 		},
 		wantErr: "only one started with Spec.Restore",
 	}} {
@@ -224,7 +257,7 @@ func TestCommandsThatCannotReachTheMachine(t *testing.T) {
 		"start":      func() error { return start(startFlags{qmp: sock}) },
 		"the helper": func() error { return bindAndBoot(machineFlags{qmp: sock}) },
 		"save":       func() error { return save(saveFlags{qmp: sock, to: filepath.Join(t.TempDir(), "s")}) },
-		"restore":    func() error { return restore(restoreFlags{qmp: sock, from: rawFile(t)}) },
+		"restore":    func() error { return restore(restoreFlags{qmp: sock, from: checkpointFile(t)}) },
 		"no state":   func() error { return restore(restoreFlags{qmp: sock, from: "/nonexistent/state"}) },
 		"no cpu qmp": func() error { return cpuReport("", &bytes.Buffer{}) },
 		"one MiB":    func() error { return memory(memoryFlags{qmp: sock, totalMB: 1}, &bytes.Buffer{}) },

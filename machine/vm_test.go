@@ -45,9 +45,6 @@ func (f *fakeQEMU) recorded() []call {
 	return slices.Clone(f.calls)
 }
 
-// testFingerprint is the machine every fake QEMU says it is (query-name), at QEMU 11.2.0.
-const testFingerprint = "f00d"
-
 // ok is QEMU's reply to a command that returns nothing.
 const ok = `{"return": {}}`
 
@@ -137,13 +134,7 @@ func (f *fakeQEMU) serve(c *net.UnixConn) {
 			cl := call{Command: req.Execute, Args: req.Arguments, FD: fd}
 			fd = false
 			reply := ok
-			switch cl.Command {
-			case "query-name":
-				reply = ret(`{"name": "` + fingerprintName + testFingerprint + `"}`)
-			case "query-version":
-				reply = ret(`{"qemu": {"major": 11, "minor": 2, "micro": 0}}`)
-			}
-			if cl.Command != "qmp_capabilities" && cl.Command != "query-name" && cl.Command != "query-version" {
+			if cl.Command != "qmp_capabilities" {
 				f.mu.Lock()
 				f.calls = append(f.calls, cl)
 				f.mu.Unlock()
@@ -380,28 +371,12 @@ func migrations(then func(c call) string, statuses ...string) func(c call) strin
 	}
 }
 
-// cpuAnswers answers what CPU asks of a machine shown the host's CPU, or nothing for any
-// other command.
-func cpuAnswers(c call) (string, bool) {
-	switch c.Command {
-	case "query-cpus-fast":
-		return ret(`[{"qom-path": "/machine/unattached/device[0]"}, {"qom-path": "/machine/peripheral/vcpu1"}]`), true
-	case "query-cpu-model-expansion":
-		return ret(`{"model": {"name": "host", "props": {"vendor": "GenuineIntel", "sse2": true, "avx512f": true, "vmx": false, "family": 6}}}`), true
-	case "qom-get":
-		if c.Args["property"] == "type" {
-			return ret(`"host-x86_64-cpu"`), true
-		}
-	}
-	return "", false
-}
-
-// A checkpoint records the vCPUs and disks added since exec, writes mapped-ram, seals at
-// pre-switchover, and says its format.
+// A checkpoint records the machine it was taken on, the vCPUs and disks added since exec, writes
+// mapped-ram, seals at pre-switchover, and says its format.
 func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	sealed := 0
 	base := func(c call) string {
-		if r, ok := cpuAnswers(c); ok {
+		if r, ok := recordAnswers(c); ok {
 			return r
 		}
 		switch c.Command {
@@ -430,25 +405,22 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	if saved.Format != FormatMappedRAM {
 		t.Errorf("format %q, want %q", saved.Format, FormatMappedRAM)
 	}
-	if want := (CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx512f", "sse2"}}); !reflect.DeepEqual(saved.CPU, want) {
-		t.Errorf("CPU %+v, want %+v", saved.CPU, want)
+	if want := fakeTarget(t); !reflect.DeepEqual(saved.From, want) {
+		t.Errorf("taken on %+v, want %+v", saved.From, want)
 	}
-	if got := f.sent("query-cpu-model-expansion")[0]; !reflect.DeepEqual(got, map[string]any{"type": "full",
-		"model": map[string]any{"name": "host", "props": map[string]any{"migratable": true}}}) {
-		t.Errorf("expanded %v, want host as the machine runs it, migratable", got)
-	}
-	var sm savedMachine
-	if err := json.Unmarshal(saved.Machine, &sm); err != nil {
+	var again added
+	if err := json.Unmarshal(saved.Added, &again); err != nil {
 		t.Fatal(err)
 	}
-	wantSM := savedMachine{
+	wantAdded := added{
 		CPUs:  []addedCPU{{ID: "vcpu1", Driver: "host-x86_64-cpu", Props: map[string]any{"core-id": float64(1)}}},
 		Disks: []hotDisk{{Serial: "ext", Target: 3}},
 	}
-	if !reflect.DeepEqual(sm, wantSM) {
-		t.Errorf("saved %+v, want %+v", sm, wantSM)
+	if !reflect.DeepEqual(again, wantAdded) {
+		t.Errorf("added %+v, want %+v", again, wantAdded)
 	}
-	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get", "query-cpus-fast", "qom-get", "query-cpu-model-expansion",
+	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get",
+		"query-version", "query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-kvm", "qom-list-get", "qom-list-get", "x-query-ramblock",
 		"migrate-set-capabilities", "migrate-set-parameters",
 		"add-fd", "migrate", "query-migrate", "query-migrate", "migrate-continue", "query-migrate", "remove-fd"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
@@ -489,7 +461,7 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: migrations(func(c call) string {
-				if r, ok := cpuAnswers(c); ok {
+				if r, ok := recordAnswers(c); ok {
 					return r
 				}
 				switch c.Command {
@@ -523,7 +495,7 @@ func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
 			want = DefaultChannels
 		}
 		f := &fakeQEMU{answer: migrations(func(c call) string {
-			if r, ok := cpuAnswers(c); ok {
+			if r, ok := recordAnswers(c); ok {
 				return r
 			}
 			switch c.Command {
@@ -553,11 +525,12 @@ func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
 // A resume rebuilds what the checkpoint says the machine had, asks for what the format needs,
 // and returns when the guest runs: with Fast, before all of it is read.
 func TestResume(t *testing.T) {
-	sm, _ := json.Marshal(savedMachine{
+	again, _ := json.Marshal(added{
 		CPUs:  []addedCPU{{ID: "vcpu1", Driver: "host-x86_64-cpu", Props: map[string]any{"core-id": 1}}},
 		Disks: []hotDisk{{Serial: "ext", Target: 2}},
 	})
-	mapped := Saved{Format: FormatMappedRAM, Machine: sm}
+	from := fakeTarget(t)
+	mapped := Saved{Format: FormatMappedRAM, From: from, Added: again}
 	for _, tc := range []struct {
 		name     string
 		saved    Saved
@@ -577,7 +550,7 @@ func TestResume(t *testing.T) {
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false}, 2, false},
 		{"in full, by two channels", mapped, Load{Channels: 2}, 2, []string{"active", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true}, 2, false},
-		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream}, Load{}, 1, []string{"completed"}, "paused",
+		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream, From: from}, Load{}, 1, []string{"completed"}, "paused",
 			map[string]bool{"mapped-ram": false, "pause-before-switchover": false}, 1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -595,14 +568,14 @@ func TestResume(t *testing.T) {
 				if c.Command == "qom-list" {
 					return ret(`[]`)
 				}
-				if r, ok := cpuAnswers(c); ok {
+				if r, ok := recordAnswers(c); ok {
 					return r
 				}
 				return places(c)
 			}, tc.statuses...)
 			m := f.attach(t)
 			disks := []Disk{{Serial: "root", Images: []Image{image(t, "qcow2")}}}
-			if len(tc.saved.Machine) > 0 {
+			if len(tc.saved.Added) > 0 {
 				disks = append(disks, Disk{Serial: "ext", Readonly: true, Images: []Image{image(t, "qcow2")}})
 			}
 			if err := m.Resume(ctx(t), image(t, "raw").File, tc.saved, tc.load, disks...); err != nil {
@@ -626,7 +599,7 @@ func TestResume(t *testing.T) {
 			if got := len(f.sent("cont")) == 1; got != tc.cont {
 				t.Errorf("continued: %t, want %t", got, tc.cont)
 			}
-			if len(tc.saved.Machine) > 0 {
+			if len(tc.saved.Added) > 0 {
 				dev := f.sent("device_add")
 				if len(dev) != 2 || dev[0]["scsi-id"] != float64(2) || dev[0]["serial"] != "ext" || dev[1]["id"] != "vcpu1" || dev[1]["core-id"] != float64(1) {
 					t.Errorf("device_add %v, want the disk at target 2 and then vcpu1", dev)
@@ -654,7 +627,7 @@ func TestResumeRefuses(t *testing.T) {
 		{"a format it does not read", Saved{Format: "firecracker-snapshot"}, Load{}, "inmigrate", `format "firecracker-snapshot"`},
 		{"no format", Saved{}, Load{}, "inmigrate", `format ""`},
 		{"a machine held for a boot", Saved{Format: FormatMappedRAM}, Load{}, "prelaunch", "is prelaunch"},
-		{"a record it cannot read", Saved{Format: FormatMappedRAM, Machine: json.RawMessage(`[`)}, Load{}, "inmigrate", "what the checkpoint says"},
+		{"a record it cannot read", Saved{Format: FormatMappedRAM, Added: json.RawMessage(`[`)}, Load{}, "inmigrate", "what the checkpoint says"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: machineAnswers(tc.status, "root")}
@@ -896,139 +869,6 @@ func TestContinue(t *testing.T) {
 	}
 }
 
-func TestCanShowCPU(t *testing.T) {
-	host := func(vendor string, features ...string) CPU {
-		return CPU{Vendor: vendor, Model: "host", Features: features}
-	}
-	for _, tc := range []struct {
-		name        string
-		saved, here CPU
-		want        string // empty when it may
-	}{
-		{"the same CPU", host("GenuineIntel", "avx2", "sse2"), host("GenuineIntel", "avx2", "sse2"), ""},
-		{"more features here", host("GenuineIntel", "sse2"), host("GenuineIntel", "avx2", "avx512f", "sse2"), ""},
-		{"a feature the guest was shown is missing", host("GenuineIntel", "avx512f", "sse2"), host("GenuineIntel", "avx2", "sse2"), "cannot show: avx512f"},
-		{"another vendor", host("GenuineIntel"), host("AuthenticAMD"), "GenuineIntel CPU, and this machine shows a AuthenticAMD"},
-		// enforce=on: a host that could not show all of a named model would not have started it.
-		{"a named model by its name", CPU{Vendor: "GenuineIntel", Model: "Skylake-Server-v4", Features: []string{"avx512f"}},
-			CPU{Vendor: "GenuineIntel", Model: "Skylake-Server-v4"}, ""},
-		{"another named model", CPU{Vendor: "GenuineIntel", Model: "Skylake-Server-v4"}, CPU{Vendor: "GenuineIntel", Model: "Icelake-Server-v6"}, "model Skylake-Server-v4"},
-		{"a named model into host", CPU{Vendor: "GenuineIntel", Model: "Skylake-Server-v4"}, host("GenuineIntel"), "model Skylake-Server-v4"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			err := canShowCPU(tc.saved, tc.here)
-			if (tc.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.want)) {
-				t.Errorf("canShowCPU = %v, want %q", err, tc.want)
-			}
-		})
-	}
-}
-
-// CanResume is the one rule a placement and a resume ask: format, machine, VMM version, CPU.
-func TestCanResume(t *testing.T) {
-	cpu := CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx2", "sse2"}}
-	here := Target{Formats: []string{FormatMappedRAM, FormatStream}, Fingerprint: "abc", VMM: "qemu 11.2.0", CPU: cpu}
-	saved := Saved{Format: FormatMappedRAM, Fingerprint: "abc", VMM: "qemu 11.2.0", CPU: cpu}
-	for _, tc := range []struct {
-		name string
-		edit func(*Saved)
-		want string // empty when it may
-	}{
-		{"the same everything", func(*Saved) {}, ""},
-		{"written by an older QEMU", func(s *Saved) { s.VMM = "qemu 11.1.3" }, ""},
-		{"an older micro, a newer major", func(s *Saved) { s.VMM = "qemu 10.9.9" }, ""},
-		{"written by a newer QEMU", func(s *Saved) { s.VMM = "qemu 11.2.1" }, "newer than this machine's qemu 11.2.0"},
-		{"written by another program", func(s *Saved) { s.VMM = "cloud-hypervisor 48.0" }, "written by cloud-hypervisor"},
-		{"a VMM that is not a version", func(s *Saved) { s.VMM = "qemu" }, "not a program and a version"},
-		{"a version with no program", func(s *Saved) { s.VMM = " 11.2.0" }, "not a program and a version"},
-		{"another machine", func(s *Saved) { s.Fingerprint = "def" }, "machine def, and this is machine abc"},
-		{"a format this machine does not read", func(s *Saved) { s.Format = "firecracker" }, `format "firecracker"`},
-		{"a CPU feature this machine cannot show", func(s *Saved) { s.CPU.Features = []string{"amx-tile"} }, "cannot show: amx-tile"},
-		{"a record from before any of it was kept", func(s *Saved) { *s = Saved{Format: FormatStream} }, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := saved
-			s.CPU.Features = slices.Clone(cpu.Features)
-			tc.edit(&s)
-			err := CanResume(s, here)
-			if (tc.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.want)) {
-				t.Errorf("CanResume = %v, want %q", err, tc.want)
-			}
-		})
-	}
-}
-
-// A resume refuses a checkpoint whose guest was shown a CPU this machine cannot show, before
-// reading a byte of it; one recorded before the CPU was is not checked.
-func TestResumeChecksTheCPU(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		cpu  CPU
-		want string
-	}{
-		{"a feature this host lacks", CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"amx-tile"}}, "cannot show: amx-tile"},
-		{"no record", CPU{}, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := &fakeQEMU{answer: migrations(func(c call) string {
-				if r, ok := cpuAnswers(c); ok {
-					return r
-				}
-				return machineAnswers("inmigrate")(c)
-			}, "completed")}
-			err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, CPU: tc.cpu}, Load{})
-			if (tc.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.want)) {
-				t.Fatalf("Resume = %v, want %q", err, tc.want)
-			}
-			read := false
-			for _, c := range f.commands() {
-				read = read || c == "migrate-incoming"
-			}
-			if read != (tc.want == "") {
-				t.Errorf("the state was read: %t", read)
-			}
-		})
-	}
-}
-
-// What CPU makes of a machine shown a named model, and of answers that are not one.
-func TestCPU(t *testing.T) {
-	named := func(c call) string {
-		switch c.Command {
-		case "query-cpus-fast":
-			return ret(`[{"qom-path": "/machine/unattached/device[0]"}]`)
-		case "qom-get":
-			return ret(`"Skylake-Server-v4-x86_64-cpu"`)
-		case "query-cpu-model-expansion":
-			return ret(`{"model": {"name": "Skylake-Server-v4", "props": {"vendor": "GenuineIntel", "avx512f": true}}}`)
-		}
-		return ok
-	}
-	f := &fakeQEMU{answer: named}
-	got, err := f.attach(t).CPU(ctx(t))
-	if want := (CPU{Vendor: "GenuineIntel", Model: "Skylake-Server-v4", Features: []string{"avx512f"}}); err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("CPU = %+v, %v, want %+v", got, err, want)
-	}
-	// A named model is expanded as it is: migratable is host's and max's.
-	if got := f.sent("query-cpu-model-expansion")[0]["model"]; !reflect.DeepEqual(got, map[string]any{"name": "Skylake-Server-v4"}) {
-		t.Errorf("expanded %v", got)
-	}
-	for _, tc := range []struct{ name, cpus, typ, want string }{
-		{"no vCPU", `[]`, `"x"`, "no vCPU"},
-		{"not an x86_64 CPU", `[{"qom-path": "/p"}]`, `"cortex-a72-arm-cpu"`, "not an x86_64 CPU model"},
-	} {
-		f := &fakeQEMU{answer: func(c call) string {
-			if c.Command == "query-cpus-fast" {
-				return ret(tc.cpus)
-			}
-			return ret(tc.typ)
-		}}
-		if _, err := f.attach(t).CPU(ctx(t)); err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%s: CPU = %v, want %q", tc.name, err, tc.want)
-		}
-	}
-}
-
 // The models a host runs: the named ones QEMU can run here in full, safe to migrate, under their
 // own name and not deprecated, each with its static expansion's feature count.
 func TestModels(t *testing.T) {
@@ -1091,17 +931,18 @@ func TestAttachDiskTargets(t *testing.T) {
 
 // A resume whose disk added while the machine ran is refused at its target fails there.
 func TestResumeFailsWhereAHotDiskIsRefused(t *testing.T) {
-	sm, _ := json.Marshal(savedMachine{Disks: []hotDisk{{Serial: "ext", Target: 2}}})
+	again, _ := json.Marshal(added{Disks: []hotDisk{{Serial: "ext", Target: 2}}})
+	from := fakeTarget(t)
 	f := &fakeQEMU{answer: func(c call) string {
 		if c.Command == "device_add" {
 			return refused("no")
 		}
-		if r, ok := cpuAnswers(c); ok {
+		if r, ok := recordAnswers(c); ok {
 			return r
 		}
 		return machineAnswers("inmigrate", "root")(c)
 	}}
-	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, Machine: sm}, Load{},
+	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from, Added: again}, Load{},
 		Disk{Serial: "ext", Images: []Image{image(t, "qcow2")}})
 	if err == nil || !strings.Contains(err.Error(), "attaching it at target 2") {
 		t.Errorf("Resume = %v, want the refused disk's error", err)

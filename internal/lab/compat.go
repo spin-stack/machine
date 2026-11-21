@@ -81,14 +81,16 @@ func Compat(here string, tags []string, src Sources, resume func(previous string
 }
 
 // oneWay holds CanResume to QEMU's promise between here's QEMU and a release's: a release's
-// checkpoint resumes here, and a checkpoint of here's newer QEMU is refused on the release's.
+// checkpoint resumes here, and a checkpoint of here's newer QEMU is refused on the release's. The
+// two machines are otherwise one, so the VMM is all that differs.
 func oneWay(here, release string) error {
-	formats := []string{machine.FormatMappedRAM, machine.FormatStream}
-	if err := machine.CanResume(machine.Saved{Format: machine.FormatMappedRAM, VMM: release},
-		machine.Target{Formats: formats, VMM: here}); err != nil {
+	on := func(vmm string) machine.Target {
+		return machine.Target{VMM: vmm, Formats: []string{machine.FormatMappedRAM, machine.FormatStream}}
+	}
+	if err := machine.CanResume(machine.Saved{Format: machine.FormatMappedRAM, From: on(release)}, on(here)); err != nil {
 		return fmt.Errorf("a checkpoint of %s cannot resume on this machine's %s: %w", release, here, err)
 	}
-	back := machine.CanResume(machine.Saved{Format: machine.FormatMappedRAM, VMM: here}, machine.Target{Formats: formats, VMM: release})
+	back := machine.CanResume(machine.Saved{Format: machine.FormatMappedRAM, From: on(here)}, on(release))
 	if here != release && back == nil {
 		return fmt.Errorf("CanResume lets a checkpoint of %s onto the older %s", here, release)
 	}

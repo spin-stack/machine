@@ -11,9 +11,12 @@ import (
 	"strings"
 )
 
-// QEMU is a machine running under QEMU, reached through one of its monitors.
+// QEMU is a machine running under QEMU, reached through one of its monitors. Like the monitor, it
+// is one caller's at a time.
 type QEMU struct {
 	q *qmpClient
+	// record is what Target read, once it has.
+	record *Target
 }
 
 var _ VM = (*QEMU)(nil)
