@@ -95,6 +95,50 @@ q, err := machine.Dial(ctx, socket, qmp.Observer{}) // a second monitor, or one 
   a QEMU loading a state, which answers no monitor until it is done, or a monitor closed: Stop
   kills it then. ctx bounds every step but the kill. A second Stop returns the first's Exit.
 
+## What a host gives a machine
+
+spin runs each QEMU as a user of its own, chrooted into a root it builds, in a cgroup it bounds.
+What goes in the root and how far the bounds reach depend on the machine and its release, so the
+machine says them. spin keeps building the root and applying the cgroup.
+
+```go
+files := spec.Files()           // QEMU, kernel, initrd, firmware/{BIOS, linuxboot_dma.bin, kvmvapic.bin}
+o, err := spec.Overhead()       // Overhead{Memory, Tasks}: beyond the guest's RAM at its ceiling
+n, err := disk.Overhead()       // each disk's qcow2 caches, beyond spec's
+// memory.max = ceiling + o.Memory + Σ n, pids.max = o.Tasks
+```
+
+- **The root is `Files` and `/dev/null`.** Start hands QEMU every other file as a descriptor. QEMU
+  opens `/dev/null` to probe for OFD locks and falls back to POSIX locks without it. It reads
+  `/proc`, `/sys` and `/dev/urandom` only when they are there. A TCG boot opens the same files.
+  `efi-virtio.rom` is left out, since every NIC has `romfile=`. SeaBIOS is left out unless `BIOS`
+  names it.
+- **`Overhead.Memory` is what the host cannot reclaim.** That is QEMU's anonymous memory beyond
+  the guest's RAM, plus the kernel's memory charged to its cgroup, reclaimable slab excluded. The
+  terms are QEMU's own memory (64 MiB), the kernel and the initrd (QEMU keeps a copy of each),
+  1 MiB a vCPU, 64 KiB a thread, and the page tables of the ceiling (1/256 of it at 4 KiB pages,
+  the host's and KVM's together). The images' pages in the host's cache are reclaimable and are
+  not in it. A qcow2 image adds its L2 cache, the whole L2 table up to 32 MiB, plus four clusters
+  of refcounts (`Disk.Overhead`, QEMU's defaults in `read_cache_sizes`). That is 8 MiB for a
+  64 GiB image of 64 KiB clusters, and it counts every image of a chain.
+- **`Overhead.Tasks` is the most the threads can be.** That is one thread a vCPU slot, QEMU's
+  four (main loop, `call_rcu`, `mon_iothread`, KVM's `kvm-nx-lpage-recovery`), a vhost worker for
+  the vsock and for each NIC, and a checkpoint's eight channels and their driver. On top of those
+  come QEMU's thread pool, at most 64 (a thread it cannot start aborts QEMU), and io_uring's
+  workers, at most the ring's 128 entries. The lane saw one pool worker and three io_uring ones.
+- **Measured** (task boot:overhead, laptop KVM, v20261121.01, 2026-11-21). Spin's shape with a
+  NIC and a vsock, started as nobody in a root of `Files` alone, held 34 MiB beyond the guest
+  booted and sized to 2048 MiB, with 9 tasks. While it was checkpointed it held 37 MiB and 18
+  tasks. At its ceiling it held 75 MiB and 26 tasks, with 16 vCPUs, 8192 MiB filled and four
+  disks attached beside its two (one of them 64 GiB), while the guest read, wrote and trimmed
+  every disk. Of the 75 MiB, 31 were page tables, 16 the bzImage and 8 the 64 GiB disk's L2
+  cache. A checkpoint at the ceiling held up to 103 MiB and 35 tasks, reclaimable slab included.
+  `Overhead` for that machine with its disks is 153 MiB and 223 tasks, where spin reserved 768 MiB
+  and 272 tasks (spin's `internal/runner/qemu/bounds.go`).
+- **Not measured.** A restore, which loads with the same channels as a checkpoint saves with, and
+  a QEMU that has run for days. The page tables the lane saw were those of 4 KiB pages (31 MiB
+  for 8 GiB) with huge pages on madvise, so a host with them off pays what is counted.
+
 ## Driving a running machine
 
 `machine.VM` is what any VMM behind the machine answers. `machine.QEMU` adds what spin's runner

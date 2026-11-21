@@ -125,6 +125,19 @@ tasks:
       - CGO_ENABLED=0 go build -trimpath -o {{.OUTPUT_ABS}}/guest/spin-machine-pressure ./cmd/spin-machine-pressure
       - SPIN_PRESSURE_TEST=1 SPIN_PRESSURE_SENDER={{.OUTPUT_ABS}}/guest/spin-machine-pressure SPIN_PRESSURE_DISK_DIR={{.OUTPUT_ABS}}/pressure go test ./machine/ ./cmd/spin-machine-pressure/ -exec 'sudo -n --preserve-env=SPIN_PRESSURE_TEST,SPIN_PRESSURE_SENDER,SPIN_PRESSURE_DISK_DIR,SPIN_PRESSURE_CORE,SPIN_MACHINE_OUTPUT' -run '^(TestThePressureProbeReportsEachPressure|TestTheSenderReportsTheHostsOwnPressure)$' -count=1 -v -timeout 5m
 
+  overhead:
+    desc: >-
+      What a machine's QEMU uses beyond its guest, and the files it opens by name: spin's shape
+      started as nobody in a root holding only machine.Spec.Files and /dev/null, in a cgroup of its
+      own, checkpointed, then taken to its ceiling (every vCPU, all its memory, four disks, one of
+      64 GiB) while the guest fills its memory and reads, writes and trims every disk, and
+      checkpointed again. QEMU's cgroup may hold no more than Spec.Overhead and each Disk.Overhead
+      beyond the guest's RAM, nor more tasks (overhead_lane_test.go). Runs as root through sudo,
+      for the root, the TAP and the cgroup. Needs a built release, /dev/kvm, /dev/vhost-vsock,
+      /dev/vhost-net, sudo, ~9 GiB of free memory and as much disk under TMPDIR.
+    cmds:
+      - SPIN_OVERHEAD_TEST=1 go test ./machine/ -exec 'sudo -n --preserve-env=SPIN_OVERHEAD_TEST,SPIN_MACHINE_OUTPUT env TMPDIR={{.TMPDIR | default "/tmp"}}' -run '^TestAMachineRunsInARootOfItsFilesWithinItsOverhead$' -count=1 -v -timeout 20m
+
   lockdown:
     desc: >-
       Check the guest kernel runs lockdown at confidentiality and the BPF LSM, has no
