@@ -418,7 +418,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	}
 	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get",
 		"migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate",
-		"query-version", "query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-kvm", "qom-list-get", "qom-list-get", "x-query-ramblock",
+		"query-version", "query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock",
 		"query-migrate", "query-migrate", "migrate-continue", "query-migrate", "remove-fd"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Errorf("commands\n%v\nwant\n%v", got, want)
