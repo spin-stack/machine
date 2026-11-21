@@ -337,6 +337,16 @@ burst's counts, with every restore's `running`.
 each number in `crowds` (default `0 8 16 32`). The running workspaces are idle, or keep their vCPUs
 busy with `load=cpu`, and settle for `settle` seconds (default 10) before the measured boot.
 
+`transport` says how much of each goal number QMP and vsock are. It boots and restores as
+`restore-first` does, with QEMU traced (QMP and the run state, in host time). From the trace it
+reads which commands each path waits on: `cont` for a cold boot, and `migrate-incoming` and what
+follows it for a restore. It also reads what each command took, and how long QEMU waited for
+spin-machine's next command. After the cold login it times `echoes` round trips (default 200) of
+query-status on the monitor, of a one-byte echo over vsock, and of the same echo through a hop like
+spin's forwarder. It also counts a warm login's round trips. The detail under its table lists each
+path's commands by place. A traced cold boot runs a shell more than `ssh-first`, so its
+`cold_login` compares only with another traced boot.
+
 `lab dispatch` starts lab.yml once no other lab run is queued or running, waits for it, and prints
 its result. The bench fleet measures one run at a time, because two runs side by side measure each
 other. `lab dispatch` is the way to compare. Use `--host bench` (nested, the default) unless the
