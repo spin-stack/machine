@@ -60,10 +60,13 @@ A checkpoint carries the record of the machine it was taken on (`machine.Saved`)
 device it was started with and their properties, its `-machine` options and its RAM blocks.
 `machine.CanResume` compares it with the record of the machine it resumes into and refuses any
 difference, naming each. That includes the ones QEMU loads silently: an extra device, a larger
-BIOS block, more base RAM. Changing the machine is allowed whenever it serves the goal. The
-record moves, `task boot:compat` names the first release whose checkpoints it refuses, and
-checkpoints from before the change boot cold instead. `task boot:record` checks that a machine
-resumes its own checkpoint and refuses what QEMU would load silently.
+BIOS block, more base RAM. `machine.QEMU.Resume` takes the record of the machine it resumes into
+from its caller, who reads it once for a host, and refuses before QEMU reads a byte: read inside
+the restore, the record was on the second goal number's clock. Changing the machine is allowed
+whenever it serves the goal. The record moves, `task boot:compat` names the first release whose
+checkpoints it refuses, and checkpoints from before the change boot cold instead.
+`task boot:record` checks that a machine resumes its own checkpoint and refuses what QEMU would
+load silently.
 
 ## Simplicity
 

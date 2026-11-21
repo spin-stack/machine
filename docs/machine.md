@@ -18,8 +18,9 @@ spec.Cmdline = machine.DefaultCmdline()
 args, err := spec.Args()             // the QEMU command line
 // … exec QEMU with args and the descriptors the spec names, then over its monitor:
 m, err := machine.Attach(conn)
-here, err := m.Target(ctx)           // what this machine is, as QEMU reports it
+here, err := m.Target(ctx)           // what this machine is, as QEMU reports it: read once for a host
 err = machine.CanResume(saved, here) // nil, or a *machine.Refusal naming every difference
+err = m.Resume(ctx, state, saved, here, machine.Load{}, root) // trusts here: QEMU is not asked again
 ```
 
 `Args` validates first. Each spec it refuses would otherwise boot and be subtly wrong: two disk
@@ -82,9 +83,18 @@ per-VM or run-time property missing from those lists makes a machine refuse its 
 and `task boot:record` fails on it, as it does on a QEMU that changes what the record reads.
 
 `Target` is read once per `QEMU` value: 8 round trips, 8.4 ms on a laptop at spin's shape
-(2026-11-21). A caller that asks a held machine when it starts it, as spin's pool does, pays
-nothing at the resume. The record is 25 KB of JSON at spin's shape, with every list sorted, so
-two equal records are equal bytes.
+(2026-11-21). The record is 25 KB of JSON at spin's shape, with every list sorted, so two equal
+records are equal bytes.
+
+`Resume` does not read it. The caller hands `Resume` the record of the machine it resumes into,
+and `Resume` refuses with `CanResume` before it asks QEMU anything. The caller is responsible for
+that record describing the machine. The record is a constant of a host: its QEMU binary, its CPU
+and the shape it resumes into. spin reads it once, when its runner starts, from a machine started
+held in that shape, and holds each machine of its pool to it once (spin-stack/spin#1416). Read
+inside `Resume`, it cost restore-first's first login +4.3 ms [+0.2, +7.5] with the state on the
+disk and +8.2 ms [+6.2, +10.8] from the page cache (bench, lab 44868324811). No part of that read
+could leave the clock: QEMU's main loop is busy from its exec to the end of the load, and QEMU
+answers no monitor while it loads a state.
 
 It leaves out the files a guest does not reload on a resume: the kernel, the initrd and the
 option ROM that entered the kernel (`linuxboot_dma.bin`). A resumed guest runs the kernel in its
@@ -99,4 +109,6 @@ fails once the pinned one is deprecated, and `spin-machine-dev bump qemu` prints
 types change against it.
 
 `spin-machine restore` prints a refusal one difference a line, before QEMU reads the state.
+`spin-machine target` prints a held machine's record as JSON, and `restore --target FILE` takes it
+as given instead of asking the machine.
 

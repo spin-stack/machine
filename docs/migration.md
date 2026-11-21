@@ -10,14 +10,16 @@ differs, an older QEMU included, and names each difference.
 Stopping a VM here and resuming it there is a lifecycle, and this repository does not implement
 it. The repository builds the machine that the lifecycle runs on, and offers the calls the
 lifecycle needs. `Spec.Restore` starts a machine held for a checkpoint (`-incoming defer`).
-`machine.VM.Resume` binds its disks and loads the state. It loads the state in full or, with
-`Load.Fast`, runs the guest once its devices are in and reads the guest's memory as the guest
-touches it (QEMU 11.2's fast snapshot load). A checkpoint is written in
+`machine.VM.Resume` takes the record of the machine it resumes into from its caller, refuses a
+checkpoint that record does not resume, binds its disks and loads the state. It loads the state
+in full or, with `Load.Fast`, runs the guest once its devices are in and reads the guest's memory
+as the guest touches it (QEMU 11.2's fast snapshot load). A checkpoint is written in
 `machine.FormatMappedRAM`. One saved before that format, in `FormatStream`, still loads, in full.
 
 `spin-machine save --qmp … --to state` is the first half by hand, with the record written to
 `state.json`. The second is `spin-machine boot --restore --qmp …` followed by
-`spin-machine restore --qmp … --from state --disk …`.
+`spin-machine restore --qmp … --from state --disk …`. `restore` asks the held machine for its
+record unless `--target` hands it one that `spin-machine target` printed.
 
 ## The CPU decides whether a VM can move at all
 
