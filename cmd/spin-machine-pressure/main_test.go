@@ -21,14 +21,13 @@ import (
 
 // A host that is not there is dialled again later and later, up to lastRedial.
 func TestAHostThatIsNotThereIsDialledLessOften(t *testing.T) {
-	s := sender{fd: -1, connect: hostVsock}
+	// A host that refuses at once: a real dial's own time, seconds where nothing answers vsock,
+	// would read as part of each wait.
+	s := sender{fd: -1, connect: func() (int, error) { return -1, unix.ECONNREFUSED }}
 	var waits []time.Duration
 	for range 7 {
 		before := time.Now()
 		s.dial(0)
-		if s.fd >= 0 {
-			t.Skip("something answers on the host's pressure port here")
-		}
 		waits = append(waits, s.next.Sub(before).Round(time.Second))
 	}
 	want := []time.Duration{1, 2, 4, 8, 16, 30, 30}
