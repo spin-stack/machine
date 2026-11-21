@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spin-stack/spin-machine/internal/lab"
+	"github.com/spin-stack/machine/internal/lab"
 )
 
 // Every probe lab can run is one lab.yml offers: GitHub refuses a dispatch whose choice is not in

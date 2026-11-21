@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spin-stack/spin-machine/internal/lab"
+	"github.com/spin-stack/machine/internal/lab"
 )
 
 func TestATreeSpecIsANameAndLabTreesFlags(t *testing.T) {

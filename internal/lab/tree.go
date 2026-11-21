@@ -25,7 +25,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // Tree is one machine to measure: a directory laid out as a release's usr/share/spin-stack, and

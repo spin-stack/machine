@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // A core attached before systemd starts is online once it has: a consumer boots one shape and

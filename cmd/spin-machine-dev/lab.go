@@ -19,7 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/spin-stack/spin-machine/internal/lab"
+	"github.com/spin-stack/machine/internal/lab"
 )
 
 // labCommand is measuring: trees, the probes that boot them, and the bench fleet that runs them.

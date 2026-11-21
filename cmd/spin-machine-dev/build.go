@@ -15,7 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/spin-stack/spin-machine/internal/build"
+	"github.com/spin-stack/machine/internal/build"
 )
 
 // buildFlags are the choices a build takes.

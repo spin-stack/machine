@@ -15,9 +15,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/spin-stack/spin-machine/internal/build"
-	"github.com/spin-stack/spin-machine/internal/release"
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/internal/build"
+	"github.com/spin-stack/machine/internal/release"
+	"github.com/spin-stack/machine/machine"
 )
 
 // checkout makes a repository with this one's versions.yaml, works in it, and gives the workflow

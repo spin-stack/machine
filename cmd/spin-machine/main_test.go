@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // serve is the scripted monitor: a greeting, then one reply per request read. It

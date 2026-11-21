@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // spinsShape is the machine spin runs a workspace on (internal/lab's shape, spin c12bd87), but

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // TestMain lets this test binary stand in for the helper boot starts beside QEMU, which is this

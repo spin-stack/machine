@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // A correctness test, including under TCG: none of its durations are boot
