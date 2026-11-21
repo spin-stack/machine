@@ -5,17 +5,16 @@ package machine_test
 import (
 	"context"
 	"log"
-	"net"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/spin-stack/machine/machine"
 	"github.com/spin-stack/machine/qmp"
 )
 
-// Example is the flow spin runs for one workspace: a Spec from a release, QEMU started from its
-// Args and held, a monitor attached, then a cold boot or a resume, a disk while it runs, and a
-// checkpoint. It has no Output, so it is compiled and never run: it needs a release, /dev/kvm
+// Example is the flow spin runs for one workspace: a Spec from a release, QEMU started from it
+// and held, then a cold boot or a resume, a disk while it runs, a checkpoint, and the end. It has no Output, so it is compiled and never run: it needs a release, /dev/kvm
 // and a TAP.
 func Example() {
 	ctx := context.Background()
@@ -41,28 +40,21 @@ func Example() {
 	saved, resuming := previousCheckpoint()
 	spec.Restore = resuming // held for a checkpoint (-incoming defer) and not for a boot (-S)
 
-	args, err := spec.Args()
+	// QEMU is started held (-S, or -incoming defer for a checkpoint), handed /dev/kvm, the vsock
+	// and the monitors by Start, and the TAP by the caller; Start returns once the machine is made.
+	// The Observer is where a caller times and counts commands: the package has no clock.
+	m, err := machine.Start(ctx, spec, machine.StartOptions{
+		Files:    []*os.File{tap()}, // descriptor 3, the NIC's TapFD
+		Stderr:   os.Stderr,
+		Observer: qmp.Observer{},
+		Cmd: func(c *exec.Cmd) {
+			c.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: 10042, Gid: 10042}}
+		},
+	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(err) // QEMU's own words are in it
 	}
-	qemu := exec.Command(spec.QEMU, args...)
-	qemu.ExtraFiles = []*os.File{tap()} // descriptor 3, the NIC's TapFD
-	if err := qemu.Start(); err != nil {
-		log.Fatal(err)
-	}
-
-	// A real caller retries the dial until QEMU has made the socket.
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: "/run/spin/ws/qmp.sock", Net: "unix"})
-	if err != nil {
-		log.Fatal(err)
-	}
-	// The client's Observer is where a caller times and counts commands: the package has no clock.
-	c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{})
-	if err != nil {
-		log.Fatal(err)
-	}
-	m := machine.Attach(c)
-	defer m.Close()
+	defer m.Stop(ctx)
 
 	root, home := disk("root"), disk("home")
 	if resuming {

@@ -18,10 +18,14 @@
 // it is not. A new QEMU of the same machine type, or a new kernel, is the same machine to a
 // checkpoint while the records agree (boot:compat holds a release to it).
 //
-// What is here is what a machine is, and the QMP that drives one QEMU through its life (QEMU:
-// boot, attach and detach disks, checkpoint and resume). What is not here is the rest of
-// running one: allocating a vsock context id, opening a TAP file descriptor, supervising the
-// process, deciding what the guest's init is. A caller owns all of that and passes the results
+// What is here is what a machine is, and one QEMU's life from its start to its exit: Start
+// starts it from a Spec, hands it every descriptor the Spec implies, connects to it and returns
+// once it answers (Process); the QMP drives it (QEMU: boot, attach and detach disks, checkpoint
+// and resume); Stop and Kill end it, and Exit says how it ended. What is not here is the host
+// around it and the fleet: allocating a vsock context id, opening a TAP file descriptor, the
+// process's user, root, namespaces and cgroup (which StartOptions.Cmd sets), pools of machines
+// and starting them again, where checkpoints are kept, re-adopting a QEMU a previous runner
+// started, deciding what the guest's init is. A caller owns all of that and passes the results
 // in.
 //
 // # How a caller uses it
@@ -33,10 +37,9 @@
 //     Accel.
 //  2. The caller fills in the rest of the Spec: CPUs, Memory, Places, NICs, vsock, Monitors, the
 //     Cmdline, and Restore when a checkpoint will be resumed.
-//  3. Spec.Args is the QEMU command line. The caller execs QEMU with it and the descriptors the
-//     Spec names. QEMU starts held.
-//  4. The caller connects to a monitor with qmp.New, and Attach takes over the client and
-//     returns the QEMU it drives.
+//  3. Start starts QEMU from the Spec, with the caller's TAPs (StartOptions.Files) and its
+//     process shaped by StartOptions.Cmd, and returns the Process once QEMU has made the machine
+//     and holds it. A second monitor is reached with Dial.
 //  5. QEMU.Boot binds the disks and starts the guest cold. Or, for a checkpoint: the caller holds
 //     its host's Target, read once (QEMU.Target) from a machine started held in the shape it
 //     resumes into; CanResume checks the Saved record against it to choose where the checkpoint
@@ -44,4 +47,6 @@
 //     the state; and QEMU.Loaded says when the state file is no longer read.
 //  6. QEMU.AttachDisk and QEMU.DetachDisk change the disks while the guest runs.
 //  7. QEMU.Checkpoint saves the guest and leaves it stopped, and QEMU.Continue runs it again.
+//  8. Process.Stop ends the machine, asking the guest first, and Process.Exited and Wait say when
+//     and how it ended.
 package machine

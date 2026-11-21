@@ -81,10 +81,13 @@ func run(argv []string) error {
 		if cmd == "boot" {
 			return boot(spec, o)
 		}
-		// The machine's command line as the flags make it, and the monitor machine.Start adds
-		// of its own, shown at descriptor 3. boot hands QEMU the same machine with its
-		// monitors, devices and console as descriptors, numbered after it.
-		spec.Monitors = append(spec.Monitors, machine.Monitor{FD: 3})
+		// The machine's command line as the flags make it, which a caller with --qmp can run
+		// as it is. boot hands QEMU the same machine with its monitors, devices and console
+		// as descriptors, and a monitor of machine.Start's own: shown at descriptor 3 when
+		// the flags name no monitor, since a machine has to have one.
+		if len(spec.Monitors) == 0 {
+			spec.Monitors = []machine.Monitor{{FD: 3}}
+		}
 		args, err := spec.Args()
 		if err != nil {
 			return err

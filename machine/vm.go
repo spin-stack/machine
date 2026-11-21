@@ -29,9 +29,10 @@ import (
 //     and memory, which SetCPUs and SetMemory are; vm.add-disk and vm.remove-device are
 //     AttachDisk and DetachDisk.
 //
-// The machine is started by the caller, who owns the process: its user, namespaces, cgroup,
-// seccomp and descriptors are the caller's business, and every VMM is started from a command
-// line of its own. A VM is what is reached once it is running.
+// Starting and ending the process are not here: every VMM is started from a command line of its
+// own, and QEMU's is Start, which returns a Process, the VM with the process under it. The
+// process's user, namespaces, cgroup and seccomp stay the caller's (StartOptions.Cmd). A VM is
+// what is reached once it is running.
 //
 // Which checkpoints a VM resumes is one rule for every VMM, CanResume, over two records the VMM
 // gives (Target): the one a checkpoint carries (Saved.From) and the machine's own, which the
