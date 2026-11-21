@@ -5,6 +5,7 @@ package lab
 import (
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -12,9 +13,10 @@ import (
 )
 
 // compatDir is a release or a machine whose spin-machine says its fingerprint is fp and whose
-// QEMU says it is version.
+// QEMU says it is version, with a bzImage.
 func compatDir(t *testing.T, dir, fp, version string) {
 	t.Helper()
+	write(t, filepath.Join(dir, "kernel", "bzImage"), []byte("bzImage"))
 	write(t, filepath.Join(dir, "fp"), []byte(fp))
 	write(t, filepath.Join(dir, "bin", "qemu-system-x86_64"), []byte("#!/bin/sh\necho 'QEMU emulator version "+version+" (v"+version+")'\n"))
 }
@@ -72,6 +74,42 @@ func TestCompatResumesEveryReleaseSinceTheContractMoved(t *testing.T) {
 	}
 	if _, err := Compat(t.TempDir(), nil, Sources{Cache: cache}, resume, io.Discard); err == nil || !strings.Contains(err.Error(), "fingerprinting") {
 		t.Errorf("a machine with no spin-machine: %v", err)
+	}
+}
+
+// A release from before v20261119.02 carries no bzImage, and no spin-machine since boots it:
+// Compat stops there with a row that says so, rather than failing on what it cannot open.
+func TestCompatStopsAtTheFirstReleaseWithoutABzImage(t *testing.T) {
+	here := t.TempDir()
+	compatDir(t, here, "same", "11.1.90")
+	write(t, filepath.Join(here, "bin", "spin-machine"), []byte("#!/bin/sh\nprintf '{\"Fingerprint\": \"%s\"}' \"$(cat \"$3/fp\")\"\n"))
+	cache := t.TempDir()
+	rel := func(tag string) string {
+		return filepath.Join(cache, "releases", tag, "spin-machine-"+tag+"-linux-x86_64", "usr", "share", "spin-stack")
+	}
+	compatDir(t, rel("v2"), "same", "11.1.3")
+	compatDir(t, rel("v1"), "same", "11.1.3")
+	if err := os.Rename(filepath.Join(rel("v1"), "kernel", "bzImage"), filepath.Join(rel("v1"), "kernel", "vmlinux")); err != nil {
+		t.Fatal(err)
+	}
+	var resumed []string
+	resume := func(previous string) error {
+		resumed = append(resumed, previous)
+		return nil
+	}
+	rows, err := Compat(here, []string{"v2", "v1", "v0"}, Sources{Cache: cache}, resume, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CompatRow{{Release: "v2", Resumed: true}, {Release: "v1", NoBzImage: true}}
+	if !reflect.DeepEqual(rows, want) {
+		t.Errorf("rows\n%+v\nwant\n%+v", rows, want)
+	}
+	if !reflect.DeepEqual(resumed, []string{rel("v2")}) {
+		t.Errorf("resumed %v: not past the release without a bzImage", resumed)
+	}
+	if table := CompatTable(rows); !strings.Contains(table, "| v1 | not checked: it carries no bzImage") {
+		t.Errorf("no row for v1 in:\n%s", table)
 	}
 }
 

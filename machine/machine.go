@@ -270,8 +270,7 @@ type Spec struct {
 
 	// Firmware is the directory QEMU loads option ROMs and BIOS blobs from. It
 	// is the `qemu/` directory of a release; without it the machine cannot find
-	// the BIOS, nor the option ROM QEMU adds for the kernel (linuxboot_dma.bin for
-	// a bzImage, pvh.bin for a vmlinux).
+	// the BIOS, nor linuxboot_dma.bin, the option ROM QEMU adds for the bzImage.
 	Firmware string
 
 	// BIOS is the firmware the machine runs, a file in Firmware: DefaultBIOS when
@@ -1095,8 +1094,8 @@ func (s Spec) bios() string {
 // the BIOS. Not the host's CPU: under model host, which CPU a checkpoint needs is in the
 // checkpoint (Saved.CPU) and checked against the machine it is resumed into (CanResume), which
 // is exact where a model name was not (hostCPU's removal, docs/log.md, 2026-11-19). Not the
-// QEMU binary, the kernel, the initrd or the option ROM that entered it (linuxboot_dma.bin,
-// pvh.bin): QEMU's promise is per versioned machine type, so a newer QEMU of the same type is
+// QEMU binary, the kernel, the initrd or the option ROM that entered it (linuxboot_dma.bin):
+// QEMU's promise is per versioned machine type, so a newer QEMU of the same type is
 // the same machine; a resumed guest runs the kernel in its saved memory, and the
 // kernel, the initrd and the option ROM that entered it are read again only by a boot.
 // boot:compat holds the promise: a checkpoint the newest release saved resumes on this tree's.
@@ -1208,8 +1207,7 @@ const BIOSBlock = "pc.bios"
 // MachineBlocks are the read-only RAM blocks besides the BIOS that this machine maps, each sized
 // by the machine type or by the chipset and not by a file: the option ROM area (a fixed 128 KiB),
 // and the ACPI tables, their loader and the RSDP, which QEMU builds and resizes on a resume.
-// The kernel and the option ROM QEMU adds for it (linuxboot_dma.bin for the bzImage, pvh.bin for
-// a vmlinux) reach the guest through fw_cfg and are no block of their own, and a
+// The kernel and the option ROM QEMU adds for it (linuxboot_dma.bin) reach the guest through fw_cfg and are no block of their own, and a
 // NIC loads no option ROM (romfile=). boot:roms holds a booted machine to this list, so a
 // QEMU or a device that maps another ROM fails there rather than in a resume.
 var MachineBlocks = []string{"pc.rom", "/rom@etc/acpi/tables", "/rom@etc/table-loader", "/rom@etc/acpi/rsdp"}

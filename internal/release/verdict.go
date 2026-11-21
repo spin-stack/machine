@@ -11,16 +11,16 @@ import (
 // contract, machine.Spec.Fingerprint, of one fixed machine. **Checkpoints carry over if and only if
 // it did not change.**
 //
-// The files' own checksums - qemu, kernel, bios, pvh, image - are deliberately not what decides it.
+// The files' own checksums - qemu, kernel, bios, image - are deliberately not what decides it.
 // A newer QEMU of the same machine type is another emulator of one machine (QEMU's migration
 // promise, which boot:compat holds a release to); a resumed guest runs the kernel in its saved
-// memory; the BIOS travels in a checkpoint and only its size is the machine's; pvh.bin and the
-// base image are read by a boot.
+// memory; the BIOS travels in a checkpoint and only its size is the machine's; the base image
+// is read by a boot.
 var FingerprintKeys = []string{"fingerprint_sha256"}
 
 // ComparedKeys are the manifest's keys a verdict compares: the fingerprint, and what is said
 // beside it.
-var ComparedKeys = []string{"qemu_sha256", "kernel_sha256", "bios_sha256", "pvh_sha256", "fingerprint_sha256", "image_sha256"}
+var ComparedKeys = []string{"qemu_sha256", "kernel_sha256", "bios_sha256", "fingerprint_sha256", "image_sha256"}
 
 // Verdict says, in Markdown for the release's notes, whether the machine described by now is still
 // the one the checkpoints taken against reference were: then is reference's manifest, nil when it

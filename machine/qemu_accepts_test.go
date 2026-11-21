@@ -120,7 +120,7 @@ func tcgOnly(args []string) ([]string, []string, error) {
 // and requires it to reach the monitor.
 func TestQEMUAcceptsEveryArgument(t *testing.T) {
 	qemu, firmware := qemuTCG(t)
-	kernel := pvhStub(t)
+	kernel := bzImageStub(t)
 
 	base := func() Spec {
 		return Spec{

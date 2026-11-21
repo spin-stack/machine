@@ -266,11 +266,6 @@ RUN <<EOT
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig (the kernel would not be randomized)!"; exit 1; }
     done
 
-    # PVH stays: it is how a vmlinux passed as --kernel is entered (through pvh.bin, using the
-    # Xen notes CONFIG_PVH puts in the program headers), which is how the lab compares a kernel
-    # workflow's build and what machine's QEMU tests boot.
-    grep -q "CONFIG_PVH=y" .config || (echo "ERROR: CONFIG_PVH not enabled (QEMU has no entry point into vmlinux)!" ; exit 1)
-
     # BPF. Each of these is something whose absence looks like a broken program rather than
     # a missing kernel option, which is why they are checked rather than trusted.
     #
@@ -446,27 +441,22 @@ RUN <<EOT
         exit 1
     fi
 
-    # Strip the ELF symbol table before handing the image to QEMU. QEMU's load_elf() reads
-    # and qsort()s the symbol table of every kernel it loads — 42k entries here — and
-    # nothing in this stack ever asks it for a symbol: the guest resolves its own names
+    # Strip the ELF symbol table from the vmlinux that ships. Until 2026-11-19 QEMU entered
+    # this file through PVH, and QEMU's load_elf() reads and qsort()s the symbol table of every
+    # kernel it loads — 42k entries here. The bzImage QEMU loads now is made from the unstripped
+    # vmlinux in the tree, so the strip changes only the shipped file. Nothing in this stack
+    # asks the stripped file for a symbol: the guest resolves its own names
     # through CONFIG_KALLSYMS, which lives in the loaded image data and is untouched by
     # this.
     #
     # PT_LOAD is byte-identical either way (30.68 MB), so the guest boots the same bits;
-    # what goes away is 5.1 MB of file and the parse and sort of it. The PVH ELF notes this
-    # machine boots from are in the program headers and survive the strip.
+    # what goes away is 5.1 MB of file and, when QEMU loaded it, the parse and sort of it.
     #
-    # Measured: qemu_launch 36.1 ms -> 24.3 ms, guest boot unchanged.
+    # Measured while QEMU loaded vmlinux: qemu_launch 36.1 ms -> 24.3 ms, guest boot unchanged.
     cp vmlinux /build/vmlinux
     strip -s /build/vmlinux
 
-    # The strip is the one step here that could plausibly remove what QEMU needs, and it is
-    # asserted rather than reasoned about: no PVH note, no entry point, and the failure is
-    # a VM that does not start.
-    readelf -n /build/vmlinux | grep -qi 'XenVersion\|Xen' || {
-        echo "ERROR: the stripped vmlinux carries no Xen PVH notes — QEMU cannot enter it"; exit 1; }
-
-    # And .BTF, for the same reason and with a longer fuse. `strip -s` removes the symbol
+    # .BTF is asserted to survive the strip, rather than reasoned about. `strip -s` removes the symbol
     # table and the DWARF the compiler emitted — which is the point, since neither is read
     # at run time — but .BTF is an allocated section the *guest* reads back out of its own
     # image and publishes at /sys/kernel/btf/vmlinux. Losing it here would not break the
@@ -487,8 +477,8 @@ RUN <<EOT
     # The bzImage the machine boots. `make all` builds it on x86 from the vmlinux above, so it
     # is reproducible when vmlinux is. Asserted from its setup header
     # (Documentation/arch/x86/boot.rst) rather than its name: "HdrS" at 0x202, which QEMU and
-    # qboot look for before treating a file as a bzImage (without it QEMU tries PVH and
-    # multiboot instead); a boot protocol of 2.12 or later at 0x206; and relocatable_kernel at
+    # qboot look for before treating a file as a bzImage (without it QEMU tries it as a
+    # multiboot or an ELF kernel instead); a boot protocol of 2.12 or later at 0x206; and relocatable_kernel at
     # 0x234, without which the decompressor runs the kernel where it was linked and KASLR is
     # off however it is configured.
     cp arch/x86/boot/bzImage /build/bzImage

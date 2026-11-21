@@ -5,10 +5,8 @@ package build
 import (
 	"bytes"
 	"debug/elf"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,11 +23,10 @@ import (
 var QEMUBinaries = []string{"qemu-system-x86_64", "qemu-system-x86_64-tcg", "qemu-img"}
 
 // Firmware is what every consumer of QEMU needs beside it. linuxboot_dma.bin is the option ROM QEMU
-// adds when -kernel is a bzImage, the kernel the machine boots, and pvh.bin the one it adds for a
-// vmlinux (--kernel); efi-virtio.rom is the option ROM of the one NIC this build keeps, and a VM
-// given a virtio-net-pci without it does not start; qboot.bin is the BIOS the machine boots with
+// adds when -kernel is a bzImage, the kernel the machine boots; efi-virtio.rom is the option ROM of
+// the one NIC this build keeps, and a VM given a virtio-net-pci without it does not start; qboot.bin is the BIOS the machine boots with
 // (machine.DefaultBIOS), built beside QEMU from qemu/qboot/.
-var Firmware = []string{"bios.bin", "bios-256k.bin", "linuxboot_dma.bin", "pvh.bin", "kvmvapic.bin", "efi-virtio.rom", "qboot.bin"}
+var Firmware = []string{"bios.bin", "bios-256k.bin", "linuxboot_dma.bin", "kvmvapic.bin", "efi-virtio.rom", "qboot.bin"}
 
 // qbootSize is the ROM window qboot is linked for.
 const qbootSize = 64 << 10
@@ -105,14 +102,19 @@ func MachineType(qemu string) (string, error) {
 }
 
 // VerifyKernel asserts the kernel is one QEMU can enter and this machine can boot: a relocatable
-// bzImage, which is what the machine boots and where KASLR picks a base, and the same kernel as an
-// ELF carrying the PVH notes --kernel enters it by.
+// bzImage, which is what the machine boots and where KASLR picks a base, and the same kernel as the
+// ELF it was linked as, which spin reads symbols from (hack/machine/place.go).
 func VerifyKernel(o Options) error {
 	bz := filepath.Join(o.Out, "kernel", "bzImage")
 	if err := Relocatable(bz); err != nil {
 		return err
 	}
-	return PVH(filepath.Join(o.Out, "kernel", "vmlinux"))
+	vmlinux := filepath.Join(o.Out, "kernel", "vmlinux")
+	f, err := elf.Open(vmlinux)
+	if err != nil {
+		return fmt.Errorf("reading %s as an ELF: %w", vmlinux, err)
+	}
+	return f.Close()
 }
 
 // Relocatable is whether path is a bzImage whose setup header says relocatable: "HdrS" at 0x202,
@@ -131,49 +133,6 @@ func Relocatable(path string) error {
 	}
 	return nil
 }
-
-// PVH is whether the ELF at path carries a Xen note, which is how QEMU finds the PVH entry it enters
-// a vmlinux by. The build strips the symbol table, the one step that could take them with it.
-func PVH(path string) error {
-	f, err := elf.Open(path)
-	if err != nil {
-		return fmt.Errorf("reading the kernel as an ELF: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-	for _, p := range f.Progs {
-		if p.Type != elf.PT_NOTE {
-			continue
-		}
-		notes, err := io.ReadAll(p.Open())
-		if err != nil {
-			return fmt.Errorf("reading %s's notes: %w", path, err)
-		}
-		if hasNote(notes, "Xen") {
-			return nil
-		}
-	}
-	return fmt.Errorf("%s carries no Xen PVH notes: QEMU has no entry point into it", path)
-}
-
-// hasNote is whether an ELF note segment holds a note of name.
-func hasNote(b []byte, name string) bool {
-	for len(b) >= 12 {
-		namesz := binary.LittleEndian.Uint32(b[0:4]) // mutate-exempt: Uint32 reads the first four bytes of a slice however long it is
-		descsz := binary.LittleEndian.Uint32(b[4:8]) // mutate-exempt: Uint32 reads the first four bytes of a slice however long it is
-		n := int(align4(namesz))
-		d := int(align4(descsz))
-		if 12+n+d > len(b) || int(namesz) > n {
-			return false
-		}
-		if string(bytes.TrimRight(b[12:12+namesz], "\x00")) == name {
-			return true
-		}
-		b = b[12+n+d:]
-	}
-	return false
-}
-
-func align4(n uint32) uint32 { return (n + 3) &^ 3 }
 
 // VerifyE2fsprogs asserts the tools are there and are the pinned version: the version the binary
 // answers, not the one the Dockerfile says, because a stale _output from an earlier pin passes

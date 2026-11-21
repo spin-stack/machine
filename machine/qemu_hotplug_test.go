@@ -22,7 +22,7 @@ import (
 // measurement.
 func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 	qemu, firmware := qemuTCG(t)
-	kernel := pvhStub(t)
+	kernel := bzImageStub(t)
 
 	socket := qmpSocket(t)
 	spec := Spec{

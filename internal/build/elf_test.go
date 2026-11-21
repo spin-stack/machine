@@ -5,8 +5,6 @@ package build
 import (
 	"bytes"
 	"context"
-	"debug/elf"
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,64 +13,21 @@ import (
 	"github.com/spin-stack/go-tools/versions"
 )
 
-// pvhELF is an ELF whose loaded segment holds no note and whose PT_NOTE holds a Xen one, as a
-// vmlinux does.
-func pvhELF(t *testing.T) string {
-	t.Helper()
-	notes := note("Xen", []byte{0, 0, 0, 1})
-	load := []byte("code, not a note: Xen")
-	const phoff, n = 64, 2
-	data := uint64(phoff + n*56)
-	var b bytes.Buffer
-	h := elf.Header64{Type: uint16(elf.ET_EXEC), Machine: uint16(elf.EM_X86_64), Version: uint32(elf.EV_CURRENT),
-		Phoff: phoff, Ehsize: 64, Phentsize: 56, Phnum: n, Shentsize: 64}
-	copy(h.Ident[:], elf.ELFMAG)
-	h.Ident[elf.EI_CLASS], h.Ident[elf.EI_DATA], h.Ident[elf.EI_VERSION] = byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)
-	_ = binary.Write(&b, binary.LittleEndian, h)
-	_ = binary.Write(&b, binary.LittleEndian, elf.Prog64{Type: uint32(elf.PT_LOAD), Off: data, Filesz: uint64(len(load)), Memsz: uint64(len(load))})
-	_ = binary.Write(&b, binary.LittleEndian, elf.Prog64{Type: uint32(elf.PT_NOTE), Off: data + uint64(len(load)), Filesz: uint64(len(notes)), Memsz: uint64(len(notes))})
-	b.Write(load)
-	b.Write(notes)
-	path := filepath.Join(t.TempDir(), "vmlinux")
-	if err := os.WriteFile(path, b.Bytes(), 0o644); err != nil {
+// A whole kernel is a relocatable bzImage and an ELF beside it. A Go binary is an ELF.
+func TestAWholeKernelVerifies(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
-	}
-	return path
-}
-
-func TestAKernelWithItsPVHNotesVerifies(t *testing.T) {
-	if err := PVH(pvhELF(t)); err != nil {
-		t.Errorf("a vmlinux with its Xen note: %v", err)
 	}
 	out := t.TempDir()
 	b, _ := os.ReadFile(bzImage(t, "HdrS", 1))
-	v, _ := os.ReadFile(pvhELF(t))
+	v, _ := os.ReadFile(self)
 	for p, body := range map[string][]byte{"kernel/bzImage": b, "kernel/vmlinux": v} {
 		_ = os.MkdirAll(filepath.Dir(filepath.Join(out, p)), 0o755)
 		_ = os.WriteFile(filepath.Join(out, p), body, 0o644)
 	}
 	if err := VerifyKernel(Options{Out: out}); err != nil {
 		t.Errorf("a whole kernel: %v", err)
-	}
-}
-
-func TestNotesAreFourByteAligned(t *testing.T) {
-	for in, want := range map[uint32]uint32{0: 0, 1: 4, 4: 4, 5: 8, 8: 8} {
-		if got := align4(in); got != want {
-			t.Errorf("align4(%d) = %d, want %d", in, got, want)
-		}
-	}
-	// The smallest note there is: no name, no description, twelve bytes of header.
-	if !hasNote(make([]byte, 12), "") {
-		t.Error("a twelve-byte note was not read")
-	}
-	if hasNote(make([]byte, 11), "") {
-		t.Error("eleven bytes were read as a note")
-	}
-	// A description that is not a whole number of words is padded: the next note is after it.
-	two := append(note("Go", []byte{1, 2, 3, 4, 5}), note("Xen", nil)...)
-	if !hasNote(two, "Xen") {
-		t.Error("a note after a padded description was not found")
 	}
 }
 

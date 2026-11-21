@@ -62,8 +62,7 @@ disks, which are the VM's and not the machine's. A host computes its fingerprint
 exists, and whoever resumes a checkpoint gives it the disks it was saved with.
 
 It leaves out the files a guest does not reload on a resume: the QEMU binary, the kernel,
-the initrd and the option ROM that entered the kernel (`linuxboot_dma.bin`, or `pvh.bin` for a
-`vmlinux`). QEMU's migration promise is per versioned machine type. A newer QEMU loads what an
+the initrd and the option ROM that entered the kernel (`linuxboot_dma.bin`). QEMU's migration promise is per versioned machine type. A newer QEMU loads what an
 older one of the same `pc-q35-X.Y` saved, with the newer type's changes to defaults switched back
 off for the older type (`hw_compat_X_Y`, `pc_compat_X_Y`). A resumed guest runs the kernel in its
 saved memory until it reboots. `task boot:compat` holds this tree to that promise:

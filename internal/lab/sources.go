@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/spin-stack/spin-machine/machine"
 )
 
 // from is the tree a spec starts from and how a manifest names it.
@@ -154,9 +156,8 @@ func one(dir, suffix string) (string, error) {
 
 // placeKernel puts the kernel what names into the tree at dir and says where it came from.
 //
-// A bzImage, always, which is what the machine boots: a vmlinux would be entered through PVH,
-// without the decompressor KASLR runs in, and the comparison would be of two ways in rather than
-// two kernels. A Kernel run from before 2026-11-19 uploaded none, and is refused by name.
+// A bzImage, always, which is what the machine boots. A Kernel run from before 2026-11-19
+// uploaded none, and is refused by name.
 func (s Sources) placeKernel(what, dir string) (string, error) {
 	bz, source := what, what
 	if id, ok := strings.CutPrefix(what, "run:"); ok {
@@ -169,7 +170,7 @@ func (s Sources) placeKernel(what, dir string) (string, error) {
 		}
 		source = "run " + id
 	}
-	if err := isBzImage(bz); err != nil {
+	if err := machine.IsBzImage(bz); err != nil {
 		return "", err
 	}
 	if err := replace(bz, filepath.Join(dir, "kernel", "bzImage"), 0o644); err != nil {
@@ -187,20 +188,6 @@ func (s Sources) placeKernel(what, dir string) (string, error) {
 		}
 	}
 	return source, nil
-}
-
-// isBzImage refuses a file that is not a bzImage: its setup header's magic, "HdrS" at 0x202.
-func isBzImage(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("opening kernel %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-	magic := make([]byte, 4)
-	if _, err := f.ReadAt(magic, 0x202); err != nil || string(magic) != "HdrS" {
-		return fmt.Errorf("%s is not a bzImage (no HdrS at 0x202): a tree boots the bzImage, and a vmlinux would be entered another way", path)
-	}
-	return nil
 }
 
 // placeQEMU puts QEMU and the firmware beside it - a QEMU run's artifact, or a directory holding

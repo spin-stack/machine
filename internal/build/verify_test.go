@@ -5,7 +5,6 @@ package build
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,51 +156,7 @@ func TestABzImageIsBootableOnlyRelocatable(t *testing.T) {
 	}
 }
 
-// note is one ELF note, as a PT_NOTE segment holds it.
-func note(name string, desc []byte) []byte {
-	var b bytes.Buffer
-	n := append([]byte(name), 0)
-	_ = binary.Write(&b, binary.LittleEndian, []uint32{uint32(len(n)), uint32(len(desc)), 18})
-	b.Write(n)
-	b.Write(make([]byte, int(align4(uint32(len(n))))-len(n)))
-	b.Write(desc)
-	b.Write(make([]byte, int(align4(uint32(len(desc))))-len(desc)))
-	return b.Bytes()
-}
-
-func TestANoteIsFoundByItsName(t *testing.T) {
-	notes := append(note("Go", []byte{1, 2, 3, 4, 5}), note("Xen", []byte{1})...)
-	if !hasNote(notes, "Xen") || !hasNote(notes, "Go") {
-		t.Error("a note present was not found")
-	}
-	if hasNote(notes, "GNU") {
-		t.Error("a note absent was found")
-	}
-	if hasNote(notes[:len(notes)-1], "Xen") {
-		t.Error("a truncated note was read")
-	}
-	bad := note("Xen", nil)
-	binary.LittleEndian.PutUint32(bad[0:4], 100)
-	if hasNote(bad, "Xen") {
-		t.Error("a note whose name runs past its segment was read")
-	}
-	if hasNote(nil, "Xen") {
-		t.Error("nothing held a note")
-	}
-}
-
-func TestAKernelWithoutPVHNotesIsRefused(t *testing.T) {
-	// A Go binary is an ELF with notes, none of them Xen's.
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := PVH(self); err == nil || !strings.Contains(err.Error(), "no Xen PVH notes") {
-		t.Errorf("PVH(a Go binary) = %v", err)
-	}
-	if err := PVH(bzImage(t, "HdrS", 1)); err == nil {
-		t.Error("a file that is not an ELF passed")
-	}
+func TestAKernelWithoutItsPartsIsRefused(t *testing.T) {
 	out := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(out, "kernel"), 0o755); err != nil {
 		t.Fatal(err)
@@ -213,6 +168,10 @@ func TestAKernelWithoutPVHNotesIsRefused(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(out, "kernel/bzImage"), b, 0o644)
 	if err := VerifyKernel(Options{Out: out}); err == nil || !strings.Contains(err.Error(), "ELF") {
 		t.Errorf("no vmlinux: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(out, "kernel/vmlinux"), b, 0o644)
+	if err := VerifyKernel(Options{Out: out}); err == nil || !strings.Contains(err.Error(), "ELF") {
+		t.Errorf("a vmlinux that is not an ELF: %v", err)
 	}
 }
 

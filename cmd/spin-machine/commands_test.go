@@ -93,6 +93,13 @@ func TestFlagsAreTheSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := rel.Spec()
+	// --kernel is a bzImage, and a file without its setup header is refused before QEMU sees it.
+	bz := filepath.Join(t.TempDir(), "k")
+	header := make([]byte, 0x206)
+	copy(header[0x202:], "HdrS")
+	if err := os.WriteFile(bz, header, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	defaults := base
 	defaults.BootCPUs = 2
@@ -103,7 +110,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	defaults.Cmdline.Root = "/dev/vda"
 
 	every := base
-	every.QEMU, every.Kernel, every.Initrd, every.Firmware = "/q", "/k", "/i", "/f"
+	every.QEMU, every.Kernel, every.Initrd, every.Firmware = "/q", bz, "/i", "/f"
 	every.BIOS = "bios-256k.bin"
 	every.CPU, every.BootCPUs, every.MaxCPUs = "Skylake-Server-v4", 3, 8
 	every.Accel = "tcg"
@@ -132,7 +139,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 		want  machine.Spec
 	}{
 		{"nothing given", nil, defaults},
-		{"everything given", []string{"--qemu", "/q", "--kernel", "/k", "--initrd", "/i", "--firmware", "/f", "--bios", "bios-256k.bin",
+		{"everything given", []string{"--qemu", "/q", "--kernel", bz, "--initrd", "/i", "--firmware", "/f", "--bios", "bios-256k.bin",
 			"--disk", "/d", "--disk-format", "raw", "--disk-readonly", "--disk-serial", "ser",
 			"--disk-direct-over-backing", "--accel", "tcg", "--memory", "1024", "--max-memory", "4096", "--cpu", "Skylake-Server-v4",
 			"--cpus", "3", "--max-cpus", "8", "--hotplug-disks", "2",
@@ -154,6 +161,14 @@ func TestFlagsAreTheSpec(t *testing.T) {
 				t.Errorf("spec\n got %+v\nwant %+v", got, tc.want)
 			}
 		})
+	}
+
+	var o machineFlags
+	if err := parse("boot", []string{"--release", dir, "--kernel", filepath.Join(dir, "bin/qemu-img")}, o.register); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.spec(); err == nil || !strings.Contains(err.Error(), "not a bzImage") {
+		t.Errorf("a --kernel that is not a bzImage: %v", err)
 	}
 }
 

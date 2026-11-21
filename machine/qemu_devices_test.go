@@ -29,7 +29,7 @@ func TestAMachineTakesItsDevicesAsDescriptors(t *testing.T) {
 		}
 		_ = f.Close()
 	}
-	kernel := pvhStub(t)
+	kernel := bzImageStub(t)
 
 	for _, tc := range []struct {
 		name       string

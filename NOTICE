@@ -41,7 +41,7 @@ almost entirely other people's software under other people's licences:
   bios.bin, bios-256k.bin, vgabios*.bin
       SeaBIOS, LGPL-3.0-or-later, shipped as part of QEMU.
 
-  pvh.bin, kvmvapic.bin
+  linuxboot_dma.bin, kvmvapic.bin
       Part of QEMU, GPL-2.0-only.
 
   efi-virtio.rom
