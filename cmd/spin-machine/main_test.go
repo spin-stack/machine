@@ -7,13 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"net"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,7 +87,7 @@ func TestHowACommandEnds(t *testing.T) {
 		is:   func(err error) bool { return err != nil && strings.Contains(err.Error(), "--disk-serial are required") },
 	}, {
 		name: "a held machine with no monitor to boot it through",
-		do:   func() error { return boot(machine.Spec{}, machineFlags{held: true}, nil) },
+		do:   func() error { return boot(machine.Spec{}, machineFlags{held: true}) },
 		is:   func(err error) bool { return err != nil && strings.Contains(err.Error(), "none was given") },
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,46 +95,6 @@ func TestHowACommandEnds(t *testing.T) {
 				t.Errorf("returned %v (%T)", err, err)
 			}
 		})
-	}
-}
-
-// boot becomes QEMU. Run as a child of this test, because a process that execs is not
-// there afterwards to report: the child's pid is the one QEMU writes down, and its exit
-// status is QEMU's, with nothing in between to lose either.
-func TestBootBecomesQEMU(t *testing.T) {
-	if qemu := os.Getenv("SPIN_MACHINE_TEST_QEMU"); qemu != "" {
-		dir := filepath.Dir(qemu)
-		// Held, so that nothing is started beside QEMU to boot it.
-		err := boot(machine.Spec{QEMU: qemu, Kernel: filepath.Join(dir, "bzImage"), Firmware: dir, BootCPUs: 1,
-			Memory: machine.Memory{BaseMB: 64}, Monitors: []machine.Monitor{{Socket: "/q"}}},
-			machineFlags{held: true, qmp: "/q"}, nil)
-		// Reached only if the exec failed.
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(100)
-	}
-
-	dir := t.TempDir()
-	kernelIn(t, dir)
-	qemu := filepath.Join(dir, "qemu")
-	pidFile := filepath.Join(dir, "pid")
-	script := "#!/bin/sh\necho $$ > " + pidFile + "\nexit 7\n"
-	if err := os.WriteFile(qemu, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestBootBecomesQEMU$")
-	cmd.Env = append(os.Environ(), "SPIN_MACHINE_TEST_QEMU="+qemu)
-	err := cmd.Run()
-
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 7 {
-		t.Fatalf("boot ended with %v, want QEMU's own exit status 7", err)
-	}
-	pid, err := os.ReadFile(pidFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := strings.TrimSpace(string(pid)), strconv.Itoa(cmd.Process.Pid); got != want {
-		t.Errorf("QEMU ran as pid %s and spin-machine as %s: a child, not an exec", got, want)
 	}
 }
 

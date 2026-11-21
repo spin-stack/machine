@@ -161,11 +161,3 @@ func TestSaveAndRestoreLeaveTheChannelsToTheMachineUnlessGivenThem(t *testing.T)
 		}
 	}
 }
-
-// The helper boot starts takes the machine's flags and its own monitor in place of the boot's.
-func TestTheBootsHelperHasItsOwnMonitor(t *testing.T) {
-	got := withoutQMP([]string{"--memory", "1024", "--qmp", "/a", "--cpus", "2", "--qmp=/b", "-qmp", "/c", "-qmp=/d", "--disk", "x"})
-	if want := []string{"--memory", "1024", "--cpus", "2", "--disk", "x"}; !slices.Equal(got, want) {
-		t.Errorf("withoutQMP = %v, want %v", got, want)
-	}
-}
