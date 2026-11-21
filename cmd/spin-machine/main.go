@@ -33,14 +33,22 @@ import (
 // main is the only place the process ends. A command returns what happened and main decides
 // what it means: help asked for is not a failure, and boot's exitCode is QEMU's.
 func main() {
-	err := run(os.Args[1:])
+	code, said := exitStatus(run(os.Args[1:]))
+	fmt.Fprint(os.Stderr, said)
+	os.Exit(code)
+}
+
+// exitStatus is the process's exit status after a command returned err, and what it says on
+// stderr on its way out.
+func exitStatus(err error) (int, string) {
 	var code exitCode
-	if errors.As(err, &code) {
-		os.Exit(int(code))
-	}
-	if err != nil && !errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintf(os.Stderr, "spin-machine: %v\n", err)
-		os.Exit(1)
+	switch {
+	case errors.As(err, &code):
+		return int(code), ""
+	case err == nil || errors.Is(err, flag.ErrHelp):
+		return 0, ""
+	default:
+		return 1, fmt.Sprintf("spin-machine: %v\n", err)
 	}
 }
 

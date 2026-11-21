@@ -6,15 +6,17 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"io"
-	"regexp"
-	"strconv"
 	"errors"
+	"flag"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -379,6 +381,86 @@ func TestDialWaitsOnlyForASocketThatMayStillCome(t *testing.T) {
 		t.Fatalf("a socket made 50 ms later was not waited for: %v", err)
 	}
 	_ = m.Close()
+
+	start := time.Now()
+	if _, err := dial(filepath.Join(dir, "never"), 50*time.Millisecond); err == nil || time.Since(start) > 2*time.Second {
+		t.Errorf("a socket nobody makes: %v after %v, want an error once the wait is over", err, time.Since(start))
+	}
+}
+
+// The process ends as the command did: QEMU's status for boot, 0 for help, 1 and the error for
+// anything else.
+func TestExitStatusIsTheCommands(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code int
+		said string
+	}{
+		{nil, 0, ""},
+		{flag.ErrHelp, 0, ""},
+		{fmt.Errorf("boot: %w", exitCode(7)), 7, ""},
+		{errors.New("no"), 1, "spin-machine: no\n"},
+	} {
+		if code, said := exitStatus(tc.err); code != tc.code || said != tc.said {
+			t.Errorf("exitStatus(%v) = %d, %q, want %d, %q", tc.err, code, said, tc.code, tc.said)
+		}
+	}
+}
+
+// A boot killed outright takes its QEMU with it: nothing is left holding the disks.
+func TestAKilledBootTakesItsQEMU(t *testing.T) {
+	if os.Getenv("SPIN_MACHINE_TEST_BOOT") != "" {
+		dir := os.Getenv("SPIN_MACHINE_TEST_BOOT")
+		// The QEMU boot starts is this binary too, and has to know it is the QEMU.
+		_ = os.Setenv("SPIN_MACHINE_FAKE_QEMU", "prelaunch")
+		s := machine.Spec{QEMU: os.Args[0], Kernel: filepath.Join(dir, "bzImage"), Firmware: dir, Accel: "tcg", BootCPUs: 1,
+			Memory: machine.Memory{BaseMB: 64}, Monitors: []machine.Monitor{{Socket: filepath.Join(dir, "q")}}}
+		_ = boot(s, machineFlags{held: true, qmp: filepath.Join(dir, "q")})
+		os.Exit(0)
+	}
+	dir, err := os.MkdirTemp("/tmp", "kb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	kernelIn(t, dir)
+	argv := filepath.Join(dir, "argv")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAKilledBootTakesItsQEMU$")
+	cmd.Env = append(os.Environ(), "SPIN_MACHINE_TEST_BOOT="+dir, "SPIN_MACHINE_FAKE_ARGV="+argv)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var qemu int
+	for deadline := time.Now().Add(10 * time.Second); qemu == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Kill()
+			t.Fatal("the boot never started its QEMU")
+		}
+		if _, err := os.Stat(argv); err == nil {
+			qemu = childOf(cmd.Process.Pid)
+		}
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	for deadline := time.Now().Add(5 * time.Second); syscall.Kill(qemu, 0) == nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(qemu, syscall.SIGKILL)
+			t.Fatalf("QEMU %d outlived the boot that started it", qemu)
+		}
+	}
+}
+
+// childOf is pid's first child, or 0.
+func childOf(pid int) int {
+	tasks, _ := filepath.Glob(fmt.Sprintf("/proc/%d/task/*/children", pid))
+	for _, t := range tasks {
+		b, _ := os.ReadFile(t)
+		if f := strings.Fields(string(b)); len(f) > 0 {
+			n, _ := strconv.Atoi(f[0])
+			return n
+		}
+	}
+	return 0
 }
 
 // The disk a command takes when it is not told one: the release's base image under an overlay
@@ -573,7 +655,7 @@ func TestRunPassesFlagsOn(t *testing.T) {
 	for _, tc := range []struct {
 		flags []string
 		held  string
-	}{{nil, " -S"}, {[]string{"--held", "--qmp", "/q"}, " -S"}, {[]string{"--restore", "--qmp", "/q"}, " -incoming"}} {
+	}{{nil, "socket,id=qmp0,fd=3,server=on"}, {[]string{"--held", "--qmp", "/q"}, " -S"}, {[]string{"--restore", "--qmp", "/q"}, " -incoming"}} {
 		r, w, err := os.Pipe()
 		if err != nil {
 			t.Fatal(err)

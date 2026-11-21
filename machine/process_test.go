@@ -425,6 +425,14 @@ func TestHandoverOpensWhatTheSpecNeedsAndWasNotHanded(t *testing.T) {
 		t.Errorf("opened %v (%v) for a machine handed /dev/kvm", opened, err)
 	}
 
+	// The caller's NICs are its own: the descriptors go to Start's copy.
+	nics := []NIC{{TapFD: 3}}
+	s = Spec{Accel: "tcg", NICs: nics}
+	if err := h2.devices(&s, open); err != nil || nics[0].VhostFD != 0 || s.NICs[0].VhostFD == 0 {
+		t.Errorf("the caller's NIC has vhost %d and Start's %d (%v)", nics[0].VhostFD, s.NICs[0].VhostFD, err)
+	}
+	h2.close()
+
 	refused := errors.New("no")
 	if err := h2.devices(&Spec{VsockCID: 3, Accel: "tcg"}, func(string) (*os.File, error) { return nil, refused }); !errors.Is(err, refused) {
 		t.Errorf("a device that would not open: %v", err)
@@ -471,6 +479,9 @@ func TestTheStderrTailIsItsEnd(t *testing.T) {
 	if all.Len() != tailSize+7 {
 		t.Errorf("the caller got %d bytes", all.Len())
 	}
+	if n, err := (&tail{}).Write([]byte("x")); n != 1 || err != nil {
+		t.Errorf("a tail with nowhere to pass it on: %d, %v", n, err)
+	}
 	broken := &tail{w: failing{}}
 	if n, err := broken.Write([]byte("x")); n != 1 || err != nil || broken.String() != "x" {
 		t.Errorf("a failing writer stopped the tail: %d, %v", n, err)
@@ -495,6 +506,17 @@ func TestThePanicWatchKeepsTheFirstPanicsLine(t *testing.T) {
 	if !strings.HasSuffix(out.String(), "two\n") {
 		t.Error("the console was not passed on whole")
 	}
+	// A line is kept to 512 bytes, which the mark has to end within, from the line's start.
+	for _, tc := range []struct {
+		pad  int
+		want string
+	}{{500, "Kernel panic"}, {501, ""}} {
+		c := &panicWatch{w: &out}
+		_, _ = c.Write([]byte("a\n" + strings.Repeat("x", tc.pad) + "Kernel panic\n"))
+		if got := c.panicked(); got != tc.want {
+			t.Errorf("a mark after %d bytes: %q, want %q", tc.pad, got, tc.want)
+		}
+	}
 	broken := &panicWatch{w: failing{}}
 	if n, _ := broken.Write([]byte("Kernel panic\n")); n != 13 || broken.panicked() != "Kernel panic" {
 		t.Errorf("a failing console stopped the watch: %d %q", n, broken.panicked())
@@ -507,7 +529,8 @@ func TestExitSaysHowQEMUEnded(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := p.Stop(ctx(t))
-	if got, want := e.String(), "exit status 0, the machine having ended (guest-shutdown)"; got != want {
+	// A prefix: a test binary built for coverage warns on its stderr, which the Exit carries.
+	if got, want := e.String(), "exit status 0, the machine having ended (guest-shutdown)"; !strings.HasPrefix(got, want) {
 		t.Errorf("Exit says %q, want %q", got, want)
 	}
 	if p.Pid() <= 0 {
