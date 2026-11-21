@@ -22,9 +22,9 @@ import (
 	"github.com/spin-stack/machine/qmp"
 )
 
-// Pressure is what a machine's probe reports as it happens: a Stall, an OOMKill, a SlowCommand,
-// or GuestLost. docs/machine.md, "Pressure", says what each means and which say a machine suffers
-// and which say it causes.
+// Pressure is what a machine's probe reports as it happens: a Stall, a Limited, an OOMKill, a
+// SlowCommand, or GuestLost. docs/machine.md, "Pressure", says what each means and which say a
+// machine suffers and which say it causes.
 type Pressure interface {
 	// When is when the host learned of it.
 	When() time.Time
@@ -417,9 +417,10 @@ func (w *PressureWatch) timed(name string, took time.Duration, busy bool, at tim
 	}
 }
 
-// hostTriggers are the PSI triggers on the cgroup QEMU runs in, and the pipe that stops their
-// watch.
+// hostTriggers are the PSI triggers on the cgroup QEMU runs in, the cgroup whose limits are read
+// beside them, and the pipe that stops their watch.
 type hostTriggers struct {
+	cgroup   string
 	triggers []pressure.Trigger
 	stop     *os.File
 	done     chan struct{}
@@ -429,7 +430,7 @@ type hostTriggers struct {
 // a trigger with a window under 2 s from root alone (EACCES otherwise, 2026-11-21).
 // mutate-lane: TestThePressureProbeReportsEachPressure
 func armHost(cgroup string, w *PressureWatch) (*hostTriggers, error) {
-	h := &hostTriggers{done: make(chan struct{})}
+	h := &hostTriggers{cgroup: cgroup, done: make(chan struct{})}
 	for _, r := range pressure.Resources() {
 		t, err := pressure.Arm(filepath.Join(cgroup, r.String()+".pressure"), r)
 		if err != nil {
@@ -452,19 +453,36 @@ func armHost(cgroup string, w *PressureWatch) (*hostTriggers, error) {
 func (h *hostTriggers) watch(stop *os.File, w *PressureWatch) {
 	defer close(h.done)
 	defer func() { _ = stop.Close() }()
+	var limits limitWatch
+	// The last sample is taken as the watch stops, at QEMU's exit: an OOM kill by memory.max is why.
+	sample := func(at time.Time) time.Time {
+		if s, err := readLimits(h.cgroup, at); err == nil {
+			for _, l := range limits.next(s) {
+				w.notify(l)
+			}
+		}
+		return at.Add(limitTick)
+	}
+	tick := sample(time.Now())
 	fds := make([]unix.PollFd, len(h.triggers)+1)
 	for {
 		for i, t := range h.triggers {
 			fds[i] = unix.PollFd{Fd: int32(t.File.Fd()), Events: unix.POLLPRI}
 		}
 		fds[len(h.triggers)] = unix.PollFd{Fd: int32(stop.Fd()), Events: unix.POLLIN}
-		if _, err := unix.Poll(fds, -1); err != nil && !errors.Is(err, unix.EINTR) {
-			return
-		}
-		if fds[len(h.triggers)].Revents != 0 {
+		wait := max(time.Until(tick), 0)
+		// Rounded up: a poll that woke a fraction of a millisecond early would turn again at once.
+		if _, err := unix.Poll(fds, int((wait+time.Millisecond-1)/time.Millisecond)); err != nil && !errors.Is(err, unix.EINTR) {
 			return
 		}
 		at := time.Now()
+		if fds[len(h.triggers)].Revents != 0 {
+			sample(at)
+			return
+		}
+		if !at.Before(tick) {
+			tick = sample(at)
+		}
 		for i, t := range h.triggers {
 			if fds[i].Revents&unix.POLLERR != 0 {
 				return // the cgroup is gone

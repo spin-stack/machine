@@ -391,7 +391,8 @@ func TestUsageRefusesTheCallersCgroup(t *testing.T) {
 func TestCgroupUsageReadsEachCounter(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"cpu.stat":        "usage_usec 2000000\nuser_usec 1\nthrottled_usec 3000\nnr_periods\n",
+		"cpu.stat":        "usage_usec 2000000\nuser_usec 1\nthrottled_usec 3000\nnr_throttled 9\nnr_periods\n",
+		"memory.events":   "low 0\nhigh 5\nmax 4\noom 3\noom_kill 2\n",
 		"memory.current":  "1048576\n",
 		"memory.stat":     "anon 10\nfile 20\nfile_dirty 30\nfile_writeback 40\nweird x\n",
 		"io.stat":         "259:0 rbytes=1 wbytes=2 rios=3 wios=4 dbytes=0 dios=0\n8:0 rbytes=10 wbytes=20 rios=30 wios=40\n\n7:0 rbytes=100\n7:1\n",
@@ -409,8 +410,8 @@ func TestCgroupUsageReadsEachCounter(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Usage{
-		CPU:    CPUUsage{Used: 2 * time.Second, Throttled: 3 * time.Millisecond, Stalled: 5 * time.Microsecond},
-		Memory: MemoryUsage{Current: 1 << 20, Anon: 10, File: 20, Dirty: 30, Writeback: 40, Stalled: 6 * time.Microsecond},
+		CPU:    CPUUsage{Used: 2 * time.Second, Throttled: 3 * time.Millisecond, Stalled: 5 * time.Microsecond, Throttles: 9},
+		Memory: MemoryUsage{Current: 1 << 20, Anon: 10, File: 20, Dirty: 30, Writeback: 40, Stalled: 6 * time.Microsecond, High: 5, Max: 4, OOMs: 3, OOMKills: 2},
 		IO:     IOUsage{Read: 111, Written: 22, Reads: 33, Writes: 44, Stalled: 7 * time.Microsecond},
 	}
 	if !reflect.DeepEqual(u, want) {
