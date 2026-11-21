@@ -46,10 +46,10 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 	}
 	v := version.QEMU
 	t := Target{
-		VMM:     fmt.Sprintf("qemu %d.%d.%d", v.Major, v.Minor, v.Micro),
-		Formats: []string{FormatMappedRAM, FormatStream},
-		CPU:     cpu,
-		Machine: machine,
+		VMM:      fmt.Sprintf("qemu %d.%d.%d", v.Major, v.Minor, v.Micro),
+		Formats:  []string{FormatMappedRAM, FormatStream},
+		CPU:      cpu,
+		Hardware: machine,
 	}
 	m.record = &t
 	return t, nil
@@ -68,12 +68,12 @@ func (m *QEMU) Target(ctx context.Context) (Target, error) {
 //     base RAM is seen: mapped-ram loads both and refuses only a smaller block (ram.c,
 //     parse_ramblock);
 //   - the at-least facts: a device property in mayHaveMore, as a count.
-func (m *QEMU) machine(ctx context.Context) (Machine, error) {
+func (m *QEMU) machine(ctx context.Context) (Hardware, error) {
 	var kvm struct {
 		Enabled bool `json:"enabled"`
 	}
 	if err := m.q.run(ctx, "query-kvm", nil, &kvm); err != nil {
-		return Machine{}, fmt.Errorf("asking the machine's accelerator: %w", err)
+		return Hardware{}, fmt.Errorf("asking the machine's accelerator: %w", err)
 	}
 	accel := "tcg"
 	if kvm.Enabled {
@@ -81,11 +81,11 @@ func (m *QEMU) machine(ctx context.Context) (Machine, error) {
 	}
 	objs, err := m.qomObjects(ctx, append([]string{"/machine"}, deviceParents...)...)
 	if err != nil {
-		return Machine{}, fmt.Errorf("listing the machine's devices: %w", err)
+		return Hardware{}, fmt.Errorf("listing the machine's devices: %w", err)
 	}
 	exact, err := machineFacts(objs[0])
 	if err != nil {
-		return Machine{}, err
+		return Hardware{}, err
 	}
 	exact = append(exact, part{"accel", accel})
 	devices := machineDevices(objs[1:])
@@ -95,23 +95,23 @@ func (m *QEMU) machine(ctx context.Context) (Machine, error) {
 	}
 	props, err := m.qomObjects(ctx, paths...)
 	if err != nil {
-		return Machine{}, fmt.Errorf("reading the machine's devices: %w", err)
+		return Hardware{}, fmt.Errorf("reading the machine's devices: %w", err)
 	}
 	facts, counts, err := deviceFacts(devices, props)
 	if err != nil {
-		return Machine{}, err
+		return Hardware{}, err
 	}
 	var blocks struct {
 		Text string `json:"human-readable-text"`
 	}
 	if err := m.q.run(ctx, "x-query-ramblock", nil, &blocks); err != nil {
-		return Machine{}, fmt.Errorf("listing the machine's RAM blocks: %w", err)
+		return Hardware{}, fmt.Errorf("listing the machine's RAM blocks: %w", err)
 	}
 	ram, err := ramBlocks(blocks.Text)
 	if err != nil {
-		return Machine{}, err
+		return Hardware{}, err
 	}
-	return newMachine(slices.Concat(exact, facts, ram), counts)
+	return newHardware(slices.Concat(exact, facts, ram), counts)
 }
 
 // mayHaveMore are the device properties, by device type, a machine may have more of than the

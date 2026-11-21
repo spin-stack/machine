@@ -392,7 +392,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	f := &fakeQEMU{answer: migrations(base, "active", "pre-switchover", "completed")}
 	m := f.attach(t)
 	to := image(t, "raw").File
-	saved, err := m.Checkpoint(ctx(t), to, Save{}, func(context.Context) error { sealed++; return nil })
+	saved, err := m.Checkpoint(ctx(t), to, SaveOptions{}, func(context.Context) error { sealed++; return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 				return ok
 			}, tc.statuses...)}
 			m := f.attach(t)
-			_, err := m.Checkpoint(ctx(t), image(t, "raw").File, Save{}, func(context.Context) error { return tc.seal })
+			_, err := m.Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return tc.seal })
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Checkpoint = %v, want %q", err, tc.want)
 			}
@@ -503,7 +503,7 @@ func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
 			}
 			return ok
 		}, "completed")}
-		if _, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, Save{Channels: channels}, func(context.Context) error { return nil }); err != nil {
+		if _, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{Channels: channels}, func(context.Context) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
 		multifd := false
@@ -550,7 +550,7 @@ func TestACheckpointRecordsItsMachineOnceTheStateIsWritten(t *testing.T) {
 				}
 				return ok
 			}, "active", "completed")
-			saved, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, Save{}, func(context.Context) error { return nil })
+			saved, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return nil })
 			if tc.after {
 				if want := fakeTarget(t); err != nil || !reflect.DeepEqual(saved.From, want) {
 					t.Fatalf("Checkpoint = %+v, %v, want one taken on %+v", saved.From, err, want)
@@ -579,7 +579,7 @@ func TestResume(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		saved    Saved
-		load     Load
+		load     LoadOptions
 		channels int // the threads that read it
 		statuses []string
 		after    string // the run state once loaded
@@ -587,15 +587,15 @@ func TestResume(t *testing.T) {
 		polls    int
 		cont     bool
 	}{
-		{"fast, at postcopy-active", mapped, Load{Fast: true}, 1, []string{"setup", "postcopy-active"}, "running",
+		{"fast, at postcopy-active", mapped, LoadOptions{Fast: true}, 1, []string{"setup", "postcopy-active"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false}, 2, false},
-		{"in full, past postcopy-active, which it never asked for", mapped, Load{}, DefaultChannels, []string{"active", "postcopy-active", "completed"}, "running",
+		{"in full, past postcopy-active, which it never asked for", mapped, LoadOptions{}, DefaultChannels, []string{"active", "postcopy-active", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": DefaultChannels > 1}, 3, false},
-		{"in full, by one channel, named", mapped, Load{Channels: 1}, 1, []string{"active", "completed"}, "running",
+		{"in full, by one channel, named", mapped, LoadOptions{Channels: 1}, 1, []string{"active", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false}, 2, false},
-		{"in full, by two channels", mapped, Load{Channels: 2}, 2, []string{"active", "completed"}, "running",
+		{"in full, by two channels", mapped, LoadOptions{Channels: 2}, 2, []string{"active", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true}, 2, false},
-		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream, From: from}, Load{}, 1, []string{"completed"}, "paused",
+		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream, From: from}, LoadOptions{}, 1, []string{"completed"}, "paused",
 			map[string]bool{"mapped-ram": false, "pause-before-switchover": false}, 1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -665,15 +665,15 @@ func TestResumeRefuses(t *testing.T) {
 		name   string
 		saved  Saved
 		here   Target
-		load   Load
+		load   LoadOptions
 		status string
 		want   string
 	}{
-		{"a stream checkpoint, fast", Saved{Format: FormatStream, From: here}, here, Load{Fast: true}, "inmigrate", "loads only in full"},
-		{"a stream checkpoint, by channels", Saved{Format: FormatStream, From: here}, here, Load{Channels: 2}, "inmigrate", "which one thread reads"},
-		{"a format QEMU does not read", Saved{Format: "firecracker-snapshot", From: here}, other, Load{}, "inmigrate", `format "firecracker-snapshot"`},
-		{"a machine held for a boot", Saved{Format: FormatMappedRAM, From: here}, here, Load{}, "prelaunch", "is prelaunch"},
-		{"a record it cannot read", Saved{Format: FormatMappedRAM, From: here, Added: json.RawMessage(`[`)}, here, Load{}, "inmigrate", "what the checkpoint says"},
+		{"a stream checkpoint, fast", Saved{Format: FormatStream, From: here}, here, LoadOptions{Fast: true}, "inmigrate", "loads only in full"},
+		{"a stream checkpoint, by channels", Saved{Format: FormatStream, From: here}, here, LoadOptions{Channels: 2}, "inmigrate", "which one thread reads"},
+		{"a format QEMU does not read", Saved{Format: "firecracker-snapshot", From: here}, other, LoadOptions{}, "inmigrate", `format "firecracker-snapshot"`},
+		{"a machine held for a boot", Saved{Format: FormatMappedRAM, From: here}, here, LoadOptions{}, "prelaunch", "is prelaunch"},
+		{"a record it cannot read", Saved{Format: FormatMappedRAM, From: here, Added: json.RawMessage(`[`)}, here, LoadOptions{}, "inmigrate", "what the checkpoint says"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: machineAnswers(tc.status, "root")}
@@ -939,8 +939,8 @@ func TestModels(t *testing.T) {
 		}
 		return ok
 	}}
-	got, err := f.attach(t).Models(ctx(t))
-	if want := []Model{{"Icelake-Server-v6", 3}, {"Skylake-Server-v4", 1}}; err != nil || !reflect.DeepEqual(got, want) {
+	got, err := f.attach(t).CPUModels(ctx(t))
+	if want := []CPUModel{{"Icelake-Server-v6", 3}, {"Skylake-Server-v4", 1}}; err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("Models = %v, %v, want %v", got, err, want)
 	}
 	for _, e := range f.sent("query-cpu-model-expansion") {
@@ -985,7 +985,7 @@ func TestResumeFailsWhereAHotDiskIsRefused(t *testing.T) {
 		}
 		return machineAnswers("inmigrate", "root")(c)
 	}}
-	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from, Added: again}, from, Load{},
+	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from, Added: again}, from, LoadOptions{},
 		Disk{Serial: "ext", Images: []Image{image(t, "qcow2")}})
 	if err == nil || !strings.Contains(err.Error(), "attaching it at target 2") {
 		t.Errorf("Resume = %v, want the refused disk's error", err)

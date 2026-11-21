@@ -23,7 +23,7 @@ import (
 //     it with PUT /actions InstanceStart; Boot is that start, with the disks given in the same
 //     call. Its snapshots are a memory file and a vmstate file loaded with PUT /snapshot/load,
 //     whose mem_backend may be File or Uffd, the latter serving the guest's page faults from
-//     the memory file as it touches them; Resume with Load.Fast is that.
+//     the memory file as it touches them; Resume with LoadOptions.Fast is that.
 //   - Cloud Hypervisor creates a VM, then vm.boot; vm.snapshot and vm.restore, the restore
 //     with memory_restore_mode=ondemand doing the same userfaultfd load. vm.resize changes vCPUs
 //     and memory, which SetCPUs and SetMemory are; vm.add-disk and vm.remove-device are
@@ -36,7 +36,7 @@ import (
 // Which checkpoints a VM resumes is one rule for every VMM, CanResume, over two records the VMM
 // gives (Target): the one a checkpoint carries (Saved.From) and the machine's own, which the
 // caller holds and hands to Resume. A VMM says
-// what its record holds and which facts may grow (Machine); the comparison, and the refusal that
+// what its record holds and which facts may grow (Hardware); the comparison, and the refusal that
 // names each difference, are the same whatever made them. Another VMM's Target is read from its
 // own API - Cloud Hypervisor's vm.info, Firecracker's GET /vm/config - into the same Target, and
 // a checkpoint of one VMM is refused by another as one difference, the VMM.
@@ -50,9 +50,9 @@ type VM interface {
 	// checkpoint was saved with, and runs it, once CanResume(saved, here) allows it. here is this
 	// machine's Target as the caller holds it, and is trusted as given: the caller is responsible
 	// for it describing this machine, and QEMU.Resume says how spin keeps it. It returns once the
-	// guest runs: with Load.Fast that is before the guest's memory has all been read, and Loaded
-	// says when it has.
-	Resume(ctx context.Context, state *os.File, saved Saved, here Target, load Load, disks ...Disk) error
+	// guest runs: with LoadOptions.Fast that is before the guest's memory has all been read, and
+	// Loaded says when it has.
+	Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error
 	// Loaded returns once a resumed machine has read all of its state: until then the state's
 	// file is still being read, and must not be moved, deleted or written, nor another
 	// checkpoint started.
@@ -62,7 +62,7 @@ type VM interface {
 	// seal runs while the guest is stopped and its disks quiet, before the state is complete:
 	// it is where the caller makes the disks match the state (a layer sealed, a snapshot
 	// named). An error from seal fails the checkpoint and the machine stays stopped.
-	Checkpoint(ctx context.Context, to *os.File, save Save, seal func(context.Context) error) (Saved, error)
+	Checkpoint(ctx context.Context, to *os.File, save SaveOptions, seal func(context.Context) error) (Saved, error)
 	// Continue runs a machine a checkpoint left stopped.
 	Continue(ctx context.Context) error
 

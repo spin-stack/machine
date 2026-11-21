@@ -39,8 +39,8 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 	}
 	spec.BootCPUs = 2
 	spec.Memory.SizeMB = 1024
-	spec.Disks = []machine.DiskSlot{{Serial: "root"}}
-	spec.Serial = "stdio"
+	spec.Places = []machine.Place{{Serial: "root"}}
+	spec.Console = "stdio"
 	// The machine starts held, and is booted through this monitor once the disk is bound. In a
 	// short directory of its own: a socket's path fits in 108 bytes.
 	socks, err := os.MkdirTemp("/tmp", "con")

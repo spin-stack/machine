@@ -96,7 +96,7 @@ const memGrowthID = "mem.growth"
 // through is /machine/peripheral/<VirtioMemID>, its property requested-size.
 const VirtioMemID = "vmem0"
 
-// DiskSlot is a place for a disk the machine is started with: a virtio-blk device on its fixed
+// Place is where a disk the machine is started with goes: a virtio-blk device on its fixed
 // slot, over a raw node whose file is an empty placeholder until a disk is bound to it (Boot,
 // Resume). The guest finds the disk by Serial.
 //
@@ -108,7 +108,7 @@ const VirtioMemID = "vmem0"
 //
 // A place no disk is bound to is a disk of no size: the null-co placeholder, which a guest
 // that read it would find empty rather than full of zeroes.
-type DiskSlot struct {
+type Place struct {
 	Serial   string
 	Readonly bool
 }
@@ -283,10 +283,10 @@ type Spec struct {
 	// guest's state under TCG is not a guest's state under KVM.
 	Accel string
 
-	// Disks are the places for disks the machine is started with, on fixed slots in this
+	// Places are where the disks the machine is started with go, on fixed slots in this
 	// order. The disks themselves arrive later, bound by serial (VM.Boot, VM.Resume).
-	Disks []DiskSlot
-	NICs  []NIC
+	Places []Place
+	NICs   []NIC
 
 	// HotplugDisks, when not zero, gives the machine the controller disks attached while it
 	// runs go to (VM.AttachDisk), at the first of its 256 targets free.
@@ -336,21 +336,21 @@ type Spec struct {
 	// without asking the launcher to relay commands it does not understand.
 	Monitors []Monitor
 
-	// FDSets are the descriptor sets the command line names: SerialFDSet, KVMFDSet. A disk's
+	// FDSets are the descriptor sets the command line names: ConsoleFDSet, KVMFDSet. A disk's
 	// images are handed over when it is bound, through the monitor.
 	FDSets []FDSet
 
-	// SerialFDSet is the console as a descriptor set QEMU writes to, instead of
-	// Serial, for a QEMU that may open nothing by path. It is opened append-only:
+	// ConsoleFDSet is the console as a descriptor set QEMU writes to, instead of
+	// Console, for a QEMU that may open nothing by path. It is opened append-only:
 	// QEMU otherwise truncates what it opens, and the usual console descriptor is
 	// a FIFO, which cannot be truncated — "-serial file:/dev/fdset/<ID>" fails
 	// with EINVAL on one (measured, QEMU 11.1.1).
-	SerialFDSet int
+	ConsoleFDSet int
 
-	// Serial is a QEMU chardev spec for the console — "file:/path/console.log",
+	// Console is a QEMU chardev spec for the console — "file:/path/console.log",
 	// "mon:stdio", or empty for no console at all. The kernel prints to the ISA
 	// 16550 the machine has; nothing else uses it.
-	Serial string
+	Console string
 
 	// Cmdline is the kernel command line. A typed value rather than a rendered string,
 	// so that what String always adds — pci=lastbus=0 and the rest — cannot be left
@@ -412,8 +412,8 @@ func (s Spec) validate() error {
 			s.Memory.MaxMB, s.Memory.SizeMB)
 	case s.Memory.SizeMB < 1:
 		return fmt.Errorf("memory is %d MB", s.Memory.SizeMB)
-	case len(s.Disks) > maxDisks:
-		return fmt.Errorf("%d disks, and the slot range holds %d", len(s.Disks), maxDisks)
+	case len(s.Places) > maxDisks:
+		return fmt.Errorf("%d disks, and the slot range holds %d", len(s.Places), maxDisks)
 	// Held until a monitor says what to do: with none it never starts.
 	case len(s.Monitors) == 0:
 		return errors.New("no monitor: the machine starts held, and is booted or resumed over one")
@@ -439,10 +439,10 @@ func (s Spec) validate() error {
 		return err
 	}
 	switch {
-	case s.SerialFDSet != 0 && s.Serial != "":
+	case s.ConsoleFDSet != 0 && s.Console != "":
 		return errors.New("a console given both as a chardev and as a descriptor set")
-	case s.SerialFDSet != 0 && !sets[s.SerialFDSet]:
-		return fmt.Errorf("the console is descriptor set %d, which Spec.FDSets does not have", s.SerialFDSet)
+	case s.ConsoleFDSet != 0 && !sets[s.ConsoleFDSet]:
+		return fmt.Errorf("the console is descriptor set %d, which Spec.FDSets does not have", s.ConsoleFDSet)
 	case s.KVMFDSet != 0 && s.Accel != "" && s.Accel != "kvm":
 		return fmt.Errorf("a /dev/kvm descriptor for -accel %s, which opens no device", s.Accel)
 	case s.KVMFDSet != 0 && !sets[s.KVMFDSet]:
@@ -458,7 +458,7 @@ func (s Spec) validate() error {
 		}
 	}
 	seen := map[string]bool{}
-	for i, d := range s.Disks {
+	for i, d := range s.Places {
 		switch {
 		case !serialPattern.MatchString(d.Serial):
 			return fmt.Errorf("disk %d: serial %q is not 1-20 of A-Z, a-z, 0-9, '-' and '_'", i, d.Serial)
@@ -665,14 +665,14 @@ func (s Spec) appendDevices(args []string) []string {
 }
 
 // appendDisks is each place for a disk, on its fixed slot: the device, over a throttle node
-// named slot<i> whose file is an empty placeholder until a disk is bound (DiskSlot).
+// named slot<i> whose file is an empty placeholder until a disk is bound (Place).
 func (s Spec) appendDisks(args []string) ([]string, error) {
-	if len(s.Disks) > 0 {
+	if len(s.Places) > 0 {
 		// The group the places' nodes are in, with no limits: a throttle node is only how a
 		// place is a filter (placeNode).
 		args = append(args, "-object", "throttle-group,id="+placeGroup)
 	}
-	for i, d := range s.Disks {
+	for i, d := range s.Places {
 		empty, err := json.Marshal(map[string]any{
 			"driver": "null-co", "node-name": emptyNode(i), "size": 0, "read-zeroes": true,
 		})
@@ -754,12 +754,12 @@ func (s Spec) appendNICs(args []string) []string {
 // appendConsole is the serial console: a descriptor set, a chardev, or none.
 func (s Spec) appendConsole(args []string) []string {
 	switch {
-	case s.SerialFDSet != 0:
+	case s.ConsoleFDSet != 0:
 		args = append(args,
-			"-chardev", fmt.Sprintf("file,id=serial0,path=/dev/fdset/%d,append=on", s.SerialFDSet),
+			"-chardev", fmt.Sprintf("file,id=serial0,path=/dev/fdset/%d,append=on", s.ConsoleFDSet),
 			"-serial", "chardev:serial0")
-	case s.Serial != "":
-		args = append(args, "-serial", s.Serial)
+	case s.Console != "":
+		args = append(args, "-serial", s.Console)
 	default:
 		args = append(args, "-serial", "none")
 	}

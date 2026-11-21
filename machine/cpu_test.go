@@ -8,20 +8,20 @@ import (
 )
 
 func TestBaseline(t *testing.T) {
-	sky, ice, spr := Model{"Skylake-Server-v4", 100}, Model{"Icelake-Server-v6", 120}, Model{"SapphireRapids-v3", 140}
-	epyc := Model{"EPYC-Genoa-v1", 130}
+	sky, ice, spr := CPUModel{"Skylake-Server-v4", 100}, CPUModel{"Icelake-Server-v6", 120}, CPUModel{"SapphireRapids-v3", 140}
+	epyc := CPUModel{"EPYC-Genoa-v1", 130}
 	for _, tc := range []struct {
 		name  string
-		hosts [][]Model
-		want  Model
+		hosts [][]CPUModel
+		want  CPUModel
 		err   string
 	}{
-		{"the newest every host runs", [][]Model{{sky, ice, spr}, {sky, ice}, {ice, sky}}, ice, ""},
-		{"one host", [][]Model{{sky, spr}}, spr, ""},
-		{"as many features, the later name", [][]Model{{{"A-v1", 5}, {"A-v2", 5}}}, Model{"A-v2", 5}, ""},
-		{"fewer features, a later name", [][]Model{{ice, sky}}, ice, ""},
-		{"two vendors share no model", [][]Model{{sky, ice}, {epyc}}, Model{}, "more than one vendor"},
-		{"no hosts", nil, Model{}, "no hosts"},
+		{"the newest every host runs", [][]CPUModel{{sky, ice, spr}, {sky, ice}, {ice, sky}}, ice, ""},
+		{"one host", [][]CPUModel{{sky, spr}}, spr, ""},
+		{"as many features, the later name", [][]CPUModel{{{"A-v1", 5}, {"A-v2", 5}}}, CPUModel{"A-v2", 5}, ""},
+		{"fewer features, a later name", [][]CPUModel{{ice, sky}}, ice, ""},
+		{"two vendors share no model", [][]CPUModel{{sky, ice}, {epyc}}, CPUModel{}, "more than one vendor"},
+		{"no hosts", nil, CPUModel{}, "no hosts"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := Baseline(tc.hosts)

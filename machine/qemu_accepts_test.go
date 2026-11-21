@@ -172,7 +172,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 		// each a device over an empty placeholder until a disk is bound to it.
 		name: "places for disks",
 		spec: func(s Spec) Spec {
-			s.Disks = []DiskSlot{{Serial: "root"}, {Serial: "base", Readonly: true}}
+			s.Places = []Place{{Serial: "root"}, {Serial: "base", Readonly: true}}
 			return s
 		},
 	}, {
@@ -249,9 +249,9 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 		spec: func(s Spec) Spec {
 			s.Memory.MaxMB, s.MaxCPUs = 2048, 8
 			s.VsockCID = 12345
-			s.Disks = []DiskSlot{{Serial: "root"}}
+			s.Places = []Place{{Serial: "root"}}
 			s.NICs = []NIC{{TapFD: 3, MAC: "52:54:00:12:34:56"}}
-			s.Serial = "file:" + filepath.Join(t.TempDir(), "console.log")
+			s.Console = "file:" + filepath.Join(t.TempDir(), "console.log")
 			return s
 		},
 	}}

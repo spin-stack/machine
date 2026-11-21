@@ -49,7 +49,7 @@ type Manifest struct {
 	// model (--cpu Skylake-Server-v4).
 	Boot []string `json:"boot,omitempty"`
 	// CPU is the named model a tree asked for as --cpu baseline, as the host that made the tree
-	// chose it: the newest QEMU says it can run there (machine.Models, baseline).
+	// chose it: the newest QEMU says it can run there (machine.QEMU.CPUModels, baseline).
 	CPU string `json:"cpu,omitempty"`
 	// Edits are made to every boot's own overlay, in order.
 	Edits []NamedEdit `json:"edits,omitempty"`

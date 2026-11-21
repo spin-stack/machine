@@ -285,11 +285,11 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 		s.Monitors = []machine.Monitor{{Socket: o.qmp}}
 	}
 	s.Restore = o.restore
-	s.Serial = o.console
+	s.Console = o.console
 
 	hasDisk := o.disks.path != "-"
 	if hasDisk {
-		s.Disks = []machine.DiskSlot{{Serial: o.disks.serial, Readonly: o.disks.readonly}}
+		s.Places = []machine.Place{{Serial: o.disks.serial, Readonly: o.disks.readonly}}
 	}
 
 	c := machine.DefaultCmdline()

@@ -240,7 +240,7 @@ func notesOf(ctx context.Context, w workspace, version string) (string, error) {
 		}
 	}
 	// Whether the QEMU shipped offers a machine type newer than the one every checkpoint is saved
-	// on: said, never acted on (machine.MachineType).
+	// on: said, never acted on (machine.Type).
 	offer, err := build.MachineType(filepath.Join(share, "bin", "qemu-system-x86_64"))
 	if err != nil {
 		return "", err

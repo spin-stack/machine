@@ -79,10 +79,10 @@ func TestAChainOverDescriptorsIsBoundToItsPlaceAndSealedUnderAnOverlay(t *testin
 	spec := Spec{
 		QEMU: qemu, Kernel: kernel, Firmware: firmware,
 		BootCPUs: 1, Memory: Memory{SizeMB: 512}, Cmdline: DefaultCmdline(),
-		Monitors:    []Monitor{{FD: 4}},
-		FDSets:      []FDSet{{ID: 1, FDs: []FD{{Num: 3, Opaque: fifo}}}},
-		SerialFDSet: 1,
-		Disks:       []DiskSlot{{Serial: "root"}},
+		Monitors:     []Monitor{{FD: 4}},
+		FDSets:       []FDSet{{ID: 1, FDs: []FD{{Num: 3, Opaque: fifo}}}},
+		ConsoleFDSet: 1,
+		Places:       []Place{{Serial: "root"}},
 	}
 	args, err := spec.Args()
 	if err != nil {

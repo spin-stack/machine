@@ -128,9 +128,9 @@ func (s Spec) accel() string {
 // kernel-irqchip=on stays under either accelerator. It names KVM's in-kernel interrupt
 // controller and TCG has none, but QEMU accepts the option and ignores it rather than
 // refusing — measured against 11.1.1 — so the string is one and not two.
-const machineOpts = MachineType + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,smbus=off"
+const machineOpts = Type + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,smbus=off"
 
-// MachineType is the versioned q35 this machine is, and never the bare "q35", which is an
+// Type is the versioned q35 this machine is, and never the bare "q35", which is an
 // alias of whichever pc-q35-X.Y the QEMU running it is newest at.
 //
 // The version is what QEMU's migration promise is made of: a newer QEMU loads the state an
@@ -142,7 +142,7 @@ const machineOpts = MachineType + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,
 // hardware: a decision, made here, that every checkpoint taken before it stops resuming.
 // `spin-machine-dev verify qemu` says when the QEMU built offers a newer one, and fails once this one is
 // deprecated (QEMU deprecates a versioned type after three years and removes it after six).
-const MachineType = "pc-q35-11.1"
+const Type = "pc-q35-11.1"
 
 // smpArg is -smp. A ceiling of 0, or one equal to the boot count, adds no maxcpus=: validate
 // refuses a ceiling below the boot count, so above it is the only ceiling that adds slots.
