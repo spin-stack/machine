@@ -302,6 +302,44 @@ of its own, the same gap took 6 ms p50, and the guest's stop to `cont` fell from
 caller's `fdatasync` after `Continue` took 259 ms instead of 3, so the time to a durable state did
 not change (−19 ms [−4088, +3963]). It moved off the guest's clock.
 
+## What a snapshot keeps
+
+`task boot:rollback` holds a snapshot to what a person in the workspace expects (#408). It boots
+spin's shape to systemd, logs in over SSH through vsock, and runs the terminal loop `while true; do
+date +%T.%N; sleep 0.1; done` beside a process that holds 4 MiB of random bytes and a counter. Each
+step is held to what the guest had at the checkpoint, and each pause's cost is logged from the
+guest's own output. On v20261121.01 (laptop, and bench lab 44937567816, 2026-11-21):
+
+- **A checkpoint with memory, continued in place.** The guest stopped 11-17 ms (`Cost.Paused`
+  11-14). The loop's largest step stayed at 101-105 ms, because the pause fits inside one of its
+  sleeps. An SSH session open across the checkpoint kept answering.
+- **A rollback with memory onto the sealed disk.** The process is the same PID with the same
+  bytes. A file reads as it was at the checkpoint from memory, and again from the disk after the
+  page cache is dropped. The loop and the counter go on from their lines at the checkpoint, 101 ms
+  later on the guest's clock. The kernel logs `crng reseeded due to virtual machine fork`
+  (vmgenid).
+- **A disk-only rollback**, a cold boot from the sealed disk. What was synced before the seal is
+  there and what came after is not. The seal is crash-consistent: the loop's log, written for 3 s
+  and never synced, is not on the disk at all.
+- **A disk-only snapshot**, `stop` and `cont` around `blockdev-snapshot`. The guest stopped 7-14
+  ms, 6-8 of them the seal.
+
+**The guest's clocks stop with it.** QEMU saves kvm-clock at `stop` and sets it back at `cont`, so
+`CLOCK_REALTIME` and `CLOCK_MONOTONIC` both stand still for a pause. A stop held 1.00 s put the
+guest's wall clock 1.001 s further behind the host's, while the process's lines stayed 101 ms
+apart on both clocks and the host saw a 1.10 s gap between them on the console. A resumed guest
+starts on its checkpoint's clock: 48 ms after a resume it read 6.34 s behind, the time since the
+checkpoint's stop, and 5 s later it read the same. Nothing in the machine steps it, by the decision
+that took chrony out (docs/log.md, 09-10): whoever restores corrects the clock. spin's supervisor
+steps it when it registers again after a restore. Nothing steps it after a snapshot continued in
+place (spin-stack/spin#1498).
+
+**An SSH session open at the checkpoint does not survive a rollback.** QEMU's vhost-vsock resets
+the transport after a load, and the restored sshd reads `Transport endpoint is not connected`
+within 3 ms of the resume. The session's shell, on a pty, was gone at the first look, 57-100 ms
+after it. The guest's kernel logs nothing of the reset. A new login works at once. Keeping the
+work across a rollback is spin's (spin-stack/spin#1483).
+
 ## What is load-bearing and invisible from outside
 
 - **Every device on the command line sits at a fixed slot on bus 0.** A fixed slot makes

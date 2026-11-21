@@ -156,13 +156,14 @@ func (x *rollback) checkpoint() {
 	go func() { ended <- session.Wait() }()
 	x.sshd = src.sh(t, "for i in $(seq 100); do p=$(pgrep -fx 'sleep 4242') && break; sleep 0.05; done && ps -o ppid= -p $p")
 
-	x.process = src.tickerNow(t)
 	before := src.mark(t)
-	var err2 error
-	if x.state, err2 = os.Create(filepath.Join(x.dir, "state")); err2 != nil {
-		t.Fatal(err2)
+	x.process = before.process
+	state, err := os.Create(filepath.Join(x.dir, "state"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = x.state.Close() })
+	t.Cleanup(func() { _ = state.Close() })
+	x.state = state
 	told := &timeline{}
 	saved, cost, err := src.Checkpoint(x.ctx, x.state, machine.SaveOptions{Phases: told.tell}, func(ctx context.Context) error {
 		return seal(ctx, src.mon, x.frozen, x.overlay("after-checkpoint.qcow2", x.frozen, "qcow2"), "after-checkpoint")
