@@ -27,7 +27,8 @@ type StartOptions struct {
 	// only the caller can open, such as a NIC's TapFD. Start opens the rest after them.
 	Files []*os.File
 
-	// Stdin, Stdout and Stderr are QEMU's. Stderr also goes to Exit, its last 4 KiB.
+	// Stdin, Stdout and Stderr are QEMU's. Stderr also goes to Exit, its last 4 KiB. A writer
+	// that stops taking what QEMU writes stops QEMU at its next write, and holds its exit.
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
@@ -166,8 +167,6 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 	p.cmd = exec.Command(s.QEMU, args...)
 	p.cmd.ExtraFiles = append(slices.Clip(o.Files), h.files...)
 	p.cmd.Stdin, p.cmd.Stdout, p.cmd.Stderr = o.Stdin, o.Stdout, p.stderr
-	// A copy to a caller's writer that never returns would hold Wait, and the exit, forever.
-	p.cmd.WaitDelay = time.Second
 	if o.Cmd != nil {
 		o.Cmd(p.cmd)
 	}
