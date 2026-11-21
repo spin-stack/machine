@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spin-stack/machine/internal/qmpdef"
 	"github.com/spin-stack/machine/machine"
 	"github.com/spin-stack/machine/qmp"
 )
@@ -27,6 +28,15 @@ import (
 // for its vsock and NIC, which every machine here is given apart: one vCPU of sixteen, 128 MiB of
 // 8 GiB, sixteen hotplug targets.
 var spinsShape = []string{"--cpus", "1", "--max-cpus", "16", "--memory", "128", "--max-memory", "8192", "--hotplug-disks", "16"}
+
+// balloon sets the size the balloon leaves the guest: a call machine.QEMU has no use for, which
+// the record's test sends to put an inflated balloon in the stream.
+var balloon = qmpdef.Define[balloonTarget, qmp.None]("balloon")
+
+// balloonTarget is the guest's memory, in bytes, once the balloon has taken the rest.
+type balloonTarget struct {
+	Value int64 `json:"value"`
+}
 
 // The record a machine reads of itself (machine.QEMU.Target) at spin's shape, held to what it is
 // for: a machine resumes its own checkpoint after everything a workspace does to it while it runs,
@@ -136,7 +146,7 @@ func (r *recorder) target(vsock bool, flags ...string) (machine.Target, time.Dur
 	}
 	args, _ := machineArgs(t, r.cli, r.out, slices.Concat(spinsShape, more, flags))
 	g := startGuest(t, append(args, spinsNIC(mac)...))
-	m := attachTo(t, sock, g)
+	m := attachTo(t, sock, g.said)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	start := time.Now()
@@ -176,7 +186,7 @@ func (r *recorder) selfResume(t *testing.T) {
 	start(t)
 	a.type_(t, "mount -t proc proc /proc; echo UP-$((1+1))")
 	a.await(t, regexp.MustCompile(`UP-2\b`), 60*time.Second)
-	src := attachTo(t, sock, a)
+	src := attachTo(t, sock, a.said)
 	if err := src.SetMemory(ctx, 1024); err != nil {
 		t.Fatal(err)
 	}
@@ -191,9 +201,11 @@ func (r *recorder) selfResume(t *testing.T) {
 	if _, err := src.GuestMemory(ctx); err != nil && !errors.Is(err, machine.ErrNoGuestStats) {
 		t.Fatal(err)
 	}
-	q := dial(t, raw, a.said)
-	q.do(t, "balloon", map[string]any{"value": 960 << 20})
-	q.close()
+	q := monitorAt(t, raw, a.said)
+	if _, err := qmp.Do(ctx, q, balloon, balloonTarget{Value: 960 << 20}); err != nil {
+		t.Fatalf("inflating the balloon: %v", err)
+	}
+	_ = q.Close()
 	if err := src.SetCPUs(ctx, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +236,7 @@ func (r *recorder) selfResume(t *testing.T) {
 	sock, cid, mac = r.next()
 	args, _ = machineArgs(t, r.cli, r.out, slices.Concat(spinsShape, []string{"--qmp", sock, "--vsock-cid", fmt.Sprint(cid), "--restore"}, disk))
 	b := startGuest(t, append(args, spinsNIC(mac)...))
-	dst := attachTo(t, sock, b)
+	dst := attachTo(t, sock, b.said)
 	here, err := dst.Target(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +280,14 @@ func spinsNIC(mac string) []string {
 }
 
 // attachTo is machine.Attach on a machine's monitor, once QEMU has made it.
-func attachTo(t *testing.T, sock string, g *guest) *machine.QEMU {
+func attachTo(t *testing.T, sock string, said func() string) *machine.QEMU {
+	t.Helper()
+	return machine.Attach(monitorAt(t, sock, said))
+}
+
+// monitorAt is a client of the monitor at sock, once QEMU has made it. said is what QEMU has
+// printed so far, for a failure to show.
+func monitorAt(t *testing.T, sock string, said func() string) *qmp.Client {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for {
@@ -280,12 +299,11 @@ func attachTo(t *testing.T, sock string, g *guest) *machine.QEMU {
 			if err != nil {
 				t.Fatalf("attaching to %s: %v", sock, err)
 			}
-			m := machine.Attach(q)
-			t.Cleanup(func() { _ = m.Close() })
-			return m
+			t.Cleanup(func() { _ = q.Close() })
+			return q
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("QEMU never answered on %s: %v\n%s", sock, err, g.said())
+			t.Fatalf("QEMU never answered on %s: %v\n%s", sock, err, said())
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

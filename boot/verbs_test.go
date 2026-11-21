@@ -34,14 +34,14 @@ func shell(t *testing.T, r *recorder, systemd bool) (*machine.QEMU, *guest) {
 		g := startGuest(t, append(args, spinsNIC(mac)...))
 		start(t)
 		g.await(t, regexp.MustCompile(`login: `), 60*time.Second)
-		return attachTo(t, sock, g), g
+		return attachTo(t, sock, g.said), g
 	}
 	args, start := machineArgs(t, r.cli, r.out, slices.Concat(spinsShape, flags, []string{"--init", "/bin/sh"}))
 	g := startGuest(t, append(args, spinsNIC(mac)...))
 	start(t)
 	g.type_(t, "mount -t proc proc /proc; echo UP-$((1+1))")
 	g.await(t, regexp.MustCompile(`UP-2\b`), 60*time.Second)
-	return attachTo(t, sock, g), g
+	return attachTo(t, sock, g.said), g
 }
 
 func newRecorder(t *testing.T) *recorder {
