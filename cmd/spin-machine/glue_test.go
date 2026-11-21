@@ -3,7 +3,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/json"
+	"io"
+	"regexp"
+	"strconv"
 	"errors"
 	"net"
 	"os"
@@ -18,13 +23,65 @@ import (
 	"github.com/spin-stack/machine/machine"
 )
 
-// TestMain lets this test binary stand in for the helper boot starts beside QEMU, which is this
-// command run again as bindCommand: started that way, it has nothing to bind and exits.
+// TestMain lets this test binary stand in for the QEMU boot starts (fakeQEMU).
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == bindCommand {
-		os.Exit(0)
+	if status := os.Getenv("SPIN_MACHINE_FAKE_QEMU"); status != "" {
+		os.Exit(fakeQEMU(status, os.Args[1:]))
 	}
 	os.Exit(m.Run())
+}
+
+// fakeQEMU is a QEMU whose machine is status: it writes its command line to
+// $SPIN_MACHINE_FAKE_ARGV, answers on every monitor it is handed, and exits 7 once the machine is
+// let go, 0 once it is quit. A machine held for a checkpoint exits 7 once its monitor has been
+// greeted, as if a restore had run it and it had ended.
+func fakeQEMU(status string, args []string) int {
+	_ = os.WriteFile(os.Getenv("SPIN_MACHINE_FAKE_ARGV"), []byte(strings.Join(args, " ")), 0o600)
+	exit := make(chan int, 1)
+	for _, a := range args {
+		m := regexp.MustCompile(`^socket,id=\w+,fd=(\d+),server=on`).FindStringSubmatch(a)
+		if m == nil {
+			continue
+		}
+		n, _ := strconv.Atoi(m[1])
+		l, err := net.FileListener(os.NewFile(uintptr(n), "monitor"))
+		if err != nil {
+			return 2
+		}
+		go func() {
+			for {
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				go func() {
+					_, _ = io.WriteString(c, greeting+"\n")
+					in := bufio.NewScanner(c)
+					for in.Scan() {
+						var req qmpRequest
+						_ = json.Unmarshal(in.Bytes(), &req)
+						reply := ok
+						switch req.Execute {
+						case "query-status":
+							reply = `{"return": {"status": "` + status + `"}}`
+						case "query-block":
+							reply = `{"return": []}`
+						}
+						_, _ = io.WriteString(c, reply[:len(reply)-1]+`, "id": `+string(req.ID)+"}\n")
+						switch {
+						case req.Execute == "cont":
+							exit <- 7
+						case req.Execute == "quit":
+							exit <- 0
+						case req.Execute == "qmp_capabilities" && status == "inmigrate" && !slices.Contains(args, "-S"):
+							exit <- 7
+						}
+					}
+				}()
+			}
+		}()
+	}
+	return <-exit
 }
 
 // noSocket is a socket path no command can reach, refused at once rather than waited for: a
@@ -194,22 +251,6 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		},
 		asked: []string{"query-status", "query-block", "cont"},
 	}, {
-		name:    "the boot's helper",
-		replies: []string{ok, `{"return": {"status": "prelaunch"}}`, `{"return": []}`, ok},
-		do: func(_ *testing.T, sock string) error {
-			return bindAndBoot(machineFlags{qmp: sock, disks: diskFlags{path: "-"}})
-		},
-		asked: []string{"query-status", "query-block", "cont"},
-	}, {
-		// A machine the helper cannot boot is ended: boot then fails where the cause is.
-		name:    "the boot's helper, refused",
-		replies: []string{ok, `{"return": {"status": "inmigrate"}}`, ok},
-		do: func(_ *testing.T, sock string) error {
-			return bindAndBoot(machineFlags{qmp: sock, disks: diskFlags{path: "-"}})
-		},
-		asked:   []string{"query-status", "quit"},
-		wantErr: "booting a machine that is inmigrate",
-	}, {
 		name:    "start with a disk not there",
 		replies: []string{ok},
 		do: func(_ *testing.T, sock string) error {
@@ -283,7 +324,6 @@ func TestCommandsThatCannotReachTheMachine(t *testing.T) {
 		"memory":        func() error { return memory(memoryFlags{qmp: sock, totalMB: 1024}, &bytes.Buffer{}) },
 		"cpu":           func() error { return cpuReport(sock, &bytes.Buffer{}) },
 		"start":         func() error { return start(startFlags{qmp: sock}) },
-		"the helper":    func() error { return bindAndBoot(machineFlags{qmp: sock}) },
 		"save":          func() error { return save(saveFlags{qmp: sock, to: filepath.Join(t.TempDir(), "s")}) },
 		"restore":       func() error { return restore(restoreFlags{qmp: sock, from: checkpointFile(t)}) },
 		"no state":      func() error { return restore(restoreFlags{qmp: sock, from: "/nonexistent/state"}) },
@@ -430,8 +470,7 @@ func TestBootRefusesBeforeStartingAnything(t *testing.T) {
 	if err := os.WriteFile(garbage, []byte{0, 1, 2, 3}, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	spec := machine.Spec{QEMU: garbage, Kernel: kernelIn(t, dir), Firmware: dir, BootCPUs: 1, Memory: machine.Memory{BaseMB: 64},
-		Monitors: []machine.Monitor{{Socket: "/q"}}}
+	spec := machine.Spec{QEMU: garbage, Kernel: kernelIn(t, dir), Firmware: dir, Accel: "tcg", BootCPUs: 1, Memory: machine.Memory{BaseMB: 64}}
 	invalid := spec
 	invalid.Memory.BaseMB = 0
 	absent := spec
@@ -443,122 +482,98 @@ func TestBootRefusesBeforeStartingAnything(t *testing.T) {
 		want string
 	}{
 		{"a machine that cannot be", invalid, machineFlags{}, "memory is 0"},
-		{"no QEMU", absent, machineFlags{held: true, qmp: "/q"}, "finding QEMU"},
-		{"a QEMU that is not a program", spec, machineFlags{held: true, qmp: "/q"}, "executing"},
-		{"a QEMU that is not a program, with its helper", spec, machineFlags{}, "executing"},
+		{"no QEMU", absent, machineFlags{}, "no such file"},
+		{"a QEMU that is not a program", spec, machineFlags{}, "exec format error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := boot(tc.spec, tc.o, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
+			if err := boot(tc.spec, tc.o); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("boot = %v, want %q", err, tc.want)
 			}
 		})
 	}
 }
 
-// What boot would run: held for a boot, with the helper and the monitor it boots the machine
-// through, or held for a checkpoint with neither.
-func TestBootCommandIsHeld(t *testing.T) {
-	dir := t.TempDir()
-	qemu := filepath.Join(dir, "qemu")
-	if err := os.WriteFile(qemu, nil, 0o700); err != nil {
+// boot starts QEMU held and lets it go, unless it was asked for a machine held, and exits as QEMU
+// did. A machine it cannot boot is ended, and boot fails where the cause is.
+func TestBootStartsQEMUAndExitsAsItDid(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
-	s := machine.Spec{QEMU: qemu, Kernel: kernelIn(t, dir), Firmware: dir, BootCPUs: 1, Memory: machine.Memory{BaseMB: 64},
-		Monitors: []machine.Monitor{{Socket: "/run/q"}}}
 	for _, tc := range []struct {
-		name         string
+		name, status string
 		o            machineFlags
-		restore      bool
-		helper, held string
+		want         error
+		line         string
+		err          string
 	}{
-		{"a boot", machineFlags{qmp: "/run/q"}, false, "unix:/tmp/sm", " -S"},
-		{"held for start", machineFlags{qmp: "/run/q", held: true}, false, "", " -S"},
-		{"held for a checkpoint", machineFlags{qmp: "/run/q", restore: true}, true, "", " -incoming defer"},
+		{"a boot", "prelaunch", machineFlags{disks: diskFlags{path: "-"}}, exitCode(7), " -S", ""},
+		{"held for a checkpoint", "inmigrate", machineFlags{qmp: "/q", restore: true}, exitCode(7), " -incoming defer", ""},
+		{"a boot QEMU will not run", "inmigrate", machineFlags{disks: diskFlags{path: "-"}}, nil, " -S", "booting a machine that is inmigrate"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := s
-			spec.Restore = tc.restore
-			_, args, helper, err := bootCommand(spec, tc.o, []string{"--memory", "64", "--qmp", "/run/q"})
+			dir := t.TempDir()
+			argv := filepath.Join(dir, "argv")
+			t.Setenv("SPIN_MACHINE_FAKE_QEMU", tc.status)
+			t.Setenv("SPIN_MACHINE_FAKE_ARGV", argv)
+			socks, err := os.MkdirTemp("/tmp", "bt")
 			if err != nil {
 				t.Fatal(err)
 			}
-			line := " " + strings.Join(args, " ")
-			if !strings.Contains(line, tc.held) {
-				t.Errorf("exec'd %s, want %q", line, tc.held)
+			t.Cleanup(func() { _ = os.RemoveAll(socks) })
+			s := machine.Spec{QEMU: self, Kernel: kernelIn(t, dir), Firmware: dir, Accel: "tcg", BootCPUs: 1,
+				Memory: machine.Memory{BaseMB: 64}, Restore: tc.o.restore}
+			if tc.o.qmp != "" {
+				tc.o.qmp = filepath.Join(socks, "q")
+				s.Monitors = []machine.Monitor{{Socket: tc.o.qmp}}
 			}
-			if (helper != nil) != (tc.helper != "") || strings.Contains(line, "unix:/tmp/sm") != (tc.helper != "") {
-				t.Fatalf("helper %v, line %s, want a helper and its monitor: %t", helper, line, tc.helper != "")
+			err = boot(s, tc.o)
+			switch {
+			case tc.err != "" && (err == nil || !strings.Contains(err.Error(), tc.err)):
+				t.Errorf("boot returned %v, want %q", err, tc.err)
+			case tc.err == "" && err != tc.want:
+				t.Errorf("boot returned %v, want %v", err, tc.want)
 			}
-			if helper == nil {
-				return
+			b, err := os.ReadFile(argv)
+			if err != nil {
+				t.Fatal(err)
 			}
-			want := []string{bindCommand, "--qmp"}
-			if got := helper.Args[1:3]; !slices.Equal(got, want) || !strings.Contains(line, "unix:"+helper.Args[3]) ||
-				!slices.Equal(helper.Args[4:], []string{"--memory", "64"}) {
-				t.Errorf("helper %v, want %v, the monitor on the line and the boot's flags without its --qmp", helper.Args, want)
+			if !strings.Contains(" "+string(b), tc.line) {
+				t.Errorf("QEMU ran with %s, want %q", b, tc.line)
 			}
 		})
 	}
 }
 
-// What QEMU is exec'd with: held for a boot, with the monitor the helper boots it through, or
-// held for a checkpoint with none. Run as a child, because a process that execs is not there
-// afterwards to say what it ran.
-func TestBootExecsQEMUHeld(t *testing.T) {
-	if argv := os.Getenv("SPIN_MACHINE_TEST_ARGV"); argv != "" {
-		qemu := os.Getenv("SPIN_MACHINE_TEST_QEMU")
-		s := machine.Spec{QEMU: qemu, Kernel: filepath.Join(filepath.Dir(qemu), "bzImage"), Firmware: filepath.Dir(qemu), BootCPUs: 1, Memory: machine.Memory{BaseMB: 64},
-			Monitors: []machine.Monitor{{Socket: "/run/q"}}}
-		o := machineFlags{qmp: "/run/q"}
-		if os.Getenv("SPIN_MACHINE_TEST_RESTORE") != "" {
-			o.restore, s.Restore = true, true
+// QEMU's end is the command's: its status, or 128 and the signal, and nothing for a clean exit.
+func TestExitOfIsQEMUsEnd(t *testing.T) {
+	for _, tc := range []struct {
+		script string
+		want   error
+	}{{"exit 0", nil}, {"exit 3", exitCode(3)}, {"kill -9 $$", exitCode(137)}} {
+		cmd := exec.Command("/bin/sh", "-c", tc.script)
+		_ = cmd.Run()
+		if got := exitOf(machine.Exit{State: cmd.ProcessState}); got != tc.want {
+			t.Errorf("%s: %v, want %v", tc.script, got, tc.want)
 		}
-		_ = boot(s, o, []string{"--qmp", "/run/q"})
-		os.Exit(100)
 	}
-	for _, restore := range []bool{false, true} {
-		dir := t.TempDir()
-		kernelIn(t, dir)
-		qemu, argv := filepath.Join(dir, "qemu"), filepath.Join(dir, "argv")
-		if err := os.WriteFile(qemu, []byte("#!/bin/sh\necho \"$@\" > "+argv+"\nexit 7\n"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		cmd := exec.Command(os.Args[0], "-test.run=^TestBootExecsQEMUHeld$")
-		cmd.Env = append(os.Environ(), "SPIN_MACHINE_TEST_ARGV=1", "SPIN_MACHINE_TEST_QEMU="+qemu)
-		if restore {
-			cmd.Env = append(cmd.Env, "SPIN_MACHINE_TEST_RESTORE=1")
-		}
-		var exit *exec.ExitError
-		if err := cmd.Run(); !errors.As(err, &exit) || exit.ExitCode() != 7 {
-			t.Fatalf("restore %t: boot ended with %v, want QEMU's exit status 7", restore, err)
-		}
-		b, err := os.ReadFile(argv)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := string(b)
-		helper := strings.Contains(got, "unix:/tmp/sm")
-		switch {
-		case !restore && (!helper || !strings.Contains(got, " -S")):
-			t.Errorf("a boot exec'd %s, want -S and the helper's monitor", got)
-		case restore && (helper || !strings.Contains(got, "-incoming defer")):
-			t.Errorf("a restore exec'd %s, want -incoming defer and no helper", got)
-		}
+	if got := exitCode(3).Error(); got != "exit status 3" {
+		t.Errorf("exitCode(3) says %q", got)
 	}
 }
 
 // The commands that take their flags through run.
 func TestRunPassesFlagsOn(t *testing.T) {
-	for _, argv := range [][]string{{bindCommand, "--nope"}, {"cpu", "--nope"}, {"start", "--nope"}} {
+	for _, argv := range [][]string{{"cpu", "--nope"}, {"start", "--nope"}} {
 		if err := run(argv); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
 			t.Errorf("run(%q) = %v", argv, err)
 		}
 	}
 	dir := release(t)
 	for _, tc := range []struct {
-		flags  []string
-		helper bool
-	}{{nil, true}, {[]string{"--held", "--qmp", "/q"}, false}, {[]string{"--restore", "--qmp", "/q"}, false}} {
+		flags []string
+		held  string
+	}{{nil, " -S"}, {[]string{"--held", "--qmp", "/q"}, " -S"}, {[]string{"--restore", "--qmp", "/q"}, " -incoming"}} {
 		r, w, err := os.Pipe()
 		if err != nil {
 			t.Fatal(err)
@@ -573,8 +588,8 @@ func TestRunPassesFlagsOn(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(b.String(), "/tmp/sm/m") != tc.helper {
-			t.Errorf("args %v printed the helper's monitor: %t, want %t", tc.flags, !tc.helper, tc.helper)
+		if !strings.Contains(b.String(), tc.held) {
+			t.Errorf("args %v printed %s, want %q", tc.flags, b.String(), tc.held)
 		}
 	}
 }

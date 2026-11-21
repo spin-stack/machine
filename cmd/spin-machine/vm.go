@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -90,105 +91,61 @@ func (o diskFlags) open(release string) (machine.Disk, func(), error) {
 	return d, closeAll, nil
 }
 
-// bindCommand is the command boot runs beside QEMU to boot it: not one for a person to type.
-const bindCommand = "_bind"
-
-// boot becomes QEMU: it returns only if the exec failed.
+// boot starts the machine and stays beside it until QEMU exits, then exits as QEMU did
+// (exitCode). It boots the machine unless the caller asked for one held, which start or restore
+// lets go over --qmp.
 //
-// Exec and not a child. A child leaves this process between whoever started the machine
-// and the machine: a signal meant for the VM reaches a Go program that dies of it and
-// leaves QEMU running, orphaned, holding its disks — the boot benchmarks once left one
-// QEMU per boot that way. After an exec the pid the caller holds is QEMU's, its exit
-// status is QEMU's, and the terminal, the process group and the signals are QEMU's
-// without anything here to pass them on.
-//
-// QEMU starts held (Spec.Restore), so unless the caller asked for a held machine to boot
-// later, something has to boot it: this command again as bindCommand, started beside the exec
-// with the same flags and given a monitor of its own, which binds the disk, lets the vCPUs go
-// and exits.
-func boot(s machine.Spec, o machineFlags, argv []string) error {
-	qemu, args, helper, err := bootCommand(s, o, argv)
+// A parent and not an exec, because machine.Start is how a machine is started: it hands QEMU its
+// monitors, devices and console as descriptors and knows how the process ended. A signal meant
+// for the VM reaches this process, which stops QEMU (machine.Process.Stop) before it exits, and
+// a SIGKILL of this process alone reaches QEMU through Pdeathsig: no QEMU is left orphaned
+// holding its disks, as the boot benchmarks once left one per boot.
+func boot(s machine.Spec, o machineFlags) error {
+	if (o.held || o.restore) && o.qmp == "" {
+		return errors.New("boot: a machine started held is booted or restored over --qmp, and none was given")
+	}
+	signals, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	defer cancel()
+	ctx, cancelStart := context.WithTimeout(signals, time.Minute)
+	defer cancelStart()
+	p, err := machine.Start(ctx, s, machine.StartOptions{
+		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+		Cmd: func(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL} },
+	})
 	if err != nil {
 		return err
 	}
-	if helper != nil {
-		if err := helper.Start(); err != nil {
-			return fmt.Errorf("starting what boots the machine: %w", err)
+	if !o.held && !o.restore {
+		if err := bootWith(ctx, p, o.disks, o.release); err != nil {
+			p.Stop(context.WithoutCancel(ctx))
+			return err
 		}
 	}
-	// #nosec G204 -- a binary and arguments this caller chose
-	if err := syscall.Exec(qemu, append([]string{qemu}, args...), os.Environ()); err != nil {
-		return fmt.Errorf("executing %s: %w", qemu, err)
+	cancelStart()
+	select {
+	case <-p.Exited():
+	case <-signals.Done():
+		p.Stop(context.Background())
+	}
+	return exitOf(p.Wait())
+}
+
+// exitCode is a command's end that main makes the process's exit status, saying nothing: what
+// QEMU had to say it has said on stderr already.
+type exitCode int
+
+func (c exitCode) Error() string { return fmt.Sprintf("exit status %d", int(c)) }
+
+// exitOf is QEMU's end as this process's: its status, or 128 and the signal that ended it, as a
+// shell has it.
+func exitOf(e machine.Exit) error {
+	if ws, ok := e.State.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return exitCode(128 + int(ws.Signal()))
+	}
+	if code := e.State.ExitCode(); code != 0 {
+		return exitCode(code)
 	}
 	return nil
-}
-
-// bootCommand is what boot runs: QEMU's path and command line, and the helper that boots it
-// unless the machine is to stay held. The command line and QEMU first: a machine that cannot
-// start starts nothing beside it.
-func bootCommand(s machine.Spec, o machineFlags, argv []string) (qemu string, args []string, helper *exec.Cmd, err error) {
-	if (o.held || o.restore) && o.qmp == "" {
-		return "", nil, nil, errors.New("boot: a machine started held is booted or restored over --qmp, and none was given")
-	}
-	var sock string
-	if !o.held && !o.restore {
-		dir, err := os.MkdirTemp("/tmp", "sm")
-		if err != nil {
-			return "", nil, nil, fmt.Errorf("making a directory for the boot's monitor: %w", err)
-		}
-		sock = filepath.Join(dir, "m")
-		s.Monitors = append(s.Monitors, machine.Monitor{Socket: sock})
-	}
-	if args, err = s.Args(); err != nil {
-		return "", nil, nil, err
-	}
-	if qemu, err = exec.LookPath(s.QEMU); err != nil {
-		return "", nil, nil, fmt.Errorf("finding QEMU: %w", err)
-	}
-	if sock == "" {
-		return qemu, args, nil, nil
-	}
-	self, err := os.Executable()
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("finding this command to boot the machine with: %w", err)
-	}
-	// #nosec G204 -- this binary, with the flags it was given
-	helper = exec.Command(self, append([]string{bindCommand, "--qmp", sock}, withoutQMP(argv)...)...)
-	helper.Stderr = os.Stderr // mutate-exempt: where the helper's own error is printed, which only a person reads
-	return qemu, args, helper, nil
-}
-
-// withoutQMP is the boot's flags without its own --qmp, which the helper's replaces.
-func withoutQMP(argv []string) []string {
-	var out []string
-	for i := 0; i < len(argv); i++ {
-		switch a := argv[i]; {
-		case a == "--qmp" || a == "-qmp":
-			i++
-		case len(a) > 6 && (a[:6] == "--qmp=" || a[:5] == "-qmp="):
-		default:
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
-// bindAndBoot is bindCommand: boot binds the machine it exec'd, then exits. A machine it could
-// not boot is ended, so that boot fails where the cause is rather than as a QEMU held forever.
-func bindAndBoot(o machineFlags) error {
-	m, err := dial(o.qmp, 30*time.Second)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = m.Close() }()
-	_ = os.RemoveAll(filepath.Dir(o.qmp))
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	err = bootWith(ctx, m, o.disks, o.release)
-	if err != nil {
-		_ = m.Quit(context.WithoutCancel(ctx))
-	}
-	return err
 }
 
 func bootWith(ctx context.Context, m machine.VM, d diskFlags, release string) error {
@@ -204,9 +161,9 @@ func bootWith(ctx context.Context, m machine.VM, d diskFlags, release string) er
 	return m.Boot(ctx, disks...)
 }
 
-// handshakeTimeout bounds QEMU's greeting and qmp_capabilities: QEMU writes the greeting as soon
-// as a client connects, so one that has not arrived in this long is a socket nobody serves.
-const handshakeTimeout = 5 * time.Second
+// handshakeTimeout bounds QEMU's greeting and qmp_capabilities. boot binds --qmp before QEMU
+// runs, so a client that connects early waits here for QEMU's start, a few hundred milliseconds.
+const handshakeTimeout = 30 * time.Second
 
 // dial connects to a machine's QMP socket, waiting for QEMU to have made it: a command run
 // right after boot otherwise races QEMU's start.

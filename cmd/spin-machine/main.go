@@ -14,9 +14,9 @@
 // while it runs, a save to a file — is a command here, so trying it needs no
 // script of its own.
 //
-// It is not a container runtime and does not want to become one. There is no
-// supervision and no lifecycle: `boot` execs QEMU and gets out of the way, and the
-// commands that act on a running VM are each one machine.VM call, over its monitor.
+// It is not a container runtime and does not want to become one. `boot` starts QEMU
+// through machine.Start and stays beside it until it exits, and the commands that act on
+// a running VM are each one machine.VM call, over its monitor.
 package main
 
 import (
@@ -30,11 +30,15 @@ import (
 	"github.com/spin-stack/machine/machine"
 )
 
-// main is the only place the process ends, except that boot becomes QEMU and QEMU ends
-// it. A command returns what happened and main decides what it means: help asked for is
-// not a failure.
+// main is the only place the process ends. A command returns what happened and main decides
+// what it means: help asked for is not a failure, and boot's exitCode is QEMU's.
 func main() {
-	if err := run(os.Args[1:]); err != nil && !errors.Is(err, flag.ErrHelp) {
+	err := run(os.Args[1:])
+	var code exitCode
+	if errors.As(err, &code) {
+		os.Exit(int(code))
+	}
+	if err != nil && !errors.Is(err, flag.ErrHelp) {
 		fmt.Fprintf(os.Stderr, "spin-machine: %v\n", err)
 		os.Exit(1)
 	}
@@ -75,25 +79,18 @@ func run(argv []string) error {
 			return err
 		}
 		if cmd == "boot" {
-			return boot(spec, o, argv)
+			return boot(spec, o)
 		}
-		// The line boot runs has the monitor its helper boots the machine through, in a
-		// directory boot makes: shown at the name that directory starts with.
-		if !o.held && !o.restore {
-			spec.Monitors = append(spec.Monitors, machine.Monitor{Socket: "/tmp/sm/m"})
-		}
+		// The machine's command line as the flags make it, and the monitor machine.Start adds
+		// of its own, shown at descriptor 3. boot hands QEMU the same machine with its
+		// monitors, devices and console as descriptors, numbered after it.
+		spec.Monitors = append(spec.Monitors, machine.Monitor{FD: 3})
 		args, err := spec.Args()
 		if err != nil {
 			return err
 		}
 		fmt.Println(strings.Join(append([]string{spec.QEMU}, args...), " \\\n  "))
 		return nil
-	case bindCommand:
-		var o machineFlags
-		if err := parse(cmd, argv, o.register); err != nil {
-			return err
-		}
-		return bindAndBoot(o)
 	case "start":
 		var o startFlags
 		if err := parse(cmd, argv, o.register); err != nil {
