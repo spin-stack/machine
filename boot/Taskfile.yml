@@ -1,5 +1,5 @@
 # The checks of a booted machine - whether its firmware runs it, a checkpoint of the release before
-# resumes, a rollback brings back what a snapshot kept, lockdown, logind, a core hot-added - and
+# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short, lockdown, logind, a core hot-added - and
 # the probes still Go tests: firmware-stages and waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
 # unless its SPIN_* switch is set, which is what these targets do. Each boots the release tree
 # OUTPUT_DIR names; `spin-machine-dev lab check TARGET --tree NAME=SPEC` runs one on any tree, on the
@@ -43,6 +43,17 @@ tasks:
     deps: [':tools']
     cmds:
       - SPIN_ROLLBACK_TEST=1 go test ./boot/ -run '^TestARollbackBringsBackTheSameMemoryAndDisk$' -count=1 -v -timeout 10m
+
+  checkpoint-pause:
+    desc: >-
+      How long a checkpoint stops the guest, at spin's shape plugged to 2 GiB: an idle guest with
+      1.5 GiB of tmpfs filled, and one rewriting 64 MiB of a 512 MiB set every ~100 ms, each saved
+      SPIN_PAUSE_SAVES times (default 10) and continued. Logs each save's pause (GuestStopped to
+      GuestRunning), QEMU's downtime, what was left at the stop and the save's total, and holds the
+      median pause under 50 ms (pause_test.go). Needs a built release and /dev/kvm.
+    deps: [':tools']
+    cmds:
+      - SPIN_PAUSE_TEST=1 go test ./boot/ -run '^TestACheckpointPausesTheGuestBriefly$' -count=1 -v -timeout 15m
 
   buildkit:
     desc: >-

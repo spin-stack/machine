@@ -4,7 +4,8 @@ name: Compat
 # machine's record still refuses what QEMU loads silently and accepts the machine's own checkpoint
 # (boot:compat, boot:record): after every change on main to what a resumed guest is loaded into -
 # the machine's definition, QEMU, the kernel, the firmware and their pins - and before every
-# release. And whether that kernel, booted, is locked down (boot:lockdown).
+# release. And whether that kernel, booted, is locked down (boot:lockdown), and how long that QEMU
+# stops a guest to checkpoint it (boot:checkpoint-pause).
 #
 # On the KVM fleet (spin-stack/ci), because it boots: the newest release is unpacked as the machine
 # before, and the machine here is that tree with this change's QEMU, firmware and kernel built over
@@ -31,6 +32,7 @@ on:
       - internal/lab/compat.go
       - boot/record_test.go
       - boot/lockdown_test.go
+      - boot/pause_test.go
       - boot/testdata/lockdown-check.sh
       - versions.yaml
       - .github/workflows/compat.yml
@@ -108,6 +110,11 @@ jobs:
 
       - name: The machine's record refuses what QEMU loads silently, and not its own checkpoint
         run: go tool task boot:record
+
+      # QEMU decides when migration stops the guest, and a QEMU that stops it early again reads
+      # ~200 ms against ~15 (docs/memory-and-disk.md, "How long the guest is stopped").
+      - name: A checkpoint stops the guest briefly
+        run: go tool task boot:checkpoint-pause
 
       # Every release until one whose machine is not this one, not only the one before: a host may
       # skip releases, and its checkpoints still resume.

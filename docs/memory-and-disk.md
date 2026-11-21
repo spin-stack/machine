@@ -256,7 +256,7 @@ reached. Two dirty syncs ran in every save, and QEMU's `expected-downtime` at th
 
 Measured on the bench fleet (nested KVM, v20261121.01, spin's shape plugged to 2 GiB, mapped-ram
 with 8 channels, a seal that does nothing, 20 saves an arm interleaved on one guest, lab
-44940051596, 2026-11-21). The experiment ran from branch `exp/415-downtime`. The idle guest had
+44940051596, 2026-11-21). The idle guest had
 1.5 GiB of tmpfs filled from `/dev/urandom`, so each save wrote 1.6 GiB. The writer case had
 1 GiB filled and a loop rewriting 64 MiB of a 512 MiB tmpfs file every ~100 ms:
 
@@ -277,6 +277,21 @@ all 10 saves, after 4 dirty syncs, with a 23 ms downtime against 229 ms (laptop)
 So `Checkpoint` sets `downtime-limit` to 30 ms (`checkpointDowntime`). The cost is a save that
 runs longer while the guest runs, when the guest dirties memory. The state is the same file, and
 `Resume` reads it as before.
+
+`task boot:checkpoint-pause` (lab.yml's `check:checkpoint-pause`) takes the same two guests again
+at the machine's 30 ms, 10 saves each, and holds the median pause under 50 ms. compat.yml runs it on
+every change to QEMU and before every release, so a QEMU that stops the guest earlier fails there.
+The pause it holds is the larger of QEMU's downtime and the guest's stop to `GuestRunning`, because
+QEMU stops the guest before the host hears of it. Its first bench run (lab 44944984313,
+v20261121.01, `lab dispatch check:checkpoint-pause`) read:
+
+| Guest | Stop to `cont` returned, p50 | slowest | QEMU's downtime, p50 | Left at the stop, p50 | QEMU's total, p50 |
+| --- | --- | --- | --- | --- | --- |
+| idle | 13.3 ms | 14.8 ms | 6 ms | 0 | 465 ms |
+| writer | 18.9 ms | 25.8 ms | 7 ms | 0 | 531 ms |
+
+On a laptop whose disk was busy, the same check stopped the guest for 0.1-8.7 s in 4-6 of the
+writer's 10 saves with at most 85 MiB left at the stop, so that time did not go to RAM (#426).
 
 `Resume` has no bound of its own besides its context. A full load reads the state's written
 blocks, not its length, since a mapped-ram state is sparse. How long that may take depends on the
