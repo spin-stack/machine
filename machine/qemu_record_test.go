@@ -81,8 +81,6 @@ func recordAnswers(c call) (string, bool) {
 	case "x-query-ramblock":
 		b, _ := json.Marshal(map[string]string{"human-readable-text": fakeRAMBlocks})
 		return ret(string(b)), true
-	case "query-version":
-		return ret(`{"qemu": {"major": 11, "minor": 2, "micro": 0}}`), true
 	case "qom-list-get":
 		return path("", "")(c)
 	}
@@ -194,7 +192,6 @@ func TestTargetRefusesWhatItCannotRead(t *testing.T) {
 		{"no list of devices", failsReading("/machine"), "listing the machine's devices"},
 		{"no device to read", failsReading("/machine/q35/mch"), "reading the machine's devices"},
 		{"no RAM blocks", fails("x-query-ramblock"), "listing the machine's RAM blocks"},
-		{"a version QEMU will not say", fails("query-version"), "asking the machine's QEMU version"},
 		{"a machine that is not a machine type", path("/machine", `[{"name": "type", "type": "string", "value": "none"}]`), `"none", not a machine type`},
 		{"an option it cannot read back", path("/machine", `[{"name": "type", "type": "string", "value": "pc-q35-11.1-machine"}]`), "no smp to read back"},
 		{"a device on the root complex with no slot", path("/machine/q35/mch", `[{"name": "type", "type": "string", "value": "mch"}]`), "has no slot"},
@@ -302,7 +299,7 @@ func TestResumeRefusesAnotherMachine(t *testing.T) {
 			if read := slices.Contains(asked, "migrate-incoming"); read != (tc.want == nil) {
 				t.Errorf("the state was read: %t", read)
 			}
-			for _, c := range []string{"query-version", "query-cpus-fast", "qom-list-get", "query-accelerators", "x-query-ramblock"} {
+			for _, c := range []string{"query-cpus-fast", "qom-list-get", "query-accelerators", "x-query-ramblock"} {
 				if slices.Contains(asked, c) {
 					t.Errorf("Resume asked QEMU %s, a part of the record it was handed", c)
 				}

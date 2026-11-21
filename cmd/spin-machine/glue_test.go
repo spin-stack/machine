@@ -84,10 +84,9 @@ const (
 	cpuExpansion = `{"return": {"model": {"name": "base", "props": {"vendor": "GenuineIntel", "sse2": true}}}}`
 )
 
-// readRecord is what QEMU answers a Target with, in the order it is asked: its version, its CPU,
+// readRecord is what QEMU answers a Target with, in the order it is asked: its CPU,
 // its accelerator, its machine and where its devices are (it has none) and its RAM blocks.
 var readRecord = []string{
-	`{"return": {"qemu": {"major": 11, "minor": 2, "micro": 0}}}`,
 	cpuFast, cpuVCPU, cpuExpansion,
 	`{"return": {"enabled": "kvm", "present": ["kvm", "tcg"]}}`,
 	`{"return": [{"properties": [{"name": "type", "type": "string", "value": "pc-q35-11.1-machine"}, ` +
@@ -100,7 +99,7 @@ var readRecord = []string{
 }
 
 // readRecordAsked is what a Target asks.
-var readRecordAsked = []string{"query-version", "query-cpus-fast", "qom-list-get", "query-cpu-model-expansion",
+var readRecordAsked = []string{"query-cpus-fast", "qom-list-get", "query-cpu-model-expansion",
 	"query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock"}
 
 // Each command that acts on a running machine, against a monitor that answers as QEMU does:
@@ -238,10 +237,10 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		asked:   readRecordAsked,
 		printed: `"vmm": "qemu 11.2.0"`,
 	}, {
-		name:    "target, its version unreadable",
+		name:    "target, its vCPUs unreadable",
 		replies: []string{ok, no},
 		do:      func(_ *testing.T, sock string) error { return targetReport(sock, &out) },
-		wantErr: "asking the machine's QEMU version",
+		wantErr: "listing the machine's vCPUs",
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			out.Reset()

@@ -28,7 +28,16 @@ type served struct {
 	err   error
 }
 
+// greeting is what a monitor greets with: QEMU 11.2.0, the version the records here say.
+const greeting = `{"QMP": {"version": {"qemu": {"major": 11, "minor": 2, "micro": 0}, "package": ""}, "capabilities": []}}`
+
 func newMonitor(t *testing.T, replies ...string) *monitor {
+	t.Helper()
+	return greetedBy(t, greeting, replies...)
+}
+
+// greetedBy is newMonitor with the greeting hello, which says which QEMU it is.
+func greetedBy(t *testing.T, hello string, replies ...string) *monitor {
 	t.Helper()
 	m := &monitor{socket: filepath.Join(t.TempDir(), "qmp.sock"), done: make(chan served, 1)}
 	l, err := net.Listen("unix", m.socket)
@@ -44,7 +53,7 @@ func newMonitor(t *testing.T, replies ...string) *monitor {
 			m.done <- served{err: err}
 			return
 		}
-		asked, err := serve(c, replies)
+		asked, err := serve(c, hello, replies)
 		m.done <- served{asked, err}
 	}()
 	return m
