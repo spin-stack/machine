@@ -6,6 +6,7 @@ package boot_test
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"fmt"
 	"math/rand/v2"
@@ -47,7 +48,7 @@ func TestDeferAB(t *testing.T) {
 	s, mac := r.next(t, "/bin/sh")
 	raw := filepath.Join(r.dir, "ab.sock")
 	s.Monitors = []machine.Monitor{{Socket: raw}}
-	trace := filepath.Join(t.TempDir(), "trace.log")
+	trace := cmp.Or(os.Getenv("SPIN_AB_TRACE"), filepath.Join(t.TempDir(), "trace.log"))
 	s.Console = "stdio"
 	pr, pw, err := os.Pipe()
 	if err != nil {
@@ -61,7 +62,7 @@ func TestDeferAB(t *testing.T) {
 		Cmd: func(c *exec.Cmd) {
 			spinsNIC(mac)(c)
 			c.Args = append(c.Args, "-msg", "timestamp=on", "-D", trace)
-			for _, e := range []string{"runstate_set", "vm_stop_flush_all", "migrate_set_state", "luring_co_submit", "luring_cqe_handler"} {
+			for _, e := range []string{"runstate_set", "vm_stop_flush_all", "migrate_set_state", "luring_co_submit", "luring_cqe_handler", "qcow2_cache_flush", "migration_cleanup", "vm_state_notify"} {
 				c.Args = append(c.Args, "-trace", "enable="+e)
 			}
 		},
@@ -188,24 +189,24 @@ func traceStops(t *testing.T, path string) []string {
 		return float64(ts.UnixMicro()) / 1000
 	}
 	var out []string
-	var t0, flushed, pre float64
-	var flushes, writes int
+	var t0, flushed, pre, done float64
+	var flushes, writes, later int
 	in := false
-	reqs := map[string]float64{}
-	var slowest float64
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
 	for sc.Scan() {
 		line := sc.Text()
 		switch {
 		case strings.Contains(line, "new_state 7 (finish-migrate)"):
-			in, t0, flushed, pre, flushes, writes, slowest = true, at(line), 0, 0, 0, 0, 0
-			clear(reqs)
+			in, t0, flushed, pre, done, flushes, writes, later = true, at(line), 0, 0, 0, 0, 0, 0
 		case !in:
-		case strings.Contains(line, "luring_co_submit") && pre == 0:
-			if strings.HasSuffix(line, "type 8") {
+		case strings.Contains(line, "luring_co_submit"):
+			switch {
+			case done > 0 && strings.HasSuffix(line, "type 8"):
+				later++
+			case pre == 0 && strings.HasSuffix(line, "type 8"):
 				flushes++
-			} else if strings.HasSuffix(line, "type 2") {
+			case pre == 0 && strings.HasSuffix(line, "type 2"):
 				writes++
 			}
 		case strings.Contains(line, "vm_stop_flush_all"):
@@ -213,11 +214,12 @@ func traceStops(t *testing.T, path string) []string {
 		case strings.Contains(line, "new state pre-switchover"):
 			pre = at(line)
 		case strings.Contains(line, "new state completed"):
-			out = append(out, fmt.Sprintf("stop to flush done %.2f, to pre-switchover %.2f, to completed %.2f ms; io_uring flushes %d writes %d",
-				flushed-t0, pre-t0, at(line)-t0, flushes, writes))
+			done = at(line)
+		case done > 0 && strings.Contains(line, "(running)"):
+			out = append(out, fmt.Sprintf("stop to flush done %.2f, to pre-switchover %.2f, to completed %.2f, to running %.2f ms; io_uring flushes in the stop %d writes %d, flushes completed to running %d",
+				flushed-t0, pre-t0, done-t0, at(line)-t0, flushes, writes, later))
 			in = false
 		}
-		_ = slowest
 	}
 	return out
 }
