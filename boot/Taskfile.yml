@@ -113,6 +113,16 @@ tasks:
     cmds:
       - go run ./cmd/spin-machine-dev lab run initcalls --tree 'here=--from {{.OUTPUT_ABS}}' --reps {{.REPS | default 10}} --opt top={{.TOP | default 30}}
 
+  downtime:
+    desc: >-
+      Experiment for #415, not for main: a checkpoint's pause at downtime-limit 300 and 30, interleaved
+      on one guest of spin's shape plugged to 2 GiB, idle with 1.5 GiB of tmpfs filled, then with a
+      writer rewriting 64 MiB of a 512 MiB set every ~100 ms over 1 GiB filled.
+    deps: [':tools']
+    cmds:
+      - SPIN_DT_ARMS=300,30 SPIN_DT_REPS=20 SPIN_DT_FILL=1536 go test ./boot/ -run '^TestDowntimeExperiment$' -count=1 -v -timeout 40m
+      - SPIN_DT_ARMS=300,30 SPIN_DT_REPS=20 SPIN_DT_FILL=1024 SPIN_DT_WRITER=512:64:0.1 go test ./boot/ -run '^TestDowntimeExperiment$' -count=1 -v -timeout 40m
+
   waits:
     desc: >-
       What waited on what between the kernel handing over and a login prompt, on the host's
