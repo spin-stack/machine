@@ -91,7 +91,7 @@ func TestAFetchRefusesWhatIsNotTheRelease(t *testing.T) {
 		name, gh, cosign, says string
 		pub                    func(t *testing.T) string
 	}{
-		{"gh fails", "echo no such release >&2; exit 1", "", "downloading " + Name("v1") + ".tar.gz", func(t *testing.T) string { return published(t, share, "") }},
+		{"gh fails", "echo no such release >&2; exit 1", "", "downloading " + Name("v1") + ".tar.gz, " + Name("v1") + ".tar.gz.sha256, " + Name("v1") + ".tar.gz.sigstore.json of release v1: exit status 1: no such release", func(t *testing.T) string { return published(t, share, "") }},
 		{"no sha256 published", "", "", "reading release v1's published sha256", func(t *testing.T) string {
 			p := published(t, share, "")
 			_ = os.Remove(filepath.Join(p, Name("v1")+".tar.gz.sha256"))
