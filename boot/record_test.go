@@ -240,12 +240,12 @@ func (r *recorder) selfResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	extDisk := func(t *testing.T) machine.Disk {
-		f, err := os.OpenFile(ext, os.O_RDWR, 0)
+		d, err := machine.OpenDisk(machine.DiskPath{Serial: "ext", Path: ext, Format: "raw"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = f.Close() })
-		return machine.Disk{Serial: "ext", Locking: true, Images: []machine.Image{{File: f, Format: "raw"}}}
+		t.Cleanup(func() { _ = d.Close() })
+		return d
 	}
 	if err := src.AttachDisk(ctx, extDisk(t)); err != nil {
 		t.Fatal(err)
@@ -304,17 +304,9 @@ func inflate(ctx context.Context, t *testing.T, sock string) {
 }
 
 // rootDisk is the root disk as a machine.Disk: the overlay, writable, over the base image, read
-// only, as spin-machine opens a chain.
+// only, its chain read from the overlay's header as spin-machine reads one.
 func rootDisk(overlay, base string) (machine.Disk, error) {
-	top, err := os.OpenFile(overlay, os.O_RDWR, 0)
-	if err != nil {
-		return machine.Disk{}, err
-	}
-	under, err := os.Open(base)
-	if err != nil {
-		return machine.Disk{}, err
-	}
-	return machine.Disk{Serial: "root", Locking: true, Images: []machine.Image{{File: top, Format: "qcow2"}, {File: under, Format: "qcow2"}}}, nil
+	return machine.OpenDisk(machine.DiskPath{Serial: "root", Path: overlay, Format: "qcow2", Under: []string{base}})
 }
 
 // spinsNIC is the NIC spin gives a workspace, as Spec.Args writes it (appendNICs) with spin's
