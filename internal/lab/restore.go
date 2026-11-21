@@ -3,10 +3,8 @@
 package lab
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -19,6 +17,9 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/spin-stack/machine/machine"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // restoreFirst is the goal's second number: a checkpoint restored to the same first login. Each
@@ -395,33 +396,29 @@ func evict(path string) error {
 // has answered query-status, which the main loop runs, and the main loop runs only once QEMU's
 // start is over. The greeting alone says less - QMP's I/O thread can send it earlier.
 // mutate-lane: TestEveryProbeMeasuresATree
-func settled(qmp, state string) error {
+func settled(socket string, state machine.Status) error {
 	deadline := time.Now().Add(30 * time.Second)
-	if err := waitSocket(qmp, deadline); err != nil {
-		return Miss("the held QEMU never opened its monitor %s: %v", qmp, err)
+	if err := waitSocket(socket, deadline); err != nil {
+		return Miss("the held QEMU never opened its monitor %s: %v", socket, err)
 	}
-	c, err := net.Dial("unix", qmp)
+	c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
-		return fmt.Errorf("connecting to %s: %w", qmp, err)
+		return fmt.Errorf("connecting to %s: %w", socket, err)
 	}
-	defer func() { _ = c.Close() }()
-	_ = c.SetDeadline(deadline)
-	in := bufio.NewScanner(c)
-	in.Scan() // the greeting
-	for _, cmd := range []string{"qmp_capabilities", "query-status"} {
-		if _, err := fmt.Fprintf(c, `{"execute": %q}`+"\n", cmd); err != nil {
-			return fmt.Errorf("asking the held QEMU %s: %w", cmd, err)
-		}
-		for in.Scan() && strings.Contains(in.Text(), `"event"`) {
-		}
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{})
+	if err != nil {
+		return fmt.Errorf("the held QEMU's monitor %s: %w", socket, err)
 	}
-	var status struct {
-		Return struct {
-			Status string `json:"status"`
-		} `json:"return"`
+	m := machine.Attach(q)
+	defer func() { _ = m.Close() }()
+	st, err := m.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("the held QEMU: %w", err)
 	}
-	if err := json.Unmarshal(in.Bytes(), &status); err != nil || status.Return.Status != state {
-		return fmt.Errorf("the held QEMU answered %q (%v), want status %s", in.Text(), err, state)
+	if st != state {
+		return fmt.Errorf("the held QEMU is %s, want %s", st, state)
 	}
 	// What a pool's machine would have had: a moment idle after its start, not the instant.
 	time.Sleep(100 * time.Millisecond)

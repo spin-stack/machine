@@ -424,6 +424,9 @@ func migrations(then func(c call) string, statuses ...string) func(c call) strin
 			if sent > 0 && statuses[sent-1] == "failed" {
 				return ret(`{"status": "failed", "error-desc": "No space left on device"}`)
 			}
+			if sent > 0 && statuses[sent-1] == "completed" {
+				return ret(`{"status": "completed", "downtime": 12, "total-time": 345, "ram": {"transferred": 104857600}}`)
+			}
 			if sent > 0 {
 				return ret(`{"status": "` + statuses[sent-1] + `"}`)
 			}
@@ -457,9 +460,12 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	f := &fakeQEMU{answer: migrations(base, "active", "pre-switchover", "completed")}
 	m := f.attach(t)
 	to := image(t, "raw").File
-	saved, err := m.Checkpoint(ctx(t), to, SaveOptions{}, func(context.Context) error { sealed++; return nil })
+	saved, cost, err := m.Checkpoint(ctx(t), to, SaveOptions{}, func(context.Context) error { sealed++; return nil })
 	if err != nil {
 		t.Fatal(err)
+	}
+	if want := (Cost{Paused: 12 * time.Millisecond, Total: 345 * time.Millisecond, RAM: 100 << 20}); cost != want {
+		t.Errorf("cost %+v, want %+v: what the completed migration reports", cost, want)
 	}
 	if sealed != 1 {
 		t.Errorf("sealed %d times, want once", sealed)
@@ -484,7 +490,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get",
 		"migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate",
 		"query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock",
-		"migrate-continue", "remove-fd"}
+		"migrate-continue", "remove-fd", "query-migrate"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
 		t.Errorf("commands\n%v\nwant\n%v", got, want)
 	}
@@ -538,7 +544,7 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 				return ok
 			}, tc.statuses...)}
 			m := f.attach(t)
-			_, err := m.Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return tc.seal })
+			_, _, err := m.Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return tc.seal })
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Checkpoint = %v, want %q", err, tc.want)
 			}
@@ -571,7 +577,7 @@ func TestACheckpointByChannelsAsksForMultifd(t *testing.T) {
 			}
 			return ok
 		}, "completed")}
-		if _, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{Channels: channels}, func(context.Context) error { return nil }); err != nil {
+		if _, _, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{Channels: channels}, func(context.Context) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
 		multifd := false
@@ -618,7 +624,7 @@ func TestACheckpointRecordsItsMachineOnceTheStateIsWritten(t *testing.T) {
 				}
 				return ok
 			}, "active", "completed")
-			saved, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return nil })
+			saved, _, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return nil })
 			if tc.after {
 				if want := fakeTarget(t); err != nil || !reflect.DeepEqual(saved.From, want) {
 					t.Fatalf("Checkpoint = %+v, %v, want one taken on %+v", saved.From, err, want)
@@ -788,7 +794,7 @@ func TestLoaded(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: func(c call) string { return migrationEvents(tc.before...) + machineAnswers("running")(c) }}
 			m := f.attach(t)
-			if _, err := m.status(ctx(t)); err != nil {
+			if _, err := m.Status(ctx(t)); err != nil {
 				t.Fatal(err)
 			}
 			done := make(chan error, 1)
@@ -878,14 +884,55 @@ func TestSetCPUs(t *testing.T) {
 	}
 }
 
+// memoryAnswers is a machine of 512 MiB that may grow by 1 GiB in 2 MiB blocks, with 256 MiB
+// plugged.
 func memoryAnswers(c call) string {
 	switch c.Command {
 	case "query-memory-size-summary":
 		return ret(`{"base-memory": 536870912, "plugged-memory": 268435456}`)
-	case "qom-get":
-		return ret(`1073741824`)
+	case "qom-list-get":
+		return ret(`[{"properties": [{"name": "size", "type": "size", "value": 268435456}, {"name": "block-size", "type": "size", "value": 2097152}]},
+			{"properties": [{"name": "size", "type": "uint64", "value": 1073741824}]}]`)
 	}
 	return ok
+}
+
+// Memory is the boot memory and what virtio-mem plugged, its ceiling the growth backend's size
+// above the boot memory, and its step virtio-mem's block.
+func TestMemory(t *testing.T) {
+	f := &fakeQEMU{answer: memoryAnswers}
+	size, err := f.attach(t).Memory(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (MemorySize{Now: 768, Base: 512, Ceiling: 1536, Block: 2}); size != want {
+		t.Errorf("Memory = %+v, want %+v", size, want)
+	}
+	if got := f.sent("qom-list-get"); !reflect.DeepEqual(got, []map[string]any{{"paths": []any{"/machine/peripheral/vmem0", "/objects/mem.growth"}}}) {
+		t.Errorf("read the growth from %v, want virtio-mem and its backend", got)
+	}
+}
+
+// A machine started with no ceiling above its memory has no virtio-mem: its ceiling is its memory,
+// and it has no step. Any other refusal is an error.
+func TestMemoryOfAMachineThatMayNotGrow(t *testing.T) {
+	answer := func(refusal string) func(c call) string {
+		return func(c call) string {
+			if c.Command == "qom-list-get" {
+				return refusal
+			}
+			return memoryAnswers(c)
+		}
+	}
+	f := &fakeQEMU{answer: answer(`{"error": {"class": "DeviceNotFound", "desc": "Device '/machine/peripheral/vmem0' not found"}}`)}
+	size, err := f.attach(t).Memory(ctx(t))
+	if want := (MemorySize{Now: 768, Base: 512, Ceiling: 512}); err != nil || size != want {
+		t.Errorf("Memory = %+v, %v, want %+v", size, err, want)
+	}
+	f = &fakeQEMU{answer: answer(refused("no"))}
+	if _, err := f.attach(t).Memory(ctx(t)); err == nil || !strings.Contains(err.Error(), "how far the machine's memory may grow") {
+		t.Errorf("Memory = %v, want QEMU's refusal", err)
+	}
 }
 
 // Memory is asked for in all, and virtio-mem given what is above the boot memory.
@@ -899,9 +946,6 @@ func TestSetMemory(t *testing.T) {
 	if got := f.sent("qom-set"); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("qom-set %v, want %v", got, want)
 	}
-	if got := f.sent("qom-get")[0]; got["path"] != "/objects/mem.growth" || got["property"] != "size" {
-		t.Errorf("read the ceiling from %v, want the growth backend's size", got)
-	}
 	for _, mb := range []int{511, 1537} {
 		if err := m.SetMemory(ctx(t), mb); err == nil || !strings.Contains(err.Error(), "512 MiB to 1536 MiB") {
 			t.Errorf("SetMemory(%d) = %v, want a refusal naming 512 to 1536 MiB", mb, err)
@@ -912,9 +956,6 @@ func TestSetMemory(t *testing.T) {
 	}
 	if err := m.SetMemory(ctx(t), 1536); err != nil {
 		t.Errorf("SetMemory to the ceiling = %v", err)
-	}
-	if mb, err := m.Memory(ctx(t)); err != nil || mb != 768 {
-		t.Errorf("Memory = %d, %v, want 768", mb, err)
 	}
 }
 

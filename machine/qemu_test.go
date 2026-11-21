@@ -89,7 +89,7 @@ func (vm *qemuVM) fail(t *testing.T, what string, err error) {
 // whose CPU model the accelerator refused left a listening socket behind and had already
 // exited. An answer on it proves it, which is why the callers that ask whether a machine
 // started send query-status and not only read the greeting.
-func askStatus(t *testing.T, socket string, vm *qemuVM) runState {
+func askStatus(t *testing.T, socket string, vm *qemuVM) Status {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	var conn *net.UnixConn

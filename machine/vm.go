@@ -61,8 +61,9 @@ type VM interface {
 	// Checkpoint writes the running machine's state to the file, and leaves the machine stopped.
 	// seal runs while the guest is stopped and its disks quiet, before the state is complete:
 	// it is where the caller makes the disks match the state (a layer sealed, a snapshot
-	// named). An error from seal fails the checkpoint and the machine stays stopped.
-	Checkpoint(ctx context.Context, to *os.File, save SaveOptions, seal func(context.Context) error) (Saved, error)
+	// named). An error from seal fails the checkpoint and the machine stays stopped. Cost is
+	// what the save cost the guest, as the VMM measured it.
+	Checkpoint(ctx context.Context, to *os.File, save SaveOptions, seal func(context.Context) error) (Saved, Cost, error)
 	// Continue runs a machine a checkpoint left stopped.
 	Continue(ctx context.Context) error
 
@@ -71,6 +72,8 @@ type VM interface {
 	// DetachDisk takes the disk with this serial away, and returns once the VMM has let it go.
 	DetachDisk(ctx context.Context, serial string) error
 
+	// CPUs is how many vCPUs the machine has now.
+	CPUs(ctx context.Context) (int, error)
 	// SetCPUs makes the machine have n vCPUs, up to the ceiling it was started with. Before
 	// Boot it is the number the guest boots with.
 	SetCPUs(ctx context.Context, n int) error
@@ -78,8 +81,8 @@ type VM interface {
 	// started with and its ceiling. The guest plugs and unplugs it on its own time; Memory is
 	// what it has now.
 	SetMemory(ctx context.Context, mb int) error
-	// Memory is the guest's memory now, in MiB.
-	Memory(ctx context.Context) (int, error)
+	// Memory is the guest's memory now, and the bounds and step SetMemory moves it within.
+	Memory(ctx context.Context) (MemorySize, error)
 
 	// CPU is the CPU the guest is shown, which its Target holds.
 	CPU(ctx context.Context) (CPU, error)

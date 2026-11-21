@@ -296,7 +296,7 @@ func save(o saveFlags) error {
 	defer func() { _ = m.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 	defer cancel()
-	saved, err := m.Checkpoint(ctx, f, machine.SaveOptions{Channels: o.channels}, func(context.Context) error { return nil })
+	saved, cost, err := m.Checkpoint(ctx, f, machine.SaveOptions{Channels: o.channels}, func(context.Context) error { return nil })
 	if err != nil {
 		return err
 	}
@@ -307,7 +307,8 @@ func save(o saveFlags) error {
 	if err := os.WriteFile(savedPath(o.to), b, 0o600); err != nil {
 		return fmt.Errorf("recording the checkpoint: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "saved to %s\n", o.to)
+	fmt.Fprintf(os.Stderr, "saved to %s: %d MiB of RAM in %d ms, the guest paused %d ms\n",
+		o.to, cost.RAM>>20, cost.Total.Milliseconds(), cost.Paused.Milliseconds())
 	// The state is complete; what is left is a stopped VM nobody will resume in place.
 	return m.Quit(ctx)
 }
@@ -510,8 +511,8 @@ func memory(o memoryFlags, w io.Writer) error {
 			fmt.Fprintf(w, "the guest had not reached %d MiB after %d ms\n", o.totalMB, time.Since(start).Milliseconds())
 			return err
 		}
-		if have == o.totalMB {
-			fmt.Fprintf(w, "%d MiB in %d ms\n", have, time.Since(start).Milliseconds())
+		if have.Now == o.totalMB {
+			fmt.Fprintf(w, "%d MiB in %d ms\n", have.Now, time.Since(start).Milliseconds())
 			return nil
 		}
 		time.Sleep(10 * time.Millisecond)

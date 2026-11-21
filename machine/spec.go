@@ -98,6 +98,9 @@ const memGrowthID = "mem.growth"
 // through is /machine/peripheral/<VirtioMemID>, its property requested-size.
 const VirtioMemID = "vmem0"
 
+// balloonID is the balloon's id, which puts it at /machine/peripheral/<balloonID>.
+const balloonID = "balloon0"
+
 // Place is where a disk the machine is started with goes: a virtio-blk device on its fixed
 // slot, over a raw node whose file is an empty placeholder until a disk is bound to it (Boot,
 // Resume). The guest finds the disk by Serial.
@@ -627,9 +630,13 @@ func (s Spec) appendDevices(args []string) []string {
 	// to kill a process for want of memory takes some back from the balloon
 	// first. It costs nothing when nothing is inflated, and the alternative is a
 	// build dying with the host holding memory this VM had already earned.
+	//
+	// The id is the path GuestMemory reads the guest's reports at. It is not the machine's: the
+	// record names the balloon by its slot and leaves every id out (perVM), and the stream names
+	// it by its PCI address, so a checkpoint of a balloon without one resumes into this.
 	args = append(args, "-device",
-		fmt.Sprintf("virtio-balloon-pci,free-page-reporting=on,deflate-on-oom=on,%s,addr=0x%x",
-			virtioModern, slotBalloon))
+		fmt.Sprintf("virtio-balloon-pci,id=%s,free-page-reporting=on,deflate-on-oom=on,%s,addr=0x%x",
+			balloonID, virtioModern, slotBalloon))
 
 	if s.VsockCID != 0 {
 		dev := fmt.Sprintf("vhost-vsock-pci,guest-cid=%d,%s,addr=0x%x",

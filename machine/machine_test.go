@@ -116,7 +116,7 @@ func TestArgs(t *testing.T) {
 			"virtio-rng-pci,disable-legacy=on,addr=0x3 ",
 			// The only way a running VM gives memory back. Without it the answer to
 			// "how is memory reclaimed?" is "the VM exits".
-			"virtio-balloon-pci,free-page-reporting=on,deflate-on-oom=on,disable-legacy=on,addr=0x4 ",
+			"virtio-balloon-pci,id=balloon0,free-page-reporting=on,deflate-on-oom=on,disable-legacy=on,addr=0x4 ",
 			"virtio-blk-pci,id=disk0,drive=slot0,serial=root,disable-legacy=on,addr=0x5 ",
 			"virtio-blk-pci,id=disk1,drive=slot1,serial=home,disable-legacy=on,addr=0x6 ",
 			"virtio-net-pci,netdev=net0,mac=52:54:00:00:00:01,romfile=,disable-legacy=on,addr=0x10 ",

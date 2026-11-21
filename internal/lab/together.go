@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/spin-stack/machine/machine"
 )
 
 // restoreTogether is whether a checkpoint's channels (multifd, spin-machine restore --channels)
@@ -176,7 +178,7 @@ func restoreAll(m *Measurement, cs []*checkpoint, b burst) (err error) {
 		machines[i] = mc
 	}
 	for _, qmp := range qmps {
-		if err := settled(qmp, "inmigrate"); err != nil {
+		if err := settled(qmp, machine.Inmigrate); err != nil {
 			return err
 		}
 	}
