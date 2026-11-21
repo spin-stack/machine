@@ -380,13 +380,14 @@ func labCompat() *cobra.Command {
 	var releases int
 	c := &cobra.Command{
 		Use:   "compat",
-		Short: "Resume, on this machine, a checkpoint of every release since the fingerprint last moved",
+		Short: "Resume, on this machine, a checkpoint of every release whose machine is this one",
 		Long: `boot:compat over the newest --releases published releases, newest first, each fetched and
-checked against its sha256 and its signature: a checkpoint each saves goes on running on the
-machine at --here (a built release: _output, or boot:here's tree in CI). It stops at the first
-release with another fingerprint, whose checkpoints - and every older one's - are not meant to
-resume. For each, a checkpoint of --here's QEMU is one CanResume refuses on an older QEMU.
-Exits 1 when one did not resume.`,
+checked against its sha256 and its signature: a checkpoint each saves, at spin's shape, goes on
+running on the machine at --here (a built release: _output, or boot:here's tree in CI). It stops
+at the first release whose checkpoint the machine refuses (machine.CanResume), naming every
+difference: its checkpoints - and every older one's - are not meant to resume. For each, a
+checkpoint of --here's QEMU is one CanResume refuses on an older QEMU. Exits 1 when one did not
+resume.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			root, err := repo()
@@ -401,12 +402,25 @@ Exits 1 when one did not resume.`,
 			if err != nil {
 				return couldNot(err)
 			}
-			resume := func(previous string) error {
+			// The test writes a refusal to SPIN_COMPAT_REFUSED and skips: a machine that is not this
+			// one is an answer, not a failure.
+			resume := func(previous string) (string, error) {
+				refused, err := os.CreateTemp("", "refused")
+				if err != nil {
+					return "", err
+				}
+				_ = refused.Close()
+				defer func() { _ = os.Remove(refused.Name()) }()
 				cmd := exec.CommandContext(c.Context(), "go", "test", "./boot/", "-run", "^TestACheckpointOfTheReleaseBeforeResumesHere$",
 					"-count=1", "-v", "-timeout", "10m")
 				cmd.Dir, cmd.Stdout, cmd.Stderr = root, c.ErrOrStderr(), c.ErrOrStderr()
-				cmd.Env = append(os.Environ(), "SPIN_COMPAT_PREVIOUS="+previous, "SPIN_MACHINE_OUTPUT="+abs)
-				return cmd.Run()
+				cmd.Env = append(os.Environ(), "SPIN_COMPAT_PREVIOUS="+previous, "SPIN_MACHINE_OUTPUT="+abs, "SPIN_COMPAT_REFUSED="+refused.Name())
+				ran := cmd.Run()
+				why, err := os.ReadFile(refused.Name())
+				if err != nil {
+					return "", fmt.Errorf("reading what the test said of the machine: %w", err)
+				}
+				return strings.TrimSpace(string(why)), ran
 			}
 			rows, err := lab.Compat(abs, tags, sources(root, c.ErrOrStderr()), resume, c.ErrOrStderr())
 			if err != nil {
@@ -547,7 +561,7 @@ func labCheck() *cobra.Command {
 		Use:   "check TARGET",
 		Short: "Run a boot/ Task target - a pass/fail check, or a probe not yet a lab probe - on one tree",
 		Long: `Run boot:TARGET with the tree as the release it boots (SPIN_MACHINE_OUTPUT): the functional
-checks (firmware, roms, compat, hotadd, logind, lockdown) and the probes still Go tests
+checks (firmware, record, compat, hotadd, logind, lockdown) and the probes still Go tests
 (firmware-stages, waits), on a tree made like any other. A second tree is
 SPIN_MACHINE_OUTPUT_B, which firmware-stages boots interleaved with the first. Exits with the
 target's status.`,

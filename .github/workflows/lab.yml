@@ -33,7 +33,7 @@ on:
           - check:firmware
           - check:firmware-stages
           - check:waits
-          - check:roms
+          - check:record
       trees:
         description: "NAME=SPEC; NAME=SPEC - lab tree's flags, e.g. release=--from release; kaslr=--kernel run:44584704610"
         required: true

@@ -142,7 +142,7 @@ func (x waitsBoot) target() boot.Unit { u, _ := x.w.Unit(x.login); return u }
 // machineCommand is `spin-machine boot` with args, or, for a variant that takes devices out
 // of the machine, the release's QEMU run with the command line `spin-machine args` prints for
 // the same arguments, less those devices - as boot:firmware-stages runs it to add
-// QEMU's trace flags. A machine with a device fewer has another fingerprint, which is a
+// QEMU's trace flags. A machine with a device fewer is another machine, which is a
 // fleet-wide decision, so spin-machine has no flag for it on purpose: an experiment does not
 // belong in the release's path. Everything else the line holds is the definition's. start boots
 // the machine once the command runs: nothing for `spin-machine boot`, which boots its own.

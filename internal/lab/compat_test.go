@@ -12,36 +12,37 @@ import (
 	"testing"
 )
 
-// compatDir is a release or a machine whose spin-machine says its fingerprint is fp and whose
-// QEMU says it is version, with a bzImage.
-func compatDir(t *testing.T, dir, fp, version string) {
+// compatDir is a release or a machine whose QEMU says it is version, with a bzImage.
+func compatDir(t *testing.T, dir, version string) {
 	t.Helper()
 	write(t, filepath.Join(dir, "kernel", "bzImage"), []byte("bzImage"))
-	write(t, filepath.Join(dir, "fp"), []byte(fp))
 	write(t, filepath.Join(dir, "bin", "qemu-system-x86_64"), []byte("#!/bin/sh\necho 'QEMU emulator version "+version+" (v"+version+")'\n"))
 }
 
-// Compat resumes every release while the fingerprint is here's, says which did not, stops at the
-// first whose contract moved, and holds CanResume to QEMU's one-way promise on the way.
-func TestCompatResumesEveryReleaseSinceTheContractMoved(t *testing.T) {
+// Compat resumes every release until this machine refuses one, says which did not go on running
+// and why the refused one was, and holds CanResume to QEMU's one-way promise on the way.
+func TestCompatResumesEveryReleaseUntilOneIsRefused(t *testing.T) {
 	here := t.TempDir()
-	compatDir(t, here, "same", "11.1.90")
-	// here's spin-machine fingerprints any release by the fp file in it.
-	write(t, filepath.Join(here, "bin", "spin-machine"), []byte("#!/bin/sh\nprintf '{\"Fingerprint\": \"%s\"}' \"$(cat \"$3/fp\")\"\n"))
+	compatDir(t, here, "11.1.90")
 	cache := t.TempDir()
 	rel := func(tag string) string {
 		return filepath.Join(cache, "releases", tag, "spin-machine-"+tag+"-linux-x86_64", "usr", "share", "spin-stack")
 	}
-	compatDir(t, rel("v3"), "same", "11.1.3")
-	compatDir(t, rel("v2"), "same", "11.1.3")
-	compatDir(t, rel("v1"), "other-fingerprint", "11.0.0")
+	compatDir(t, rel("v3"), "11.1.3")
+	compatDir(t, rel("v2"), "11.1.3")
+	compatDir(t, rel("v1"), "11.0.0")
+	compatDir(t, rel("v0"), "11.0.0")
 	var resumed []string
-	resume := func(previous string) error {
+	resume := func(previous string) (string, error) {
 		resumed = append(resumed, previous)
-		if previous == rel("v2") {
-			return errors.New("never went on counting")
+		switch previous {
+		case rel("v2"):
+			return "", errors.New("never went on counting")
+		case rel("v1"):
+			// A refusal comes with the test's own exit: it skipped, and said why.
+			return "ram pc.bios: checkpoint 262144, here 65536 (same)", errors.New("exit status 0")
 		}
-		return nil
+		return "", nil
 	}
 	rows, err := Compat(here, []string{"v3", "v2", "v1", "v0"}, Sources{Cache: cache}, resume, io.Discard)
 	if err != nil {
@@ -50,16 +51,17 @@ func TestCompatResumesEveryReleaseSinceTheContractMoved(t *testing.T) {
 	want := []CompatRow{
 		{Release: "v3", Resumed: true},
 		{Release: "v2", Why: "never went on counting"},
-		{Release: "v1", Moved: true, Why: "fingerprint other-finger, here same"},
+		{Release: "v1", Moved: true, Why: "ram pc.bios: checkpoint 262144, here 65536 (same)"},
 	}
 	if !reflect.DeepEqual(rows, want) {
 		t.Errorf("rows\n%+v\nwant\n%+v", rows, want)
 	}
-	if !reflect.DeepEqual(resumed, []string{rel("v3"), rel("v2")}) {
-		t.Errorf("resumed %v: not past the contract's move", resumed)
+	if !reflect.DeepEqual(resumed, []string{rel("v3"), rel("v2"), rel("v1")}) {
+		t.Errorf("resumed %v: not past the refused release", resumed)
 	}
 	table := CompatTable(rows)
-	for _, s := range []string{"| v3 | resumed |", "| v2 | **failed**: never went on counting |", "| v1 | not meant to: the contract moved"} {
+	for _, s := range []string{"| v3 | resumed |", "| v2 | **failed**: never went on counting |",
+		"| v1 | not meant to: its machine is not this one (ram pc.bios: checkpoint 262144, here 65536 (same)); older releases neither |"} {
 		if !strings.Contains(table, s) {
 			t.Errorf("no %q in:\n%s", s, table)
 		}
@@ -67,13 +69,13 @@ func TestCompatResumesEveryReleaseSinceTheContractMoved(t *testing.T) {
 
 	// A release whose QEMU is newer than here's: its checkpoints cannot resume here, which CanResume
 	// says before a boot does.
-	compatDir(t, rel("v4"), "same", "12.0.0")
+	compatDir(t, rel("v4"), "12.0.0")
 	if _, err := Compat(here, []string{"v4"}, Sources{Cache: cache}, resume, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "v4: a checkpoint of qemu 12.0.0 cannot resume on this machine's qemu 11.1.90") {
 		t.Errorf("a release with a newer QEMU: %v", err)
 	}
-	if _, err := Compat(t.TempDir(), nil, Sources{Cache: cache}, resume, io.Discard); err == nil || !strings.Contains(err.Error(), "fingerprinting") {
-		t.Errorf("a machine with no spin-machine: %v", err)
+	if _, err := Compat(t.TempDir(), nil, Sources{Cache: cache}, resume, io.Discard); err == nil || !strings.Contains(err.Error(), "asking") {
+		t.Errorf("a machine with no QEMU: %v", err)
 	}
 }
 
@@ -81,21 +83,20 @@ func TestCompatResumesEveryReleaseSinceTheContractMoved(t *testing.T) {
 // Compat stops there with a row that says so, rather than failing on what it cannot open.
 func TestCompatStopsAtTheFirstReleaseWithoutABzImage(t *testing.T) {
 	here := t.TempDir()
-	compatDir(t, here, "same", "11.1.90")
-	write(t, filepath.Join(here, "bin", "spin-machine"), []byte("#!/bin/sh\nprintf '{\"Fingerprint\": \"%s\"}' \"$(cat \"$3/fp\")\"\n"))
+	compatDir(t, here, "11.1.90")
 	cache := t.TempDir()
 	rel := func(tag string) string {
 		return filepath.Join(cache, "releases", tag, "spin-machine-"+tag+"-linux-x86_64", "usr", "share", "spin-stack")
 	}
-	compatDir(t, rel("v2"), "same", "11.1.3")
-	compatDir(t, rel("v1"), "same", "11.1.3")
+	compatDir(t, rel("v2"), "11.1.3")
+	compatDir(t, rel("v1"), "11.1.3")
 	if err := os.Rename(filepath.Join(rel("v1"), "kernel", "bzImage"), filepath.Join(rel("v1"), "kernel", "vmlinux")); err != nil {
 		t.Fatal(err)
 	}
 	var resumed []string
-	resume := func(previous string) error {
+	resume := func(previous string) (string, error) {
 		resumed = append(resumed, previous)
-		return nil
+		return "", nil
 	}
 	rows, err := Compat(here, []string{"v2", "v1", "v0"}, Sources{Cache: cache}, resume, io.Discard)
 	if err != nil {
@@ -130,7 +131,7 @@ func TestCanResumeKeepsQEMUsOneWayPromise(t *testing.T) {
 
 func TestQEMUsVersionIsWhatACheckpointRecords(t *testing.T) {
 	dir := t.TempDir()
-	compatDir(t, dir, "x", "11.1.90")
+	compatDir(t, dir, "11.1.90")
 	if v, err := qemuVersion(filepath.Join(dir, "bin", "qemu-system-x86_64")); err != nil || v != "qemu 11.1.90" {
 		t.Errorf("qemuVersion = %q, %v", v, err)
 	}
@@ -140,9 +141,5 @@ func TestQEMUsVersionIsWhatACheckpointRecords(t *testing.T) {
 	}
 	if _, err := qemuVersion(filepath.Join(dir, "none")); err == nil {
 		t.Error("a QEMU that is not there")
-	}
-	write(t, filepath.Join(dir, "bin", "fp-empty"), []byte("#!/bin/sh\necho '{}'\n"))
-	if _, err := fingerprint(filepath.Join(dir, "bin", "fp-empty"), dir); err == nil || !strings.Contains(err.Error(), "no fingerprint") {
-		t.Errorf("an empty fingerprint: %v", err)
 	}
 }

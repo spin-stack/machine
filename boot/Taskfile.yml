@@ -15,14 +15,16 @@ env:
   SPIN_MACHINE_OUTPUT: '{{.OUTPUT_ABS}}'
 
 tasks:
-  roms:
+  record:
     desc: >-
-      Hold the fingerprint to every read-only block a started machine maps: the BIOS by its
-      file's size, the rest the machine type's own (biosBlock, machineBlocks in roms_test.go).
-      Needs a built release and /dev/kvm.
+      The machine's record (machine.QEMU.Target) at spin's shape: a machine resumes its own
+      checkpoint after a memory plug, the balloon, a vCPU and a disk; what QEMU loads silently -
+      an extra vsock, SeaBIOS for qboot, more base RAM - is refused by name, and more hotplug
+      targets are not; the BIOS block is the BIOS file's size (record_test.go). Needs a built
+      release, /dev/kvm and /dev/vhost-vsock.
     deps: [':tools']
     cmds:
-      - SPIN_ROM_TEST=1 go test ./boot/ -run '^TestEveryROMIsTheFingerprints$' -count=1 -v -timeout 3m
+      - SPIN_RECORD_TEST=1 go test ./boot/ -run '^TestTheRecordRefusesWhatQEMULoadsSilently$' -count=1 -v -timeout 5m
 
   previous:
     desc: >-
@@ -88,9 +90,9 @@ tasks:
 
   compat:
     desc: >-
-      A checkpoint of every release since the fingerprint last moved (machine.Spec.Fingerprint)
-      resumes on this tree's build: spin-machine-dev lab compat over a built release. Needs /dev/kvm
-      and gh.
+      A checkpoint of every release until one whose machine is not this one (machine.CanResume)
+      resumes on this tree's build: spin-machine-dev lab compat over a built release. Needs /dev/kvm,
+      /dev/vhost-vsock and gh.
     deps: [':tools']
     cmds:
       - go run ./cmd/spin-machine-dev lab compat --here {{.OUTPUT_ABS}}

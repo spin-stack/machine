@@ -5,7 +5,7 @@ name: Release
 # CalVer — v20260909.01 — because that is what a release of this repository is: the machine
 # as it stood on a date. There is no API here to promise compatibility about, and the one
 # thing a version could promise — that checkpoints still resume — is decided by the
-# fingerprint and not by a number anybody chose. A major version bump
+# machine's record (machine.CanResume) and not by a number anybody chose. A major version bump
 # would say something this repository cannot mean.
 #
 # The `.01` is the run within the day, because two releases on one day is normal when a
@@ -40,9 +40,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A checkpoint of the release before resumes on this one, when the two have one fingerprint,
-  # and the fingerprint accounts for every ROM the machine maps: on the KVM runner, before
-  # anything is built here to publish (compat.yml says why).
+  # A checkpoint of the release before resumes on this one when the two are one machine, and the
+  # machine's record refuses what QEMU loads silently: on the KVM runner, before anything is
+  # built here to publish (compat.yml says why).
   compat:
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/compat.yml
@@ -117,17 +117,10 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: spin-machine-dev release --version "$VERSION" --jobs 4 --cache-registry --cache-export=false
 
-      # The machine's identity, and what it costs whoever holds checkpoints.
-      #
-      # The alternative is opening two release pages and comparing sixty-four hex digits by eye,
-      # which is a thing nobody does — so the answer to "why did every checkpoint in the fleet
-      # stop resuming?" is one nobody has. The notes fetch the previous release's machine.env
-      # and state the consequence in a sentence, at the top, where a consumer deciding whether
-      # to take this release reads it.
-      #
-      # The verdict never fails: a changed machine is a release this repository makes on
-      # purpose. The point is not to prevent it but to keep it from being quiet.
-      - name: What this release is, and what it breaks
+      # What reached the machine since the release before, and its manifest. Whether that
+      # release's checkpoints still resume is the compat job's, above, which names every
+      # difference when they do not.
+      - name: What this release is
         id: manifest
         env:
           GH_TOKEN: ${{ github.token }}

@@ -10,9 +10,10 @@
 # pin of a version and rewrites that entry's two lines and nothing else. Nothing is built by a
 # bump. What a bump is then checked with is the entry's note.
 #
-# The fingerprint hashes none of these (see CLAUDE.md, the first rule): a qemu bump keeps the
-# machine type, and a kernel or toolchain bump is every guest's next boot, not a stranded
-# checkpoint. A bump is still its own commit.
+# The machine's record (machine.CanResume) holds none of these but QEMU's version, which a
+# checkpoint crosses upward: a qemu bump keeps the machine type, and boot:compat says whether the
+# release before's checkpoints still resume on it; a kernel or toolchain bump is every guest's
+# next boot, not a stranded checkpoint. A bump is still its own commit.
 #
 # Each entry:
 #   kind     image:    an OCI image; version its tag, pin its digest. A Docker Hub image is
@@ -45,7 +46,7 @@
   note: >-
     qemu/Dockerfile. A new emulator of the same machine: the machine type (machine.MachineType)
     stays, and `spin-machine-dev bump qemu` prints what newer types change against it. After the
-    bump: `spin-machine-dev build qemu`, `spin-machine-dev verify qemu args`, then `task boot:roms boot:compat`. The build directories' cache mounts are keyed by the
+    bump: `spin-machine-dev build qemu`, `spin-machine-dev verify qemu args`, then `task boot:record boot:compat`. The build directories' cache mounts are keyed by the
     version, so QEMU_CONFIG_REV does not move with it.
     A device renamed or dropped upstream fails `spin-machine-dev verify qemu` or `verify args`, and is fixed in
     qemu/devices.mak or the machine package, not by removing the check.
@@ -95,7 +96,7 @@
   track: kernel
   note: >-
     kernel/Dockerfile. A new kernel for every guest's next boot; checkpoints keep resuming, each
-    on the kernel it was saved with (machine.Spec.Fingerprint). The configuration
+    on the kernel it was saved with, which the machine's record leaves out. The configuration
     is the series', kernel/config-<major>.<minor>-x86_64, so a release within the series moves
     this entry and nothing else: refresh.yml proposes it every day, and parts.yml builds it on
     the pull request; before merging, boot it: `spin-machine-dev build kernel`, then `task boot:ssh-first`. A new series
