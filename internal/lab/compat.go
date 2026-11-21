@@ -258,8 +258,9 @@ func ResumeHere(ctx context.Context, here, previous, previousCLI string, log io.
 		_, _ = fmt.Fprintf(log, "compat: the machine of %s is not this one:\n  %s\n", previous, strings.Join(ds, "\n  "))
 		return strings.Join(ds, "; "), nil
 	}
+	// The overlay is over previous's base, not here's, which is where restore looks unless told.
 	if o, err := exec.CommandContext(ctx, cli, "restore", "--release", here, "--qmp", bSock, "--from", state, "--target", target,
-		"--disk", overlay, "--disk-format", "qcow2").CombinedOutput(); err != nil {
+		"--disk", overlay, "--disk-format", "qcow2", "--disk-under", filepath.Join(previous, "image", "rootfs.qcow2")).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("restoring: %w: %s\n%s", err, o, b.said())
 	}
 	if err := b.await(regexp.MustCompile(fmt.Sprintf(`TICK-%d\b`, last+3)), 30*time.Second); err != nil { // mutate-exempt: how far past the saved tick; any number ahead of it says the counter went on

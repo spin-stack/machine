@@ -28,6 +28,7 @@ type diskFlags struct {
 	format   string
 	readonly bool
 	serial   string
+	under    []string
 }
 
 func (o *diskFlags) register(fs *flag.FlagSet) {
@@ -35,59 +36,58 @@ func (o *diskFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.format, "disk-format", "qcow2", "format of the disk image; never guessed")
 	fs.BoolVar(&o.readonly, "disk-readonly", false, "open the disk read-only, and mount root ro")
 	fs.StringVar(&o.serial, "disk-serial", "root", "serial the guest finds the disk by")
+	fs.Func("disk-under", "a file or directory the disk's backing images may be in, never opened for writing; repeatable (default: the release's base image)", func(s string) error {
+		o.under = append(o.under, s)
+		return nil
+	})
 }
 
-// open opens the disk's chain, top first, for a machine.Disk: the machine reads no image by
-// path, so the chain the image's header names is read here (chain).
+// open opens the disk's chain, top first, for a machine.Disk (machine.OpenDisk).
 //
 // No --disk is the base image under an overlay made in a directory of its own and unlinked
 // once open: nothing to clean up after, and the base is never opened for writing (rule 1 in
 // CLAUDE.md).
-func (o diskFlags) open(release string) (machine.Disk, func(), error) {
-	path, format := o.path, o.format
-	if path == "" {
-		rel, err := machine.OpenRelease(release)
-		if err != nil {
-			return machine.Disk{}, nil, err
+func (o diskFlags) open(release string) (machine.Disk, error) {
+	d := machine.DiskPath{Serial: o.serial, Readonly: o.readonly, Path: o.path, Format: o.format, Under: o.under}
+	if d.Path != "" {
+		if len(d.Under) == 0 {
+			// The release's base when there is one: a disk with no backing file, raw or one
+			// attached by hand, needs no release at all.
+			if base, err := baseOf(release); err == nil {
+				d.Under = []string{base}
+			}
 		}
-		base, err := rel.Rootfs()
-		if err != nil {
-			return machine.Disk{}, nil, err
-		}
-		dir, err := os.MkdirTemp("", "spin-machine-scratch")
-		if err != nil {
-			return machine.Disk{}, nil, fmt.Errorf("making a directory for the scratch overlay: %w", err)
-		}
-		defer func() { _ = os.RemoveAll(dir) }()
-		path, format = filepath.Join(dir, "overlay.qcow2"), "qcow2"
-		// #nosec G204 -- the release's qemu-img and paths this command chose
-		if out, err := exec.Command(rel.QEMUImg(), "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", base, path).CombinedOutput(); err != nil {
-			return machine.Disk{}, nil, fmt.Errorf("making a scratch overlay over %s: %w: %s", base, err, out)
-		}
+		return machine.OpenDisk(d)
 	}
-	links, err := chain(path, format)
+	rel, err := machine.OpenRelease(release)
 	if err != nil {
-		return machine.Disk{}, nil, err
+		return machine.Disk{}, err
 	}
-	d := machine.Disk{Serial: o.serial, Readonly: o.readonly, Locking: !o.readonly}
-	closeAll := func() {
-		for _, img := range d.Images {
-			_ = img.File.Close()
-		}
+	base, err := rel.Rootfs()
+	if err != nil {
+		return machine.Disk{}, err
 	}
-	for j, img := range links {
-		flag := os.O_RDONLY
-		if j == 0 && !o.readonly {
-			flag = os.O_RDWR
-		}
-		f, err := os.OpenFile(img.path, flag, 0) // mutate-exempt: the mode is read only with O_CREATE, which flag never has
-		if err != nil {
-			closeAll()
-			return machine.Disk{}, nil, fmt.Errorf("opening %s: %w", img.path, err)
-		}
-		d.Images = append(d.Images, machine.Image{File: f, Format: img.format})
+	d.Under = []string{base}
+	dir, err := os.MkdirTemp("", "spin-machine-scratch")
+	if err != nil {
+		return machine.Disk{}, fmt.Errorf("making a directory for the scratch overlay: %w", err)
 	}
-	return d, closeAll, nil
+	defer func() { _ = os.RemoveAll(dir) }()
+	d.Path, d.Format = filepath.Join(dir, "overlay.qcow2"), "qcow2"
+	// #nosec G204 -- the release's qemu-img and paths this command chose
+	if out, err := exec.Command(rel.QEMUImg(), "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", base, d.Path).CombinedOutput(); err != nil {
+		return machine.Disk{}, fmt.Errorf("making a scratch overlay over %s: %w: %s", base, err, out)
+	}
+	return machine.OpenDisk(d)
+}
+
+// baseOf is the base image of the release at dir.
+func baseOf(dir string) (string, error) {
+	rel, err := machine.OpenRelease(dir)
+	if err != nil {
+		return "", err
+	}
+	return rel.Rootfs()
 }
 
 // boot starts the machine and stays beside it until QEMU exits, then exits as QEMU did
@@ -150,11 +150,11 @@ func exitOf(e machine.Exit) error {
 func bootWith(ctx context.Context, m machine.VM, d diskFlags, release string) error {
 	var disks []machine.Disk
 	if d.path != "-" {
-		disk, closeAll, err := d.open(release)
+		disk, err := d.open(release)
 		if err != nil {
 			return err
 		}
-		defer closeAll()
+		defer func() { _ = disk.Close() }() // the machine holds its own copies
 		disks = append(disks, disk)
 	}
 	return m.Boot(ctx, disks...)
@@ -327,11 +327,11 @@ func restore(o restoreFlags) error {
 	defer cancel()
 	var disks []machine.Disk
 	if o.disks.path != "-" {
-		disk, closeAll, err := o.disks.open(o.release)
+		disk, err := o.disks.open(o.release)
 		if err != nil {
 			return err
 		}
-		defer closeAll()
+		defer func() { _ = disk.Close() }() // the machine holds its own copies
 		disks = append(disks, disk)
 	}
 	if o.target == "" {
@@ -373,11 +373,11 @@ func attach(o attachFlags) error {
 	if o.qmp == "" || o.disks.path == "" || o.disks.path == "-" {
 		return errors.New("attach: --qmp and --disk are required")
 	}
-	d, closeAll, err := o.disks.open(o.release)
+	d, err := o.disks.open(o.release)
 	if err != nil {
 		return err
 	}
-	defer closeAll()
+	defer func() { _ = d.Close() }() // the machine holds its own copies
 	m, err := dial(o.qmp, 5*time.Second)
 	if err != nil {
 		return err
