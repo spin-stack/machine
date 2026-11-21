@@ -592,6 +592,15 @@ func TestValidateRefuses(t *testing.T) {
 	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), s.QEMU+" is not a bzImage") {
 		t.Errorf("Args of a kernel that is not a bzImage: %v", err)
 	}
+	// Long enough to hold a setup header and without its magic, as a vmlinux is.
+	s = spec(t)
+	s.Kernel = filepath.Join(t.TempDir(), "vmlinux")
+	if err := os.WriteFile(s.Kernel, make([]byte, 0x400), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "is not a bzImage") {
+		t.Errorf("Args of a kernel with no HdrS at 0x202: %v", err)
+	}
 
 	// And the specs the cases above are made from have to pass, or every one of them
 	// would pass for the wrong reason.
