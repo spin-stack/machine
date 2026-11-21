@@ -73,11 +73,11 @@ func (runDelay) Metrics() []Metric {
 
 // mutate-lane: TestEveryProbeMeasuresATree
 func (runDelay) Measure(_ context.Context, m *Measurement) error {
-	n, err := strconv.Atoi(m.Row)
-	if err != nil || n < 0 {
-		return fmt.Errorf("a crowd of %q workspaces is not a number of them", m.Row)
+	n, nice, err := crowdRow(m.Row)
+	if err != nil {
+		return err
 	}
-	stop, err := m.bootCrowd(n, m.Options["load"])
+	stop, err := m.bootCrowd(n, m.Options["load"], nice)
 	defer stop()
 	if err != nil {
 		return err
@@ -86,6 +86,21 @@ func (runDelay) Measure(_ context.Context, m *Measurement) error {
 		return runDelayCold(m)
 	}
 	return runDelayRestore(m)
+}
+
+// crowdRow reads a row: a number of workspaces, and after ":nice=" the nice value their QEMUs run
+// at. A crowd at nice 10 against a measured QEMU at 0 is the share a QEMU at -10 gets against a
+// crowd at 0 (weights 110 and 1024, 1024 and 9548), which an unprivileged lab can set.
+func crowdRow(row string) (n, nice int, err error) {
+	count, niced, hasNice := strings.Cut(row, ":nice=")
+	n, err = strconv.Atoi(count)
+	if err == nil && hasNice {
+		nice, err = strconv.Atoi(niced)
+	}
+	if err != nil || n < 0 || nice < 0 || nice > 19 {
+		return 0, 0, fmt.Errorf("row %q is not a number of workspaces, with :nice=0-19 or without", row)
+	}
+	return n, nice, nil
 }
 
 // delayCheckpoint is a checkpoint with the guest's steal time when it was saved, from which the
@@ -417,9 +432,20 @@ func taskScheds(pid int) map[int]threadSched {
 			continue
 		}
 		name, _ := os.ReadFile(d + "/comm")
-		out[tid] = threadSched{name: strings.TrimSpace(string(name)), ran: ran, waited: waited}
+		out[tid] = threadSched{name: threadKind(strings.TrimSpace(string(name))), ran: ran, waited: waited}
 	}
 	return out
+}
+
+// threadKind is a thread's name without the pid the kernel's workers carry (vhost-1234,
+// iou-wrk-1234), so that one kind of thread adds up across boots.
+func threadKind(name string) string {
+	if i := strings.LastIndexByte(name, '-'); i >= 0 {
+		if _, err := strconv.Atoi(name[i+1:]); err == nil {
+			return name[:i]
+		}
+	}
+	return name
 }
 
 // parseSchedstat reads a /proc/PID/task/TID/schedstat: "ran waited timeslices", the times in ns.

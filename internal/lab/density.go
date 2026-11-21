@@ -10,6 +10,7 @@ import (
 	"time"
 
 	xssh "golang.org/x/crypto/ssh"
+	"golang.org/x/sys/unix"
 )
 
 // density is how a workspace's first login holds up with others already on the host: how many
@@ -57,7 +58,7 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 		return fmt.Errorf("a crowd of %q workspaces is not a number of them", m.Row)
 	}
 	t0 := time.Now()
-	stop, err := m.bootCrowd(n, m.Options["load"])
+	stop, err := m.bootCrowd(n, m.Options["load"], 0)
 	defer stop()
 	if err != nil {
 		return err
@@ -78,12 +79,12 @@ func (density) Measure(_ context.Context, m *Measurement) error {
 }
 
 // bootCrowd boots n of the tree's workspaces, each logged into and, with load cpu, keeping its
-// vCPUs busy, and returns what ends them, with any error for the ones that started. The caller ends
+// vCPUs busy, its QEMU at nice, and returns what ends them, with any error for the ones that started. The caller ends
 // them before its measurement returns, and not by m.Cleanup, which runs when the whole experiment
 // has: a first run of density left every crowd up, and the rows measured a host carrying hundreds
 // of machines (lab 44665519945, 2026-11-20).
 // mutate-lane: TestEveryProbeMeasuresATree
-func (m *Measurement) bootCrowd(n int, load string) (func(), error) {
+func (m *Measurement) bootCrowd(n int, load string, nice int) (func(), error) {
 	var crowd []*Machine
 	stop := func() {
 		for _, mc := range crowd {
@@ -106,8 +107,32 @@ func (m *Measurement) bootCrowd(n int, load string) (func(), error) {
 				return stop, Miss("crowd workspace %d took no load: %v", i, err)
 			}
 		}
+		if nice != 0 {
+			if err := renice(mc.PID(), nice); err != nil {
+				return stop, err
+			}
+		}
 	}
 	return stop, nil
+}
+
+// renice sets every thread of pid to nice: Linux keeps a nice value a thread, and setpriority on a
+// pid changes only the thread with that id.
+func renice(pid, nice int) error {
+	tasks, err := filepath.Glob(fmt.Sprintf("/proc/%d/task/*", pid))
+	if err != nil || len(tasks) == 0 {
+		return fmt.Errorf("listing the threads of %d to renice: %v", pid, err)
+	}
+	for _, t := range tasks {
+		tid, err := strconv.Atoi(filepath.Base(t))
+		if err != nil {
+			continue
+		}
+		if err := unix.Setpriority(unix.PRIO_PROCESS, tid, nice); err != nil {
+			return fmt.Errorf("setting thread %d of %d to nice %d: %w", tid, pid, nice, err)
+		}
+	}
+	return nil
 }
 
 // bootLoggedIn boots one more of the tree's workspaces, sized as spin sizes one (Plug), and returns
