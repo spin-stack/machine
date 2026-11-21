@@ -197,7 +197,7 @@ func TestQEMUAcceptsEveryArgument(t *testing.T) {
 		// disk can then be added to it is TestADiskArrivesAtItsTargetOnTheHotplugController's.
 		name: "hotplug disks",
 		spec: func(s Spec) Spec {
-			s.HotplugDisks = MaxHotplugDisks
+			s.HotplugDisks = maxHotplugDisks
 			return s
 		},
 	}, {

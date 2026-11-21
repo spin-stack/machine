@@ -17,7 +17,7 @@ machine contributes and how it was measured.
 
 | Default | Why (measured) | Where |
 |---|---|---|
-| The overlay is opened writeback; the host keeps a copy of what the guest wrote | Without the host's copy, 16 384 small files read in random order take 1490 ms instead of 530 | `Disk.DirectOverBacking` off (`machine/vm.go`), which spin never sets (its `internal/runner/qemu/spec.go`) |
+| The overlay is opened writeback; the host keeps a copy of what the guest wrote | Without the host's copy, 16 384 small files read in random order take 1490 ms instead of 530 | Every image is opened through the host's page cache (`machine/qemu.go`, `addImages`) |
 | `fstrim.timer` hourly in the image, up to 10 minutes' random delay | A trim takes the overlay from 657 to 21 MB on disk and from 657 to 20 MB in the host's cache; the distribution's weekly timer returned it days later | #76, `image/mkosi.extra/usr/local/lib/spin-base/configure-system.sh` |
 | QEMU counts virtio-blk discards | Without upstream's 331ce936, `query-blockstats` reports 0 unmap operations however much a guest trims | #79 carried it until QEMU 11.2.0-rc0 shipped it (3cafd28) |
 | qboot programs the MTRRs, write-back by default | Without MTRRs the guest maps device memory uncached-minus: a virtio-pmem region read at 8.3 MB/s, 1.1 GB/s with them | #75, `qemu/qboot/mtrr.patch` |

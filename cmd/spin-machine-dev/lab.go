@@ -54,7 +54,7 @@ func treeFlags(fs *pflag.FlagSet, s *lab.TreeSpec) {
 	fs.StringVar(&s.SpinMachine, "spin-machine", "", "here: built from this checkout; release: built from the commit the --from release was made from, the machine it defined; left out, the --from tree's own when it has one, else this checkout's (a release ships none)")
 	fs.StringVar(&s.Append, "append", "", "added to the kernel command line of every boot")
 	fs.StringArrayVar(&s.Boot, "boot", nil, "a spin-machine boot flag for every boot of the tree, e.g. --boot --cpu=Skylake-Server-v4")
-	fs.StringVar(&s.CPU, "cpu", "", "baseline: the newest named CPU model the host making the tree can run, chosen there (machine.Models, machine.Baseline)")
+	fs.StringVar(&s.CPU, "cpu", "", "baseline: the newest named CPU model the host making the tree can run, chosen there (machine.Models, internal/lab)")
 	fs.StringArrayVar(&s.Edits, "edit", nil, "an edit of every boot's overlay, by name: lane (the first login's lane as this checkout builds it), floor (no systemd before sshd: a bound, with --append init=/usr/local/sbin/spin-floor), nolinger (spin not lingering, as this checkout builds the image), forwarder-early (login=spin's forwarder, spin's supervisor, without systemd's default dependencies), carry-masks, carry-generators, carry-logging and carry-coldplug (optimize-systemd.sh's boot-time changes and the coldplug filter taken back, after lane)")
 	fs.StringVar(&s.Systemd, "systemd", "", "an image/systemd/experiments patch: systemd built with it here, in every overlay")
 }

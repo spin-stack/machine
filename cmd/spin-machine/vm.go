@@ -22,11 +22,10 @@ import (
 
 // diskFlags is the one disk the commands that bind or attach one take.
 type diskFlags struct {
-	path              string
-	format            string
-	readonly          bool
-	serial            string
-	directOverBacking bool
+	path     string
+	format   string
+	readonly bool
+	serial   string
 }
 
 func (o *diskFlags) register(fs *flag.FlagSet) {
@@ -34,8 +33,6 @@ func (o *diskFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.format, "disk-format", "qcow2", "format of the disk image; never guessed")
 	fs.BoolVar(&o.readonly, "disk-readonly", false, "open the disk read-only, and mount root ro")
 	fs.StringVar(&o.serial, "disk-serial", "root", "serial the guest finds the disk by")
-	fs.BoolVar(&o.directOverBacking, "disk-direct-over-backing", false,
-		"open the disk O_DIRECT and its backing chain through the host page cache (the disk must have a backing file)")
 }
 
 // open opens the disk's chain, top first, for a machine.Disk: the machine reads no image by
@@ -70,7 +67,7 @@ func (o diskFlags) open(release string) (machine.Disk, func(), error) {
 	if err != nil {
 		return machine.Disk{}, nil, err
 	}
-	d := machine.Disk{Serial: o.serial, Readonly: o.readonly, Locking: !o.readonly, DirectOverBacking: o.directOverBacking}
+	d := machine.Disk{Serial: o.serial, Readonly: o.readonly, Locking: !o.readonly}
 	closeAll := func() {
 		for _, img := range d.Images {
 			_ = img.File.Close()
@@ -486,7 +483,7 @@ func memory(o memoryFlags, w io.Writer) error {
 }
 
 // cpuReport prints the CPU a machine shows its guest and the named models its host can run,
-// which is what an installation's hosts report to pick a fleet's model from (machine.Baseline).
+// which is what an installation's hosts report to pick a fleet's model from.
 func cpuReport(qmp string, w io.Writer) error {
 	if qmp == "" {
 		return errors.New("cpu: --qmp is required")
@@ -512,31 +509,4 @@ func cpuReport(qmp string, w io.Writer) error {
 		CPU    machine.CPU     `json:"cpu"`
 		Models []machine.Model `json:"models"`
 	}{cpu, models})
-}
-
-type cpusFlags struct {
-	qmp     string
-	n       int
-	timeout time.Duration
-}
-
-func (o *cpusFlags) register(fs *flag.FlagSet) {
-	fs.StringVar(&o.qmp, "qmp", "", "the VM's QMP socket (required)")
-	fs.IntVar(&o.n, "to", 0, "vCPUs the VM is to have, up to its --max-cpus (required)")
-	fs.DurationVar(&o.timeout, "timeout", 30*time.Second, "how long the guest has to let a vCPU go")
-}
-
-// cpus adds or removes vCPUs; on a machine started --held, it is how many the guest boots with.
-func cpus(o cpusFlags) error {
-	if o.qmp == "" || o.n < 1 {
-		return errors.New("cpus: --qmp and --to are required")
-	}
-	m, err := dial(o.qmp, 5*time.Second)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = m.Close() }()
-	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
-	defer cancel()
-	return m.SetCPUs(ctx, o.n)
 }

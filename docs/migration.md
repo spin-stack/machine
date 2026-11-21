@@ -31,8 +31,9 @@ guest sees. It was also too loose, because two hosts of one model name with diff
 were one machine.
 
 Naming a model makes every host show the same CPU, and a checkpoint resumes on any of them. The
-model to name is the newest one every host of the fleet runs: `machine.Baseline` over each host's
-`Models`. The cost is that a mixed fleet hides the newer hosts' features (AVX-512, AMX) from
+model to name is the newest one every host of the fleet runs: of the `Models` each host reports
+(`spin-machine cpu`), the one with the most features that all of them have. `lab tree --cpu
+baseline` makes that choice for one host. The cost is that a mixed fleet hides the newer hosts' features (AVX-512, AMX) from
 every workspace. Measured 2026-09-07 (656d55b), restoring a state saved with `Broadwell-v4`:
 
 | CPU on the second host | |

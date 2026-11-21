@@ -77,7 +77,11 @@ func release(t *testing.T) string {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, nil, 0o644); err != nil {
+		var b []byte
+		if f == "kernel/bzImage" {
+			b = append(make([]byte, 0x202), "HdrS"...)
+		}
+		if err := os.WriteFile(p, b, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -93,7 +97,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := rel.Spec()
-	// --kernel is a bzImage, and a file without its setup header is refused before QEMU sees it.
+	// --kernel is a bzImage, and a file without its setup header is refused (Args) before QEMU sees it.
 	bz := filepath.Join(t.TempDir(), "k")
 	header := make([]byte, 0x206)
 	copy(header[0x202:], "HdrS")
@@ -141,7 +145,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 		{"nothing given", nil, defaults},
 		{"everything given", []string{"--qemu", "/q", "--kernel", bz, "--initrd", "/i", "--firmware", "/f", "--bios", "bios-256k.bin",
 			"--disk", "/d", "--disk-format", "raw", "--disk-readonly", "--disk-serial", "ser",
-			"--disk-direct-over-backing", "--accel", "tcg", "--memory", "1024", "--max-memory", "4096", "--cpu", "Skylake-Server-v4",
+			"--accel", "tcg", "--memory", "1024", "--max-memory", "4096", "--cpu", "Skylake-Server-v4",
 			"--cpus", "3", "--max-cpus", "8", "--hotplug-disks", "2",
 			"--vsock-cid", "7", "--qmp", "/qmp", "--restore", "--console", "", "--init", "/bin/sh",
 			"--root", "/dev/vdb", "--profile", "--append", "a=1 b"}, every},
@@ -164,10 +168,14 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	}
 
 	var o machineFlags
-	if err := parse("boot", []string{"--release", dir, "--kernel", filepath.Join(dir, "bin/qemu-img")}, o.register); err != nil {
+	if err := parse("boot", []string{"--release", dir, "--qmp", "/q", "--kernel", filepath.Join(dir, "bin/qemu-img")}, o.register); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := o.spec(); err == nil || !strings.Contains(err.Error(), "not a bzImage") {
+	s, err := o.spec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "not a bzImage") {
 		t.Errorf("a --kernel that is not a bzImage: %v", err)
 	}
 }
@@ -232,7 +240,6 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 		{"save without its socket", []string{"save", "--to", "x"}, "are required"},
 		{"attach without a disk", []string{"attach", "--qmp", "/q"}, "--qmp and --disk are required"},
 		{"memory without a size", []string{"memory", "--qmp", "/q"}, "--qmp and --to are required"},
-		{"cpus without a count", []string{"cpus", "--qmp", "/q"}, "--qmp and --to are required"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := run(tc.argv); err == nil || !strings.Contains(err.Error(), tc.want) {

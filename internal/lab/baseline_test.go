@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/spin-stack/spin-machine/machine"
 )
 
 // --cpu is baseline or nothing: a model named elsewhere is --boot --cpu=NAME, said so.
@@ -222,5 +224,38 @@ func TestTheLastLineIsWhatAProgramSaidLast(t *testing.T) {
 		if got := lastLine(in); got != want {
 			t.Errorf("lastLine(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A fleet runs the newest model every host runs, told apart by name when two have as many
+// features, and no model when the hosts share none.
+func TestAFleetsBaselineIsTheNewestModelEveryHostRuns(t *testing.T) {
+	sky, ice, spr := machine.Model{Name: "Skylake-Server-v4", Features: 100}, machine.Model{Name: "Icelake-Server-v6", Features: 120}, machine.Model{Name: "SapphireRapids-v3", Features: 140}
+	epyc := machine.Model{Name: "EPYC-Genoa-v1", Features: 130}
+	for _, tc := range []struct {
+		name  string
+		hosts [][]machine.Model
+		want  machine.Model
+		err   string
+	}{
+		{"the newest every host runs", [][]machine.Model{{sky, ice, spr}, {sky, ice}, {ice, sky}}, ice, ""},
+		{"one host", [][]machine.Model{{sky, spr}}, spr, ""},
+		{"as many features, the later name", [][]machine.Model{{{Name: "A-v1", Features: 5}, {Name: "A-v2", Features: 5}}}, machine.Model{Name: "A-v2", Features: 5}, ""},
+		{"fewer features, a later name", [][]machine.Model{{ice, sky}}, ice, ""},
+		{"two vendors share no model", [][]machine.Model{{sky, ice}, {epyc}}, machine.Model{}, "more than one vendor"},
+		{"no hosts", nil, machine.Model{}, "no hosts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := baseline(tc.hosts)
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("baseline = %v, %v, want %q", got, err, tc.err)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Errorf("baseline = %v, %v, want %v", got, err, tc.want)
+			}
+		})
 	}
 }

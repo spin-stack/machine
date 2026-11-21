@@ -98,10 +98,10 @@ func (r *Release) Firmware() string { return filepath.Join(r.dir, firmwareDir) }
 // Kernel is the guest kernel the machine boots, a bzImage.
 func (r *Release) Kernel() string { return filepath.Join(r.dir, kernelName) }
 
-// IsBzImage refuses a file that is not a bzImage: its setup header's magic, "HdrS" at 0x202.
+// isBzImage refuses a file that is not a bzImage: its setup header's magic, "HdrS" at 0x202.
 // QEMU given anything else tries it as a multiboot or an ELF kernel, and this machine
 // enters neither: the failure would be a guest that never starts, not a sentence.
-func IsBzImage(path string) error {
+func isBzImage(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("opening kernel %s: %w", path, err)

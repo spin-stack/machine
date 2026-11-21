@@ -177,7 +177,7 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--append ARGS`: added to the kernel command line of every boot.
 - `--boot FLAG`: a spin-machine boot flag for every boot, such as `--boot --cpu=Skylake-Server-v4`.
 - `--cpu baseline`: the newest named CPU model the host making the tree can run
-  (`machine.Models`, `machine.Baseline`).
+  (`machine.Models`, and `internal/lab` ranks them).
 - `--edit lane`: the first login's lane as this checkout builds it, put into a published
   release's overlays.
 - `--edit floor`: no systemd before sshd. It is a bound, used with

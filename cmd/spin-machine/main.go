@@ -55,7 +55,6 @@ Usage:
   spin-machine attach      [flags]   give a running VM a disk while it runs
   spin-machine detach      [flags]   take it back, once the guest has let it go
   spin-machine memory      [flags]   grow or shrink a running VM between its memory and its ceiling
-  spin-machine cpus        [flags]   add or remove vCPUs, up to the ceiling
   spin-machine cpu         [flags]   print the CPU the guest is shown and the named models this host runs
 
 spin-machine <command> -h lists a command's flags.
@@ -116,12 +115,6 @@ func run(argv []string) error {
 			return err
 		}
 		return cpuReport(qmp, os.Stdout)
-	case "cpus":
-		var o cpusFlags
-		if err := parse(cmd, argv, o.register); err != nil {
-			return err
-		}
-		return cpus(o)
 	case "attach":
 		var o attachFlags
 		if err := parse(cmd, argv, o.register); err != nil {
@@ -236,8 +229,7 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.accel, "accel", "", "kvm (default) or tcg; tcg runs the release's TCG build unless --qemu names another")
 	fs.IntVar(&o.cpus, "cpus", 2, "boot vCPUs")
 	fs.IntVar(&o.maxCPUs, "max-cpus", 0, "vCPU hotplug ceiling (0: no hotplug)")
-	fs.IntVar(&o.hotplugDisks, "hotplug-disks", 0,
-		fmt.Sprintf("disks attach can give the VM at once while it runs (0-%d)", machine.MaxHotplugDisks))
+	fs.IntVar(&o.hotplugDisks, "hotplug-disks", 0, "disks attach can give the VM at once while it runs")
 
 	fs.IntVar(&o.vsockCID, "vsock-cid", 0, "give the machine a vhost-vsock device with this context id")
 	fs.StringVar(&o.qmp, "qmp", "", "listen for QMP on this Unix socket; attach, detach and save connect to it")
@@ -280,12 +272,7 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 	}
 	s.Accel = o.accel
 	s.QEMU = or(o.qemu, s.QEMU)
-	if o.kernel != "" {
-		if err := machine.IsBzImage(o.kernel); err != nil {
-			return machine.Spec{}, err
-		}
-		s.Kernel = o.kernel
-	}
+	s.Kernel = or(o.kernel, s.Kernel)
 	s.Firmware = or(o.firmware, s.Firmware)
 	s.BIOS = o.bios
 	s.Initrd = o.initrd

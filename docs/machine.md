@@ -52,7 +52,7 @@ resume is undefined rather than an error, so `machine.CanResume` refuses it. The
   controller and the NICs with their MTU.
 - the BIOS's size, because the BIOS is the `pc.bios` RAM block, which a checkpoint carries whole
   and a resume refuses at another length. Every other read-only block is the machine type's or the chipset's
-  (`machine.MachineBlocks`), and `task boot:roms` fails when a booted machine maps one that is
+  (`machineBlocks` in `boot/roms_test.go`), and `task boot:roms` fails when a booted machine maps one that is
   neither.
 - not the host's CPU. A checkpoint records the CPU its guest was shown and is resumed only
   where it can be shown again (`machine.CanResume`). See [migration.md](migration.md).

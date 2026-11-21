@@ -129,7 +129,7 @@ type Model struct {
 // accelerator the machine runs), that are safe to migrate, are not an alias of another, and are
 // not deprecated. host and max are the host's own, not a name every host shares.
 //
-// Each with its feature count, from its static expansion, which Baseline ranks them by.
+// Each with its feature count, from its static expansion, which a fleet's baseline ranks them by.
 func (m *QEMU) Models(ctx context.Context) ([]Model, error) {
 	var defs []struct {
 		Name          string   `json:"name"`
@@ -154,35 +154,4 @@ func (m *QEMU) Models(ctx context.Context) ([]Model, error) {
 	}
 	slices.SortFunc(out, func(a, b Model) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
-}
-
-// Baseline is the model to run every machine of a fleet as: of the models every host can run,
-// the newest.
-//
-// Newest is the one with the most features. QEMU's list carries no dates, and a later generation
-// of a vendor's models is its predecessor's features and more (Skylake-Server, Icelake-Server,
-// SapphireRapids), so it is the one the guest loses least under. Two with as many are told apart
-// by name, the later one, so that every caller picks the same.
-//
-// The trade-off, which is the point of a baseline: on a fleet of mixed hosts every guest is shown
-// only what the oldest can run - AVX-512 or AMX on the newer hosts are hidden from every workspace
-// - and in return a checkpoint resumes on any host of the fleet.
-func Baseline(hosts [][]Model) (Model, error) {
-	if len(hosts) == 0 {
-		return Model{}, errors.New("no hosts to pick a CPU model all of them run")
-	}
-	var best Model
-	for _, m := range hosts[0] {
-		everywhere := true
-		for _, h := range hosts[1:] {
-			everywhere = everywhere && slices.ContainsFunc(h, func(o Model) bool { return o.Name == m.Name })
-		}
-		if everywhere && (m.Features > best.Features || (m.Features == best.Features && m.Name > best.Name)) {
-			best = m
-		}
-	}
-	if best.Name == "" {
-		return Model{}, errors.New("no CPU model every host runs: the fleet has hosts of more than one vendor, or one that runs none")
-	}
-	return best, nil
 }

@@ -224,7 +224,7 @@ func machineAnswers(status string, places ...string) func(c call) string {
 func TestBootBindsEachDiskToItsPlaceThenRuns(t *testing.T) {
 	f := &fakeQEMU{answer: machineAnswers("prelaunch", "root", "home:ro")}
 	m := f.attach(t)
-	root := Disk{Serial: "root", Locking: true, DirectOverBacking: true, Images: []Image{image(t, "qcow2"), image(t, "raw")}}
+	root := Disk{Serial: "root", Locking: true, Images: []Image{image(t, "qcow2"), image(t, "raw")}}
 	home := Disk{Serial: "home", Readonly: true, Images: []Image{image(t, "qcow2")}}
 	if err := m.Boot(ctx(t), root, home); err != nil {
 		t.Fatal(err)
@@ -257,11 +257,11 @@ func TestBootBindsEachDiskToItsPlaceThenRuns(t *testing.T) {
 	wantNodes := []map[string]any{
 		// The base: read-only, cached on the host, with no backing option at all, being raw.
 		{"driver": "file", "node-name": "d-root-1-f", "filename": "/dev/fdset/7", "aio": "io_uring", "discard": "unmap",
-			"read-only": true, "drop-cache": false, "cache": map[string]any{"direct": false}},
+			"read-only": true, "drop-cache": false},
 		{"driver": "raw", "node-name": "d-root-1", "file": "d-root-1-f", "read-only": true, "discard": "unmap"},
-		// The top: written, locked, around the host's cache, and backed by the base.
+		// The top: written, locked, and backed by the base.
 		{"driver": "file", "node-name": "d-root-0-f", "filename": "/dev/fdset/7", "aio": "io_uring", "discard": "unmap",
-			"read-only": false, "drop-cache": false, "locking": "on", "cache": map[string]any{"direct": true}},
+			"read-only": false, "drop-cache": false, "locking": "on"},
 		{"driver": "qcow2", "node-name": "d-root-0", "file": "d-root-0-f", "read-only": false, "discard": "unmap", "backing": "d-root-1"},
 		// A read-only disk of one qcow2 image follows no backing its header names.
 		{"driver": "file", "node-name": "d-home-0-f", "filename": "/dev/fdset/7", "aio": "io_uring", "discard": "unmap",
@@ -316,9 +316,6 @@ func TestBootRefuses(t *testing.T) {
 		{name: "a raw image with images under it", disk: func(t *testing.T) Disk {
 			return Disk{Serial: "root", Images: []Image{image(t, "raw"), image(t, "qcow2")}}
 		}, want: "image 0 is raw"},
-		{name: "direct over no backing", disk: func(t *testing.T) Disk {
-			return Disk{Serial: "root", DirectOverBacking: true, Images: []Image{image(t, "qcow2")}}
-		}, want: "no image under the top"},
 		{name: "a node QEMU refuses", disk: func(t *testing.T) Disk {
 			return Disk{Serial: "root", Images: []Image{image(t, "qcow2")}}
 		}, answer: func(c call) string {
@@ -873,7 +870,7 @@ func TestAttachDiskTakesTheFirstFreeTarget(t *testing.T) {
 	if got := f.sent("device_add"); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("device_add %v, want %v", got, want)
 	}
-	if err := m.attachAt(ctx(t), MaxHotplugDisks, Disk{Serial: "y", Images: []Image{image(t, "qcow2")}}); err == nil {
+	if err := m.attachAt(ctx(t), maxHotplugDisks, Disk{Serial: "y", Images: []Image{image(t, "qcow2")}}); err == nil {
 		t.Error("a target past the controller's was taken")
 	}
 	if err := m.AttachDisk(ctx(t), Disk{Serial: "bad serial"}); err == nil {
@@ -1064,37 +1061,6 @@ func TestModels(t *testing.T) {
 		if e["type"] != "static" {
 			t.Errorf("expanded %v, want a static expansion", e)
 		}
-	}
-}
-
-func TestBaseline(t *testing.T) {
-	sky, ice, spr := Model{"Skylake-Server-v4", 100}, Model{"Icelake-Server-v6", 120}, Model{"SapphireRapids-v3", 140}
-	epyc := Model{"EPYC-Genoa-v1", 130}
-	for _, tc := range []struct {
-		name  string
-		hosts [][]Model
-		want  Model
-		err   string
-	}{
-		{"the newest every host runs", [][]Model{{sky, ice, spr}, {sky, ice}, {ice, sky}}, ice, ""},
-		{"one host", [][]Model{{sky, spr}}, spr, ""},
-		{"as many features, the later name", [][]Model{{{"A-v1", 5}, {"A-v2", 5}}}, Model{"A-v2", 5}, ""},
-		{"fewer features, a later name", [][]Model{{ice, sky}}, ice, ""},
-		{"two vendors share no model", [][]Model{{sky, ice}, {epyc}}, Model{}, "more than one vendor"},
-		{"no hosts", nil, Model{}, "no hosts"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := Baseline(tc.hosts)
-			if tc.err != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.err) {
-					t.Fatalf("Baseline = %v, %v, want %q", got, err, tc.err)
-				}
-				return
-			}
-			if err != nil || got != tc.want {
-				t.Errorf("Baseline = %v, %v, want %v", got, err, tc.want)
-			}
-		})
 	}
 }
 

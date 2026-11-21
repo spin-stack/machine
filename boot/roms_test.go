@@ -16,12 +16,13 @@ import (
 )
 
 // The fingerprint sizes one ROM, the BIOS, and names the other read-only blocks the machine's
-// own (machine.BIOSBlock, machine.MachineBlocks): a resume refuses a ROM block of another
+// own (biosBlock, machineBlocks): a resume refuses a ROM block of another
 // length, so a ROM a file sizes and the fingerprint does not is a checkpoint that matches a
 // machine it cannot be loaded into. This starts the machine `spin-machine args` describes, at
 // its smallest and at a workspace's whole shape, paused before the guest runs, and holds every
 // read-only block QEMU mapped to those two lists, and the BIOS block to its file's size. A QEMU
-// bump or a device that maps another ROM fails here, and is answered in machine.go.
+// bump or a device that maps another ROM fails here, and is answered here and in the
+// fingerprint (machine.Spec.Fingerprint).
 func TestEveryROMIsTheFingerprints(t *testing.T) {
 	if os.Getenv("SPIN_ROM_TEST") == "" {
 		t.Skip("set SPIN_ROM_TEST=1: this starts the machine")
@@ -37,22 +38,33 @@ func TestEveryROMIsTheFingerprints(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			ro := readOnlyBlocks(t, ramBlocks(t, out, flags...))
-			if got := ro[machine.BIOSBlock]; got != bios.Size() {
-				t.Errorf("%s is %d bytes and %s is %d: the fingerprint sizes the BIOS by its file", machine.BIOSBlock, got, machine.DefaultBIOS, bios.Size())
+			if got := ro[biosBlock]; got != bios.Size() {
+				t.Errorf("%s is %d bytes and %s is %d: the fingerprint sizes the BIOS by its file", biosBlock, got, machine.DefaultBIOS, bios.Size())
 			}
 			for block := range ro {
-				if block != machine.BIOSBlock && !slices.Contains(machine.MachineBlocks, block) {
+				if block != biosBlock && !slices.Contains(machineBlocks, block) {
 					t.Errorf("QEMU maps a read-only block %s the fingerprint does not account for: size it there, or name it a machine block with why", block)
 				}
 			}
-			for _, block := range machine.MachineBlocks {
+			for _, block := range machineBlocks {
 				if _, ok := ro[block]; !ok {
-					t.Errorf("machine.MachineBlocks names %s, which this machine no longer maps", block)
+					t.Errorf("machineBlocks names %s, which this machine no longer maps", block)
 				}
 			}
 		})
 	}
 }
+
+// biosBlock is the RAM block the BIOS is mapped as, the read-only block whose size is a file's
+// (machine.Spec.Fingerprint).
+const biosBlock = "pc.bios"
+
+// machineBlocks are the read-only RAM blocks besides the BIOS that this machine maps, each sized
+// by the machine type or by the chipset and not by a file: the option ROM area (a fixed 128 KiB),
+// and the ACPI tables, their loader and the RSDP, which QEMU builds and resizes on a resume.
+// The kernel and the option ROM QEMU adds for it (linuxboot_dma.bin) reach the guest through
+// fw_cfg and are no block of their own, and a NIC loads no option ROM (romfile=).
+var machineBlocks = []string{"pc.rom", "/rom@etc/acpi/tables", "/rom@etc/table-loader", "/rom@etc/acpi/rsdp"}
 
 // readOnlyBlocks is `info ramblock`'s read-only blocks by name, each at its used length.
 func readOnlyBlocks(t *testing.T, table string) map[string]int64 {

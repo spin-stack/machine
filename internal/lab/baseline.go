@@ -5,11 +5,13 @@ package lab
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -19,7 +21,7 @@ import (
 
 // hostBaseline is the newest named CPU model this host can run a machine of with the tree at dir:
 // its QEMU, started held with no disk, asked which models it can run here with nothing missing
-// (machine.Models), and machine.Baseline over this one host.
+// (machine.Models), and baseline over this one host.
 //
 // On the host that measures, not where the experiment is written: the bench fleet is nested, and
 // its L0 hides features the silicon has - la57, TSX, fsrm - so a model chosen by the CPU's name
@@ -75,9 +77,40 @@ func baselineOn(qmp string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	best, err := machine.Baseline([][]machine.Model{models})
+	best, err := baseline([][]machine.Model{models})
 	if err != nil {
 		return "", fmt.Errorf("choosing this host's CPU model: %w", err)
 	}
 	return best.Name, nil
+}
+
+// baseline is the model to run every machine of a fleet as: of the models every host can run,
+// the newest.
+//
+// Newest is the one with the most features. QEMU's list carries no dates, and a later generation
+// of a vendor's models is its predecessor's features and more (Skylake-Server, Icelake-Server,
+// SapphireRapids), so it is the one the guest loses least under. Two with as many are told apart
+// by name, the later one, so that every caller picks the same.
+//
+// The trade-off, which is the point of a baseline: on a fleet of mixed hosts every guest is shown
+// only what the oldest can run - AVX-512 or AMX on the newer hosts are hidden from every workspace
+// - and in return a checkpoint resumes on any host of the fleet.
+func baseline(hosts [][]machine.Model) (machine.Model, error) {
+	if len(hosts) == 0 {
+		return machine.Model{}, errors.New("no hosts to pick a CPU model all of them run")
+	}
+	var best machine.Model
+	for _, m := range hosts[0] {
+		everywhere := true
+		for _, h := range hosts[1:] {
+			everywhere = everywhere && slices.ContainsFunc(h, func(o machine.Model) bool { return o.Name == m.Name })
+		}
+		if everywhere && (m.Features > best.Features || (m.Features == best.Features && m.Name > best.Name)) {
+			best = m
+		}
+	}
+	if best.Name == "" {
+		return machine.Model{}, errors.New("no CPU model every host runs: the fleet has hosts of more than one vendor, or one that runs none")
+	}
+	return best, nil
 }
