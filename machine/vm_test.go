@@ -521,6 +521,8 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 	}{
 		{"a seal that fails", []string{"pre-switchover"}, errors.New("disk busy"), "sealing: disk busy"},
 		{"a migration QEMU could not finish", []string{"active", "failed"}, nil, "failed: No space left on device"},
+		{"a migration that fails after the seal", []string{"pre-switchover", "failed"}, nil, "failed: No space left on device"},
+		{"a migration cancelled under it", []string{"active", "cancelled"}, nil, "the migration cancelled"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: migrations(func(c call) string {
