@@ -483,7 +483,7 @@ func memory(o memoryFlags, w io.Writer) error {
 }
 
 // cpuReport prints the CPU a machine shows its guest and the named models its host can run,
-// which is what an installation's hosts report to pick a fleet's model from.
+// which is what an installation's hosts report to pick a fleet's model from (machine.Baseline).
 func cpuReport(qmp string, w io.Writer) error {
 	if qmp == "" {
 		return errors.New("cpu: --qmp is required")
