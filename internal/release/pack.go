@@ -29,15 +29,12 @@ import (
 	"github.com/spin-stack/spin-machine/internal/build"
 )
 
-// Arch is the architecture a release's name carries.
-const Arch = build.Arch
-
 // FingerprintCPU is the named CPU the manifest's fingerprint is of, so no runner's own CPU enters
 // it: it moves with the machine type, the shape, the devices and the BIOS's size alone.
 const FingerprintCPU = "Skylake-Server-v4"
 
 // Name is the release's name, which its tarball and directory carry.
-func Name(version string) string { return "spin-machine-" + version + "-linux-" + Arch }
+func Name(version string) string { return "spin-machine-" + version + "-linux-" + build.Arch }
 
 // Options is what a release is packed from.
 type Options struct {
