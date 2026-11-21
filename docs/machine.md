@@ -83,8 +83,8 @@ resumed into has is a difference. An at-least part may grow: virtio-scsi's `max_
 per-VM or run-time property missing from those lists makes a machine refuse its own checkpoint,
 and `task boot:record` fails on it, as it does on a QEMU that changes what the record reads.
 
-`Target` is read once per `QEMU` value: 8 round trips, 8.4 ms on a laptop at spin's shape
-(2026-11-21). The record is 25 KB of JSON at spin's shape, with every list sorted, so two equal
+`Target` is read once per `QEMU` value: 7 round trips, since the version is the monitor's
+greeting (8 of them read in 8.4 ms on a laptop at spin's shape, 2026-11-21). The record is 25 KB of JSON at spin's shape, with every list sorted, so two equal
 records are equal bytes.
 
 `Resume` does not read it. The caller hands `Resume` the record of the machine it resumes into,
