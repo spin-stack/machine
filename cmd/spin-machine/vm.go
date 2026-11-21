@@ -109,7 +109,7 @@ func boot(s machine.Spec, o machineFlags) error {
 	defer cancelStart()
 	p, err := machine.Start(ctx, s, machine.StartOptions{
 		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
-		Cmd: func(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL} },
+		Cmd: func(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL} }, // mutate-exempt: TestAKilledBootTakesItsQEMU holds it, from a child whose coverage mutate does not see
 	})
 	if err != nil {
 		return err
