@@ -71,7 +71,7 @@ func TestOpenReleaseAcceptsAMachineWithoutTheOptionalParts(t *testing.T) {
 	}
 }
 
-// machine.env, as hack/release writes it and as it can arrive damaged.
+// machine.env, as spin-machine-dev release writes it and as it can arrive damaged.
 func TestOpenReleaseReadsTheManifest(t *testing.T) {
 	for _, tc := range []struct {
 		name string

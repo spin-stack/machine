@@ -28,7 +28,7 @@ import (
 //
 // When the two fingerprints differ, the contract moved and no checkpoint of the previous release
 // is meant to resume: the test says so and holds nothing, and the release notes say it for the
-// fleet (hack/fingerprint-diff).
+// fleet (internal/release's verdict).
 //
 //	SPIN_COMPAT_PREVIOUS=<dir>   the previous release's usr/share/spin-stack (task boot:compat)
 func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {

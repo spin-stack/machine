@@ -17,10 +17,11 @@
 // and onto any release with that fingerprint: a new QEMU of the same machine type, or a
 // new kernel, is the same machine to a checkpoint (boot:compat holds a release to it).
 //
-// What is here is what a machine is. What is not here is everything about
-// running one: allocating a vsock context id, opening a TAP file descriptor,
-// talking QMP, supervising the process, deciding what the guest's init is. A
-// caller owns all of that and passes the results in.
+// What is here is what a machine is, and the QMP that drives one QEMU through its life (QEMU:
+// boot, attach and detach disks, checkpoint and resume). What is not here is the rest of
+// running one: allocating a vsock context id, opening a TAP file descriptor, supervising the
+// process, deciding what the guest's init is. A caller owns all of that and passes the results
+// in.
 package machine
 
 import (
