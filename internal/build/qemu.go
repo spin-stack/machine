@@ -14,7 +14,9 @@ import (
 )
 
 // PublishedQEMU is where the runtime image is published, tagged with the pinned version: asking
-// for this repository's QEMU and asking for the one this commit says it runs are one question.
+// for this repository's QEMU and asking for the one this commit says it runs are one question. It
+// is a package name, not the repository's: the repository was renamed spin-stack/machine on
+// 2026-11-21, and its images, pinned by digest, kept their names.
 const PublishedQEMU = "ghcr.io/spin-stack/spin-machine/qemu"
 
 // qemuPins are the entries qemu/Dockerfile is handed, for the build and the published image alike.
@@ -72,10 +74,10 @@ func FetchQEMU(ctx context.Context, o Options) error {
 	return WriteManifest(o.Out, Manifest{Part: "qemu", From: image})
 }
 
-// PublishQEMU builds and pushes the runtime image, tagged with the pinned version, under repo:
-// what FetchQEMU pulls. It reads the builder stage the build compiled from the qemu cache and
+// PublishQEMU builds and pushes the runtime image to PublishedQEMU, tagged with the pinned
+// version: what FetchQEMU pulls. It reads the builder stage the build compiled from the qemu cache and
 // writes no cache: that cache holds these layers already.
-func PublishQEMU(ctx context.Context, o Options, repo string) error {
+func PublishQEMU(ctx context.Context, o Options) error {
 	version, err := QEMUVersion(o)
 	if err != nil {
 		return err
@@ -88,8 +90,8 @@ func PublishQEMU(ctx context.Context, o Options, repo string) error {
 		"--cache-from", "type=registry,ref=" + CacheRegistry + ":qemu"}
 	cmd = append(cmd, args...)
 	cmd = append(cmd, "--build-arg", "JOBS=4",
-		"--label", "org.opencontainers.image.source=https://github.com/"+repo,
-		"--tag", "ghcr.io/"+repo+"/qemu:"+version, "--push", ".")
+		"--label", "org.opencontainers.image.source=https://github.com/"+sourceRepo(PublishedQEMU),
+		"--tag", PublishedQEMU+":"+version, "--push", ".")
 	return docker(ctx, o, cmd...)
 }
 

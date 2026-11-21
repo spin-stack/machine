@@ -145,7 +145,7 @@ So a release answers them:
 Check both bundles against `release.yml` at the ref it ran on:
 
 ```sh
-id=https://github.com/spin-stack/spin-machine/.github/workflows/release.yml@refs/heads/main
+id=https://github.com/spin-stack/machine/.github/workflows/release.yml@refs/heads/main
 cosign verify-blob --bundle f.sigstore.json --certificate-identity "$id" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com f
 cosign verify-blob-attestation --type slsaprovenance1 --bundle f.provenance.sigstore.json \
@@ -156,6 +156,9 @@ cosign verify-blob-attestation --type slsaprovenance1 --bundle f.provenance.sigs
 The second command checks the attestation by the file's digest. Given the file itself,
 `verify-blob-attestation` reads it whole and refuses one over 128 MiB
 (`COSIGN_MAX_ATTACHMENT_SIZE`), and the tarball is larger than that.
+
+A release up to v20261120.04 was signed before the repository was renamed (2026-11-21), so its
+certificate names `spin-stack/spin-machine`: set `id` to that name to verify one.
 
 Every release ran on `refs/heads/main`, and that is the ref its certificate names. The provenance
 says which release a file is (`buildDefinition.externalParameters.version`). Whoever takes the file

@@ -1,7 +1,7 @@
 # spin-machine
 
-[![CI](https://github.com/spin-stack/spin-machine/actions/workflows/ci.yml/badge.svg)](https://github.com/spin-stack/spin-machine/actions/workflows/ci.yml)
-[![Parts](https://github.com/spin-stack/spin-machine/actions/workflows/parts.yml/badge.svg)](https://github.com/spin-stack/spin-machine/actions/workflows/parts.yml)
+[![CI](https://github.com/spin-stack/machine/actions/workflows/ci.yml/badge.svg)](https://github.com/spin-stack/machine/actions/workflows/ci.yml)
+[![Parts](https://github.com/spin-stack/machine/actions/workflows/parts.yml/badge.svg)](https://github.com/spin-stack/machine/actions/workflows/parts.yml)
 
 A virtual machine: QEMU, the guest kernel, the base image, and the definition of the machine
 they make. spin boots every workspace from it.

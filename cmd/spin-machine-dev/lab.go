@@ -134,7 +134,7 @@ func splitList(values []string) []string {
 }
 
 func github() *lab.GitHub {
-	return &lab.GitHub{Repo: cmp.Or(os.Getenv("GITHUB_REPOSITORY"), "spin-stack/spin-machine")}
+	return &lab.GitHub{Repo: cmp.Or(os.Getenv("GITHUB_REPOSITORY"), "spin-stack/machine")}
 }
 
 func sources(root string, log io.Writer) lab.Sources {
