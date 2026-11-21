@@ -13,8 +13,13 @@ import (
 
 // A trace as QEMU 11.2.0-rc0 writes it (laptop, 2026-11-21), cut down: the monitor spin-machine
 // boots through (0xA) and a second one (0xB, the probe sizing the guest) interleaved with it, the
-// greeting and an event answered the way a command is, and a line of another event between.
+// greeting and an event answered the way a command is, a line of another event between, lines
+// that are not whole, and the guest paused and run again after it first ran.
 const sampleTrace = `2026-11-21T13:39:29.414375Z qmp_enter_query_version {}
+2026-11-21T13:39:29.414380Z runstate_set current_run_state 6 (prelaunch) new_state 4 (inmigrate)
+2026-11-21T13:39:29.414390Z monitor_qmp_in_band_dequeue 0xUNSEEN len 0
+2026-11-21T13:39:29.414391Z monitor_qmp_in_band_enqueue 0xR0 len 0
+2026-11-21T13:39:29.414392Z monitor_qmp_respond 0xA resp: {"return": {}, "id": 0}
 2026-11-21T13:39:29.414400Z monitor_qmp_respond mon 0xA resp: {"QMP": {"version": {}, "capabilities": ["oob"]}}
 2026-11-21T13:39:29.414792Z monitor_qmp_in_band_enqueue 0xR1 mon 0xA len 0
 2026-11-21T13:39:29.445174Z monitor_qmp_in_band_dequeue 0xR1 len 0
@@ -36,6 +41,8 @@ const sampleTrace = `2026-11-21T13:39:29.414375Z qmp_enter_query_version {}
 2026-11-21T13:39:29.447130Z runstate_set current_run_state 6 (prelaunch) new_state 9 (running)
 2026-11-21T13:39:29.447200Z monitor_qmp_respond mon 0xA resp: {"return": {}, "id": 3}
 not a trace line
+2026-11-21T13:39:29.500000Z runstate_set current_run_state 9 (running) new_state 7 (paused)
+2026-11-21T13:39:29.600000Z runstate_set current_run_state 7 (paused) new_state 9 (running)
 2026-11-21T13:39:30.000000Z runstate_set current_run_state 9 (running) new_state 11 (shutdown)
 `
 

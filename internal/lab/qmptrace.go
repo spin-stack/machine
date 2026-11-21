@@ -49,41 +49,43 @@ func parseQMPTrace(trace string) qmpTrace {
 	pending := map[string]queued{} // a queued request's address, until the main loop takes it
 	var cur *qmpCommand
 	for line := range strings.Lines(trace) {
-		f := strings.Fields(line)
-		if len(f) < 2 {
-			continue
-		}
-		at, err := time.Parse("2006-01-02T15:04:05.000000Z", f[0])
+		stamp, rest, _ := strings.Cut(strings.TrimSpace(line), " ")
+		event, args, _ := strings.Cut(rest, " ")
+		at, err := time.Parse("2006-01-02T15:04:05.000000Z", stamp)
 		if err != nil {
 			continue
 		}
-		switch event, args := f[1], f[2:]; {
-		case event == "monitor_qmp_in_band_enqueue" && len(args) >= 3 && args[1] == "mon":
-			pending[args[0]] = queued{monitor: args[2], at: at}
-		case event == "monitor_qmp_in_band_dequeue" && len(args) >= 1:
-			q, ok := pending[args[0]]
-			if !ok {
-				continue
+		var req, mon string
+		switch {
+		case event == "monitor_qmp_in_band_enqueue":
+			if _, err := fmt.Sscanf(args, "%s mon %s", &req, &mon); err == nil {
+				pending[req] = queued{monitor: mon, at: at}
 			}
-			delete(pending, args[0])
-			cur = &qmpCommand{Monitor: q.monitor, Arrived: q.at, Taken: at}
+		case event == "monitor_qmp_in_band_dequeue":
+			_, _ = fmt.Sscanf(args, "%s", &req)
+			if q, ok := pending[req]; ok {
+				delete(pending, req)
+				cur = &qmpCommand{Monitor: q.monitor, Arrived: q.at, Taken: at}
+			}
 		case strings.HasPrefix(event, "qmp_enter_") && cur != nil && cur.Name == "":
 			cur.Name = strings.TrimPrefix(event, "qmp_enter_")
-		case event == "monitor_qmp_respond" && cur != nil && len(args) >= 2 && args[1] == cur.Monitor && answers(line):
+		case event == "monitor_qmp_respond" && cur != nil && answers(args):
+			// The main loop runs one command at a time, so the answer is cur's: another monitor's
+			// greeting or event, sent from its own thread meanwhile, is not an answer.
 			cur.Answered = at
 			t.Commands = append(t.Commands, *cur)
 			cur = nil
-		case event == "runstate_set" && t.Running.IsZero() && strings.HasSuffix(strings.TrimSpace(line), "(running)"):
+		case event == "runstate_set" && t.Running.IsZero() && strings.HasSuffix(args, "(running)"):
 			t.Running = at
 		}
 	}
 	return t
 }
 
-// answers is whether a monitor_qmp_respond line is a command's answer, and not an event or the
+// answers is whether a monitor_qmp_respond's arguments are a command's answer, and not an event or the
 // greeting, which the monitor sends the same way.
-func answers(line string) bool {
-	_, resp, ok := strings.Cut(line, "resp: ")
+func answers(args string) bool {
+	_, resp, ok := strings.Cut(args, "resp: ")
 	return ok && (strings.HasPrefix(resp, `{"return"`) || strings.HasPrefix(resp, `{"error"`))
 }
 
