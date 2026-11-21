@@ -166,9 +166,9 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
   path of a bzImage.
 - `--qemu run:N`, or a directory with `bin/` and `qemu/`.
 - `--spin-machine here`: built from this checkout.
-- `--spin-machine release`: built, through the module proxy, from the commit the release's
-  `machine.env` names. That is the machine the release defined, and the ladder boots each release
-  with it.
+- `--spin-machine release`: built from the commit the release's `machine.env` names, fetched by
+  that commit from the checkout's `origin`, so neither the module path nor the repository's name
+  matters. That is the machine the release defined, and the ladder boots each release with it.
 - Without `--spin-machine`, the tree keeps the spin-machine of the tree it starts from. A release
   ships none, so a tree from a release always gets this checkout's, as the `boot:` targets'
   `:tools` dependency gave the probes before.
