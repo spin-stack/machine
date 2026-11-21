@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/spin-stack/machine/internal/qmpdef"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // CPU is the CPU a guest is shown: who made it, the model it is presented as, and every feature
@@ -63,6 +66,40 @@ func without(a, b []string) []string {
 // cpuSuffix is QEMU's type name for a vCPU of a model: <model>-x86_64-cpu.
 const cpuSuffix = "-x86_64-cpu"
 
+var (
+	queryCPUsFast          = qmpdef.Define[qmp.None, []vcpuInfo]("query-cpus-fast")
+	queryCPUModelExpansion = qmpdef.Define[expansionArgs, expansion]("query-cpu-model-expansion")
+	queryCPUDefinitions    = qmpdef.Define[qmp.None, []cpuDefinition]("query-cpu-definitions")
+	queryHotpluggableCPUs  = qmpdef.Define[qmp.None, []cpuSlot]("query-hotpluggable-cpus")
+)
+
+type vcpuInfo struct {
+	QOMPath string `json:"qom-path"`
+}
+
+type expansionArgs struct {
+	Type  string       `json:"type"`
+	Model cpuModelInfo `json:"model"`
+}
+
+type cpuModelInfo struct {
+	Name string `json:"name"`
+}
+
+type expansion struct {
+	Model struct {
+		Props map[string]any `json:"props"`
+	} `json:"model"`
+}
+
+type cpuDefinition struct {
+	Name          string   `json:"name"`
+	Unavailable   []string `json:"unavailable-features"`
+	MigrationSafe bool     `json:"migration-safe"`
+	AliasOf       string   `json:"alias-of"`
+	Deprecated    bool     `json:"deprecated"`
+}
+
 // CPU is the CPU this machine shows its guest, read off its first vCPU: the features the vCPU has
 // on, not the ones its model's name has, so that what the command line took away (Spec.CPUWithout,
 // -vmx, and under host what migratable=on drops) is not reported as shown.
@@ -72,10 +109,8 @@ const cpuSuffix = "-x86_64-cpu"
 // and sse4_1 are one feature) and to switches that are no CPUID bit (migratable, check, pmu,
 // l3-cache), which the static expansion leaves out (QEMU 11.2.0-rc0, 2026-11-21).
 func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
-	var cpus []struct {
-		QOMPath string `json:"qom-path"`
-	}
-	if err := m.q.run(ctx, "query-cpus-fast", nil, &cpus); err != nil {
+	cpus, err := do(ctx, m.q, queryCPUsFast, qmp.None{})
+	if err != nil {
 		return CPU{}, fmt.Errorf("listing the machine's vCPUs: %w", err)
 	}
 	if len(cpus) == 0 {
@@ -90,7 +125,7 @@ func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
 	if !ok {
 		return CPU{}, fmt.Errorf("a vCPU of type %q, which is not an x86_64 CPU model", vcpu.text("type"))
 	}
-	flags, err := m.expand(ctx, "static", map[string]any{"name": model})
+	flags, err := m.expand(ctx, model)
 	if err != nil {
 		return CPU{}, err
 	}
@@ -104,15 +139,11 @@ func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
 	return CPU{Vendor: vcpu.text("vendor"), Model: model, Features: on}, nil
 }
 
-// expand is query-cpu-model-expansion of model: its properties as QEMU would give a vCPU of it.
-func (m *QEMU) expand(ctx context.Context, how string, model map[string]any) (map[string]any, error) {
-	var r struct {
-		Model struct {
-			Props map[string]any `json:"props"`
-		} `json:"model"`
-	}
-	if err := m.q.run(ctx, "query-cpu-model-expansion", map[string]any{"type": how, "model": model}, &r); err != nil {
-		return nil, fmt.Errorf("expanding the CPU model %v: %w", model["name"], err)
+// expand is the static expansion of model: its properties as QEMU would give a vCPU of it.
+func (m *QEMU) expand(ctx context.Context, model string) (map[string]any, error) {
+	r, err := do(ctx, m.q, queryCPUModelExpansion, expansionArgs{Type: "static", Model: cpuModelInfo{Name: model}})
+	if err != nil {
+		return nil, fmt.Errorf("expanding the CPU model %s: %w", model, err)
 	}
 	return r.Model.Props, nil
 }
@@ -142,14 +173,8 @@ type CPUModel struct {
 //
 // Each with its feature count, from its static expansion, which Baseline ranks them by.
 func (m *QEMU) CPUModels(ctx context.Context) ([]CPUModel, error) {
-	var defs []struct {
-		Name          string   `json:"name"`
-		Unavailable   []string `json:"unavailable-features"`
-		MigrationSafe bool     `json:"migration-safe"`
-		AliasOf       string   `json:"alias-of"`
-		Deprecated    bool     `json:"deprecated"`
-	}
-	if err := m.q.run(ctx, "query-cpu-definitions", nil, &defs); err != nil {
+	defs, err := do(ctx, m.q, queryCPUDefinitions, qmp.None{})
+	if err != nil {
 		return nil, fmt.Errorf("listing the CPU models: %w", err)
 	}
 	var out []CPUModel
@@ -157,7 +182,7 @@ func (m *QEMU) CPUModels(ctx context.Context) ([]CPUModel, error) {
 		if len(d.Unavailable) > 0 || !d.MigrationSafe || d.AliasOf != "" || d.Deprecated || derivedFromHost(d.Name) || d.Name == "base" {
 			continue
 		}
-		props, err := m.expand(ctx, "static", map[string]any{"name": d.Name})
+		props, err := m.expand(ctx, d.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -279,8 +304,8 @@ func (c addedCPU) deviceArgs() (map[string]any, error) {
 }
 
 func (m *QEMU) cpuSlots(ctx context.Context) ([]cpuSlot, error) {
-	var slots []cpuSlot
-	if err := m.q.run(ctx, "query-hotpluggable-cpus", nil, &slots); err != nil {
+	slots, err := do(ctx, m.q, queryHotpluggableCPUs, qmp.None{})
+	if err != nil {
 		return nil, fmt.Errorf("listing the machine's vCPU slots: %w", err)
 	}
 	// QEMU lists them highest first; added in this order, vCPU n is the n-th.
@@ -315,7 +340,7 @@ func (m *QEMU) SetCPUs(ctx context.Context, n int) error {
 		for k, v := range s.Props {
 			args[k] = v
 		}
-		if err := m.q.run(ctx, "device_add", args, nil); err != nil {
+		if _, err := do(ctx, m.q, deviceAdd, args); err != nil {
 			return fmt.Errorf("adding vCPU %d: %w", i, err)
 		}
 		have++
