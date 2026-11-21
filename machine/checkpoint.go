@@ -187,7 +187,9 @@ type migrationInfo struct {
 
 // Cost is what a checkpoint cost the guest.
 type Cost struct {
-	// Paused is how long the guest was stopped.
+	// Paused is QEMU's downtime: from the guest's stop to the migration's end. The guest stays
+	// stopped until Continue, and the caller's clock read 200-250 ms more from seal to Continue's
+	// return (laptop, 1.6 GiB written, 2026-11-21, docs/memory-and-disk.md).
 	Paused time.Duration
 	// Total is how long the save took, from its start to its end.
 	Total time.Duration
@@ -261,6 +263,12 @@ func loadEnded(st migrationStatus) error {
 //
 // Its Cost is what QEMU reports of the migration once it has completed, asked once after it: the
 // state still says what the save cost. A checkpoint is not on either goal number's clock.
+//
+// Checkpoint does not sync the state to its disk, and QEMU does not either: what the page cache
+// still holds when it returns is the caller's to fdatasync, after Continue. A sync inside seal
+// keeps the guest stopped while the disk writes, 275 ms p50 at 1.6 GiB, and syncing every 100 ms
+// while QEMU writes only shortens that to 167; syncing after Continue took 2-3 ms, the kernel
+// having written the rest during the save (laptop, ext4, 2026-11-21, docs/memory-and-disk.md).
 func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, seal func(context.Context) error) (Saved, Cost, error) {
 	var a added
 	var err error
