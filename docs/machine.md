@@ -27,6 +27,34 @@ places with one serial, a monitor that is both a path and a descriptor, or a ker
 the kernel would truncate. A disk's images arrive later, at `VM.Boot`, `VM.Resume` or
 `VM.AttachDisk`, and each refuses an image whose format is not qcow2 or raw rather than guess it.
 
+## Opening a disk
+
+QEMU reads no image by path and follows no backing file a header names. It reads the descriptors
+a `machine.Disk` hands it. `machine.OpenDisk` opens them from a path:
+
+```go
+root, err := machine.OpenDisk(machine.DiskPath{
+	Serial: "root", Path: "/var/lib/spin/ws/root.qcow2", Format: "qcow2",
+	Under: []string{"/var/lib/spin/layers"}, // where the images below the top may be: files or directories
+})
+defer root.Close()                            // after Boot: QEMU holds its own copies
+```
+
+- **The base is never opened for writing.** The top is opened read-write unless the disk is
+  `Readonly`, and every image below it read-only. A writable top that is one of `Under`'s images
+  is refused, whatever path or link names it.
+- **The chain is the headers', held to `Under`.** A backing file a header names is the choice of
+  whoever wrote the image, the guest's for an image the guest wrote. Each is opened `O_PATH`,
+  resolved through its descriptor, and refused unless it is a regular file under `Under`. Only
+  then is it reopened through that descriptor, so what was checked is what QEMU gets. A chain that
+  comes back on itself, an image that names a backing file and not its format, an encrypted image
+  and one with an external data file are refused, each error naming the file.
+- **Read in process, not by qemu-img.** On one three-image chain, `qemu-img info
+  --backing-chain` took 3.4 ms p50 and `OpenDisk` 0.05 ms (laptop, 2026-11-21), and boot and
+  restore open their disks on the goal's clock. The reader opens nothing it has not checked and
+  runs nothing, which is what a Landlock sandbox around qemu-img bought. Every read is bounded by
+  the header's first cluster.
+
 ## Starting and ending one
 
 `machine.Start` owns one QEMU process, from its start to its exit. It returns a
