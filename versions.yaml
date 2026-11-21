@@ -49,7 +49,9 @@
     bump: `spin-machine-dev build qemu`, `spin-machine-dev verify qemu args`, then `task boot:record boot:compat`. The build directories' cache mounts are keyed by the
     version, so QEMU_CONFIG_REV does not move with it.
     A device renamed or dropped upstream fails `spin-machine-dev verify qemu` or `verify args`, and is fixed in
-    qemu/devices.mak or the machine package, not by removing the check.
+    qemu/devices.mak or the machine package, not by removing the check. So does a QMP command or
+    member the module defines that QEMU renamed, dropped or deprecated; once it is fixed, record
+    the schema CI checks against with `go test ./internal/qmpdef -run TestQEMUKnowsEveryCommand -record`.
 
 - name: alpine
   kind: image

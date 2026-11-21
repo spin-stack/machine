@@ -168,8 +168,10 @@ func verifyCmd() *cobra.Command {
 		Long: `Assert what is in _output, building nothing:
 
   qemu       qemu-system-x86_64, its TCG twin and qemu-img run here, the six firmware files are
-             there and qboot.bin is 64 KiB, only the TCG binary can emulate, and both still offer
-             the machine type every checkpoint is saved on (a newer one is said, not failed)
+             there and qboot.bin is 64 KiB, only the TCG binary can emulate, both still offer
+             the machine type every checkpoint is saved on (a newer one is said, not failed), and
+             the TCG binary's query-qmp-schema has every QMP command and event the module
+             defines, as the module defines it
   kernel     a bzImage whose setup header says relocatable, and the vmlinux it was made from
   e2fsprogs  the four tools and mke2fs.conf, and mkfs.ext4 answers the pinned version
   systemd    the packages the image installs

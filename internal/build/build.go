@@ -82,7 +82,7 @@ type Part struct {
 // Parts is every part, in the order a whole build makes them.
 var Parts = []Part{
 	{Name: "qemu", Paths: []string{"qemu"}, Pins: qemuPins,
-		make: makeQEMU, check: VerifyQEMU},
+		make: makeQEMU, check: checkQEMU},
 	{Name: "kernel", Paths: []string{"kernel"}, Pins: strings.Fields("debian debian-snapshot kernel moby-check-config"),
 		make: makeKernel, check: VerifyKernel},
 	{Name: "e2fsprogs", Paths: []string{"e2fsprogs"}, Pins: strings.Fields("e2fsprogs-builder e2fsprogs"),

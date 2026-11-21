@@ -239,12 +239,26 @@ func TestBuildMakesWhatIsStaleAndSaysWhatItMade(t *testing.T) {
 	}
 }
 
-// qemuSource is a QEMU tree that verifies, the way build's tests make one.
+// recordedSchema is taken before any test moves to a checkout of its own.
+var recordedSchema, _ = filepath.Abs(filepath.Join("..", "..", "internal", "qmpdef", "testdata", "qmp-schema.json"))
+
+// qemuSource is a QEMU tree that verifies, the way build's tests make one. Its TCG binary answers
+// on QMP too, at descriptor 3, with the schema recorded from the pinned QEMU, which every
+// definition the module links agrees with (TestQEMUKnowsEveryCommand).
 func qemuSource(t *testing.T) string {
 	t.Helper()
 	src := t.TempDir()
+	monitor := `printf '{"QMP": {"version": {"qemu": {"micro": 90, "minor": 1, "major": 11}, "package": ""}, "capabilities": []}}\n' >&3
+		while read -r line <&3; do
+			id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+			case "$line" in
+			*qmp_capabilities*) printf '{"return": {}, "id": %s}\n' "$id" >&3 ;;
+			*query-qmp-schema*) { printf '{"return": '; tr -d '\n' <` + recordedSchema + `; printf ', "id": %s}\n' "$id"; } >&3 ;;
+			esac
+		done`
 	answer := func(accels string) string {
-		return `case "$1" in --version) echo QEMU;; -accel) printf '` + accels + `\n';; -machine) echo "` + machine.Type + ` q35";; esac`
+		return `case "$1 $2" in "-machine none") ` + monitor + `;; esac
+case "$1" in --version) echo QEMU;; -accel) printf '` + accels + `\n';; -machine) echo "` + machine.Type + ` q35";; esac`
 	}
 	put(t, filepath.Join(src, "bin/qemu-system-x86_64"), "#!/bin/sh\n"+answer("kvm")+"\n", 0o755)
 	put(t, filepath.Join(src, "bin/qemu-system-x86_64-tcg"), "#!/bin/sh\n"+answer("kvm\\ntcg")+"\n", 0o755)

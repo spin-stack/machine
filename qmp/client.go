@@ -5,7 +5,9 @@
 // for what they send and what they answer.
 //
 // A command is defined once, in this module, beside the code that understands it (Command says
-// how), and a caller outside the module sends what the module defines.
+// how), and a caller outside the module sends what the module defines. `spin-machine-dev verify
+// qemu` holds every definition to the schema of the QEMU it verified, so a bump that renames,
+// drops or deprecates a member fails there, not in a VM weeks later.
 //
 // The package reads no clock and opens nothing. The caller's context bounds each call, and the
 // caller hands over the connection, which is how spin's storage agent, which may hold no socket
