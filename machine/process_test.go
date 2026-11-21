@@ -357,6 +357,20 @@ func TestStartBindsTheCallersMonitorsBeforeQEMURuns(t *testing.T) {
 	}
 }
 
+// The caller's descriptors come first, from 3, and Start's are numbered after them.
+func TestStartsDescriptorsComeAfterTheCallers(t *testing.T) {
+	tap, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tap.Close() }()
+	p, err := startFake(t, ctx(t), "obeys", Spec{}, StartOptions{Files: []*os.File{tap, tap}})
+	if err != nil {
+		t.Fatalf("a machine handed two descriptors: %v", err)
+	}
+	p.Kill()
+}
+
 func TestClosingTheMonitorIsNotQEMUsExit(t *testing.T) {
 	p, err := startFake(t, ctx(t), "obeys", Spec{}, StartOptions{})
 	if err != nil {
