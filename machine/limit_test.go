@@ -59,6 +59,11 @@ func TestACgroupsLimitsAreWhatItsFilesSay(t *testing.T) {
 	if s, _ = readLimits(dir, at); s.cpuMax != 0 {
 		t.Errorf("cpu.max of max read as %d", s.cpuMax)
 	}
+	// A period of 0 is no rate to divide by: no limit read, and no panic.
+	writeCgroup(t, dir, map[string]string{"cpu.max": "20000 0\n"})
+	if s, _ = readLimits(dir, at); s.cpuMax != 0 {
+		t.Errorf("cpu.max with a period of 0 read as %d", s.cpuMax)
+	}
 	if err := os.Remove(filepath.Join(dir, "io.stat")); err != nil {
 		t.Fatal(err)
 	}
@@ -121,8 +126,12 @@ func TestALimitHoldsWhenItsCountersMove(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("held\n%+v\nwant\n%+v", got, want)
 	}
+	// Writes at 85 of 100 are under the 90% that counts as held.
+	if got := lw.next(sample(6*time.Second, 800000, 4, 4, 1, 1, 8<<20+3<<20, 335)); got != nil {
+		t.Errorf("IO at 85%% of its limit held %+v", got)
+	}
 	// A sample no later than the last says nothing.
-	if got := lw.next(sample(5*time.Second, 900000, 9, 9, 9, 9, 1<<40, 1<<40)); got != nil {
+	if got := lw.next(sample(6*time.Second, 900000, 9, 9, 9, 9, 1<<40, 1<<40)); got != nil {
 		t.Errorf("a sample at the same moment held %+v", got)
 	}
 }
