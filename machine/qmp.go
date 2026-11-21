@@ -38,6 +38,12 @@ func (e *qmpError) Error() string { return e.Class + ": " + e.Desc }
 // a client connects, so one that has not arrived in this long is a socket nobody serves.
 const handshakeTimeout = 5 * time.Second
 
+// maxQMPLine bounds one line from QEMU. A tenant who escapes the guest controls QEMU, and a line
+// that never ends is otherwise memory the client grows until it is killed. The largest answers
+// the machine reads are qom-list-get's in a checkpoint's record, 125 KB and 47 KB on QEMU
+// 11.2.0-rc0, so 4 MiB is ample, and it is the bound spin's own client keeps.
+const maxQMPLine = 4 << 20
+
 func newQMP(c *net.UnixConn) (*qmpClient, error) {
 	q := &qmpClient{c: c, in: bufio.NewReader(c)}
 	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
