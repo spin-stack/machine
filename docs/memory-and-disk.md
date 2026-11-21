@@ -238,6 +238,46 @@ QEMU truncates the file it writes, and ext4's `auto_da_alloc` flushes such a fil
 closed. Checkpoint now leaves that close to a goroutine, and the gap is 6 ms p50
 (docs/machine.md, "Phases", #399). The flush is then in the caller's sync after `Continue`.
 
+### How long the guest is stopped
+
+The guest is stopped from QEMU's stop to `cont`'s return. QEMU decides when to stop it. Every
+iteration it compares what is still to write with `downtime-limit` times the rate it measured over
+the last 100 ms (`migration_update_counters` and `migration_iteration_run` in QEMU 11.2's
+`migration/migration.c`). Mapped-ram and multifd do not change that test. pause-before-switchover
+puts the seal after the stop, and does not change it either. Whatever is left when QEMU stops the
+guest is written with the guest stopped.
+
+The machine never set `downtime-limit`, so QEMU used its default of 300 ms. A save into the page
+cache measures 30-34 Gbit/s, so 300 ms let QEMU stop the guest with up to ~1.2 GB to go. An idle
+guest stopped part-way through the first pass, before QEMU had read half its memory once. What it
+wrote with the guest stopped was not memory the guest had dirtied. It was memory QEMU had not yet
+reached. Two dirty syncs ran in every save, and QEMU's `expected-downtime` at the stop read
+220-240 ms.
+
+Measured on the bench fleet (nested KVM, v20261121.01, spin's shape plugged to 2 GiB, mapped-ram
+with 8 channels, a seal that does nothing, 20 saves an arm interleaved on one guest, lab
+44940051596, 2026-11-21). The experiment ran from branch `exp/415-downtime`. The idle guest had
+1.5 GiB of tmpfs filled from `/dev/urandom`, so each save wrote 1.6 GiB. The writer case had
+1 GiB filled and a loop rewriting 64 MiB of a 512 MiB tmpfs file every ~100 ms:
+
+| Guest | `downtime-limit` | Left at the stop | QEMU's downtime | Stop to `cont` returned | QEMU's total | RAM written |
+| --- | --- | --- | --- | --- | --- | --- |
+| idle | 300 ms | 835 MiB | 192 ms | 199 ms | 460 ms | 1656 MiB |
+| idle | 30 ms | 0 | 6 | 14 | 463 | 1656 |
+| writer | 300 ms | 873 MiB | 221 ms | 231 ms | 490 ms | 1724 MiB |
+| writer | 30 ms | 6 MiB | 8 | 18 | 528 | 1919 |
+
+QEMU's downtime fell 186 ms [−189, −184] for the idle guest and 213 ms [−218, −208] with the
+writer. The idle save's total did not move, +4 ms [−2, +6]. With the writer it rose 39 ms [+33, +45],
+because QEMU ran one more pass and wrote 195 MiB more while the guest ran. A laptop showed the same
+thing (ext4 on NVMe, 16-20 saves an arm): 238 ms to 12 for the idle guest and 209 ms to 11 with
+the writer. A writer rewriting 256 MiB of a 1 GiB set with no pause still converged at 30 ms in
+all 10 saves, after 4 dirty syncs, with a 23 ms downtime against 229 ms (laptop).
+
+So `Checkpoint` sets `downtime-limit` to 30 ms (`checkpointDowntime`). The cost is a save that
+runs longer while the guest runs, when the guest dirties memory. The state is the same file, and
+`Resume` reads it as before.
+
 `Resume` has no bound of its own besides its context. A full load reads the state's written
 blocks, not its length, since a mapped-ram state is sparse. How long that may take depends on the
 host's slowest disk, which the caller knows. spin bounds it at 30 s plus the written blocks at
@@ -256,6 +296,9 @@ host's slowest disk, which the caller knows. spin bounds it at 30 s plus the wri
 | virtio-fs DAX | - | SHMEM_MAP is not merged in QEMU; Cloud Hypervisor deprecated it |
 | virtio-mem together with an inflated balloon | - | Incompatible in one VM |
 | Readahead in GB | - | Modal saw production latency from it |
+| A checkpoint's `downtime-limit` at 100 ms | QEMU's downtime 60 ms against 209 at 300 and 11 at 30, with the writer (laptop, 20 saves an arm, #415) | 30 ms stops the guest for less, at no total cost the idle guest shows |
+| auto-converge for a checkpoint | The throttle never engaged: `cpu-throttle-percentage` read 0 in every save, the writer's too (laptop, #415) | QEMU throttles only when, two syncs running, the guest dirtied more than half of what QEMU wrote (`throttle-trigger-threshold`). Into the page cache QEMU outpaced the one vCPU's writer (inferred from the 0) |
+| `avail-switchover-bandwidth` | Not run. QEMU's measured rate is already close to what it writes after the stop: 31.8 Gbit/s measured, and 835 MiB written in 192 ms, ~4.3 GB/s (bench) | It stands in for the measured rate in the same test, so `downtime-limit` is the one knob |
 
 ## What others do
 
