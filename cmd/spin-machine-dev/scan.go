@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spin-stack/go-tools/versions"
 
 	"github.com/spin-stack/spin-machine/internal/release"
 	"github.com/spin-stack/spin-machine/internal/scan"
@@ -183,8 +182,14 @@ release.`,
 					return couldNot(err)
 				}
 				version, sources = e.Version, filepath.Join(w.out, "kernel", "sources")
-			} else if version, sources, err = releaseKernel(c.Context(), w.pins, filepath.Join(dir, "release")); err != nil {
-				return couldNot(err)
+			} else {
+				tag, err := newestRelease(c.Context())
+				if err != nil {
+					return couldNot(err)
+				}
+				if version, sources, err = release.Kernel(c.Context(), w.pins, tag, filepath.Join(dir, "release")); err != nil {
+					return couldNot(err)
+				}
 			}
 			v, err := scan.ParseKernelVersion(version)
 			if err != nil {
@@ -229,33 +234,4 @@ func records(ctx context.Context, c *cobra.Command, dir string) error {
 		return err
 	}
 	return run("-C", dir, "reset", "-q", "--hard", "FETCH_HEAD")
-}
-
-// releaseKernel fetches the newest release into dir (release.Fetch) and says its kernel's version
-// and where its sources list is. The tarball and not a file of its own: the sources list is in what
-// a release signs already.
-func releaseKernel(ctx context.Context, pins *versions.Versions, dir string) (version, sources string, err error) {
-	tag, err := newestRelease(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		return "", "", fmt.Errorf("emptying %s: %w", dir, err)
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", "", fmt.Errorf("making %s: %w", dir, err)
-	}
-	share, err := release.Fetch(ctx, pins, tag, dir)
-	if err != nil {
-		return "", "", err
-	}
-	sources = filepath.Join(share, "kernel", "sources")
-	if _, err := os.Stat(sources); err != nil {
-		return "", "", fmt.Errorf("%s carries no kernel/sources: cves reads releases from the one after kernel/Dockerfile wrote it: %w", tag, err)
-	}
-	env, err := os.ReadFile(filepath.Join(share, "machine.env"))
-	if err != nil {
-		return "", "", fmt.Errorf("reading %s's manifest: %w", tag, err)
-	}
-	return release.ParseEnv(string(env))["kernel_version"], sources, nil
 }
