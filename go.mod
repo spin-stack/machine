@@ -1,4 +1,4 @@
-module github.com/spin-stack/spin-machine
+module github.com/spin-stack/machine
 
 go 1.27.0
 

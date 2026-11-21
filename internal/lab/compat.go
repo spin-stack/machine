@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // CompatRow is what one release's checkpoint does on this machine.

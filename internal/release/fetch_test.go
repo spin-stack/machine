@@ -12,7 +12,7 @@ import (
 
 	"github.com/spin-stack/go-tools/versions"
 
-	"github.com/spin-stack/spin-machine/internal/build"
+	"github.com/spin-stack/machine/internal/build"
 )
 
 // published is a release v1 as GitHub would serve it, from a directory: its tarball, holding

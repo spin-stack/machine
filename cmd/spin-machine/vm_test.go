@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // save writes beside the state the machine it was taken on and what was added to it, and restore

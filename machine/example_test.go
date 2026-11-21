@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // Example is the flow spin runs for one workspace: a Spec from a release, QEMU started from its

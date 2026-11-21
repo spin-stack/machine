@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // The guest's root is not the kernel's: the kernel runs lockdown at confidentiality and the BPF

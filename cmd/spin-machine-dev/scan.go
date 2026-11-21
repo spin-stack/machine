@@ -17,8 +17,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/spin-stack/spin-machine/internal/release"
-	"github.com/spin-stack/spin-machine/internal/scan"
+	"github.com/spin-stack/machine/internal/release"
+	"github.com/spin-stack/machine/internal/scan"
 )
 
 // newestRelease is the newest published release's tag: what anything takes next, so what is

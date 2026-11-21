@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/spin-stack/go-tools/versions"
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // QEMU 11.1.2's own `-machine help`.

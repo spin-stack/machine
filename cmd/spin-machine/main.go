@@ -27,7 +27,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // main is the only place the process ends, except that boot becomes QEMU and QEMU ends

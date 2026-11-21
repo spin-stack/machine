@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // hostBaseline is the newest named CPU model this host can run a machine of with the tree at dir:

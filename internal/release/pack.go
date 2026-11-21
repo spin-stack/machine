@@ -24,7 +24,7 @@ import (
 	"github.com/spin-stack/go-tools/sbom"
 	"github.com/spin-stack/go-tools/versions"
 
-	"github.com/spin-stack/spin-machine/internal/build"
+	"github.com/spin-stack/machine/internal/build"
 )
 
 // Name is the release's name, which its tarball and directory carry.

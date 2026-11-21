@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/internal/lab"
+	"github.com/spin-stack/machine/internal/lab"
 )
 
 // What waited on what between the kernel handing over and a login prompt, on one axis with

@@ -13,7 +13,7 @@ import (
 
 	"github.com/spin-stack/go-tools/versions"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // script writes an executable shell script at path.

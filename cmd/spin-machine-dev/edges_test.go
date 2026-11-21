@@ -16,8 +16,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/spin-stack/spin-machine/internal/build"
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/internal/build"
+	"github.com/spin-stack/machine/machine"
 )
 
 // kernelFixture is a relocatable bzImage and a vmlinux carrying a Xen note, as kernel/Dockerfile

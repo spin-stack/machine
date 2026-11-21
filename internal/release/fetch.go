@@ -13,7 +13,7 @@ import (
 
 	"github.com/spin-stack/go-tools/versions"
 
-	"github.com/spin-stack/spin-machine/internal/build"
+	"github.com/spin-stack/machine/internal/build"
 )
 
 // Repo is the repository releases are published from, and Identity's: renaming it is this line.

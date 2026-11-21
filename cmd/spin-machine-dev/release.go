@@ -18,8 +18,8 @@ import (
 	"github.com/spin-stack/go-tools/attestgate"
 	"github.com/spin-stack/go-tools/provenance"
 
-	"github.com/spin-stack/spin-machine/internal/build"
-	"github.com/spin-stack/spin-machine/internal/release"
+	"github.com/spin-stack/machine/internal/build"
+	"github.com/spin-stack/machine/internal/release"
 )
 
 func releaseCmd() *cobra.Command {

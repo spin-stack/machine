@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spin-stack/spin-machine/machine"
+	"github.com/spin-stack/machine/machine"
 )
 
 // checkOnConsole boots a disposable 1 GiB guest of rel on root, whose unit prints ok or failed on
