@@ -28,7 +28,7 @@ import (
 // 0.23 s together (measured 2026-09-08) — less than one boot.
 //
 // It is not part of `task test`: it needs a QEMU binary, and a source checkout
-// has none. `task verify:args` is the gate, and it refuses rather than skips
+// has none. `spin-machine-dev verify args` is the gate, and it refuses rather than skips
 // when the binary is missing. A developer running `go test ./...` with an empty
 // _output/ gets the skip below.
 

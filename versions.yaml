@@ -44,10 +44,10 @@
   track: tags https://gitlab.com/qemu-project/qemu.git
   note: >-
     qemu/Dockerfile. A new emulator of the same machine: the machine type (machine.MachineType)
-    stays, and the bump prints what newer types change against it (task qemu:compat). After the
-    bump: `task qemu:build verify:args boot:roms boot:compat`. The build directories' cache mounts are keyed by the
+    stays, and `spin-machine-dev bump qemu` prints what newer types change against it. After the
+    bump: `spin-machine-dev build qemu`, `spin-machine-dev verify qemu args`, then `task boot:roms boot:compat`. The build directories' cache mounts are keyed by the
     version, so QEMU_CONFIG_REV does not move with it.
-    A device renamed or dropped upstream fails qemu:verify or verify:args, and is fixed in
+    A device renamed or dropped upstream fails `spin-machine-dev verify qemu` or `verify args`, and is fixed in
     qemu/devices.mak or the machine package, not by removing the check.
 
 - name: alpine

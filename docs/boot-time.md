@@ -1,24 +1,15 @@
-# Boot time: where it stands, and how it is measured
+# Boot time: where it stands
 
-The goal's two numbers (AGENTS.md, "The goal"): where each stands, where its time goes, how a
-number is taken, what the machine carries for it and what it earns, what was tried and rejected,
-and what is open. Each change is told, dated, in `docs/log.md`. Each release's own numbers are in
-`docs/releases.md`. What the guest's memory and disk cost is in `docs/memory-and-disk.md`, and the
-lab's commands are in `docs/cli.md`, "Measuring".
+This page follows the goal's two numbers (AGENTS.md, "The goal"). It says where each stands and where
+its time goes. It lists what the machine carries for them and what each
+item earns, what was tried and rejected, and what is open. `docs/log.md` tells each change, dated.
+Each release's own numbers are in `docs/releases.md`. What the guest's memory and disk cost is in
+`docs/memory-and-disk.md`. How a number is measured is [measuring.md](measuring.md), and the lab's
+commands are in `docs/cli.md`, "Measuring".
 
 Every number here comes from the bench fleet (spin-stack/ci: AWS c8id.4xlarge, Xeon 6975P-C,
 nested KVM, scratch on local NVMe) in spin's shape, as p50 or p50/p95 in ms, unless a row says
 otherwise. An interval is the bootstrap 95% interval of a Δp50.
-
-**Starting an investigation.**
-1. Find the phase in "Where the time goes".
-2. Look the idea up in "Measured and rejected" and in "What the machine carries". An idea
-   already there needs a new reason, not a new run.
-3. Write its row in "Open experiments" first: the phase, its p50, the ceiling, the rule that
-   decides it.
-4. Measure it as "How a number is measured" says.
-5. When it is decided, move the row: to "What the machine carries" when it is kept, or to
-   "Measured and rejected" when it is not. Then write its entry in `docs/log.md`.
 
 ## Where the two numbers stand
 
@@ -30,7 +21,8 @@ otherwise. An interval is the bootstrap 95% interval of a Δp50.
 | The same, QEMU started ahead | `prestart`, `restored into prestarted` | 83.2/87.1 | under | the same |
 
 These are the release's numbers, booted interleaved with v20261120.03 (`docs/releases.md`). Two
-runs are two machines, so compare a new number only with one booted in the same run (rule 3).
+runs are two machines, so compare a new number only with one booted in the same run (`docs/measuring.md`,
+rule 3).
 
 **The restore is under 100 ms when QEMU is started ahead, and the cold boot is not close.** A
 cold boot cannot reach 100 ms by userspace work alone: QEMU, the firmware and the kernel take
@@ -56,17 +48,17 @@ The probes boot and log in as spin does, unless a run asks otherwise (docs/cli.m
 - **Still not spin's.** spin boots `/sbin/vminitd` from its own initrd before systemd. Its
   supervisor starts `ssh.service` when it installs the user CA. The probes boot the image's init.
 
-Numbers taken before 2026-11-21 used another shape (2 vCPUs, 2 GiB, no ceilings, the "ladder"
-shape) and another login (the lane), and their rows below say so. Read such a number as a lead in
-spin's shape.
+Most numbers taken before 2026-11-21 used another shape (2 vCPUs, 2 GiB, no ceilings, the
+"ladder" shape) and another login (the lane). The "Shape" column of each row below says which. A
+row marked spin from before that date passed spin's shape options by hand (#319). Read a number
+in the ladder shape as a lead in spin's shape.
 
-### Nested, not metal
+### The bench fleet is nested, not metal
 
-The bench fleet is nested. On a c8i.metal-48xl (the same CPU), the cold first login read 332 ms
-against 378-392 nested (v20261114.02, ladder shape, lab 44537498507), so nesting costs ~50-60 ms.
-Most of that is VM exits: the PCI walk takes 5.00 ms nested against 2.22 on metal, about 29 µs an
-exit against 13 (labs 44535161371, 44535156851). A production host that is not nested starts
-closer to the goal.
+On a c8i.metal-48xl (the same CPU), the cold first login read 332 ms against 378-392 nested
+(v20261114.02, ladder shape, lab 44537498507), so nesting costs ~50-60 ms. Most of that is VM
+exits: the PCI walk takes 5.00 ms nested against 2.22 on metal, about 29 µs an exit against 13
+(labs 44535161371, 44535156851). A production host that is not nested starts closer to the goal.
 
 ## Where the time goes
 
@@ -90,7 +82,7 @@ not a measurement: it says how far each phase has to move.
 **PID 1 to sshd is more than half the cold boot.** On one vCPU, everything systemd starts before
 sshd accepts is on the login's path. The groups in "What the machine carries" show how much
 masks, generators and the coldplug filter took off it. The no-systemd floor accepted at 189 ms in
-spin's shape. Before PID 1, ~140 ms of QEMU, firmware and kernel remain, ~112 of them with QEMU
+spin's shape. Before PID 1, ~140 ms of QEMU, firmware and kernel remain, ~113 of them with QEMU
 started ahead. Each phase from the first row to the fourth has to shrink to reach 100 ms.
 
 ### Restore, QEMU started ahead
@@ -108,112 +100,11 @@ A restore that starts QEMU itself adds ~25 ms (108 against 83.2). From the page 
 load is ~10 ms instead of ~50 on a laptop, so the evicted load is the disk. Eight restores let go
 at once read ~190-240 ms each under `defer`, against ~100 alone ("Open experiments", the burst).
 
-## How a number is measured
-
-1. **Write the budget entry first.** Before an experiment runs, write its row in "Open
-   experiments". Name the phase it attacks in the tables above, the phase's p50 today, its
-   ceiling (what the goal number gains if the phase cost nothing), and the result that would
-   decide it. An experiment whose ceiling is under the noise needs more boots before it needs a
-   run.
-2. **Measure spin's shape.** Boot the CPUs, memory, ceilings, disks and login that spin gives a
-   workspace (the probes' defaults), and name the shape on every table. A gain in another shape is
-   a lead.
-3. **Compare only inside one interleaved run.** The arms of a comparison boot in turn on one
-   host, 20 boots or more each, one lab run at a time on the bench fleet. Two runs are two
-   machines: never subtract a number in one run from a number in another.
-4. **One acceptance rule.** Report Δp50 with its bootstrap 95% interval. A change is a gain only
-   when that interval excludes 0. At 20 boots a side the interval is about ±7-9 ms. A smaller
-   effect needs more boots, not a second look, and halving the interval takes about four times
-   the boots.
-5. **Deleting follows the same rule, read the other way.** Something carried is deleted when the
-   Δp50 of taking it back includes 0 and its upper bound is under +5 ms. Taken back means the
-   distribution's or upstream's own value. An item for boot time is read on the cold row, because
-   a restored guest does not boot. The restore rows only show that nothing broke, and at 20 boots
-   they move ±13 ms on their own. An upper bound between +5 and the noise needs 40 boots.
-6. **One change per arm.** A comparison that decides a change carries that change and nothing
-   else. A floor or a bound is different. It may combine every change its question needs,
-   because it answers what is possible, not what one change is worth.
-7. **An instrument must see the phase it claims.** The kernel's "Freeing" clock starts after the
-   bzImage is decompressed, so it recorded the bzImage's cost as zero while sshd accepted ~10 ms
-   later. Before a phase's number is trusted, check that something on the other side of it moved
-   by the same amount.
-8. **Measure the bounds each release.** A bound that is not re-measured stops being one. The
-   no-systemd floor bounds what systemd costs.
-9. **A laptop finds leads.** It does not decide anything. Its noise has read 61 against 105 ms
-   minutes apart (`de9b7db`), and it is not nested.
-
-The decision itself is AGENTS.md's. A change goes in when it moves one of the two numbers,
-interleaved against the release, without making the other worse. It also goes in when it is
-functional.
-
-### Pitfalls
-
-Each of these made a number say something it did not measure.
-
-- **The instrument measured itself.** This is now avoided by quiet consoles, `--profile`, and a
-  check that the log is whole. The cases:
-  - initcall_debug with a serial console (`c03ed89`);
-  - a wide function_graph filter, 26× inflation (`a31d7b2`);
-  - the `kvm:kvm_pio` tracepoint, 49.3 vs 27 ms (`c049a21`);
-  - `trace_event=initcall` (`64d2901`);
-  - systemd debug logging, 212 vs 26 ms (`ad05544`);
-  - a shell harness throttling the console, 1424 vs 190 ms (`80f984b`);
-  - a log_buf_len of 8M, costing 4.9 ms (`5221690`);
-  - the probes' own logins left open, which a checkpoint then carried: ~5 ms on the restored
-    login (lab 44809015139, fixed by #341).
-- **The instrument could not see the phase.**
-  - The kernel's "Freeing" clock misses the bzImage's decompression. `boot:firmware-stages` now
-    times it from kvm-clock: ~21 ms (lab 44787491631).
-  - `restore-first`'s `read` read the whole mapped-ram file, whose length is the RAM size and
-    which is mostly holes: 2 GiB read for 155 MiB of data.
-- **Blame, the critical chain and log gaps are not savings.** logind was 63 ms in blame and worth
-  24, chrony 43 and worth 10, and udev 46 and worth 0 (`6aba37b`, `e2f6b8f`).
-- **Misattribution.** BTF's first parse looked like XFRM (`e285dec`). ksm/kcompactd's 2.00 ms is
-  HZ resolution (`cda04b1`). vCPU descheduling was counted inside initcalls (`64d2901`).
-- **Checkpoints that lie.** The QMP greeting comes before the board is built (`8eef89d`).
-  SeaBIOS's banner comes before hardware init (`6aba37b`, #45).
-- **Variants that did nothing.**
-  - `systemd.mask=` with the debug-generator masked (`80f984b`);
-  - an `unmask_udev` that had become a no-op (`b5f361f`);
-  - `rm -f` on an `/etc` path that did not exist (`bb6bb89`);
-  - a mask that matched no file (image/build.sh now refuses one);
-  - a lab arm whose commit staged half of what it meant to change: #345's arm built the patches'
-    removal without the config, and the options went unmeasured until lab 44839538785.
-- **A guest that is not spin's.**
-  - A 128 MiB guest never plugged runs its OOM killer through the boot. It lost boots in
-    `initcalls` and stalled ~400 ms in ~20% of restores (labs 44784196287, 44788801555).
-  - The lane's login moved numbers that spin's login does not have.
-- **Host noise.** This is now avoided by interleaved boots on the bench fleet, one lab run at a
-  time. The cases:
-  - a cold page cache right after `task build`: 98 ms read as a 35 ms regression (`f32d527`);
-  - a host building a kernel during the run (`9b5f0dd`);
-  - three runs of one kernel reading 59.5/96.8/167.7 ms (`5221690`);
-  - 3 boots a row, which is 5-11% noise (#81).
-- **Two runs are two machines.** Absolute numbers drift between runs by as much as a release moves
-  them:
-  - v20261120.01's restore read 158.9 in run 44641240861 and 167.0 in 44727451080;
-  - main's kernel read a cold 467 in lab 44839538785, against v20261120.04's 456 in the report.
-- **Different hosts compared.** The v20261026.01 notes compare a Ryzen 9 5900X with a Xeon
-  6975P-C. Numbers from construct (`docs/memory-and-disk.md`, kernel patches 0001-0004, qboot) do
-  not compare with the bench fleet's.
-- **Nested KVM leaks between repetitions.** A cold boot after a restored guest ran on the host is
-  ~1.8× slower (#246). `restore-first` now runs every cold boot before every restore and checks
-  with mincore that the state is out of the page cache.
-- **The page cache.** `POSIX_FADV_DONTNEED` declines recently touched pages, 4.8 vs 251 ms
-  (`ab4844c`). `mincore` lies for files the caller does not own (`21a830c`). fstrim right after rm
-  trims nothing (`251638d`).
-- **Lab plumbing.**
-  - green on a skip (`8d8e97b`);
-  - concurrency groups cancelling queued runs (`a3ba5a6`);
-  - 108-byte socket paths (`299777b`, `f2c47f7`);
-  - `modprobe` on a module-less kernel (`5a70721`, `213cd07`);
-  - BuildKit comparing a file with itself (`b9d1985`);
-  - a tree whose QEMU predates an argument main's spin-machine passes, refused at boot.
-
 ## What the machine carries
 
-Every change the tree makes for boot time, with what it earns in spin's shape. This is the
-current state; how each change came in is in `docs/log.md`. A row's evidence is one of these:
+This table lists every change the tree makes for boot time, with what it earns in spin's shape.
+It is the current state. `docs/log.md` tells how each change came in. A row's evidence is one of
+these:
 
 - *measured*: its own arm, in spin's shape;
 - *group*: an arm that took back its group (below);
@@ -222,7 +113,8 @@ current state; how each change came in is in `docs/log.md`. A row's evidence is 
 - *mechanism*: what it removes is visible, but no goal number has timed it;
 - *unmeasured*.
 
-A row that is not *measured* or *group* is a candidate for deletion, decided by rule 5.
+A row that is not *measured* or *group* is a candidate for deletion, which rule 5 of
+`docs/measuring.md` decides.
 Functional rows (security, correctness, a consumer's contract) are listed so that nobody takes
 them for boot time.
 
@@ -294,15 +186,16 @@ v20261120.04 as published (lab 44818953987). The base read 453/464 cold, 124/144
 | F | qboot, for SeaBIOS | `--boot --bios=bios-256k.bin` | +68.5 [+62.7, +71.7] | −1.9 | +7.4 |
 
 A1, A2, C-logging and E were deleted (#345, #356, #354, #352). The rest earn what the cold column
-says: in one vCPU, every unit, generator and exit before the login is on its path. The `carry-*`
-edits stay in `internal/lab`, so the ablation can run again when the shape, the kernel or systemd
-moves. An edit checks what it undoes, so an edit whose item was deleted fails on later releases.
+says. On one vCPU, every unit, generator and exit before the login is on the login's path. The
+`carry-*` edits stay in `internal/lab`, so the ablation can run again when the shape, the kernel or
+systemd moves. An edit checks what it undoes, so an edit whose item was deleted fails on later
+releases.
 
 ## Measured and rejected
 
-An idea already here needs a new reason, not a new run. Grouped by the part it touches; within a
-group, oldest first. A row from before 2026-11-21 was measured in another shape (the "Shape"
-column), so a change of shape is such a reason.
+An idea already here needs a new reason, not a new run. The tables group ideas by the part they
+touch, oldest first within a group. The "Shape" column says which shape a row was measured in,
+and a row measured in another shape than spin's has such a reason.
 
 ### Kernel and its command line
 
@@ -404,13 +297,13 @@ column), so a change of shape is such a reason.
 
 ## Open experiments
 
-Ranked by ceiling. A row stays here until it is decided, and then moves.
+The rows are ranked by ceiling. A row stays here until it is decided, and then moves.
 
 | Experiment | Number | Phase, p50, ceiling | Decided by | State |
 |---|---|---|---|---|
 | A burst of restores: 8 at once read ~190-240 ms each under `defer`, against ~100 alone | restore, as a host sees it; spin restores concurrently with no host-wide limit | the burst's ~100-140 ms over one restore alone | `restore-together`, `together=1 8`, evicted, with the change against without it | open. The host's CPUs are 72-78% busy in the burst, and direct reclaim runs as the states fill the page cache (lab 44817486118). Next candidates: `vm.watermark_scale_factor`, and the CPU one restore costs |
 | spin's forwarder started without default dependencies, as the image starts ssh.service | cold | −51 more than the image's half alone (−68.5 against −17.4, lab 44807457606) | `prestart` with `--edit forwarder-early`, cold and both restore rows | blocked: restore p95 tails of 430-545 ms with it (lab 44808050222), unexplained. A proposal for spin's supervisor once explained |
-| A login without OpenSSH's exec per connection and PAM | both | a warm login, ~25-43 ms, is in both numbers | a bound first: `prestart` with the login replaced | lead (log.md, 11-20). spin's path already runs one sshd, and PAM and pam_systemd are what spin's sessions are made of |
+| A login without OpenSSH's exec per connection and PAM | both | a warm login, ~25-43 ms, is in both numbers | a bound first: `prestart` with the login replaced | lead (log.md, 11-20, "spin's login, spin's memory"). spin's path already runs one sshd, and PAM and pam_systemd are what spin's sessions are made of |
 | The budget's PID 1 to sshd: unit loading | cold | ~32 ms of loading 192 units, ~21 ms of CPU (11-19, image/systemd/experiments/pid1-marks.patch) | `ssh-first`, an arm per unit set reached at boot | open: it shrinks only with fewer units reached at boot |
 | Carried items never measured alone: QEMU 0001 and qboot's `pam.patch` apart; `no_timer_check`, `tsc=reliable`; systemd's static tools; `-O ^orphan_file`; `rootfstype=ext4`; the lane's drop-ins on spin's path | cold | each ≤ a few ms; B together +11.5 | rule 5, an arm each, 40 boots | open. The static tools and `orphan_file` need an image build (`--systemd` builds only an experiment patch) |
 | The no-systemd floor, each release | a bound | how much of the cold number is systemd's to give back: 445 → 240 in spin's shape | `floor` on the release | last measured 11-20 (lab 44750322384), before the early login |
@@ -420,7 +313,7 @@ The floor is a bound and never a candidate: systemd stays (AGENTS.md, "What must
 
 ## Open questions
 
-Questions that no lab run answers.
+No lab run answers these questions.
 
 - **Does the image keep a vsock login of its own?** spin does not use the lane (see "What the
   machine carries"). This is the maintainer's decision.
@@ -429,7 +322,7 @@ Questions that no lab run answers.
   measured.
 - **Host keys in checkpoints.** A guest checkpointed after boot carries host keys, so the restorer
   must re-key (`image/README.md`, #248). This is a consumer contract to confirm in spin.
-- **musl under long-running load.** Never measured (`31a57e7`).
+- **musl under long-running load.** No run has measured it (`31a57e7`).
 - **`page_reporting_order`.** Revisit only if memory per host becomes the limit
   (`docs/memory-and-disk.md`).
 - **`MachineType` off pc-q35-11.1.** QEMU is 11.2 and the machine is still pc-q35-11.1
@@ -437,6 +330,6 @@ Questions that no lab run answers.
 - **The kernel CVE judge.** 9 CVEs apply with a fix later in 7.3, and 1 has no fix (`0ce27ad`,
   against 7.3.1; the kernel is 7.3.5 on 2026-11-20).
 - **The min_ttl_ms evidence disagrees.** `47aa681` and the LRU_GEN comment in `kernel/Dockerfile`
-  (docs/log.md, 09-28).
+  say different things (docs/log.md, 09-28).
 - **The guest clock on 09-30.** `1d5e7f5` blames chrony, which had left the image on 09-10
   (`c7af4d3`). The fix (time by `/proc/uptime`) stands either way.

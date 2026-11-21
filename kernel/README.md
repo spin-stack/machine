@@ -1,24 +1,24 @@
 # Guest kernel
 
-A version and a config file for its series (`config-<major>.<minor>-<arch>`), so a stable release
-within the series builds from the same file. It is here because a kernel and the
+This directory holds a version and a config file for its series (`config-<major>.<minor>-<arch>`),
+so a stable release within the series builds from the same file. The kernel is here because a kernel and the
 machine that boots it are released together. A new kernel does not strand checkpoints: a
 resumed guest runs the kernel in its saved memory until it reboots, and boots this one then
 (`machine.Spec.Fingerprint` hashes the machine's contract, not the kernel). `spin-machine-dev build kernel`
-builds it; `spin-machine-dev verify kernel` reads the ELF notes out of the kernel it just stripped.
+builds it. `spin-machine-dev verify kernel` reads the ELF notes out of the kernel it just stripped.
 
 ## Memory that moves
 
 A VM given a ceiling gets a `virtio-mem` device covering the gap between its boot size and
-that ceiling, with nothing plugged. The host grows and shrinks it over QMP; there are no
-ACPI DIMM slots, because a DIMM can be added and, in practice, not removed — unplugging one
-needs the guest to offline a whole memory block and a single unmovable page in it makes
+that ceiling, with nothing plugged. The host grows and shrinks it over QMP. The machine has no
+ACPI DIMM slots, because a DIMM can be added but, in practice, not removed. Unplugging one
+needs the guest to offline a whole memory block, and a single unmovable page in the block makes
 that fail. Measured on a 1 GiB VM with a 4 GiB ceiling: 0 → 3072 MiB and back to 2 MiB.
 
-The kernel command line carries `memhp_default_state=online` for it. Without that the
-growth stops at the boot size and says nothing: memory added and never onlined is memory
-the guest cannot use but must still describe, so the driver declines to take more — asked
-for 2048 and then 3072 MiB, it plugged 1024 and stayed there.
+The kernel command line carries `memhp_default_state=online` for it. Without that option the
+growth stops at the boot size, and nothing says so. Memory added and never onlined is memory
+the guest cannot use but must still describe, so the driver declines to take more. Asked for
+2048 and then 3072 MiB, it plugged 1024 and stayed there.
 
 Separately, every VM gets a `virtio-balloon-pci` with `free-page-reporting=on`, which is
 how a guest hands back memory it merely stopped using. The two answer different questions:
@@ -30,13 +30,13 @@ The kernel carries what modern BPF development needs, and it did not before: `BP
 (every program ran interpreted), `DEBUG_INFO_BTF` (without it there is no
 `/sys/kernel/btf/vmlinux`, so no `vmlinux.h`, no `bpftool btf dump` and no CO-RE at all),
 `FUNCTION_TRACER` for fentry/fexit attachment, `FTRACE_SYSCALLS`, and the networking program
-types — `NET_CLS_BPF`, `NET_ACT_BPF`, `NET_SCH_INGRESS`, `XDP_SOCKETS`, `BPF_STREAM_PARSER`.
+types: `NET_CLS_BPF`, `NET_ACT_BPF`, `NET_SCH_INGRESS`, `XDP_SOCKETS`, `BPF_STREAM_PARSER`.
 Verified in a guest: `/sys/kernel/btf/vmlinux` is 4,552,359 bytes and
 `net.core.bpf_jit_enable` is 1.
 
 It costs **+21.4 ms** of kernel boot, measured over five runs each against the same config
 without those symbols (137.4 ms to 158.8 ms, kernel start to `Freeing unused kernel image`),
-and 5.0 MB of image — 4.55 MB of which is the `.BTF` section, which `strip -s` keeps because
+and 5.0 MB of image. 4.55 MB of that is the `.BTF` section, which `strip -s` keeps because
 it is allocated and the guest reads it back out of its own image. `ftrace: allocating 41727
 entries` is the new work that shows up in the log.
 
@@ -54,22 +54,21 @@ The guest's root is not the kernel's. The kernel runs two LSMs, `lockdown` and `
   before handing the machine to its tenant. Lockdown is what makes such policy hold: without
   it, root reads or rewrites the kernel those programs live in.
 
-What enforcing the policy is for, and how, is the consumer's. That this kernel does both is
-what `kernel/Dockerfile` checks after olddefconfig, and `task boot:lockdown` asks a booted guest:
-`compat.yml` runs it on every kernel change on main and before every release.
+What enforcing the policy is for, and how, is the consumer's. `kernel/Dockerfile` checks after
+olddefconfig that this kernel does both, and `task boot:lockdown` asks a booted guest.
+`compat.yml` runs `boot:lockdown` on every kernel change on main and before every release.
 
 Lockdown at confidentiality also takes away the tenant's kernel tracing: kprobes,
 `bpf_probe_read_kernel` and perf on the kernel. User-space tracing and networking eBPF are
 untouched, and so is a BPF LSM program that reads no kernel memory.
 
-It takes tracefs too, and with it this repository's own kernel tracing: `task boot:initcalls`
-with `SPIN_GRAPH` (function_graph) or `SPIN_CPU_SHARE` (scheduler events) cannot trace the
-release's kernel, and says so. They trace a kernel B built with
-`CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y` instead - that option swapped in this config and taken out
-of `Dockerfile`'s check, on a branch or in a scratch worktree, never in a release. The rest of
-the boot probes read the ring buffer and systemd, which lockdown leaves alone.
+It takes tracefs too. The boot probes read the ring buffer and systemd, which lockdown leaves
+alone: `spin-machine-dev lab run initcalls` reads `initcall_debug` from the ring buffer. Tracing
+the kernel itself (function_graph, scheduler events) needs a kernel built with
+`CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y`. Swap that option into this config and take it out of
+`Dockerfile`'s check on a branch or in a scratch worktree, never in a release.
 
-The archive's systemd noticed at boot, and the console showed two lines that read like missing
+Under the archive's systemd, the console showed two lines at boot that read like missing
 protection and are lockdown working:
 
 ```
@@ -80,30 +79,36 @@ Lockdown: init: use of bpf to read kernel RAM is restricted; see man kernel_lock
 PID 1 loads its `RestrictFileSystems=` program at every start, whatever the units ask, and the
 program reads each file's filesystem type with `bpf_probe_read_kernel`, which lockdown refuses
 it. The image's systemd (`image/systemd/Dockerfile`) is built without the BPF framework, so it
-asks for nothing lockdown refuses and neither line appears; `task boot:lockdown` holds that for an
+asks for nothing lockdown refuses and neither line appears. `task boot:lockdown` holds that for an
 image built with it (#261). What that costs is the directives the framework implements:
 `RestrictFileSystems=`, `SocketBind*=` and `RestrictNetworkInterfaces=` do nothing in the guest,
-and nothing here uses them. Confidentiality is kept on purpose: integrity would give the helper
-back by letting root read the kernel's memory again. Logins are unaffected (`task boot:logind`).
+and nothing here uses them. Confidentiality is kept on purpose. Integrity would give PID 1 its
+helper back, and with it root's reads of the kernel's memory. Logins are unaffected (`task boot:logind`).
 
-Measured 2026-10-01, `task boot:initcalls` with `SPIN_KERNEL_B` set to the kernel without these
+Measured 2026-10-01 with the probe of the time, `task boot:initcalls`, and `SPIN_KERNEL_B` set to the kernel without these
 options: no cost that can be told from noise. Over 20 interleaved boots each, kernel start to
 `Freeing unused kernel image` had a p50 of 196.3 ms with them and 208.3 ms without, on a host at
 load 6-10, where the p95 was 342 ms.
 
 ## Changing it
 
+`kernel/patches` holds the changes this tree makes to the kernel's source, applied in name
+order. The gaps in their numbers are patches deleted once a run read nothing for them
+(0006, 0009 and 0011, #345). Each one's row in `docs/boot-time.md`, "What the machine carries",
+says what it earns.
+
 A change to the config is a new kernel for every guest's next boot, and the release notes say
 what changed (`internal/releasenotes` lists the options turned on, off or changed). It does not
 move the fingerprint, and checkpoints keep resuming: each resumed guest goes on running the
 kernel it was saved with until it reboots.
 
-`Dockerfile` builds with a pinned toolchain — Debian trixie by image digest, its packages from
-snapshot.debian.org at a fixed date — because a different compiler is a different `vmlinux`.
+`Dockerfile` builds with a pinned toolchain, because a different compiler is a different
+`vmlinux`: Debian trixie by image digest, and its packages from snapshot.debian.org at a fixed
+date.
 Both are `versions.yaml` entries (`debian`, `debian-snapshot`), and they move on purpose, not
 when Debian publishes a point release.
 
-And the build is reproducible: two builds from the same inputs produce the same `vmlinux`,
+The build is reproducible: two builds from the same inputs produce the same `vmlinux`,
 byte for byte. That needs trixie's pahole 1.30, which is deterministic with `-j`. Bookworm's
 1.24 encodes `.BTF` in whatever order make's `-j` threads finish, which gives every release a
 different kernel whether or not its source changed.
