@@ -336,8 +336,16 @@ func spinsNIC(mac string) func(*exec.Cmd) {
 type screen struct {
 	mu sync.Mutex
 	b  bytes.Buffer
+	// writes is when each write arrived, by the length of b after it.
+	writes []stamp
 	// news has a value once something was written since it was last taken.
 	news chan struct{}
+}
+
+// stamp is when a write to a screen arrived, and the screen's length after it.
+type stamp struct {
+	end int
+	at  time.Time
 }
 
 func newScreen() *screen { return &screen{news: make(chan struct{}, 1)} }
@@ -345,6 +353,7 @@ func newScreen() *screen { return &screen{news: make(chan struct{}, 1)} }
 func (s *screen) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	s.b.Write(p)
+	s.writes = append(s.writes, stamp{end: s.b.Len(), at: time.Now()})
 	s.mu.Unlock()
 	select {
 	case s.news <- struct{}{}:
