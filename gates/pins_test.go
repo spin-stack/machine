@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package versions holds this repository to its versions.yaml, which go-tools reads and moves.
-package versions_test
+// Package gates holds the whole repository to the rules no one package owns: every pin written
+// once, in versions.yaml; every workflow that publishes attesting first; lab.yml offering every
+// probe the lab has.
+package gates_test
 
 import (
 	"os"

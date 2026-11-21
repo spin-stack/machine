@@ -69,7 +69,7 @@ e2fsprogs compile on builder images, pinned by digest in `versions.yaml` (`qemu-
 builds from the same libraries until a person takes new ones. `spin-machine-dev refresh builders`
 makes the images again, publishes them and pins them. refresh.yml runs it weekly, with the packages
 that moved in the pull request. A part's build refuses a tree whose apk.list its pinned builder was
-not made with. `workflows/workflows_test.go` holds every workflow to attesting before it publishes.
+not made with. `gates/attest_test.go` holds every workflow to attesting before it publishes.
 
 ## The record
 

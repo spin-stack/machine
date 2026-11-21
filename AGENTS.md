@@ -272,7 +272,7 @@ they are answered.
 An input downloaded from outside is pinned by hash and checked on every build, not only
 after a download, because the caches outlive the builds that filled them. The pin is written
 once, in `versions.yaml`, and handed to the Dockerfile as a build argument with no default. A
-test fails on a digest or a commit written anywhere else. `spin-machine-dev bump <entry>` moves
+test in `gates/` fails on a digest or a commit written anywhere else. `spin-machine-dev bump <entry>` moves
 one entry, and the entry's note says what the bump is checked with.
 
 ## Versions

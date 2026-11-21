@@ -34,14 +34,13 @@ imported. Every other directory is this repository's own and changes without not
 | [`cmd/spin-machine/`](cmd/spin-machine/) | the tool that boots and drives one machine by hand |
 | [`cmd/spin-machine-dev/`](cmd/spin-machine-dev/) | the tool that builds, verifies, measures and releases the machine ([docs/cli.md](docs/cli.md)) |
 | [`internal/`](internal/) | what `spin-machine-dev` is made of: the builds, the release, its notes, the lab and the CVE and OSV checks |
-| [`boot/`](boot/) | the probes that measure a boot from the host, run as Task targets |
+| [`boot/`](boot/) | the probes that check and measure a boot from the host: tests run as Task targets, no package, and `probeinit`, their diagnostic PID 1 |
 | [`qemu/`](qemu/README.md) | QEMU and qboot: the build, the device list and the patches |
 | [`kernel/`](kernel/README.md) | the guest kernel: the build, the config and the patches |
 | [`image/`](image/README.md) | the base image, and the systemd it installs |
 | [`e2fsprogs/`](e2fsprogs/README.md) | the static `mkfs.ext4`, `e2fsck`, `dumpe2fs` and `debugfs` that make and check the image |
 | [`builder/`](builder/) | the Alpine image the static parts are compiled on |
-| [`versions/`](versions/) | the test that holds every pin to `versions.yaml` |
-| [`workflows/`](workflows/) | the test that holds CI's workflows to their attestation rules |
+| [`gates/`](gates/) | the tests that hold the whole repository to its rules: every pin in `versions.yaml`, every published artefact attested, every probe offered by lab.yml |
 | [`docs/`](docs/) | how the machine is measured, defined, migrated and released |
 
 ## What a release is

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package workflows holds this repository's workflows to go-tools' attestgate: what a release
-// publishes is attested with its provenance first, in the same job.
-package workflows_test
+package gates_test
 
 import (
 	"testing"
@@ -10,13 +8,14 @@ import (
 	"github.com/spin-stack/go-tools/attestgate"
 )
 
-// Every step that publishes runs after an unconditional provenance attestation in its job; the
+// What a release publishes is attested with its provenance first, in the same job: go-tools'
+// attestgate over every workflow. Every step that publishes runs after an unconditional provenance attestation in its job; the
 // ones that look like an upload and ship nothing anyone installs are named here, each with why.
 // A step runs a task or a verb, so the ones that upload and the one that attests are named too: the
 // YAML says only their names.
 func TestEveryUploadIsAttested(t *testing.T) {
 	g := attestgate.Gate{
-		Root:        "..",
+		Root:        root,
 		RequireSBOM: true,
 		MainOnly:    []string{"release.yml"},
 		UploadTasks: []string{"spin-machine-dev publish qemu", "spin-machine-dev refresh builders"},

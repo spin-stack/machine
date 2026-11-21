@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package workflows_test
+package gates_test
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 // Every probe lab can run is one lab.yml offers: GitHub refuses a dispatch whose choice is not in
 // the list, which is how density's first dispatch failed, after it had waited its turn.
 func TestLabYMLOffersEveryProbe(t *testing.T) {
-	b, err := os.ReadFile("../.github/workflows/lab.yml")
+	b, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "lab.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
