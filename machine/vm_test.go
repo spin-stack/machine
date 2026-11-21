@@ -559,6 +559,60 @@ func TestACheckpointThatFailsIsCancelled(t *testing.T) {
 	}
 }
 
+// A checkpoint returns with the machine postmigrate, so that Hold and Continue find it so, though
+// QEMU says completed before it leaves finish-migrate and refuses cont until it has (#421).
+func TestACheckpointReturnsOnceQEMUHasLeftFinishMigrate(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		after func(m *QEMU) []func(context.Context) error
+	}{
+		{"continued", func(m *QEMU) []func(context.Context) error { return []func(context.Context) error{m.Continue} }},
+		{"held, then continued", func(m *QEMU) []func(context.Context) error {
+			return []func(context.Context) error{m.Hold, m.Continue}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var completedAt time.Time
+			finishing := func() bool { return completedAt.IsZero() || time.Since(completedAt) < 50*time.Millisecond }
+			f := &fakeQEMU{answer: migrations(func(c call) string {
+				if r, ok := recordAnswers(c); ok {
+					return r
+				}
+				switch c.Command {
+				case "query-hotpluggable-cpus", "qom-list":
+					return ret(`[]`)
+				case "add-fd":
+					return ret(`{"fdset-id": 3}`)
+				case "migrate-continue":
+					completedAt = time.Now()
+				case "query-status":
+					if finishing() {
+						return ret(`{"status": "finish-migrate"}`)
+					}
+					return ret(`{"status": "postmigrate"}`)
+				case "cont":
+					if finishing() {
+						return refused("Migration is not finalized yet")
+					}
+				}
+				return ok
+			}, "active", "pre-switchover", "completed")}
+			m := f.attach(t)
+			if _, _, err := m.Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if st, err := m.Status(ctx(t)); err != nil || st != Postmigrate {
+				t.Fatalf("Status after Checkpoint = %q, %v, want %q", st, err, Postmigrate)
+			}
+			for _, do := range tc.after(m) {
+				if err := do(ctx(t)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // A checkpoint written by more than one channel asks QEMU for multifd and that many channels; one
 // written by one leaves the migration's own thread to write it, and one naming none is written by
 // DefaultChannels.
