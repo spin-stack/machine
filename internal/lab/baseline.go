@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/machine/machine"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // hostBaseline is the newest named CPU model this host can run a machine of with the tree at dir:
@@ -57,20 +58,21 @@ func hostBaseline(dir string) (string, error) {
 	return baselineOn(qmp)
 }
 
-// baselineOn asks the machine on the monitor at qmp which named models it can run, and picks this
+// baselineOn asks the machine on the monitor at socket which named models it can run, and picks this
 // one host's baseline among them.
-func baselineOn(qmp string) (string, error) {
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: qmp, Net: "unix"})
+func baselineOn(socket string) (string, error) {
+	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		return "", fmt.Errorf("asking which CPU models this host runs: %w", err)
 	}
-	m, err := machine.Attach(conn)
-	if err != nil {
-		return "", fmt.Errorf("asking which CPU models this host runs: %w", err)
-	}
-	defer func() { _ = m.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{})
+	if err != nil {
+		return "", fmt.Errorf("asking which CPU models this host runs: %w", err)
+	}
+	m := machine.Attach(c)
+	defer func() { _ = m.Close() }()
 	models, err := m.CPUModels(ctx)
 	if err != nil {
 		return "", err

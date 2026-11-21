@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/machine/machine"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // diskFlags is the one disk the commands that bind or attach one take.
@@ -203,6 +204,10 @@ func bootWith(ctx context.Context, m machine.VM, d diskFlags, release string) er
 	return m.Boot(ctx, disks...)
 }
 
+// handshakeTimeout bounds QEMU's greeting and qmp_capabilities: QEMU writes the greeting as soon
+// as a client connects, so one that has not arrived in this long is a socket nobody serves.
+const handshakeTimeout = 5 * time.Second
+
 // dial connects to a machine's QMP socket, waiting for QEMU to have made it: a command run
 // right after boot otherwise races QEMU's start.
 func dial(socket string, wait time.Duration) (*machine.QEMU, error) {
@@ -210,12 +215,13 @@ func dial(socket string, wait time.Duration) (*machine.QEMU, error) {
 	for {
 		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
 		if err == nil {
-			m, err := machine.Attach(c)
+			ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
+			defer cancel()
+			q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{})
 			if err != nil {
-				_ = c.Close()
 				return nil, fmt.Errorf("talking to the machine at %s: %w", socket, err)
 			}
-			return m, nil
+			return machine.Attach(q), nil
 		}
 		if time.Now().After(deadline) || !(errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED)) {
 			return nil, fmt.Errorf("connecting to the machine at %s: %w", socket, err)

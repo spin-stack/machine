@@ -131,11 +131,11 @@ func TestCommandsOverTheMonitor(t *testing.T) {
 		wantErr: "attaching it at target 0",
 	}, {
 		name:    "detach",
-		replies: []string{ok, `{"return": [{"name": "hd0", "type": "child<scsi-hd>"}]}`, `{"return": "ext"}`, ok, ev("hd0", `{"return": {"status": "running"}}`), `{"return": []}`},
+		replies: []string{ok, `{"return": [{"name": "hd0", "type": "child<scsi-hd>"}]}`, `{"return": "ext"}`, ev("hd0", ok), `{"return": []}`},
 		do: func(_ *testing.T, sock string) error {
 			return detach(detachFlags{qmp: sock, serial: "ext", timeout: time.Minute})
 		},
-		asked: []string{"qom-list", "qom-get", "device_del", "query-status", "query-named-block-nodes"},
+		asked: []string{"qom-list", "qom-get", "device_del", "query-named-block-nodes"},
 	}, {
 		name:    "detach a disk the machine does not have",
 		replies: []string{ok, `{"return": []}`},
@@ -327,7 +327,7 @@ func TestDialWaitsOnlyForASocketThatMayStillCome(t *testing.T) {
 		}
 		c, err := l.Accept()
 		if err == nil {
-			_, _ = c.Write([]byte(`{"QMP": {}}` + "\n" + ok + "\n"))
+			_, _ = c.Write([]byte(`{"QMP": {}}` + "\n" + `{"return": {}, "id": 1}` + "\n"))
 			time.Sleep(100 * time.Millisecond)
 			_ = c.Close()
 		}

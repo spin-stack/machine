@@ -10,6 +10,7 @@ import (
 	"os/exec"
 
 	"github.com/spin-stack/machine/machine"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // Example is the flow spin runs for one workspace: a Spec from a release, QEMU started from its
@@ -55,10 +56,12 @@ func Example() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	m, err := machine.Attach(conn)
+	// The client's Observer is where a caller times and counts commands: the package has no clock.
+	c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{})
 	if err != nil {
 		log.Fatal(err)
 	}
+	m := machine.Attach(c)
 	defer m.Close()
 
 	root, home := disk("root"), disk("home")

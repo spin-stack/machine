@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/machine/machine"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // spinsShape is the machine spin runs a workspace on (internal/lab's shape, spin c12bd87), but
@@ -278,10 +279,13 @@ func attachTo(t *testing.T, sock string, g *guest) *machine.QEMU {
 	for {
 		c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: sock, Net: "unix"})
 		if err == nil {
-			m, err := machine.Attach(c)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{})
 			if err != nil {
 				t.Fatalf("attaching to %s: %v", sock, err)
 			}
+			m := machine.Attach(q)
 			t.Cleanup(func() { _ = m.Close() })
 			return m
 		}

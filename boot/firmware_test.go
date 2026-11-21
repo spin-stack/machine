@@ -248,10 +248,10 @@ func (p *probe) mustPublishVMGenID(t *testing.T) {
 	t.Log("restored guest reseeded: the WRITE_POINTER path carries the GUID")
 }
 
-// qmp sends commands one at a time, with no pipelining: every call here is followed by a
+// rawMonitor sends commands one at a time, with no pipelining: every call here is followed by a
 // decision. Each read has 30 s, the greeting and every command alike, so how long a caller
 // waits for a state is its own timeout and not the connection's age.
-type qmp struct {
+type rawMonitor struct {
 	conn net.Conn
 	enc  *json.Encoder
 	dec  *json.Decoder
@@ -259,13 +259,13 @@ type qmp struct {
 
 // dial connects to QEMU's monitor and negotiates it. said is what QEMU has printed so far,
 // read when a failure needs it.
-func dial(t *testing.T, socket string, said func() string) *qmp {
+func dial(t *testing.T, socket string, said func() string) *rawMonitor {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		conn, err := net.Dial("unix", socket)
 		if err == nil {
-			q := &qmp{conn: conn, enc: json.NewEncoder(conn), dec: json.NewDecoder(conn)}
+			q := &rawMonitor{conn: conn, enc: json.NewEncoder(conn), dec: json.NewDecoder(conn)}
 			q.extend(t)
 			var greeting struct {
 				QMP *struct{} `json:"QMP"`
@@ -284,14 +284,14 @@ func dial(t *testing.T, socket string, said func() string) *qmp {
 	}
 }
 
-func (q *qmp) extend(t *testing.T) {
+func (q *rawMonitor) extend(t *testing.T) {
 	t.Helper()
 	if err := q.conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func (q *qmp) do(t *testing.T, cmd string, args map[string]any) json.RawMessage {
+func (q *rawMonitor) do(t *testing.T, cmd string, args map[string]any) json.RawMessage {
 	t.Helper()
 	q.extend(t)
 	req := map[string]any{"execute": cmd}
@@ -325,7 +325,7 @@ func (q *qmp) do(t *testing.T, cmd string, args map[string]any) json.RawMessage 
 
 // until polls cmd until its "status" field reads want, and fails on "failed" rather than
 // waiting out the deadline: a migration that has already given up has nothing to say later.
-func (q *qmp) until(t *testing.T, cmd, want string, timeout time.Duration) {
+func (q *rawMonitor) until(t *testing.T, cmd, want string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
@@ -346,7 +346,7 @@ func (q *qmp) until(t *testing.T, cmd, want string, timeout time.Duration) {
 	}
 }
 
-func (q *qmp) untilNot(t *testing.T, cmd, unwanted string, timeout time.Duration) {
+func (q *rawMonitor) untilNot(t *testing.T, cmd, unwanted string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
@@ -364,7 +364,7 @@ func (q *qmp) untilNot(t *testing.T, cmd, unwanted string, timeout time.Duration
 	}
 }
 
-func (q *qmp) close() { _ = q.conn.Close() }
+func (q *rawMonitor) close() { _ = q.conn.Close() }
 
 // firmwareFile takes the override if there is one and the built firmware otherwise, and
 // skips rather than failing when neither is there: this compares firmware no release carries,

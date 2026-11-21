@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/spin-stack/machine/qmp"
 )
 
 // call is one command a VM sent, with its arguments decoded, and whether a descriptor came with it.
@@ -88,7 +90,7 @@ func (f *fakeQEMU) attach(t *testing.T) *QEMU {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := Attach(conn)
+	m, err := connect(conn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +98,26 @@ func (f *fakeQEMU) attach(t *testing.T) *QEMU {
 	return m
 }
 
+// connect is the machine on a monitor's connection, through a client past its handshake.
+func connect(conn *net.UnixConn) (*QEMU, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{})
+	if err != nil {
+		return nil, err
+	}
+	return Attach(c), nil
+}
+
+// withID is reply answering the command id: its last line is the answer, and any before it are
+// events QEMU sent first.
+func withID(reply string, id json.RawMessage) string {
+	end := strings.LastIndexByte(reply, '}')
+	return reply[:end] + `, "id": ` + string(id) + reply[end:]
+}
+
+// serve answers each command with what f.answer says, or, for an answer of nothing, closes the
+// monitor without one, as QEMU does when it quits.
 func (f *fakeQEMU) serve(c *net.UnixConn) {
 	w := bufio.NewWriter(c)
 	_, _ = w.WriteString(`{"QMP": {"version": {}, "capabilities": []}}` + "\n")
@@ -126,8 +148,9 @@ func (f *fakeQEMU) serve(c *net.UnixConn) {
 				break
 			}
 			var req struct {
-				Execute   string         `json:"execute"`
-				Arguments map[string]any `json:"arguments"`
+				Execute   string          `json:"execute"`
+				Arguments map[string]any  `json:"arguments"`
+				ID        json.RawMessage `json:"id"`
 			}
 			_ = json.Unmarshal(pending[:i], &req)
 			pending = pending[i+1:]
@@ -140,7 +163,10 @@ func (f *fakeQEMU) serve(c *net.UnixConn) {
 				f.mu.Unlock()
 				reply = f.answer(cl)
 			}
-			_, _ = w.WriteString(reply + "\n")
+			if reply == "" {
+				return
+			}
+			_, _ = w.WriteString(withID(reply, req.ID) + "\n")
 			_ = w.Flush()
 		}
 	}
@@ -743,10 +769,9 @@ func TestSetCPUs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{}
 			f.answer = func(c call) string {
-				if c.Command == "query-status" {
-					// The guest let it go: DEVICE_DELETED arrives before the reply.
-					d := f.sent("device_del")
-					return `{"event": "DEVICE_DELETED", "data": {"device": "` + d[len(d)-1]["id"].(string) + `"}}` + "\n" + ret(`{"status": "running"}`)
+				if c.Command == "device_del" {
+					// The guest let it go at once: DEVICE_DELETED arrives before the answer.
+					return deleted(c.Args["id"].(string)) + "\n" + ok
 				}
 				return cpus(tc.boot, tc.added)(c)
 			}
@@ -830,8 +855,8 @@ func TestDetachDisk(t *testing.T) {
 				return ret(`"ext"`)
 			}
 			return ret(`"other"`)
-		case "query-status":
-			return `{"event": "DEVICE_DELETED", "data": {"device": "hd4"}}` + "\n" + ret(`{"status": "running"}`)
+		case "device_del":
+			return deleted("hd4") + "\n" + ok
 		case "query-named-block-nodes":
 			// The sets are named by the image's path, which says nothing of the disk: they are
 			// found through the disk's file nodes.
@@ -867,6 +892,35 @@ func TestDetachDisk(t *testing.T) {
 	}
 }
 
+// deleted is DEVICE_DELETED for the device id.
+func deleted(id string) string {
+	return `{"event": "DEVICE_DELETED", "data": {"device": "` + id + `", "path": "/machine/peripheral/` + id + `"}}`
+}
+
+// A removal waits for its own device's DEVICE_DELETED: one QEMU sent before device_del is an
+// earlier device's with the same id, and one for another device is not this one's.
+func TestARemovalWaitsForItsOwnDeletion(t *testing.T) {
+	f := &fakeQEMU{answer: func(c call) string {
+		switch c.Command {
+		case "qom-list":
+			return deleted("hd4") + "\n" + ret(`[{"name": "hd4", "type": "child<scsi-hd>"}]`)
+		case "qom-get":
+			return ret(`"ext"`)
+		case "device_del":
+			return deleted("hd40") + "\n" + ok
+		}
+		return ok
+	}}
+	short, cancel := context.WithTimeout(ctx(t), 50*time.Millisecond)
+	defer cancel()
+	if err := f.attach(t).DetachDisk(short, "ext"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("DetachDisk = %v, want it to wait out its deadline", err)
+	}
+	if f.sent("query-named-block-nodes") != nil {
+		t.Error("the disk's nodes were let go before QEMU reported it gone")
+	}
+}
+
 // An attach takes the first target free.
 func TestAttachDiskTakesTheFirstFreeTarget(t *testing.T) {
 	f := &fakeQEMU{}
@@ -897,14 +951,16 @@ func TestAttachDiskTakesTheFirstFreeTarget(t *testing.T) {
 	}
 }
 
-// Quit's reply may never come: QEMU closes the monitor first.
+// Quit's reply may never come: QEMU closes the monitor first, which is the quit having worked. A
+// quit QEMU refuses is an error.
 func TestQuitThatClosesTheMonitorHasQuit(t *testing.T) {
 	f := &fakeQEMU{answer: func(c call) string { return "" }}
-	m := f.attach(t)
-	// The fake answers an empty line; a real QEMU closes the socket, which the next read sees.
-	_ = m.q.c.CloseRead()
-	if err := m.Quit(ctx(t)); err != nil {
+	if err := f.attach(t).Quit(ctx(t)); err != nil {
 		t.Errorf("Quit = %v", err)
+	}
+	f = &fakeQEMU{answer: func(c call) string { return refused("no") }}
+	if err := f.attach(t).Quit(ctx(t)); err == nil || !strings.Contains(err.Error(), "quitting: quit: GenericError: no") {
+		t.Errorf("a refused Quit = %v, want QEMU's refusal", err)
 	}
 }
 
@@ -1038,37 +1094,6 @@ func TestMigrateSaysTheFirstFailure(t *testing.T) {
 				t.Errorf("the last command was %s, want the set removed", cmds[len(cmds)-1])
 			}
 		})
-	}
-}
-
-// A monitor whose first line is not QEMU's greeting is not attached to.
-func TestAttachRefusesAMonitorThatDoesNotGreet(t *testing.T) {
-	for _, first := range []string{`{"return": {}}`, `not json`} {
-		dir, err := os.MkdirTemp("/tmp", "vmt")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.RemoveAll(dir) })
-		l, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(dir, "q"), Net: "unix"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		go func() {
-			c, err := l.Accept()
-			if err == nil {
-				_, _ = c.Write([]byte(first + "\n"))
-				time.Sleep(100 * time.Millisecond)
-				_ = c.Close()
-			}
-		}()
-		conn, err := net.DialUnix("unix", nil, l.Addr().(*net.UnixAddr))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := Attach(conn); err == nil || !strings.Contains(err.Error(), "not QEMU's greeting") {
-			t.Errorf("Attach after %q = %v", first, err)
-		}
-		_ = l.Close()
 	}
 }
 

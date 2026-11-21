@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -174,6 +175,22 @@ type migrationInfo struct {
 	ErrorDesc string          `json:"error-desc"`
 }
 
+// pollInterval is how often a wait asks QEMU again. Whatever is left of it when the thing waited
+// for happens is added to the wait, and a resume waits on one: a poll is one round trip on a
+// local socket, so 1 ms costs nothing worth having.
+const pollInterval = time.Millisecond
+
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
 // Checkpoint saves the machine to a file in FormatMappedRAM, its memory written by save.Channels
 // threads, DefaultChannels when it names none.
 //
@@ -204,7 +221,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	if channels > 1 {
 		params.MultifdChannels = channels
 	}
-	if _, err := do(ctx, m.q, migrateSetParameters, params); err != nil {
+	if _, err := qmp.Do(ctx, m.c, migrateSetParameters, params); err != nil {
 		return Saved{}, fmt.Errorf("checkpointing: %w", err)
 	}
 	writing := func() error {
@@ -218,7 +235,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	if err := m.migrate(ctx, migrateOut, to, os.O_WRONLY, writing); err != nil {
 		// A migration left at pre-switchover holds the guest paused with nobody to continue
 		// it; a cancel with none running succeeds.
-		_, cancelErr := do(context.WithoutCancel(ctx), m.q, migrateCancel, qmp.None{})
+		_, cancelErr := qmp.Do(context.WithoutCancel(ctx), m.c, migrateCancel, qmp.None{})
 		return Saved{}, errors.Join(fmt.Errorf("checkpointing: %w", err), cancelErr)
 	}
 	from, err := m.Target(ctx)
@@ -242,7 +259,7 @@ func (m *QEMU) switchover(ctx context.Context, seal func(context.Context) error)
 			if err := seal(ctx); err != nil {
 				return fmt.Errorf("sealing: %w", err)
 			}
-			if _, err := do(ctx, m.q, migrateContinue, migrationState{State: preSwitchover}); err != nil {
+			if _, err := qmp.Do(ctx, m.c, migrateContinue, migrationState{State: preSwitchover}); err != nil {
 				return err
 			}
 		}
@@ -255,7 +272,7 @@ func (m *QEMU) switchover(ctx context.Context, seal func(context.Context) error)
 // migration is the state of the migration in flight, either direction, or an error for one that
 // failed.
 func (m *QEMU) migration(ctx context.Context) (migrationStatus, error) {
-	info, err := do(ctx, m.q, queryMigrate, qmp.None{})
+	info, err := qmp.Do(ctx, m.c, queryMigrate, qmp.None{})
 	if err != nil {
 		return "", err
 	}
@@ -270,7 +287,7 @@ func (m *QEMU) setCapabilities(ctx context.Context, caps map[migrationCapability
 	for _, c := range slices.Sorted(maps.Keys(caps)) {
 		list = append(list, capabilityState{Capability: c, State: caps[c]})
 	}
-	if _, err := do(ctx, m.q, migrateSetCapabilities, capabilities{Capabilities: list}); err != nil {
+	if _, err := qmp.Do(ctx, m.c, migrateSetCapabilities, capabilities{Capabilities: list}); err != nil {
 		return fmt.Errorf("setting the migration's capabilities: %w", err)
 	}
 	return nil
@@ -294,15 +311,15 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 		return fmt.Errorf("reopening the state's file for QEMU: %w", err)
 	}
 	defer func() { _ = g.Close() }() // QEMU holds its own copy
-	set, err := do(ctx, m.q, qmp.AddFD, qmp.AddFDArgs{File: g, Opaque: "state"})
+	set, err := qmp.Do(ctx, m.c, qmp.AddFD, qmp.AddFDArgs{File: g, Opaque: "state"})
 	if err != nil {
 		return fmt.Errorf("handing state to QEMU: %w", err)
 	}
-	_, err = do(ctx, m.q, command, migrateArgs{URI: "file:" + set.Path()})
+	_, err = qmp.Do(ctx, m.c, command, migrateArgs{URI: "file:" + set.Path()})
 	if err == nil {
 		err = done()
 	}
-	if _, rmErr := do(ctx, m.q, qmp.RemoveFD, qmp.RemoveFDArgs{Set: set.Set}); rmErr != nil && err == nil {
+	if _, rmErr := qmp.Do(ctx, m.c, qmp.RemoveFD, qmp.RemoveFDArgs{Set: set.Set}); rmErr != nil && err == nil {
 		err = rmErr
 	}
 	return err
@@ -371,7 +388,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		if err != nil {
 			return fmt.Errorf("resuming: %w", err)
 		}
-		if _, err := do(ctx, m.q, deviceAdd, args); err != nil {
+		if _, err := qmp.Do(ctx, m.c, deviceAdd, args); err != nil {
 			return fmt.Errorf("resuming: adding vCPU %s: %w", c.ID, err)
 		}
 	}
@@ -379,7 +396,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		return fmt.Errorf("resuming: %w", err)
 	}
 	if channels > 1 {
-		if _, err := do(ctx, m.q, migrateSetParameters, migrationParameters{MultifdChannels: channels}); err != nil {
+		if _, err := qmp.Do(ctx, m.c, migrateSetParameters, migrationParameters{MultifdChannels: channels}); err != nil {
 			return fmt.Errorf("resuming: %w", err)
 		}
 	}

@@ -4,7 +4,6 @@ package machine
 
 import (
 	"context"
-	"encoding/json"
 	"net"
 	"os"
 	"testing"
@@ -50,15 +49,13 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 	}
 
 	vm := startQEMU(t, qemu, args)
-	q := dialQMP(t, socket, vm)
-	q.do("query-status", nil)
-	_ = q
+	askStatus(t, socket, vm)
 
 	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket + ".2", Net: "unix"})
 	if err != nil {
 		vm.fail(t, "dialling the second monitor", err)
 	}
-	m, err := Attach(conn)
+	m, err := connect(conn)
 	if err != nil {
 		vm.fail(t, "attaching", err)
 	}
@@ -83,13 +80,9 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 	// Each disk exists at the first target free when it came, on its top node.
 	for target, serial := range []string{"vsc-a", "vsc-b"} {
 		for property, want := range map[string]any{"drive": diskNode(serial, 0), "scsi-id": float64(target), "serial": serial} {
-			reply, err := q.try("qom-get", map[string]any{"path": "/machine/peripheral/" + hotDiskID(target), "property": property})
+			got, err := readProperty[any](ctx, m, peripheral+hotDiskID(target), property)
 			if err != nil {
 				t.Fatalf("the disk %s was accepted and has no %s: %v", serial, property, err)
-			}
-			var got any
-			if err := json.Unmarshal(reply, &got); err != nil {
-				t.Fatal(err)
 			}
 			if got != want {
 				t.Errorf("the disk %s's %s is %v, want %v", serial, property, got, want)
@@ -105,7 +98,7 @@ func TestADiskArrivesAtItsTargetOnTheHotplugController(t *testing.T) {
 	// Detached, its target, its nodes and its descriptors are free for the next.
 	held := func() int {
 		t.Helper()
-		sets, err := do(ctx, m.q, qmp.QueryFDSets, qmp.None{})
+		sets, err := qmp.Do(ctx, m.c, qmp.QueryFDSets, qmp.None{})
 		if err != nil {
 			t.Fatal(err)
 		}

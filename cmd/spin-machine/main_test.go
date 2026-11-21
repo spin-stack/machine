@@ -41,7 +41,9 @@ func serve(c net.Conn, replies []string) ([]qmpRequest, error) {
 			return asked, err
 		}
 		asked = append(asked, req)
-		if _, err := io.WriteString(c, reply+"\n"); err != nil {
+		// The reply's last line answers the request, by its id; any lines before it are events.
+		end := strings.LastIndexByte(reply, '}')
+		if _, err := io.WriteString(c, reply[:end]+`, "id": `+string(req.ID)+reply[end:]+"\n"); err != nil {
 			return asked, err
 		}
 	}
@@ -142,6 +144,7 @@ func TestBootBecomesQEMU(t *testing.T) {
 }
 
 type qmpRequest struct {
-	Execute   string         `json:"execute"`
-	Arguments map[string]any `json:"arguments"`
+	Execute   string          `json:"execute"`
+	Arguments map[string]any  `json:"arguments"`
+	ID        json.RawMessage `json:"id"`
 }
