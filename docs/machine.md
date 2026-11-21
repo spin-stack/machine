@@ -15,10 +15,8 @@ spec.VsockCID = 7
 spec.Monitors = []machine.Monitor{{Socket: "/run/vm/qmp.sock"}}
 spec.Cmdline = machine.DefaultCmdline()
 
-args, err := spec.Args()             // the QEMU command line
-// … exec QEMU with args and the descriptors the spec names, then over its monitor:
-c, err := qmp.New(ctx, qmp.Unix(conn), qmp.Observer{}) // ctx bounds the handshake alone
-m := machine.Attach(c)
+m, err := machine.Start(ctx, spec, machine.StartOptions{Stderr: w}) // ctx bounds the start alone
+defer m.Stop(ctx)
 here, err := m.Target(ctx)           // what this machine is, as QEMU reports it: read once for a host
 err = machine.CanResume(saved, here) // nil, or a *machine.Refusal naming every difference
 err = m.Resume(ctx, state, saved, here, machine.LoadOptions{}, root) // trusts here: QEMU is not asked again
@@ -28,6 +26,46 @@ err = m.Resume(ctx, state, saved, here, machine.LoadOptions{}, root) // trusts h
 places with one serial, a monitor that is both a path and a descriptor, or a kernel command line
 the kernel would truncate. A disk's images arrive later, at `VM.Boot`, `VM.Resume` or
 `VM.AttachDisk`, and each refuses an image whose format is not qcow2 or raw rather than guess it.
+
+## Starting and ending one
+
+`machine.Start` owns one QEMU process, from its start to its exit. It returns a
+`*machine.Process`, which is the `*machine.QEMU` its own monitor drives with the process under it:
+
+```go
+m, err := machine.Start(ctx, spec, machine.StartOptions{
+	Files:  []*os.File{tap},    // descriptors 3, 4, … as the Spec numbers them: what only the caller opens
+	Stdout: w, Stderr: w,       // QEMU's output; Start keeps stderr's last 4 KiB besides
+	Console: console,           // optional: the guest's console through a pipe Start reads
+	Cmd: func(c *exec.Cmd) { c.SysProcAttr = …  }, // uid, chroot, namespaces, cgroup
+})
+<-m.Exited()                    // QEMU has exited and been reaped; Close of the monitor does not close it
+e := m.Wait()                   // machine.Exit{State, End, Panic, Stderr}
+e = m.Stop(ctx)                 // the power button, quit, SIGKILL: each step bounded
+e = m.Kill()                    // SIGKILL, whatever QEMU is doing
+q, err := machine.Dial(ctx, socket, qmp.Observer{}) // a second monitor, or one of a QEMU started elsewhere
+```
+
+- **QEMU opens no path.** Start binds a listening socket at each monitor's `Socket`, opens
+  `/dev/kvm` under KVM, `/dev/vhost-vsock` for a vsock, `/dev/vhost-net` for each NIC and a
+  `file:` console, and hands them over as descriptors, before `Cmd` runs. A QEMU run as another
+  user, in a root with no `/dev`, starts the same machine. The TAPs and the disks stay the
+  caller's: they are its network and its storage.
+- **Readiness is the monitor's answer, with nothing polled.** Start binds a monitor of its own
+  and connects to it before QEMU exists: the connection waits in the socket's backlog and QEMU
+  accepts it as it starts. `qmp_capabilities` is answered by QEMU's main loop, which runs once
+  every device on the command line is made, so Start's return means the machine exists and is
+  held. A QEMU that exits first, refusing a device or a CPU, fails Start at once with its own
+  words (`Property 'virtio-balloon-pci.x' not found`, `Host doesn't support requested
+  features`). One that never answers fails it after 30 s, or when ctx ends, and is killed.
+- **`Exit` says how it ended.** The exit status or the signal, the last `SHUTDOWN` QEMU sent
+  on Start's monitor, the guest's panic line when Start read the console, and QEMU's stderr's
+  end. `Done` closes when the monitor ends, by QEMU's exit or by `Close`, and `Exited` only when
+  the process has gone.
+- **`Stop` asks before it kills.** A running guest's power button, then up to 3 s for it to power
+  off; QEMU's quit, then up to 1 s; then SIGKILL. A monitor that does not answer within 1 s is
+  a QEMU loading a state, which answers no monitor until it is done, or a monitor closed: Stop
+  kills it then. ctx bounds every step but the kill. A second Stop returns the first's Exit.
 
 ## Driving a running machine
 
@@ -44,6 +82,7 @@ err = m.Hold(ctx)                // a checkpointed machine takes its disks back 
 err = m.Continue(ctx)            // and runs
 err = m.Shutdown(ctx)            // presses the ACPI power button
 <-m.Done()                       // the monitor's connection ended: QEMU exited, or Close
+<-m.Exited()                     // QEMU's process ended (a Process from Start)
 end, said := m.End()             // the last SHUTDOWN QEMU sent: End{Guest, Reason}
 ```
 

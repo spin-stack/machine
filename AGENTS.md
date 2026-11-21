@@ -213,8 +213,9 @@ same thing.
   on stdin/stdout, or on a socket with `--console unix:PATH,server=on,wait=off`. `--qmp
   PATH` opens the socket that `attach`, `detach`, `save` and the others talk to.
 - **Every machine starts held.** QEMU runs `-S` (or `-incoming defer` with `--restore`) until a
-  monitor binds its disk and lets it go. `boot` starts itself beside QEMU to do that, and
-  `boot --held` leaves it for `start`, as a machine started ahead of its workspace is.
+  monitor binds its disk and lets it go. `boot` starts QEMU through `machine.Start`, does that
+  over Start's own monitor and stays beside QEMU until it exits; `boot --held` leaves it for
+  `start`, as a machine started ahead of its workspace is.
 - **A socket's path fits in 108 bytes.** `sun_path` is that long, and a QMP or console socket
   under `t.TempDir()`, a scratch directory or `_output/` easily exceeds it. QEMU then does not
   start, and the probe reports the guest never answering, not the path. Put sockets in a
