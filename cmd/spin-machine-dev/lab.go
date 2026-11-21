@@ -487,10 +487,10 @@ func labDispatch(probes map[string]lab.Probe) *cobra.Command {
 	var host, ref string
 	c := &cobra.Command{
 		Use:   "dispatch PROBE",
-		Short: "Run a probe on the bench fleet through lab.yml, one lab at a time, and print its result",
-		Long: `Dispatch lab.yml with PROBE over the trees given, once no other lab run is queued or running -
-the fleet measures one at a time, and two runs side by side measure each other - then wait for it
-and print its result. Each --tree is NAME=SPEC, made on the runner.`,
+		Short: "Run a probe on the bench fleet through lab.yml and print its result",
+		Long: `Dispatch lab.yml with PROBE over the trees given, wait for it and print its result. Each run is
+its own bench instance, so dispatches go at once and the fleet queues past its cap. Each --tree is
+NAME=SPEC, made on the runner.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if _, ok := probes[args[0]]; !ok {
@@ -508,10 +508,10 @@ and print its result. Each --tree is NAME=SPEC, made on the runner.`,
 				return couldNot(err)
 			}
 			gh := github()
-			run, err := gh.Dispatch(c.Context(), ref, map[string]string{
+			run, err := gh.Dispatch(ref, map[string]string{
 				"probe": args[0], "trees": strings.Join(splitList(specs), "; "), "reps": strconv.Itoa(reps),
 				"options": strings.Join(splitList(opts), "; "), "host": host,
-			}, c.ErrOrStderr())
+			})
 			if err != nil {
 				return couldNot(err)
 			}

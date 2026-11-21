@@ -63,9 +63,9 @@ permissions:
   contents: read
   actions: read
 
-# No concurrency group: the bench fleet runs one job at a time and queues the rest, and a group
-# keeps one run pending and cancels the one before it, which lost two of three experiments
-# queued back to back. lab dispatch waits for the run before its own instead.
+# No concurrency group: each run is its own bench instance, and the fleet queues past its cap
+# (spin-stack/ci). A group keeps one run pending and cancels the one before it, which lost two of
+# three experiments queued back to back.
 
 # As ci.yml: go-tools' downloads ask GitHub with it, which sheds anonymous ones first.
 env:

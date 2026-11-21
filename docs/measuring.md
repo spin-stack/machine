@@ -26,8 +26,9 @@ stand, where their time goes, and what was kept, rejected and is open are in
    workspace (the probes' defaults), and name the shape on every table. A gain in another shape is
    a lead.
 3. **Compare only inside one interleaved run.** The arms of a comparison boot in turn on one
-   host, 20 boots or more each, one lab run at a time on the bench fleet. Two runs are two
-   machines: never subtract a number in one run from a number in another.
+   host, 20 boots or more each, in one lab run. Two runs are two machines: never subtract a
+   number in one run from a number in another. Runs may go at once, each on its own bench
+   instance.
 4. **One acceptance rule.** Report Δp50 with its bootstrap 95% interval. A change is a gain only
    when that interval excludes 0. At 20 boots a side the interval is about ±7-9 ms. A smaller
    effect needs more boots, not a second look, and halving the interval takes about four times
@@ -90,7 +91,7 @@ Each of these made a number say something it did not measure.
   - A 128 MiB guest never plugged runs its OOM killer through the boot. It lost boots in
     `initcalls` and stalled ~400 ms in ~20% of restores (labs 44784196287, 44788801555).
   - The lane's login moved numbers that spin's login does not have.
-- **Host noise.** Interleaved boots on the bench fleet, one lab run at a time, now prevent it.
+- **Host noise.** Interleaved boots on the bench fleet, one lab run on each instance, now prevent it.
   The cases:
   - a cold page cache right after `task build`: 98 ms read as a 35 ms regression (`f32d527`);
   - a host building a kernel during the run (`9b5f0dd`);

@@ -672,20 +672,20 @@ func TestTheScratchIsTMPDIROnADiskOrTheLabsOwn(t *testing.T) {
 	}
 }
 
-func TestDispatchWaitsForABusyLabAndFindsItsOwnRun(t *testing.T) {
-	now := time.Now()
-	runs := []Run{{ID: 1, Status: "completed", CreatedAt: now.Add(-time.Hour)}, {ID: 2, Status: "queued", URL: "u2", CreatedAt: now}}
-	if busy(runs) != "u2" || busy(runs[:1]) != "" {
-		t.Error("busy")
-	}
-	if r, ok := started(runs, now.Add(-time.Minute)); !ok || r.ID != 2 {
-		t.Errorf("started = %+v, %v", r, ok)
-	}
-	if _, ok := started(runs, now.Add(time.Minute)); ok {
-		t.Error("a run from before the dispatch was taken for its own")
-	}
-	got := dispatchArgs("o/r", "main", map[string]string{"trees": "a=b", "probe": "ssh-first"})
-	if !slices.Equal(got, []string{"workflow", "run", "lab.yml", "-R", "o/r", "--ref", "main", "-f", "probe=ssh-first", "-f", "trees=a=b"}) {
+func TestDispatchAsksForItsOwnRun(t *testing.T) {
+	got := dispatchArgs("o/r", "main", map[string]string{"trees": "a=b; c=d", "probe": "ssh-first"})
+	want := []string{"api", "-X", "POST", "repos/o/r/actions/workflows/lab.yml/dispatches", "-f", "ref=main",
+		"-F", "return_run_details=true", "-f", "inputs[probe]=ssh-first", "-f", "inputs[trees]=a=b; c=d"}
+	if !slices.Equal(got, want) {
 		t.Errorf("dispatchArgs = %v", got)
+	}
+	r, err := dispatched([]byte(`{"workflow_run_id":44932104455,"run_url":"https://api.github.com/repos/o/r/actions/runs/44932104455","html_url":"https://github.com/o/r/actions/runs/44932104455"}`))
+	if err != nil || r.ID != 44932104455 || r.URL != "https://github.com/o/r/actions/runs/44932104455" {
+		t.Errorf("dispatched = %+v, %v", r, err)
+	}
+	for _, answer := range []string{"", "{}"} {
+		if _, err := dispatched([]byte(answer)); err == nil {
+			t.Errorf("%q was taken for a run", answer)
+		}
 	}
 }

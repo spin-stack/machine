@@ -131,94 +131,46 @@ func unzipOne(f *zip.File, to string) error {
 
 // Run is a workflow run, as much of it as the lab asks about.
 type Run struct {
-	ID         int64     `json:"databaseId"`
-	Status     string    `json:"status"`
-	Conclusion string    `json:"conclusion"`
-	CreatedAt  time.Time `json:"createdAt"`
-	URL        string    `json:"url"`
+	ID         int64  `json:"databaseId"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	URL        string `json:"url"`
 }
 
-// LabRuns are lab.yml's newest runs.
+// Dispatch starts lab.yml on ref with inputs and returns the run it started, as GitHub's answer
+// to the dispatch names it. Runs go at once, each on its own bench instance, and the fleet queues
+// past its cap: a comparison is interleaved inside one run, so another run beside it is another
+// host and measures nothing of it.
 //
-// mutate-lane: TestTheLabTalksToGitHub
-func (g *GitHub) LabRuns() ([]Run, error) {
-	out, err := g.gh("run", "list", "-R", g.Repo, "--workflow", "lab.yml", "--limit", "10",
-		"--json", "databaseId,status,conclusion,createdAt,url")
+// mutate-lane: TestTheLabTalksToGitHub, which holds what it asks GitHub; the request is
+// dispatchArgs' and the answer dispatched's.
+func (g *GitHub) Dispatch(ref string, inputs map[string]string) (Run, error) {
+	out, err := g.gh(dispatchArgs(g.Repo, ref, inputs)...)
 	if err != nil {
-		return nil, err
-	}
-	var runs []Run
-	if err := json.Unmarshal(out, &runs); err != nil {
-		return nil, fmt.Errorf("reading lab.yml's runs: %w", err)
-	}
-	return runs, nil
-}
-
-// Dispatch starts lab.yml on ref with inputs, once no other lab run is queued or running - the
-// bench fleet measures one at a time, and two runs side by side measure each other - and returns
-// the run it started.
-//
-// mutate-lane: TestTheLabTalksToGitHub, which holds what it asks GitHub; what it decides from the
-// answers is busy's and started's.
-func (g *GitHub) Dispatch(ctx context.Context, ref string, inputs map[string]string, log io.Writer) (Run, error) {
-	for {
-		runs, err := g.LabRuns()
-		if err != nil {
-			return Run{}, err
-		}
-		url := busy(runs)
-		if url == "" {
-			break
-		}
-		_, _ = fmt.Fprintf(log, "waiting for %s to finish: one lab at a time\n", url)
-		if err := sleep(ctx, time.Minute); err != nil {
-			return Run{}, err
-		}
-	}
-	before := time.Now().Add(-5 * time.Second)
-	if _, err := g.gh(dispatchArgs(g.Repo, ref, inputs)...); err != nil {
 		return Run{}, err
 	}
-	for range 30 {
-		if err := sleep(ctx, 5*time.Second); err != nil {
-			return Run{}, err
-		}
-		runs, err := g.LabRuns()
-		if err != nil {
-			return Run{}, err
-		}
-		if r, ok := started(runs, before); ok {
-			return r, nil
-		}
-	}
-	return Run{}, fmt.Errorf("lab.yml was dispatched on %s and no run of it appeared", ref)
+	return dispatched(out)
 }
 
-// busy is a lab run that is queued or running, by its URL, or "" when there is none.
-func busy(runs []Run) string {
-	for _, r := range runs {
-		if r.Status != "completed" {
-			return r.URL
-		}
+// dispatched is the run GitHub's answer to a dispatch names.
+func dispatched(answer []byte) (Run, error) {
+	var d struct {
+		ID  int64  `json:"workflow_run_id"`
+		URL string `json:"html_url"`
 	}
-	return ""
+	if err := json.Unmarshal(answer, &d); err != nil || d.ID == 0 {
+		return Run{}, fmt.Errorf("lab.yml was dispatched and GitHub named no run: %s", answer)
+	}
+	return Run{ID: d.ID, Status: "queued", URL: d.URL}, nil
 }
 
-// started is the run created after before: the one a dispatch made.
-func started(runs []Run, before time.Time) (Run, bool) {
-	for _, r := range runs {
-		if r.CreatedAt.After(before) {
-			return r, true
-		}
-	}
-	return Run{}, false
-}
-
-// dispatchArgs is gh's command line for lab.yml on ref with inputs, in a stable order.
+// dispatchArgs is gh's request for lab.yml on ref with inputs, in a stable order, asking GitHub
+// for the run it starts.
 func dispatchArgs(repo, ref string, inputs map[string]string) []string {
-	args := []string{"workflow", "run", "lab.yml", "-R", repo, "--ref", ref}
+	args := []string{"api", "-X", "POST", "repos/" + repo + "/actions/workflows/lab.yml/dispatches",
+		"-f", "ref=" + ref, "-F", "return_run_details=true"}
 	for _, k := range slices.Sorted(maps.Keys(inputs)) {
-		args = append(args, "-f", k+"="+inputs[k])
+		args = append(args, "-f", "inputs["+k+"]="+inputs[k])
 	}
 	return args
 }
@@ -228,7 +180,7 @@ func dispatchArgs(repo, ref string, inputs map[string]string) []string {
 // mutate-lane: TestTheLabTalksToGitHub
 func (g *GitHub) Wait(ctx context.Context, id int64) (Run, error) {
 	for {
-		out, err := g.gh("run", "view", strconv.FormatInt(id, 10), "-R", g.Repo, "--json", "databaseId,status,conclusion,createdAt,url")
+		out, err := g.gh("run", "view", strconv.FormatInt(id, 10), "-R", g.Repo, "--json", "databaseId,status,conclusion,url")
 		if err != nil {
 			return Run{}, err
 		}

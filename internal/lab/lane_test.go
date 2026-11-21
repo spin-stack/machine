@@ -68,7 +68,7 @@ func TestEveryProbeMeasuresATree(t *testing.T) {
 }
 
 // TestTheLabTalksToGitHub is the lane that reaches GitHub (SPIN_LAB_GITHUB=1, gh logged in): the
-// newest release, lab.yml's runs, a completed run waited for, a lab run's result downloaded
+// newest release, a completed run waited for, a lab run's result downloaded
 // (SPIN_LAB_RUN, a lab.yml run that kept one).
 func TestTheLabTalksToGitHub(t *testing.T) {
 	if os.Getenv("SPIN_LAB_GITHUB") == "" {
@@ -81,10 +81,6 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 	}
 	if tags, err := gh.Releases(3); err != nil || len(tags) == 0 || tags[0] != tag {
 		t.Fatalf("Releases(3) = %v, %v; want the newest, %s, first", tags, err, tag)
-	}
-	runs, err := gh.LabRuns()
-	if err != nil || len(runs) == 0 {
-		t.Fatalf("LabRuns = %d runs, %v", len(runs), err)
 	}
 	src := Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), GitHub: gh}
 	// The release itself, unpacked: 385 MB, so only when asked for.
