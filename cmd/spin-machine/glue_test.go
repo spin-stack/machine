@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -463,13 +464,33 @@ func childOf(pid int) int {
 	return 0
 }
 
+// qcow2Over writes a version 3 qcow2 header at path naming backing, of the format given.
+func qcow2Over(t *testing.T, path, backing, format string) {
+	t.Helper()
+	b := make([]byte, 1024)
+	be := binary.BigEndian
+	be.PutUint32(b[0:], 0x514649fb)
+	be.PutUint32(b[4:], 3)
+	be.PutUint64(b[8:], 512)
+	be.PutUint32(b[16:], uint32(len(backing))) // #nosec G115 -- a test's name
+	be.PutUint32(b[20:], 16)
+	be.PutUint32(b[100:], 104)
+	be.PutUint32(b[104:], 0xe2792aca)
+	be.PutUint32(b[108:], uint32(len(format))) // #nosec G115 -- a test's format
+	copy(b[112:], format)
+	copy(b[512:], backing)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The disk a command takes when it is not told one: the release's base image under an overlay
 // made with the release's qemu-img, read without a path.
 func TestADiskWithNoPathIsTheBaseUnderAScratchOverlay(t *testing.T) {
 	dir := release(t)
 	base := filepath.Join(dir, "image/rootfs.qcow2")
 	prepared := filepath.Join(t.TempDir(), "overlay")
-	qcow2(t, prepared, 3, base, "raw")
+	qcow2Over(t, prepared, base, "raw")
 	script := func(body string) {
 		t.Helper()
 		p := filepath.Join(dir, "bin/qemu-img")
@@ -482,11 +503,11 @@ func TestADiskWithNoPathIsTheBaseUnderAScratchOverlay(t *testing.T) {
 	}
 
 	script(`for a; do last=$a; done; cp ` + prepared + ` "$last"`)
-	d, closeAll, err := diskFlags{serial: "root"}.open(dir)
+	d, err := diskFlags{serial: "root"}.open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeAll()
+	defer func() { _ = d.Close() }()
 	if len(d.Images) != 2 || d.Images[0].Format != "qcow2" || d.Images[1].Format != "raw" || d.Readonly || !d.Locking {
 		t.Errorf("disk %+v, want a writable, locked qcow2 overlay over the raw base", d)
 	}
@@ -495,53 +516,70 @@ func TestADiskWithNoPathIsTheBaseUnderAScratchOverlay(t *testing.T) {
 	}
 
 	script("exit 1")
-	if _, _, err := (diskFlags{serial: "root"}).open(dir); err == nil || !strings.Contains(err.Error(), "making a scratch overlay") {
+	if _, err := (diskFlags{serial: "root"}).open(dir); err == nil || !strings.Contains(err.Error(), "making a scratch overlay") {
 		t.Errorf("a qemu-img that failed: %v", err)
 	}
 	script(`for a; do last=$a; done; echo garbage > "$last"`)
-	if _, _, err := (diskFlags{serial: "root"}).open(dir); err == nil || !strings.Contains(err.Error(), "is not a qcow2 image") {
+	if _, err := (diskFlags{serial: "root"}).open(dir); err == nil || !strings.Contains(err.Error(), "is not a qcow2 image") {
 		t.Errorf("an overlay that is not one: %v", err)
 	}
 	t.Setenv("TMPDIR", "/nonexistent")
-	if _, _, err := (diskFlags{serial: "root"}).open(dir); err == nil || !strings.Contains(err.Error(), "a directory for the scratch overlay") {
+	if _, err := (diskFlags{serial: "root"}).open(dir); err == nil || !strings.Contains(err.Error(), "a directory for the scratch overlay") {
 		t.Errorf("no directory for the overlay: %v", err)
 	}
 	if err := os.Remove(base); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := (diskFlags{serial: "root"}).open(dir); err == nil || !strings.Contains(err.Error(), "base image") {
+	if _, err := (diskFlags{serial: "root"}).open(dir); err == nil || !strings.Contains(err.Error(), "base image") {
 		t.Errorf("a release with no base image: %v", err)
 	}
-	if _, _, err := (diskFlags{serial: "root"}).open(t.TempDir()); err == nil || !strings.Contains(err.Error(), "not a whole machine") {
+	if _, err := (diskFlags{serial: "root"}).open(t.TempDir()); err == nil || !strings.Contains(err.Error(), "not a whole machine") {
 		t.Errorf("no release: %v", err)
 	}
 }
 
-// A disk's top is opened for writing unless it is read-only, and nothing under it ever is.
-func TestADiskIsOpenedForWhatItWillBe(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "base.raw")
-	if err := os.WriteFile(base, nil, 0o600); err != nil {
+// A --disk's backing images are the release's base unless --disk-under names others, and a disk
+// that names none needs no release.
+func TestADisksBackingImagesAreTheReleasesBaseUnlessNamed(t *testing.T) {
+	dir := release(t)
+	base := filepath.Join(dir, "image/rootfs.qcow2")
+	elsewhere := filepath.Join(t.TempDir(), "base.raw")
+	if err := os.WriteFile(elsewhere, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	top := filepath.Join(dir, "top.qcow2")
-	qcow2(t, top, 3, base, "raw")
-	for _, readonly := range []bool{false, true} {
-		d, closeAll, err := diskFlags{path: top, format: "qcow2", serial: "root", readonly: readonly}.open(release(t))
-		if err != nil {
-			t.Fatal(err)
-		}
-		writable := func(f *os.File) bool {
-			flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_GETFL, 0)
-			if errno != 0 {
-				t.Fatal(errno)
+	overBase, overElsewhere := filepath.Join(t.TempDir(), "a.qcow2"), filepath.Join(t.TempDir(), "b.qcow2")
+	qcow2Over(t, overBase, base, "raw")
+	qcow2Over(t, overElsewhere, elsewhere, "raw")
+
+	var o attachFlags
+	if err := parse("attach", []string{"--qmp", "/q", "--disk", overElsewhere, "--disk-under", elsewhere, "--disk-under", base}, o.register); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(o.disks.under, []string{elsewhere, base}) {
+		t.Errorf("--disk-under twice is %v, want both", o.disks.under)
+	}
+	for _, tc := range []struct {
+		name    string
+		disk    diskFlags
+		release string
+		want    string
+	}{
+		{"over the release's base", diskFlags{path: overBase, format: "qcow2"}, dir, ""},
+		{"over a base elsewhere", diskFlags{path: overElsewhere, format: "qcow2"}, dir, "names " + elsewhere},
+		{"over a base elsewhere it was told of", o.disks, dir, ""},
+		{"raw, with no release", diskFlags{path: elsewhere, format: "raw"}, "", ""},
+		{"the release's base, writable", diskFlags{path: base, format: "qcow2"}, dir, "is one of the images a disk may only read"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.disk.serial = "root"
+			d, err := tc.disk.open(tc.release)
+			if err == nil {
+				_ = d.Close()
 			}
-			return flags&syscall.O_ACCMODE == syscall.O_RDWR
-		}
-		if writable(d.Images[0].File) == readonly || writable(d.Images[1].File) {
-			t.Errorf("read-only %t: the top writable %t, the base %t", readonly, writable(d.Images[0].File), writable(d.Images[1].File))
-		}
-		closeAll()
+			if (tc.want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("open = %v, want an error saying %q", err, tc.want)
+			}
+		})
 	}
 }
 

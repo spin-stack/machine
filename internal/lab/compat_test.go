@@ -304,6 +304,7 @@ func TestACheckpointOfTheReleaseBeforeResumesHere(t *testing.T) {
 		"--disk-format qcow2 --init /bin/sh --restore\n",
 		"save --qmp ",
 		"restore --release " + here + " --qmp ",
+		"--disk-format qcow2 --disk-under " + filepath.Join(previous, "image", "rootfs.qcow2") + "\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("spin-machine ran\n%s\nwithout %q", got, want)
