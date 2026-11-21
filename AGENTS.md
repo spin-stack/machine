@@ -163,6 +163,11 @@ Comments here are longer than usual, on purpose. These rules are what make them 
   re-reads.
 - **Name external contracts when relevant.** A consumer's protocol, provisioned file or
   lifecycle that this machine has to honour is described here and tested where it can be.
+- **A decision, an open question or a follow-up is an issue.** "Left as it is", "not settled",
+  "not in this change" and "the consumer should change this" each get a GitHub issue in the repo
+  that owns it (spin-stack/machine or spin-stack/spin), with its evidence and how to settle it.
+  A comment, a PR body or `docs/log.md` cites the issue and never stands in for it: a comment is
+  read only by whoever opens that file, and an issue is where the next person looks for work.
 
 ## Artefacts leave this machine
 
