@@ -302,6 +302,12 @@ of its own, the same gap took 6 ms p50, and the guest's stop to `cont` fell from
 caller's `fdatasync` after `Continue` took 259 ms instead of 3, so the time to a durable state did
 not change (−19 ms [−4088, +3963]). It moved off the guest's clock.
 
+The 0.3-0.9 GiB the guest stopped with was QEMU's default `downtime-limit` of 300 ms at work: QEMU
+stops the guest once what is left fits in that limit at the rate it measures, ~4 GB/s into the page
+cache. Checkpoint now sets 30 ms (`checkpointDowntime`). On the bench, QEMU's downtime for the same
+shape fell from 192 ms to 6 ms, and the guest's stop to `cont` fell from 199 ms to 14 ms
+(docs/memory-and-disk.md, "How long the guest is stopped", #415).
+
 ## What a snapshot keeps
 
 `task boot:rollback` holds a snapshot to what a person in the workspace expects (#408). It boots

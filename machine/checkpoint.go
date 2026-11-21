@@ -122,6 +122,16 @@ type added struct {
 // network: a checkpoint is a local file.
 const checkpointBandwidth = int64(64) << 30
 
+// checkpointDowntime is the pause QEMU plans for, in milliseconds. QEMU stops the guest once what
+// is left to write fits in it at the rate it last measured, and writes the rest with the guest
+// stopped. Its default, 300, at the ~4 GB/s a save reaches into the page cache, stopped the guest
+// part-way through the first pass with 0.8-0.9 GiB of a 1.6 GiB save still to write. At 30, QEMU's
+// downtime went from 192 ms to 6, -186 [-189, -184], with the save's total within noise. With a
+// writer in the guest, 64 MiB of a 512 MiB set every ~100 ms, it went from 221 ms to 8,
+// -213 [-218, -208], and the total rose 39 ms [33, 45] for one more pass (bench, spin's shape
+// plugged to 2 GiB, 20 saves an arm interleaved, lab 44940051596, 2026-11-21, #415).
+const checkpointDowntime = 30
+
 var (
 	migrateOut             = qmpdef.Define[migrateArgs, qmp.None]("migrate")
 	migrateIn              = qmpdef.Define[migrateArgs, qmp.None]("migrate-incoming")
@@ -162,6 +172,7 @@ type capabilityState struct {
 // migrationParameters are the parameters the machine sets: each left as it was when not given.
 type migrationParameters struct {
 	MaxBandwidth    int64 `json:"max-bandwidth,omitempty"`
+	DowntimeLimit   int64 `json:"downtime-limit,omitempty"`
 	MultifdChannels int   `json:"multifd-channels,omitempty"`
 }
 
@@ -268,9 +279,8 @@ func loadEnded(st migrationStatus) error {
 // threads, DefaultChannels when it names none.
 //
 // pause-before-switchover stops the migration with the guest paused and the disks quiet, before
-// the RAM the guest dirtied last and the device state are written: seal runs there. Of 1.6 GiB
-// saves, the last RAMWritten before the stop was 0.3-0.9 GiB short of what the save wrote
-// (laptop, 32 saves, 2026-11-21). The vCPUs and disks
+// the RAM still to write and the device state are written: seal runs there. QEMU stops the guest
+// once what is left fits in checkpointDowntime. The vCPUs and disks
 // added while the machine ran are read before the migration starts, because QEMU refuses a query
 // of some of them once one is under way. The machine's record is read while it runs: QEMU answers
 // its monitors while it writes the guest's RAM.
@@ -301,7 +311,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	params := migrationParameters{MaxBandwidth: checkpointBandwidth}
+	params := migrationParameters{MaxBandwidth: checkpointBandwidth, DowntimeLimit: checkpointDowntime}
 	if channels > 1 {
 		params.MultifdChannels = channels
 	}
