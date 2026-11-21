@@ -127,16 +127,20 @@ n, err := disk.Overhead()       // each disk's qcow2 caches, beyond spec's
   come QEMU's thread pool, at most 64 (a thread it cannot start aborts QEMU), and io_uring's
   workers, at most the ring's 128 entries. The lane saw one pool worker and three io_uring ones.
 - **Measured** (task boot:overhead, laptop KVM, v20261121.01, 2026-11-21). Spin's shape with a
-  NIC and a vsock, started as nobody in a root of `Files` alone, held 34 MiB beyond the guest
-  booted and sized to 2048 MiB, with 9 tasks. While it was checkpointed it held 37 MiB and 18
-  tasks. At its ceiling it held 75 MiB and 26 tasks, with 16 vCPUs, 8192 MiB filled and four
-  disks attached beside its two (one of them 64 GiB), while the guest read, wrote and trimmed
-  every disk. Of the 75 MiB, 31 were page tables, 16 the bzImage and 8 the 64 GiB disk's L2
-  cache. A checkpoint at the ceiling held up to 103 MiB and 35 tasks, reclaimable slab included.
-  `Overhead` for that machine with its disks is 153 MiB and 223 tasks, where spin reserved 768 MiB
-  and 272 tasks (spin's `internal/runner/qemu/bounds.go`).
+  NIC and a vsock, started as nobody in a root of `Files` alone, held 31 MiB beyond the guest and
+  9 tasks, booted and sized to 2048 MiB. At its ceiling it held 73 MiB and 27 tasks, with 16
+  vCPUs, 8192 MiB filled and four disks attached beside its two (one of them 64 GiB), while the
+  guest read, wrote and trimmed every disk. Of the 73 MiB, 27 were page tables, 16 the bzImage
+  and 8 the 64 GiB disk's L2 cache. A checkpoint there held up to 79 MiB and 34 tasks. `Overhead`
+  for that machine with its disks is 153 MiB and 223 tasks. spin reserved 768 MiB and 272 tasks
+  (spin's `internal/runner/qemu/bounds.go`).
+- **What the lane counts.** QEMU's own memory is the anonymous memory of its mappings outside the
+  guest's RAM blocks, from its `smaps`. The cgroup's `anon` is not used for it. A huge page of the
+  guest's that QEMU has given back in part stays charged until the kernel splits it, which it does
+  once the cgroup needs the memory. Just after the guest freed 1.4 GiB, `anon` read 160 MiB more
+  than `smaps`.
 - **Not measured.** A restore, which loads with the same channels as a checkpoint saves with, and
-  a QEMU that has run for days. The page tables the lane saw were those of 4 KiB pages (31 MiB
+  a QEMU that has run for days. The page tables the lane saw were those of 4 KiB pages (27-32 MiB
   for 8 GiB) with huge pages on madvise, so a host with them off pays what is counted.
 
 ## Driving a running machine
