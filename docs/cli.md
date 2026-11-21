@@ -299,7 +299,12 @@ QEMU.
 against today's, and `initcalls` is the kernel's boot by initcall. Every probe takes the shape's
 options (above) and its own: `restore-first` takes `fast=true` and `channels`, `prestart` takes
 `channels`, and `initcalls` takes `top=N`. The
-lab refuses an option the probe does not take. `restore-first`'s cached row reads only the data of
+lab refuses an option the probe does not take. A probe that restores (`restore-first`, `prestart`,
+`restore-together`) hands every restore its tree's machine record (`spin-machine restore
+--target`). The record is read once per tree, before anything is measured, from a machine of the
+tree held for a checkpoint in the probe's shape, as spin reads its host's once. A tree whose
+spin-machine has no `target` command, every release before the record, restores as it always did,
+and its restore asks the machine on its clock. `restore-first`'s cached row reads only the data of
 the saved state into the page cache (`SEEK_DATA`). A mapped-ram state is a file as long as the RAM
 ceiling, and its data is all QEMU loads from it. The row's `listening` is the restoring QEMU's
 monitor accepting, not its machine made.
