@@ -538,6 +538,23 @@ func TestThePanicWatchKeepsTheFirstPanicsLine(t *testing.T) {
 			t.Errorf("a mark after %d bytes: %q, want %q", tc.pad, got, tc.want)
 		}
 	}
+	// The console arrives in pieces: a line ends at a newline written alone, and is cut at 512
+	// bytes across the writes that make it.
+	for _, tc := range []struct {
+		writes []string
+		want   string
+	}{
+		{[]string{"[1] Kernel panic - one", "\n", "x\n"}, "Kernel panic - one"},
+		{[]string{"a\n" + strings.Repeat("x", 300), strings.Repeat("x", 201) + "Kernel panic\n"}, ""},
+	} {
+		c := &panicWatch{w: &out}
+		for _, w := range tc.writes {
+			_, _ = c.Write([]byte(w))
+		}
+		if got := c.panicked(); got != tc.want {
+			t.Errorf("%q: %q, want %q", tc.writes, got, tc.want)
+		}
+	}
 	broken := &panicWatch{w: &failing{}}
 	if n, _ := broken.Write([]byte("Kernel panic\n")); n != 13 || broken.panicked() != "Kernel panic" {
 		t.Errorf("a failing console stopped the watch: %d %q", n, broken.panicked())
