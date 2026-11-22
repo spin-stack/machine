@@ -233,6 +233,10 @@ grep -q '^ExecStartPost=.*systemctl --user set-environment' "$MNT/usr/lib/system
 		}}, nil
 	case "linger-root":
 		return Edit{Files: map[string]string{"/var/lib/systemd/linger/root": ""}}, nil
+	case "no-barrier":
+		return Edit{Files: map[string]string{"/etc/systemd/system/user@.service.d/10-login-barrier.conf": "# empty: shadows the vendor's After=systemd-user-sessions.service\n"},
+			Setup: `grep -qx 'After=systemd-user-sessions.service' "$MNT/usr/lib/systemd/system/user@.service.d/10-login-barrier.conf"
+`}, nil
 	case "manager-debug":
 		return Edit{Files: map[string]string{"/etc/systemd/system/user@0.service.d/90-debug.conf": "[Service]\nEnvironment=SYSTEMD_LOG_LEVEL=debug\n"}}, nil
 	case "pam-min":
