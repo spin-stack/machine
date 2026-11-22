@@ -314,7 +314,7 @@ handler then takes `Stall{Seen: Guest, Resource: MemoryPressure}` where its runn
 supervisor's `POST /v2/memory-pressure` on port 1027. The supervisor's notice, and the runner's
 handler for it, are then deleted: the trigger they arm is the same, 150 ms in 1 s.
 
-**Next, not here.** CPU and memory's rows of the actuators' table below (#396). Not yet explained:
+**Next, not here.** Not yet explained:
 the 175-950 ms QMP stalls under small synced writes on a contended host disk (#391), and QMP's
 round trip during a load (#392).
 
@@ -330,7 +330,19 @@ long, and when to let go.
 | Host IO stalls on the runner, and one machine's `Usage.Disks` counters far ahead of the rest | `SetDiskLimit(serial, DiskLimit)` on that machine's busy disk; `DiskLimit{}` lets it go | machine's method, spin's policy | 1.8-5.5 ms a call, 2026-11-21. Nothing at boot, since the command line does not change |
 | `Limited{Limit: DiskReadBytes…}` | the limit holding: spin keeps it, raises it or lets it go | spin | none: read only while a disk is held |
 | `Limited{Limit: IOReadBytes…}` | `io.max` on QEMU's cgroup | spin, which owns the cgroup | |
-| CPU and memory | `SetCPUs`, `SetMemory`, and the cgroup's `cpu.max` and `memory.high` | #396 | |
+| A guest `Stall` on CPU and no host one: the machine is too small for its load | `SetCPUs(n)` up to its ceiling | machine's method, spin's policy | 16 vCPUs, 8192 MiB and four disks plugged at once reached the guest in 0.31-0.71 s after a checkpoint (laptop, 2026-11-21, `boot:cpu-plug`). One vCPU alone is not measured (#549) |
+| A host `Stall` on CPU on other machines, and one machine's `Usage.CPU` far ahead of the rest | `cpu.max` or `cpu.weight` on the noisy machine's cgroup. More vCPUs for the others would not help: the host is short, not they | spin, which owns the cgroup | a write to the cgroup, and a `Limited` each second it holds (laptop, 2026-11-21) |
+| `Limited{Limit: CPUMax}` | the limit holding: spin keeps it, raises it or lets it go | spin | none: read each second |
+| A guest `Stall` on memory, or an `OOMKill` | `SetMemory(mb)` up to its ceiling, through virtio-mem | machine's method, spin's policy | plugging 2048 MiB took 60-63 ms (laptop, prototype, 2026-11-21) |
+| A host `Stall` on memory: the host wants memory back | `SetMemory` down, which takes back only the blocks the guest can empty; the guest's `memory.reclaim`, whose freed pages free page reporting hands back; `memory.high` on QEMU's cgroup | `SetMemory` machine's method, the rest spin's (its `spin-reclaim.service` in the guest, its cgroup) | unplugging is not measured (#549). One `memory.reclaim` of 512M took QEMU's RSS from 910 to 394 MB, with the working set read again in 150 ms against 120 (run 36809694419, docs/memory-and-disk.md) |
+| `Limited{Limit: MemoryHigh…}` | the limit holding: spin keeps it, raises it or lets it go | spin | none: read each second |
+| A machine's network crowding the others' | `tc` on the TAP spin passes in. The machine opens the TAP spin names and has no NIC of its own to shape | spin | |
+
+**The balloon is not a memory actuator here.** An inflated balloon and virtio-mem are incompatible in
+one VM (docs/memory-and-disk.md), and a machine with a ceiling above its boot memory has virtio-mem.
+The balloon is there for free page reporting and `deflate-on-oom`, and spin reads the guest's memory
+statistics from it, never inflating it. Memory leaves a guest by `SetMemory` down, or by the guest
+freeing it within what it keeps.
 
 **A `DiskLimit` is the device's, not the place's.** `SetDiskLimit` sends `block_set_io_throttle` to
 the backend of the disk's device, a place's virtio-blk or a disk attached on the hotplug
