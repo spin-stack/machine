@@ -870,6 +870,10 @@ func TestResume(t *testing.T) {
 			if strings.Index(cmds, "device_add") > strings.Index(cmds, "migrate-incoming") {
 				t.Error("a device was added after the load started: the stream names each device, and one that is not there fails it")
 			}
+			if active := f.sent("blockdev-set-active"); len(active) != 1 || !reflect.DeepEqual(active[0], map[string]any{"active": true}) ||
+				strings.Index(cmds, "blockdev-set-active") > strings.Index(cmds, "migrate-incoming") {
+				t.Errorf("blockdev-set-active %v in %s, want every disk taken once, before the load", active, cmds)
+			}
 		})
 	}
 }
@@ -1308,6 +1312,27 @@ func TestResumeFailsWhereAHotDiskIsRefused(t *testing.T) {
 		Disk{Serial: "ext", Images: []Image{image(t, "qcow2")}})
 	if err == nil || !strings.Contains(err.Error(), "attaching it at target 2") {
 		t.Errorf("Resume = %v, want the refused disk's error", err)
+	}
+}
+
+// A resume whose disks QEMU cannot take fails with QEMU's reason before a byte of the state is
+// read, and does not leave a loaded guest that never runs (#459).
+func TestResumeFailsWhereTheDisksCannotBeTaken(t *testing.T) {
+	from := fakeTarget(t)
+	f := &fakeQEMU{}
+	f.answer = func(c call) string {
+		if c.Command == "blockdev-set-active" {
+			return refused(`Failed to get \"write\" lock`)
+		}
+		return machineAnswers("inmigrate", "root")(c)
+	}
+	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{Fast: true},
+		Disk{Serial: "root", Images: []Image{image(t, "qcow2")}})
+	if err == nil || !strings.Contains(err.Error(), `taking the machine's disks: blockdev-set-active: GenericError: Failed to get "write" lock`) {
+		t.Errorf("Resume = %v, want QEMU's refusal of the lock", err)
+	}
+	if slices.Contains(f.commands(), "migrate-incoming") {
+		t.Error("the state was read")
 	}
 }
 

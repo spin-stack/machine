@@ -125,6 +125,27 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		g.await(t, regexp.MustCompile(`RESUMED-5\b`), 30*time.Second)
 	})
 
+	// QEMU takes a loaded machine's disks where it runs the guest, and when another process holds
+	// an image's lock it leaves the guest stopped and says so only on its stderr: the load
+	// completed, no RESUME came, and the guest never ran (#459).
+	t.Run("a disk another machine holds", func(t *testing.T) {
+		_, err, g := resume(t, state, machine.LoadOptions{}, &timeline{})
+		if err != nil {
+			t.Fatalf("resuming: %v\n%s", err, g.said())
+		}
+		s, err, h := resume(t, state, machine.LoadOptions{}, &timeline{})
+		if err == nil {
+			st, _ := h.Status(ctx)
+			t.Fatalf("a resume onto a disk a running machine holds returned, the machine %s\nloading: %s\n%s", st, s, h.said())
+		}
+		if !strings.Contains(err.Error(), `"write" lock`) {
+			t.Errorf("Resume = %v, want QEMU's refusal of the lock", err)
+		}
+		if strings.Contains(s.String(), "MIGRATION setup") {
+			t.Errorf("the state was read: %s", s)
+		}
+	})
+
 	t.Run("a truncated state", func(t *testing.T) {
 		// The state is sparse, as long as the RAM's ceilings, its device state at the end.
 		short := filepath.Join(dir, "short")
