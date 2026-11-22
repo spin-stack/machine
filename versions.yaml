@@ -191,8 +191,10 @@
     image/openssh/Dockerfile: Ubuntu's openssh source package as resolute publishes it, by its
     .dsc, without the epoch (1:) the package's version carries; rebuilt with the patches in
     image/openssh and installed in place of the archive's. The archive serves only the current
-    version, so the build fails once Ubuntu moves it. After the bump: every patch still applies
-    without fuzz (the build refuses otherwise), and an upstream release that takes one is when it
+    version, so the build fails once Ubuntu moves it, and `spin-machine-dev refresh openssh`
+    proposes the new one. After the bump: every patch still applies without fuzz (the build
+    refuses otherwise, in parts.yml on the proposing pull request), and an upstream release that
+    takes one is when it
     is deleted; `spin-machine-dev build image` (sshd-auth's version, the packages held), then `task
     boot:sshd-delay`.
 

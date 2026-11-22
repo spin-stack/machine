@@ -34,7 +34,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # From the archive's deb-src, which apt checks against the signed Sources index, and then the .dsc
 # against the pin. The archive keeps only the version resolute publishes now: once Ubuntu moves
 # openssh, this fails at the download, which is when the pin has to move with it, as
-# image/systemd's does.
+# image/systemd's does: refresh.yml proposes the move that day (spin-machine-dev refresh openssh).
 RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends dpkg-dev devscripts

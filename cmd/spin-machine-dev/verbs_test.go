@@ -830,12 +830,12 @@ func TestAQEMUBumpSaysWhatNewerTypesChange(t *testing.T) {
 func TestRefreshProposesThroughVersionsOrTheBuilders(t *testing.T) {
 	checkout(t)
 	calls := fakes(t, map[string]string{"go": ""})
-	for _, what := range []string{"kernel", "systemd"} {
+	for _, what := range []string{"kernel", "systemd", "openssh"} {
 		if _, _, status := verb(t, "refresh", what); status != 0 {
 			t.Errorf("refresh %s exited %d", what, status)
 		}
 	}
-	if got := read(t, calls); got != "go tool versions refresh -propose -label kernel kernel\ngo tool versions refresh -propose -label systemd systemd-source\n" {
+	if got := read(t, calls); got != "go tool versions refresh -propose -label kernel kernel\ngo tool versions refresh -propose -label systemd systemd-source\ngo tool versions refresh -propose -label openssh openssh-source\n" {
 		t.Errorf("go ran %q", got)
 	}
 	if _, _, status := verb(t, "refresh", "nope"); status == 0 {

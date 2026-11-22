@@ -129,7 +129,7 @@ release.yml  compat.yml ; spin-machine-dev release version ; release ; release n
              release provenance ; release sign ; release tag ; then the publish action ;
              report.yml ; pause: spin-machine-dev lab check checkpoint-pause ;
              task trace ; task ship-it:wake
-refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|builders
+refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|openssh|builders
 report.yml   task bin ; task vsock ; spin-machine-dev releases measure TAG... ; then in main's
              checkout: task bin ; spin-machine-dev releases record LADDER_JSON... ;
              spin-machine-dev releases schema TAG... ; task git:app ;
