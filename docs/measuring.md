@@ -111,9 +111,10 @@ v20261122.04's plot (release run 45041820698, first login at 340 ms):
   says whether the time was CPU or waiting.
 - A stretch where no unit changes state is PID 1's or the kernel's own work: 110 to 151 ms, after
   the unit files load. The chart's PID 1 row and its CPU graph say which (#521).
-- `dev-vda.device` reads activating from 110 ms to the plot's end. The kernel mounted root from
-  it, and the unit waits only for udevd to announce the disk. Every unit left of the line became
-  active while it was still activating, so none of them waited for it.
+- `dev-vda.device` reads activating from 110 ms to the plot's end. No unit queues a job for it and
+  none depends on it: PID 1 marks it `tentative` at its start, because root is mounted from it,
+  and `plugged` when udevd announces the disk, and the plot draws tentative as activating (debug
+  boots of v20261122.06, lab 45070718529). Nothing waits for it.
 
 **Reading the chain and the graph.** Once the boot has finished, the probe asks
 `systemd-analyze critical-chain` about the units the login waits for: on spin's path the forwarder
@@ -138,10 +139,12 @@ green, an `After=`: an arrow from A to B says A is ordered after B.
 On v20261122.06 (lab 45070438471, bench, spin's shape, boot 2): the forwarder became active at
 161 ms, 3 ms after `basic.target` at 158, which came after `sockets.target` and `docker.socket`,
 after `sysinit.target` at 149, after `systemd-tmpfiles-setup.service` (123, +25), after
-`systemd-journald.service` (63, +55). `ssh.service` was active at 123 ms (107, +16). So the
-forwarder waited ~38 ms after sshd was ready, for `basic.target`, which every unit with default
-dependencies waits for (#TODO). The graph shows the same: the forwarder's arrows go to
-`ssh.service` and to `basic.target`.
+`systemd-journald.service` (63, +55). `ssh.service` was active at 123 ms (107, +16). The graph
+shows the same: the forwarder's arrows go to `ssh.service` and to `basic.target`. A chain says
+what a unit was ordered behind, never that the login waited for it. With the forwarder moved off
+`basic.target` it became active ~33 ms sooner and the first login did not move (labs 45071549627,
+45071102677): the login's session waits for `systemd-logind.service`, which `user@0.service`'s
+chain shows active at the same time in both (#553). Only `ssh-first` says whether a chain holds the login.
 
 **What it costs.** The sampler runs on the guest's one vCPU beside the boot it draws. With the
 edit, `ssh-first` read the first login +10.4 ms [+4.5, +16.8], sshd accepting +8.5
