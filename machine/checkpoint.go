@@ -180,7 +180,13 @@ type migrationParameters struct {
 	MaxBandwidth    int64 `json:"max-bandwidth,omitempty"`
 	DowntimeLimit   int64 `json:"downtime-limit,omitempty"`
 	MultifdChannels int   `json:"multifd-channels,omitempty"`
+	DirectIO        *bool `json:"direct-io,omitempty"`
 }
+
+var checkpointDirectIO bool
+
+// SetCheckpointDirectIO is for the #437 experiment only.
+func SetCheckpointDirectIO(on bool) { checkpointDirectIO = on }
 
 // migrationStatus is a state of a migration, of the ones the machine waits on or refuses.
 type migrationStatus string
@@ -341,7 +347,8 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
-	params := migrationParameters{MaxBandwidth: checkpointBandwidth, DowntimeLimit: checkpointDowntime}
+	dio := checkpointDirectIO && channels > 1
+	params := migrationParameters{MaxBandwidth: checkpointBandwidth, DowntimeLimit: checkpointDowntime, DirectIO: &dio}
 	if channels > 1 {
 		params.MultifdChannels = channels
 	}
@@ -364,7 +371,11 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		completedAt, err = m.switchover(ctx, at, seal, stop, save.Phases)
 		return err
 	}
-	if err := m.migrate(ctx, migrateOut, to, os.O_WRONLY, writing); err != nil {
+	access := os.O_WRONLY
+	if dio {
+		access |= directFlag
+	}
+	if err := m.migrate(ctx, migrateOut, to, access, writing); err != nil {
 		// A migration left at pre-switchover holds the guest paused with nobody to continue
 		// it; a cancel with none running succeeds.
 		_, cancelErr := qmp.Do(context.WithoutCancel(ctx), m.c, migrateCancel, qmp.None{})
@@ -473,9 +484,22 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 	// 6 ms closed apart; the caller's sync after Continue takes that time instead (laptop ext4,
 	// 16 saves an arm interleaved, 2026-11-21, #399).
 	defer func() { go func() { _ = g.Close() }() }()
+	var direct *os.File
+	if access&directFlag != 0 {
+		direct, g = g, nil
+		if g, err = os.OpenFile(fmt.Sprintf("/proc/self/fd/%d", f.Fd()), access&^directFlag, 0); err != nil {
+			return err
+		}
+		defer func() { go func() { _ = direct.Close() }() }()
+	}
 	set, err := qmp.Do(ctx, m.c, qmp.AddFD, qmp.AddFDArgs{File: g, Opaque: "state"})
 	if err != nil {
 		return fmt.Errorf("handing state to QEMU: %w", err)
+	}
+	if direct != nil {
+		if _, err := qmp.Do(ctx, m.c, qmp.AddFD, qmp.AddFDArgs{File: direct, Set: &set.Set, Opaque: "state-direct"}); err != nil {
+			return fmt.Errorf("handing state to QEMU, direct: %w", err)
+		}
 	}
 	_, err = qmp.Do(ctx, m.c, command, migrateArgs{URI: "file:" + set.Path()})
 	if err == nil {
@@ -662,3 +686,5 @@ func (m *QEMU) Loaded(ctx context.Context) error {
 	m.then = nil
 	return nil
 }
+
+const directFlag = 0x4000 // O_DIRECT on amd64

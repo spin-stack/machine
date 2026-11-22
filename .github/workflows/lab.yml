@@ -91,9 +91,9 @@ jobs:
       # prefixed output puts the task's name.
       TASK_OUTPUT: interleaved
       SPIN_PAUSE_TRACE: /tmp/p437
-      SPIN_PAUSE_CASES: "pressure beside"
+      SPIN_PAUSE_CASES: "^writing beside a busy disk$|pressure beside"
       SPIN_PAUSE_SAVES: "40"
-      SPIN_PAUSE_ALT_DOWNTIME: "15"
+      SPIN_PAUSE_ALT_DIRECT: "1"
       SPIN_PAUSE_HEADROOM_MB: "4096"
     steps:
       - name: Checkout

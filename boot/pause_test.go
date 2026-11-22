@@ -146,10 +146,17 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 					altFirst = rand.IntN(2) == 0
 				}
 				arm := int64(30)
-				if (i%2 == 0) == altFirst {
+				alt := (i%2 == 0) == altFirst
+				if alt {
 					arm = int64(envInt(t, "SPIN_PAUSE_ALT_DOWNTIME", 30))
 				}
 				machine.SetCheckpointDowntime(arm)
+				if os.Getenv("SPIN_PAUSE_ALT_DIRECT") != "" {
+					machine.SetCheckpointDirectIO(alt)
+					if alt {
+						arm = 1
+					}
+				}
 				p := checkpointOnce(ctx, t, g, q)
 				t.Logf("ARM %d held %6.2f stopped %6.2f ms, QEMU's downtime %v, left at the stop %d MiB, total %v, RAM %d MiB",
 					arm, ms(p.held()), ms(p.stopped), p.cost.Paused, p.left>>20, p.cost.Total, p.cost.RAM>>20)
