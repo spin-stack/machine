@@ -341,6 +341,7 @@ func TestTheLedgersCutsFollowTheLoginsProcesses(t *testing.T) {
 	at := strings.Index(in.Trace, "            true-111     [000] .....     0.318157")
 	foreign := in.Trace[:at] +
 		"            sshd-77      [000] .....     0.300000: sched_process_exec: filename=/usr/bin/true pid=77 old_pid=77\n" +
+		"            sshd-77      [000] .....     0.318400: sched_process_fork: comm=sshd pid=77 child_comm=sshd child_pid=113\n" +
 		"    sshd-session-113     [000] .....     0.318500: sched_process_exec: filename=/usr/lib/openssh/sshd-session pid=113 old_pid=113\n" +
 		in.Trace[at:]
 	if got := starts(windows(foreign)); !slices.Equal(got, want) {
@@ -382,6 +383,7 @@ func TestPIDZeroIsTheKernelUntilTheFirstSwitch(t *testing.T) {
 	events, err := parseTrace(`          <idle>-0       [001] d..2.     0.000200: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=other next_pid=12 next_prio=120
           <idle>-0       [000] d..2.     0.000500: sched_switch: prev_comm=swapper/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=sh next_pid=10 next_prio=120
               sh-10      [000] .....     0.000800: sched_process_exec: filename=/usr/bin/true pid=10 old_pid=10
+          stray-20       [000] .....     0.000900: sched_process_exec: filename=/usr/bin/stray pid=20 old_pid=20
             true-10      [000] d..2.     0.001000: sched_switch: prev_comm=true prev_pid=10 prev_prio=120 prev_state=S ==> next_comm=swapper/0 next_pid=0 next_prio=120
 `)
 	if err != nil {
@@ -392,7 +394,12 @@ func TestPIDZeroIsTheKernelUntilTheFirstSwitch(t *testing.T) {
 	if owner(0, 0.2) != ownerKernel || owner(0, 0.6) != ownerIdle {
 		t.Errorf("PID 0 at 0.2 ms is %q and at 0.6 %q", owner(0, 0.2), owner(0, 0.6))
 	}
+	// An exec by a task the trace does not have on that CPU, which only lost events make, credits
+	// it no time.
 	for _, s := range b.cpuIn(0, 1, func(pid int, _ float64) string { return strconv.Itoa(pid) }) {
+		if s.Owner == "20" {
+			t.Errorf("the stray exec was credited %v ms", s.Ms)
+		}
 		if s.Owner != "10" {
 			continue
 		}
@@ -401,7 +408,7 @@ func TestPIDZeroIsTheKernelUntilTheFirstSwitch(t *testing.T) {
 		}
 	}
 	// No switch on CPU 0 at all: PID 0's time is the kernel's throughout.
-	if owner := replay(events[2:3]).owners(nil); owner(0, 5) != ownerKernel {
+	if owner := replay(events[2:4]).owners(nil); owner(0, 5) != ownerKernel {
 		t.Error("with no switch on CPU 0, PID 0 is idle")
 	}
 }
