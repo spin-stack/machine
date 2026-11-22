@@ -104,8 +104,8 @@ tasks:
     desc: Test the machine definition, under the race detector, with its coverage in coverage.out and held to a floor.
     vars:
       # Below today's number, of the statements CI can run: a function marked `mutate-lane:` is
-      # held by a test that needs root and KVM, and internal/coverfloor leaves it out as mutate
-      # does (#410). 93.36% on 2026-11-22, 80.65% with the lane's 1601 statements counted. Raise
+      # held by a test that needs root and KVM, and go-tools' coverfloor leaves it out by mutate's
+      # own reading of the marker (#410, #496). 93.36% on 2026-11-22, 80.65% with the lane's 1601 statements counted. Raise
       # it when the number has moved up and stayed; never lower it to let a change through, or it
       # is a gate that reports whatever it is given.
       COVERAGE_FLOOR: 93
@@ -116,9 +116,9 @@ tasks:
     env:
       SPIN_MACHINE_OUTPUT: /nonexistent
     cmds:
-      # A test's state in the checkout's _output is shared: `task mutate` links that ignored
-      # directory into every copy it runs tests in at once, and two tests colliding there refused
-      # edits CI let survive (#413). Only a checkout with none, as CI's is here, sees one made.
+      # A test writes into a directory of its own, never the checkout's _output: a developer's
+      # checkout has one and CI's has none, so a test that used it gave a different verdict on
+      # each (#413). Only a checkout with none, as CI's is here, sees one made.
       - |
         set -eu
         had=$([ -e _output ] && echo yes || echo no)
@@ -128,7 +128,7 @@ tasks:
           find _output >&2
           exit 1
         fi
-      - go run ./internal/coverfloor {{.COVERAGE_FLOOR}} coverage.out
+      - coverfloor {{.COVERAGE_FLOOR}} coverage.out
 
   lint:
     desc: >-
