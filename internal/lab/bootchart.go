@@ -99,6 +99,10 @@ func ChartFiles(tree string, rep int) (bootchart, plot string) {
 	return name + ".bootchart.svg", name + ".plot.svg"
 }
 
+// chartData is the name the chart's samples are kept under beside the chart itself: the JSON the
+// fork writes beside its SVG, for a comparison a script makes rather than a person's eye.
+func chartData(chart string) string { return strings.TrimSuffix(chart, ".svg") + ".json" }
+
 // ChartSuffix names the tree releases measure draws a release with, after the release: the release
 // with the bootchart edit.
 const ChartSuffix = "-" + bootchartName
@@ -200,6 +204,9 @@ func stopChart(asRoot string) string {
 // fetchChart waits for the sampler to have written the chart and exited, then prints it.
 const fetchChart = `timeout 30 sudo -n sh -c 'while [ -n "$(` + sampler + `)" ]; do sleep 0.05; done' && cat /run/log/bootchart-*.svg`
 
+// fetchData prints the JSON the sampler wrote beside its chart, once fetchChart has seen it exit.
+const fetchData = "cat /run/log/bootchart-*.json"
+
 // fetchPlot waits for the boot to have finished, which systemd-analyze plot refuses to draw before,
 // and prints its plot.
 const fetchPlot = "timeout 30 systemctl is-system-running --wait >/dev/null; systemd-analyze plot --scale-svg=20"
@@ -270,6 +277,13 @@ func (bootchart) Measure(_ context.Context, m *Measurement) error {
 	if err := os.WriteFile(filepath.Join(m.Keep, chart), []byte(svg), 0o644); err != nil { //nolint:gosec // a chart for a person to read
 		return fmt.Errorf("keeping the chart: %w", err)
 	}
+	// The data and the plot are the chart's companions: a chart without them is still kept, and
+	// the log says why they are not.
+	if _, data, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, fetchData); err != nil {
+		m.Logf("no chart data: %v", err)
+	} else if err := os.WriteFile(filepath.Join(m.Keep, chartData(chart)), []byte(data), 0o644); err != nil { //nolint:gosec // data for a person's scripts
+		return fmt.Errorf("keeping the chart's data: %w", err)
+	}
 	// A plot is the chart's companion, and a boot that never finished draws none: the chart is
 	// still kept, and the log says why the plot is not.
 	if _, plot, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, fetchPlot); err != nil {
@@ -311,7 +325,7 @@ func (bootchart) Detail(r *Result) string {
 	for _, s := range r.Samples {
 		if s.Missed == "" {
 			chart, plot := ChartFiles(s.Tree, s.Rep)
-			fmt.Fprintf(&b, "  %s, %s\n", chart, plot)
+			fmt.Fprintf(&b, "  %s, %s, %s\n", chart, chartData(chart), plot)
 		}
 	}
 	return b.String()
