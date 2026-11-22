@@ -277,7 +277,7 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 		time.Sleep(500 * time.Millisecond)
 		d, tl, err := m.Key.timedLogin(c.cid)
 		m.Logf("timed login %v %v\n%s", d, err, tl)
-		_, out, err = m.Key.Run(c.cid, xssh.KeyExchangeMLKEM768X25519, `journalctl -o short-precise --no-pager -n 400 | grep -E 'sshd|systemd-logind|pam' | tail -150`)
+		_, out, err = m.Key.Run(c.cid, xssh.KeyExchangeMLKEM768X25519, `grep -l nosleep /proc/[0-9]*/maps 2>/dev/null | xargs -n1 dirname | while read d; do echo "$d $(cat $d/comm)"; done; journalctl -o short-precise --no-pager -n 400 | grep -E 'ensure_minimum|ld.so|preload' | tail -6`)
 		m.Logf("journal %v\n%s", err, out)
 	}
 	t0 = time.Now()
