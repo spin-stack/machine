@@ -4,6 +4,7 @@ package pressure
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,6 +35,21 @@ func TestEveryLineReadsBackAsWritten(t *testing.T) {
 		}
 		if len(c.text) > MaxLine {
 			t.Errorf("%q is longer than a line may be", c.text)
+		}
+	}
+}
+
+// A guest's microseconds past what a Duration holds saturate: a total that wrapped would be a stall
+// in the past, and a negative one.
+func TestAGuestsMicrosecondsSaturate(t *testing.T) {
+	most := time.Duration(math.MaxInt64/int64(time.Microsecond)) * time.Microsecond
+	for line, want := range map[string]Stall{
+		"stall io 9223372036854775 1 9223372036854776":           {Resource: IO, Threshold: most, Window: time.Microsecond, Total: most},
+		"stall cpu 1 1 9223372036854775807":                      {Resource: CPU, Threshold: time.Microsecond, Window: time.Microsecond, Total: most},
+		"stall memory 9223372036854775807 9223372036854775807 0": {Resource: Memory, Threshold: most, Window: most},
+	} {
+		if got, err := Parse([]byte(line)); err != nil || got != want {
+			t.Errorf("%q reads as %#v, %v; want %#v", line, got, err, want)
 		}
 	}
 }

@@ -5,9 +5,12 @@ package machine
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -451,5 +454,176 @@ func TestADisksDeviceIsItsID(t *testing.T) {
 		if got := deviceOf(qdev); got != want {
 			t.Errorf("%s is %s, not %s", qdev, got, want)
 		}
+	}
+}
+
+// A guest that writes lines faster than lineRate is cut off once its burst is spent, with an error
+// the caller can tell from a lost guest, and dialling again does not give it a new burst.
+func TestAGuestFasterThanItsPaceIsCutOff(t *testing.T) {
+	x := newTold(t)
+	var flood strings.Builder
+	flood.WriteString("spin-machine-pressure 1 oom=0\n")
+	for i := range 10 * lineBurst {
+		fmt.Fprintf(&flood, "stall cpu 150000 1000000 %d\n", i)
+	}
+	if err := x.w.read(strings.NewReader(flood.String())); !errors.Is(err, ErrGuestTooFast) {
+		t.Fatalf("a flood ended with %v", err)
+	}
+	// The hello takes one of the burst. A token refills each 1/lineRate s, and one may have.
+	if n := len(x.pressures()); n < lineBurst-1 || n > lineBurst {
+		t.Errorf("a flood told %d Stalls, not the %d its burst allows", n, lineBurst-1)
+	}
+	told := len(x.pressures())
+	if err := x.w.read(strings.NewReader("spin-machine-pressure 1 oom=0\nstall cpu 150000 1000000 99999\n")); !errors.Is(err, ErrGuestTooFast) {
+		t.Errorf("a flood that dialled again was read: %v", err)
+	}
+	if len(x.pressures()) != told {
+		t.Error("a flood that dialled again was told")
+	}
+}
+
+// A pace allows its burst at once, then rate a second, and saves no more than its burst.
+func TestAPaceAllowsItsBurstThenItsRate(t *testing.T) {
+	p := pace{burst: 2, rate: 4}
+	at := time.Unix(100, 0)
+	allowed := func(at time.Time, n int) int {
+		got := 0
+		for range n {
+			if p.allow(at) {
+				got++
+			}
+		}
+		return got
+	}
+	if got := allowed(at, 5); got != 2 {
+		t.Errorf("a fresh pace allowed %d of 5, not its burst of 2", got)
+	}
+	if got := allowed(at.Add(250*time.Millisecond), 5); got != 1 {
+		t.Errorf("a quarter second at 4 a second allowed %d, not 1", got)
+	}
+	if got := allowed(at.Add(time.Hour), 5); got != 2 {
+		t.Errorf("an hour idle allowed %d at once, not the burst of 2", got)
+	}
+}
+
+// A guest that dials faster than acceptRate has the connection over it refused, and the one it
+// holds stays its connection.
+func TestAGuestDiallingFasterThanItsPaceKeepsTheConnectionItHolds(t *testing.T) {
+	x := newTold(t)
+	l := x.w.l
+	if err := x.w.register(7); err != nil {
+		t.Fatal(err)
+	}
+	var held *os.File
+	for i := range acceptBurst {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+		if l.take(7, r) != x.w {
+			t.Fatalf("connection %d of a burst of %d was refused", i+1, acceptBurst)
+		}
+		held = r
+	}
+	over, overIn, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = over.Close(); _ = overIn.Close() })
+	if l.take(7, over) != nil {
+		t.Error("a connection over the pace was taken")
+	}
+	if x.w.conn != held {
+		t.Error("a connection over the pace replaced the one the guest holds")
+	}
+	if _, err := held.Stat(); err != nil {
+		t.Errorf("a connection over the pace closed the one the guest holds: %v", err)
+	}
+}
+
+// A guest that dials and drops again and again while its GuestLost waits leaves one goroutine
+// waiting, not one each, and the caller is told one GuestLost, with the last end's error. The next
+// loss after it is told again.
+func TestAGuestLostAgainAndAgainIsOneGuestLost(t *testing.T) {
+	x := newTold(t)
+	l := x.w.l
+	if err := x.w.register(7); err != nil {
+		t.Fatal(err)
+	}
+	end := func(i int) chan struct{} {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+		_, _ = fmt.Fprintf(w, "spin-machine-pressure 1 oom=0\nbad%d\n", i)
+		l.mu.Lock()
+		x.w.conn = r // as take makes it, without take's pace
+		l.mu.Unlock()
+		done := make(chan struct{})
+		go func() { l.serve(r, x.w); close(done) }()
+		return done
+	}
+	before := runtime.NumGoroutine()
+	first := end(0)
+	for waiting := false; !waiting; time.Sleep(time.Millisecond) {
+		l.mu.Lock()
+		waiting = x.w.lost != nil
+		l.mu.Unlock()
+	}
+	const ends = lineBurst / 4 // two lines an end, well within the guest's line burst
+	for i := 1; i < ends; i++ {
+		select {
+		case <-end(i):
+		case <-time.After(answerWait / 2):
+			t.Fatalf("end %d waited while the first's GuestLost waits", i)
+		}
+	}
+	if n := runtime.NumGoroutine(); n > before+1 {
+		t.Errorf("%d ends left %d goroutines, not 1", ends, n-before)
+	}
+	<-first
+	got := zeroAt(x.pressures())
+	if len(got) != 1 || !strings.Contains(got[0].(GuestLost).Err.Error(), fmt.Sprintf("bad%d", ends-1)) {
+		t.Fatalf("%d ends told %+v, not one GuestLost with the last error", ends, got)
+	}
+	<-end(ends)
+	if got := x.pressures(); len(got) != 2 {
+		t.Errorf("the loss after a GuestLost told %d, not a second GuestLost", len(got)-1)
+	}
+}
+
+// A guest's OOM count below the one last heard is ignored, and a hello on a new connection does not
+// move the base back: the kills a watch reports add up to the largest count heard, and no more.
+func TestAGuestsKillCountNeverGoesBack(t *testing.T) {
+	x := newTold(t)
+	for range 3 {
+		_ = x.w.read(strings.NewReader("spin-machine-pressure 1 oom=0\noom 18446744073709551615\n"))
+	}
+	if got := zeroAt(x.pressures()); !reflect.DeepEqual(got, []Pressure{OOMKill{Kills: math.MaxUint64}}) {
+		t.Errorf("a guest that set its count back told %+v", got)
+	}
+	resumed := newTold(t)
+	resumed.w.observe(qmp.Observer{}, true)
+	_ = resumed.w.read(strings.NewReader("spin-machine-pressure 1 oom=5\noom 3\noom 6\n"))
+	_ = resumed.w.read(strings.NewReader("spin-machine-pressure 1 oom=2\noom 8\n"))
+	if got := zeroAt(resumed.pressures()); !reflect.DeepEqual(got, []Pressure{OOMKill{Kills: 1}, OOMKill{Kills: 2}}) {
+		t.Errorf("a resumed guest's counts 5, 3, 6, 2, 8 told %+v, not 1 and 2", got)
+	}
+}
+
+// A guest's Stall whose Total is below the last for its resource is ignored, on any connection.
+func TestAGuestsStallTotalNeverGoesBack(t *testing.T) {
+	x := newTold(t)
+	_ = x.w.read(strings.NewReader("spin-machine-pressure 1 oom=0\nstall memory 1 1 100\nstall memory 1 1 50\nstall cpu 1 1 10\nstall memory 1 1 100\n"))
+	_ = x.w.read(strings.NewReader("spin-machine-pressure 1 oom=0\nstall memory 1 1 99\nstall memory 1 1 200\n"))
+	var totals []string
+	for _, p := range x.pressures() {
+		s := p.(Stall)
+		totals = append(totals, fmt.Sprintf("%s %d", s.Resource, s.Total.Microseconds()))
+	}
+	if got := strings.Join(totals, ", "); got != "memory 100, cpu 10, memory 100, memory 200" {
+		t.Errorf("told %s", got)
 	}
 }

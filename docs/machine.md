@@ -276,6 +276,17 @@ and `CPU.Throttles` from `cpu.stat`, and `Memory.High`, `Max`, `OOMs` and `OOMKi
 - **The guest's PSI is the guest's word.** A workspace's root can stop the sender or write what
   it likes to port 1032. The host's kernel names the CID of every connection, so a guest can lie
   only about itself. A host Stall and `Usage` are the host's own measurement.
+- **What a guest sends is bounded in size, count and time** (#559). Size: a line is at most 128
+  bytes. Count: one connection per CID, and a new one replaces the old. Time: each watch takes at
+  most 4 connections at once and 1 a second after them, and closes one over that at once, keeping
+  the connection it holds. It reads at most 64 lines at once and 16 a second after them, and a
+  guest over that is cut off with a `GuestLost` whose `Err` is `ErrGuestTooFast`. The sender sends
+  ~3 lines a second outside an OOM storm, and its next hello and Stall carry what it could not send.
+  Ends that come while a `GuestLost` waits its second are that one `GuestLost`, so a guest dialling
+  and dropping holds one goroutine of the host. A count or `Total` below the last one heard is
+  ignored, so the `OOMKill`s a watch reports add up to at most the guest's largest count, and a
+  Stall's `Total` never goes backwards for its resource. A guest's microseconds past what a
+  `time.Duration` holds saturate.
 - **A fast OOM can kill before any trigger fires.** Two 1000 MiB hogs did (2026-11-21). So the
   sender watches the guest's OOM kills as well, through `memory.events` of each top-level cgroup,
   which the kernel notifies on every kill. The kill count travels as a running total. A count sent
