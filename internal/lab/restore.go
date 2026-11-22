@@ -142,6 +142,23 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 	}
 	m.RecordMs("running", time.Since(t0))
 	running := time.Now()
+	stacks := filepath.Join(m.Dir, "stacks.txt")
+	var sampler *exec.Cmd
+	if qp := qemuPID(mc.cmd.Process.Pid); isQEMU(qp) {
+		script := fmt.Sprintf(`cd /proc/%d/task || exit 0
+v=""; mt=%d
+for t in *; do case "$(cat $t/comm)" in "CPU 0/KVM") v=$t;; esac; done
+i=0; while [ $i -lt 150 ]; do
+  printf 'T%%s vcpu %%s | %%s | main %%s | %%s\n' "$(date +%%s%%N | cut -c8-13)" "$(cut -d' ' -f3 $v/stat)" "$(cat $v/syscall | cut -d' ' -f1-2) $(head -4 $v/stack | awk '{printf "%%s;", $2}')" "$(cut -d' ' -f3 $mt/stat)" "$(cat $mt/syscall | cut -d' ' -f1) $(head -3 $mt/stack | awk '{printf "%%s;", $2}')"
+  i=$((i+1)); sleep 0.004
+done`, qp, qp)
+		sampler = exec.Command("sudo", "-n", "sh", "-c", script)
+		if f, err := os.Create(stacks); err == nil {
+			sampler.Stdout, sampler.Stderr = f, f
+			defer func() { _ = f.Close() }()
+			_ = sampler.Start()
+		}
+	}
 	var attempts []string
 	var login time.Duration
 	for {
@@ -161,8 +178,29 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 	}
 	samples := dw.end()
 	m.RecordMs("login", login)
-	_, out, _ := m.Key.Run(c.cid, "mlkem768x25519-sha256", "cat /proc/uptime; head -1 /proc/stat; grep -E '^(ctxt|intr|softirq)' /proc/stat | cut -c1-60; systemctl list-jobs --no-pager; journalctl -b -o short-monotonic --no-pager | tail -40; awk '{print $14+$15, $14, $15, $22, $2}' /proc/[0-9]*/stat 2>/dev/null | sort -rn | head -25")
-	m.Logf("DIAG login %v slow=%v attempts=%d\n%s\n%s\nGUEST:\n%s", login.Round(time.Millisecond), login > 200*time.Millisecond, len(attempts), strings.Join(attempts, "\n"), diagReport(samples, running), out)
+	stackOut := ""
+	if sampler != nil && sampler.Process != nil {
+		_ = sampler.Wait()
+		b, _ := os.ReadFile(stacks)
+		// collapse runs of the same state, ignoring the timestamp
+		var prev string
+		n := 0
+		var first string
+		for line := range strings.Lines(string(b)) {
+			ts, rest, _ := strings.Cut(strings.TrimSpace(line), " ")
+			if rest == prev {
+				n++
+				continue
+			}
+			if prev != "" {
+				stackOut += fmt.Sprintf("%s x%d %s\n", first, n, prev)
+			}
+			prev, n, first = rest, 1, ts
+		}
+		stackOut += fmt.Sprintf("%s x%d %s\n", first, n, prev)
+	}
+	_, out, _ := m.Key.Run(c.cid, "mlkem768x25519-sha256", "cat /proc/uptime; head -1 /proc/stat; grep -E '^(ctxt|intr|softirq)' /proc/stat | cut -c1-60; systemctl list-jobs --no-pager; journalctl -b -o short-monotonic --no-pager | tail -40; awk '{print $14+$15, $14, $15, $22, $2}' /proc/[0-9]*/stat 2>/dev/null | sort -rn | head -12; dmesg | tail -12; head -30 /proc/interrupts")
+	m.Logf("DIAG login %v slow=%v attempts=%d\n%s\n%s\nSTACKS (running at T%s):\n%s\nGUEST:\n%s", login.Round(time.Millisecond), login > 200*time.Millisecond, len(attempts), strings.Join(attempts, "\n"), diagReport(samples, running), fmt.Sprint(running.UnixNano())[7:13], stackOut, out)
 	m.Logf("restored: running %v, login %v", time.Duration(m.values["running"]*1e6).Round(time.Millisecond), login.Round(time.Millisecond))
 	return nil
 }
@@ -277,6 +315,20 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 		return nil, err
 	}
 	defer mc.Stop()
+	if os.Getenv("DIAG_CONTEND") != "" {
+		busy := exec.Command("taskset", "-c", "3", "sh", "-c", "while :; do :; done")
+		_ = busy.Start()
+		defer func() { _ = busy.Process.Kill(); _ = busy.Wait() }()
+		go func() {
+			for i := 0; i < 2000; i++ {
+				if p := qemuPID(mc.cmd.Process.Pid); isQEMU(p) {
+					_ = exec.Command("taskset", "-a", "-p", "-c", "3", fmt.Sprint(p)).Run()
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
 	plugged := m.Plug(qmp)
 	if c.login, err = m.Key.LoggedIn(mc, c.cid, t0); err != nil {
 		return nil, err
