@@ -412,8 +412,12 @@ fi
 in_image /usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service || {
     echo "ERROR: the package no longer wants systemd-logind from multi-user.target" >&2
     exit 1; }
-# And spin does not linger: a lingering user's manager is a systemd --user started in every boot, on
-# the vCPU the first login needs, for a user spin does not log in as (configure-system.sh).
+# root lingers and spin does not: spin logs in as root, whose login waits for its manager, so
+# root's starts in the boot; spin's would be a systemd --user in every boot for nobody
+# (configure-system.sh).
+in_image /var/lib/systemd/linger/root || {
+    echo "ERROR: root does not linger; spin's first login would wait for root's whole manager" >&2
+    exit 1; }
 ! in_image /var/lib/systemd/linger/spin || {
     echo "ERROR: spin lingers; its manager would start in every boot" >&2
     exit 1; }
@@ -489,12 +493,17 @@ for f in sshd-vsock.socket.d/10-lane.conf sshd@.service.d/10-lane.conf systemd-l
         echo "ERROR: ${f%%.d/*} is not in the first login's lane ($f)" >&2
         exit 1; }
 done
-# Every login's user manager (20-manager.conf): a session of class user-early-light starts none,
-# and nobody lingers, so without it no login has one and systemctl --user fails (#462).
-"$bin/debugfs" -R "cat /etc/systemd/system/user-runtime-dir@.service.d/20-manager.conf" /work/base.raw 2>/dev/null |
-        grep -qx 'Wants=user@%i.service' || {
-    echo "ERROR: user-runtime-dir@ does not want user@; no login gets a user manager (20-manager.conf)" >&2
+# The user sockets' environment, read once by the user manager a login waits for, in place of the
+# two `systemctl --user set-environment` the sockets run (environment.d/10-user-sockets.conf).
+"$bin/debugfs" -R "cat /etc/environment.d/10-user-sockets.conf" /work/base.raw 2>/dev/null |
+        grep -qxF 'DBUS_SESSION_BUS_ADDRESS=unix:path=${XDG_RUNTIME_DIR}/bus' || {
+    echo "ERROR: the user manager's environment has no bus address (environment.d/10-user-sockets.conf)" >&2
     exit 1; }
+for f in dbus.socket.d/10-env.conf ssh-agent.socket.d/10-env.conf; do
+    "$bin/debugfs" -R "cat /etc/systemd/user/$f" /work/base.raw 2>/dev/null | grep -qx 'ExecStartPost=' || {
+        echo "ERROR: ${f%%.d/*} still runs systemctl --user while the first login waits ($f)" >&2
+        exit 1; }
+done
 # spin's login path (ssh.socket, ssh.service, sshd-keygen.service) without default dependencies
 # must still be stopped at shutdown: DefaultDependencies=no took that away with the rest.
 for f in ssh.socket.d/10-lane.conf ssh.service.d/10-lane.conf sshd-keygen.service.d/10-lane.conf; do
@@ -547,8 +556,8 @@ stat_in_image /etc/tmpfiles.d/systemd-nologin.conf | grep -q '/dev/null' || {
     echo "ERROR: tmpfiles writes /run/nologin at boot; pam_nologin refuses the lane's first login" >&2
     exit 1; }
 "$bin/debugfs" -R "cat /etc/pam.d/common-session" /work/base.raw 2>/dev/null |
-        grep -q '^session.*pam_systemd\.so.*class=user-early-light' || {
-    echo "ERROR: sessions are not user-early-light; a login waits for the user's manager" >&2
+        grep -q '^session.*pam_systemd\.so.*class=user-early$' || {
+    echo "ERROR: sessions are not user-early; the first login's systemctl --user can come before its manager" >&2
     exit 1; }
 "$bin/debugfs" -R "cat /etc/systemd/system/systemd-udev-trigger.service.d/10-coldplug.conf" /work/base.raw 2>/dev/null |
         grep -q -- '--subsystem-match=input' || {

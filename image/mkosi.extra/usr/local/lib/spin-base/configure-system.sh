@@ -74,18 +74,22 @@ useradd --create-home --shell /bin/bash --uid 1000 --groups sudo,docker spin
 passwd --lock root
 passwd --lock spin
 
-# spin does not linger. It did from 2026-11-12, so that logind started its manager
-# (user@1000.service) in the boot rather than inside the first login, when a session of class
-# user waited for the manager: the first SSH login came 60 ms sooner (lab run 43308825692). Since
-# 2026-11-13 sessions are of class user-early-light (below), which wait for no manager, and spin
-# (spin-stack/spin) logs in as root, not as spin: the lingering manager was a whole systemd --user
-# started in every boot for nobody, on the one vCPU the first login needs. Without it, a laptop
-# lead on spin's login path (root, through a forwarder to ssh.service; `lab` option login=spin)
-# put the first login's accept-to-login at 40 against 70 ms, and the first login 294 against
-# 316, 6 boots of each (2026-11-20); the lane's login as spin did not move (283 against 281).
-# The linger had also been the only thing that started a manager for spin, and every login since
-# went without one until user-runtime-dir@'s 20-manager.conf started it beside each login (#462).
-# image/build.sh asserts there is no linger file.
+# root lingers, so logind starts root's manager (user@0.service) in the boot, and spin does not.
+# spin (spin-stack/spin) logs in as root, and a login waits for its manager (class user-early,
+# below), so that the first login's own `systemctl --user` finds it (#467). Started inside the
+# login, the manager cost the first login +44.4 [+37.7, +52.3] (lab 45030778365); started in the
+# boot, with the user sockets' environment read once (/etc/environment.d/10-user-sockets.conf),
+# the first login moved +4.7 [-0.2, +12.2], within noise, sshd accepting +5.6 [+1.1, +10.1], and
+# the restored login -10.8 [-15.9, -6.6] (bench, spin's shape and login, against v20261122.03, 40
+# and 20 a side, labs 45031644179, 45031644114, 2026-11-22).
+#
+# spin lingered from 2026-11-12 to 2026-11-20, when sessions did not wait for a manager and its
+# user@1000 was a systemd --user started in every boot for a user nobody logs in as (the first
+# login 294 against 316 ms without it, 6 boots of each). A login as spin, as the lane's is, now
+# waits for its own manager: the lane's first login +29.7 [+22.8, +42.1] (lab 45031687433).
+# image/build.sh asserts root's linger file and that spin has none.
+install -d -m 0755 /var/lib/systemd/linger
+touch /var/lib/systemd/linger/root
 
 # The rest of the first SSH login's lane (the units' drop-ins say what it is and what it
 # measured, in rootfs/etc/systemd/system/*.d/10-lane.conf).
@@ -117,17 +121,16 @@ done
 # ExecStop does.
 ln -sf /dev/null /etc/tmpfiles.d/systemd-nologin.conf
 #
-# Sessions of class user-early-light. logind answers a session request once the session's
-# scope, the runtime directory and, for a class that wants one, the user's service manager are
-# started, and orders the scope after systemd-user-sessions.service unless the class is early
-# (systemd v259.9, src/login/logind-session.c: session_job_pending, session_start_scope). So a
-# login of class user waited for user@1000, a whole systemd --user, and for the end of the
-# boot: 472 against 436 ms on the bench fleet (lab run 43518044150). A light session still has
-# its scope and XDG_RUNTIME_DIR, and logind starts no manager for it: user-runtime-dir@'s
-# 20-manager.conf starts one beside the login, which does not wait for it (+36 ms when the login
-# waited, as class user-early does: lab 44987167474).
-sed -i 's/^\(session.*pam_systemd\.so\)\(.*\)$/\1\2 class=user-early-light/' /etc/pam.d/common-session
-grep -q '^session.*pam_systemd\.so.*class=user-early-light' /etc/pam.d/common-session
+# Sessions of class user-early. logind answers a session request once the session's scope, the
+# runtime directory and, for a class that wants one, the user's service manager are started, and
+# orders the scope after systemd-user-sessions.service unless the class is early (systemd v259.9,
+# src/login/logind-session.c: session_job_pending, session_start_scope). So a login of class user
+# waited for the end of the boot: 472 against 436 ms on the bench fleet (lab run 43518044150).
+# user-early waits for the manager and not for the boot, so a command that needs the user bus
+# works in the first login. From 2026-11-13 sessions were user-early-light, which wait for no
+# manager: the first login's own `systemctl --user` failed when it came before the manager (#467).
+sed -i 's/^\(session.*pam_systemd\.so\)\(.*\)$/\1\2 class=user-early/' /etc/pam.d/common-session
+grep -q '^session.*pam_systemd\.so.*class=user-early$' /etc/pam.d/common-session
 
 # Sudo without a password, because there is no password. The boundary this machine relies
 # on is the VM, not the difference between two accounts inside it — but a workload that
