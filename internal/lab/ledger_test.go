@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,6 +27,10 @@ func TestATraceInAnotherFormatIsRefused(t *testing.T) {
 		if _, err := parseTrace(text); err == nil {
 			t.Errorf("parseTrace(%q) took it", text)
 		}
+	}
+	// The refusal names the event whose fields moved.
+	if _, err := parseTrace("    sshd-77 [000] .....  0.200000: sched_process_fork: parent=77 child=94\n"); err == nil || !strings.Contains(err.Error(), "sched_process_fork has fields") {
+		t.Errorf("a fork in another format: %v", err)
 	}
 }
 
@@ -152,9 +157,14 @@ func TestARealBootsLedgerAddsUp(t *testing.T) {
 	if len(last) != 1 || last[0].Owner != "ssh.service" || !near(last[0].Ms, 0.663) || last[0].Comms[0].Comm != "true" {
 		t.Errorf("the command's window: %+v", last)
 	}
-	// Before PID 1 execs init its time is the kernel's, and idle is no task's state.
-	if first := l.Windows[0].CPU; first[0].Owner != ownerKernel {
-		t.Errorf("the kernel's window: %+v", first)
+	// Before PID 1 execs init its time is the kernel's, and kthreadd's children are the kernel's
+	// threads.
+	kernel := map[string]float64{}
+	for _, s := range l.Windows[0].CPU {
+		kernel[s.Owner] = s.Ms
+	}
+	if l.Windows[0].CPU[0].Owner != ownerKernel || kernel[ownerThreads] <= 0 || kernel[ownerUnknown] != 0 {
+		t.Errorf("the kernel's window: %+v", l.Windows[0].CPU)
 	}
 	// Every task's running time from PID 1's exec to the command's exit is in the windows from
 	// PID 1 on, and PID 1's own is systemd's, waiting on the disk at times.
@@ -179,7 +189,8 @@ func TestARealBootsLedgerAddsUp(t *testing.T) {
 			t.Errorf("PID 1 ran as %+v", s.Comms)
 		}
 	}
-	if _, ok := owners[ownerIdle]; ok || owners["user@0.service"].Running <= 0 || owners["init.scope"].Running <= 0 || l.unattributed() <= 0 {
+	if _, ok := owners[ownerIdle]; ok || owners["user@0.service"].Running <= 0 || owners["init.scope"].Running <= 0 ||
+		l.unattributed() <= 0 || !near(l.unattributed(), owners[ownerUnknown].Running) {
 		t.Errorf("owners: %+v, unattributed %v", l.Owners, l.unattributed())
 	}
 	// The login's session in logind is session 2, the user's; session 1 is root's manager's.
@@ -300,5 +311,138 @@ func TestATasksWaitIsSplitByWhatItWaitedFor(t *testing.T) {
 	// its first switch's time before that being the trace's to know.
 	if !near(cpu["10"], 2.5) || !near(cpu["11"], 1) || !near(cpu["12"], 2.5) || !near(cpu["0"], 0.5+2+1) {
 		t.Errorf("CPU by task: %v", cpu)
+	}
+}
+
+// The cuts follow the login's own process tree: a /usr/bin/true that is not the login's, or a
+// later login's sshd-session, moves none of them, and a cut the trace does not have is left out.
+func TestTheLedgersCutsFollowTheLoginsProcesses(t *testing.T) {
+	in := ledgerFixture(t)
+	windows := func(trace string) []Window {
+		t.Helper()
+		changed := in
+		changed.Trace = trace
+		l, err := newLedger(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l.Windows
+	}
+	starts := func(ws []Window) []float64 {
+		var s []float64
+		for _, w := range ws {
+			s = append(s, w.Start)
+		}
+		return s
+	}
+	want := starts(windows(in.Trace))
+	// sshd itself execs a /usr/bin/true before the login's, and a later login's sshd-session
+	// starts after the login's command and before its exit.
+	at := strings.Index(in.Trace, "            true-111     [000] .....     0.318157")
+	foreign := in.Trace[:at] +
+		"            sshd-77      [000] .....     0.300000: sched_process_exec: filename=/usr/bin/true pid=77 old_pid=77\n" +
+		"    sshd-session-113     [000] .....     0.318500: sched_process_exec: filename=/usr/lib/openssh/sshd-session pid=113 old_pid=113\n" +
+		in.Trace[at:]
+	if got := starts(windows(foreign)); !slices.Equal(got, want) {
+		t.Errorf("with another true and a later sshd-session the cuts are %v; want %v", got, want)
+	}
+	// No sshd-auth: its two cuts go and the window before runs on.
+	noAuth := windows(strings.ReplaceAll(in.Trace, "filename=/usr/lib/openssh/sshd-auth", "filename=/usr/lib/openssh/sshd-other"))
+	if got := starts(noAuth); !slices.Equal(got, slices.Delete(slices.Clone(want), 3, 5)) {
+		t.Errorf("with no sshd-auth the cuts are %v", got)
+	}
+	// The command's process exec'd no shell first: the shell's window goes.
+	noShell := windows(strings.Replace(in.Trace, "filename=/bin/bash pid=111", "filename=/bin/bash pid=4111", 1))
+	if got := starts(noShell); !slices.Equal(got, slices.Delete(slices.Clone(want), 6, 7)) {
+		t.Errorf("with no shell exec'd the cuts are %v", got)
+	}
+}
+
+// With no unit named for any task, a task's time is the kernel's, its threads', idle or
+// unattributed, and nothing else.
+func TestATaskNoUnitNamesIsUnattributed(t *testing.T) {
+	in := ledgerFixture(t)
+	in.Units = ""
+	l, err := newLedger(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range l.Windows {
+		for _, s := range w.CPU {
+			if s.Owner != ownerKernel && s.Owner != ownerThreads && s.Owner != ownerIdle && s.Owner != ownerUnknown {
+				t.Errorf("window %q has %q with no units named", w.Name, s.Owner)
+			}
+		}
+	}
+}
+
+// PID 0 is the kernel starting until CPU 0's first switch and idle after it, and a task's run is
+// under the name it had on each side of an exec.
+func TestPIDZeroIsTheKernelUntilTheFirstSwitch(t *testing.T) {
+	events, err := parseTrace(`          <idle>-0       [001] d..2.     0.000200: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=other next_pid=12 next_prio=120
+          <idle>-0       [000] d..2.     0.000500: sched_switch: prev_comm=swapper/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=sh next_pid=10 next_prio=120
+              sh-10      [000] .....     0.000800: sched_process_exec: filename=/usr/bin/true pid=10 old_pid=10
+            true-10      [000] d..2.     0.001000: sched_switch: prev_comm=true prev_pid=10 prev_prio=120 prev_state=S ==> next_comm=swapper/0 next_pid=0 next_prio=120
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := replay(events)
+	owner := b.owners(nil)
+	if owner(0, 0.2) != ownerKernel || owner(0, 0.6) != ownerIdle {
+		t.Errorf("PID 0 at 0.2 ms is %q and at 0.6 %q", owner(0, 0.2), owner(0, 0.6))
+	}
+	for _, s := range b.cpuIn(0, 1, func(pid int, _ float64) string { return strconv.Itoa(pid) }) {
+		if s.Owner != "10" {
+			continue
+		}
+		if len(s.Comms) != 2 || s.Comms[0].Comm != "sh" || !near(s.Comms[0].Ms, 0.3) || s.Comms[1].Comm != "true" || !near(s.Comms[1].Ms, 0.2) {
+			t.Errorf("the task's runs: %+v", s.Comms)
+		}
+	}
+	// No switch on CPU 0 at all: PID 0's time is the kernel's throughout.
+	if owner := replay(events[2:3]).owners(nil); owner(0, 5) != ownerKernel {
+		t.Error("with no switch on CPU 0, PID 0 is idle")
+	}
+}
+
+// The table shows each share over 0.5 ms with its three busiest names, sums the rest, and has the
+// owners' states and the journal's marks when there are any.
+func TestTheLedgersTextShowsWhatMatters(t *testing.T) {
+	l := Ledger{FirstLogin: 400, KernelZero: 90, KernelZeroError: 0.15, LoginEnd: 309, Residue: 1, Breaks: 1,
+		Windows: []Window{
+			{Name: "first", Start: 0, End: 100, CPU: []Share{
+				{Owner: "big", Ms: 99.6, Comms: []Comm{{"a", 50}, {"b", 30}, {"c", 10}, {"d", 9.6}}},
+				{Owner: "small", Ms: 0.4, Comms: []Comm{{"s", 0.4}}},
+			}},
+			{Name: "second", Start: 100, End: 309, CPU: []Share{
+				{Owner: "pair", Ms: 200, Comms: []Comm{{"x", 150}, {"y", 50}}},
+				{Owner: "alone", Ms: 9, Comms: []Comm{{"z", 9}}},
+			}},
+		},
+		Owners: []States{{Owner: "busy", Running: 10, Runnable: 2, Disk: 1, Sleeping: 3}, {Owner: "quiet", Running: 0.2}},
+		Marks:  []Mark{{"connection", 250, "sshd-session[94]: Connection from"}},
+	}
+	text := l.Text("t")
+	for _, line := range []string{
+		"big (a 50.0, b 30.0, c 10.0)\n",
+		"       0.4  1 others under 0.5 ms each\n",
+		"pair (x 150.0, y 50.0)\n",
+		"     9.0  alone\n",
+		"lost events at 1 switches",
+		"owners from PID 1's exec (100.0)",
+		"     10.0       2.0       1.0       3.0  busy\n",
+		"   250.0  connection: sshd-session[94]: Connection from\n",
+	} {
+		if !strings.Contains(text, line) {
+			t.Errorf("no %q in:\n%s", line, text)
+		}
+	}
+	if strings.Contains(text, "quiet") || strings.Contains(text, " d 9.6") || strings.Count(text, "others under") != 1 {
+		t.Errorf("the table shows what it should leave out:\n%s", text)
+	}
+	bare := Ledger{Windows: l.Windows[:1]}.Text("t")
+	if strings.Contains(bare, "owners from") || strings.Contains(bare, "in the journal") || strings.Contains(bare, "lost events") {
+		t.Errorf("a ledger of one window, no marks and no breaks:\n%s", bare)
 	}
 }
