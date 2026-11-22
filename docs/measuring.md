@@ -185,14 +185,17 @@ whichever task the vCPU ran. It finds where to look. A number then decides (rule
 
 ```
 spin-machine-dev lab dispatch ledger --reps 3 \
-  --tree "release=--from release --spin-machine release --kernel run:45061289985 --edit ledger \
+  --tree "release=--from release:TAG --spin-machine release --kernel traceable:TAG --edit ledger \
     --append '<lab.LedgerAppend>'"
 ```
 
 **It needs a kernel that can be traced.** Lockdown at confidentiality takes tracefs away
-(kernel/README.md), so a release's own kernel records nothing. `run:45061289985` is the kernel of
-branch `ledger-533-kernel`: main's config with `CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y`, built by
-parts.yml and never released. Whether each release should get a traced boot is #536.
+(kernel/README.md), so a release's own kernel records nothing. `traceable:TAG` is the kernel
+published beside release TAG, lab-only: the release's source and config with
+`CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y` in place of confidentiality and every other option held to
+the release kernel's (#536). Releases before the first one built with it have none. `releases
+measure` takes one ledger of each release on it, beside its boot chart, and its record keeps it as
+`docs/releases/TAG-ledger.txt`.
 `--append` takes `lab.LedgerAppend` as it stands in internal/lab/ledgerprobe.go: the scheduler's
 tracepoints from the kernel's start, on CLOCK_MONOTONIC, into a 2 MiB buffer that drops what
 does not fit rather than the boot.

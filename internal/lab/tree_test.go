@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spin-stack/machine/internal/release"
 )
 
 // bzImage is a file with a bzImage's setup header magic where a kernel's is, and body after it.
@@ -390,6 +392,48 @@ func TestAKernelOrQEMUFromARunIsTheRunsBuild(t *testing.T) {
 		if _, err := MakeTree(filepath.Join(t.TempDir(), "x"), spec, s); err == nil || !strings.Contains(err.Error(), says) {
 			t.Errorf("%+v: %v, want an error saying %q", spec, err, says)
 		}
+	}
+}
+
+// A release's traceable kernel is downloaded beside the release once its signature is release.yml's,
+// kept in the cache, and booted from there; one that is not signed is not kept.
+func TestATraceableKernelIsTheSignedOneBesideTheRelease(t *testing.T) {
+	base := fakeRelease(t, "release kernel")
+	cache, pub, bin := t.TempDir(), t.TempDir(), t.TempDir()
+	name := release.TraceableKernel("v1")
+	write(t, filepath.Join(pub, name), bzImage("traceable kernel"))
+	write(t, filepath.Join(pub, name+".sigstore.json"), []byte("{}"))
+	gh := `d=""; while [ $# -gt 0 ]; do case "$1" in -D) d=$2;; -p) [ -f "` + pub + `/$2" ] && cp "` + pub + `/$2" "$d/";; esac; shift; done`
+	write(t, filepath.Join(bin, "gh"), []byte("#!/bin/sh\n"+gh+"\n"))
+	write(t, filepath.Join(bin, "go"), []byte("#!/bin/sh\nexit 1\n"))
+	if err := os.Chmod(filepath.Join(bin, "gh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(bin, "go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	s := Sources{Checkout: checkoutRoot(t), Cache: cache, Log: io.Discard}
+	spec := TreeSpec{Name: "t", From: base, Kernel: "traceable:v1"}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err == nil || !strings.Contains(err.Error(), "signature") {
+		t.Errorf("an unsigned traceable kernel: %v", err)
+	}
+	if fileExists(filepath.Join(cache, "traceable", "v1", name)) {
+		t.Error("an unsigned traceable kernel was kept")
+	}
+	write(t, filepath.Join(bin, "go"), []byte("#!/bin/sh\nexit 0\n"))
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Manifest.Parts["kernel"].Source != "release v1's traceable kernel" || !strings.HasSuffix(read(t, filepath.Join(tr.Dir, "kernel/bzImage")), "traceable kernel") {
+		t.Errorf("the tree's kernel: %+v", tr.Manifest.Parts["kernel"])
+	}
+	if err := os.Remove(filepath.Join(pub, name)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err != nil {
+		t.Errorf("a traceable kernel in the cache was asked of GitHub again: %v", err)
 	}
 }
 

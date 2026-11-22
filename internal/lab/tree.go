@@ -156,7 +156,9 @@ type TreeSpec struct {
 	// a directory laid out as a release (_output after `spin-machine-dev build`).
 	From string
 	// Kernel and QEMU replace those parts: "run:N" for a parts.yml run (or a Kernel or QEMU workflow run from before it), or a path
-	// (a bzImage; a directory holding bin/qemu-system-x86_64 and qemu/).
+	// (a bzImage; a directory holding bin/qemu-system-x86_64 and qemu/). Kernel is also
+	// "traceable:vYYYYMMDD.NN", the kernel published beside that release with lockdown forced to
+	// none, which the ledger reads a trace from (release.TraceableKernel).
 	Kernel, QEMU string
 	// SpinMachine is "here" for this checkout's, built; "release" for the one built from the
 	// commit the From tree's machine.env names, which is the machine that release defined: spin

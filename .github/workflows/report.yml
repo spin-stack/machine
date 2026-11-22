@@ -89,7 +89,7 @@ jobs:
         run: spin-machine-dev releases measure $VERSIONS --reps 20
 
       # Every sample, which a record keeps only the p50 and p95 of: lab show DIR reads one release's.
-      # Only the ladders and each release's boot charts: a release's tarball, downloaded beside them,
+      # Only the ladders and each release's boot charts and ledger: a release's tarball, downloaded beside them,
       # is 1.5 GB (run 44734233084).
       - name: Keep the ladders
         if: always()
@@ -100,6 +100,10 @@ jobs:
             _output/lab/measured/*/ladder.json
             _output/lab/measured/*/bootchart.json
             _output/lab/measured/*/*.svg
+            _output/lab/measured/*/ledger.json
+            _output/lab/measured/*/*.ledger.*
+            _output/lab/measured/*/*.trace.txt
+            _output/lab/measured/*/*.journal.txt
           retention-days: 90
           if-no-files-found: ignore
 

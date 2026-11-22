@@ -63,8 +63,9 @@ func recordsDir(dir string) (string, error) {
 // for, against the release before it in the ladder. The older releases have no record of their
 // own from it: each record is the release a run was made for (releases measure).
 //
-// The charts releases measure drew of that release, in measured beside the ladder, are kept
-// beside the record as RELEASE-bootchart.svg and RELEASE-plot.svg, and the record names them.
+// The charts releases measure drew of that release and its ledger, in measured beside the ladder,
+// are kept beside the record as RELEASE-bootchart.svg, RELEASE-plot.svg and RELEASE-ledger.txt,
+// and the record names them.
 func recordNewest(dir string, l *lab.Ladder, measured, run string) (lab.Record, error) {
 	records := l.Records()
 	if len(records) == 0 {
@@ -76,10 +77,12 @@ func recordNewest(dir string, l *lab.Ladder, measured, run string) (lab.Record, 
 		return lab.Record{}, fmt.Errorf("making %s: %w", dir, err)
 	}
 	chart, plot := lab.ChartFiles(r.Release+lab.ChartSuffix, 1)
+	ledger, _, _, _ := lab.LedgerFiles(r.Release+lab.LedgerSuffix, 1)
 	for _, c := range []struct {
 		from, to string
 		field    *string
-	}{{chart, r.Release + "-bootchart.svg", &r.Bootchart}, {plot, r.Release + "-plot.svg", &r.Plot}} {
+	}{{chart, r.Release + "-bootchart.svg", &r.Bootchart}, {plot, r.Release + "-plot.svg", &r.Plot},
+		{ledger, r.Release + "-ledger.txt", &r.Ledger}} {
 		from := filepath.Join(measured, c.from)
 		if !exists(from) {
 			continue
@@ -166,7 +169,8 @@ release is when it is published - and keep the ladder.json, every sample, in
 _output/lab/measured/TAG: releases record writes TAG's record from it, with the release before it
 and the Δ of each number against it, and the page. The oldest published release is measured alone.
 TAG is also measured beside its no-systemd floor, a bound re-measured with every release, and its
-boot is drawn once, by the bootchart probe, beside the ladder.json. Each release boots with the spin-machine of the commit it was made from; one whose spin-machine
+boot is drawn once, by the bootchart probe, and accounted for once, by the ledger probe, beside the
+ladder.json. Each release boots with the spin-machine of the commit it was made from; one whose spin-machine
 cannot run a probe is a dash that says why. Measuring and recording are two verbs because they are
 two commits in report.yml: a release is measured at its own tag, and recorded by main's code, which
 writes the page main's test holds the records to. Records are only worth keeping from the bench
@@ -234,32 +238,45 @@ fleet: report.yml runs this there. Exits 1 when a measurement was lost (the ladd
 
 // copyFile writes a copy of the file at from to to.
 func copyFile(from, to string) error {
-	b, err := os.ReadFile(from) //nolint:gosec // a chart this tool drew or kept
+	b, err := os.ReadFile(from) //nolint:gosec // a file this tool made or kept
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", from, err)
 	}
-	if err := os.WriteFile(to, b, 0o644); err != nil { //nolint:gosec // a chart for a person to read
+	if err := os.WriteFile(to, b, 0o644); err != nil { //nolint:gosec // a chart for a person to read, or a kernel to publish
 		return fmt.Errorf("writing %s: %w", to, err)
 	}
 	return nil
 }
 
-// drawRelease draws one boot of tag with the bootchart probe and keeps its charts and its result,
-// bootchart.json, in measured. A chart is a diagnostic: one that could not be drawn - a release whose
-// spin-machine cannot run the probe, a boot whose sampler wrote nothing - is said, and fails nothing.
+// drawRelease draws one boot of tag with the bootchart probe and accounts for another with the
+// ledger probe, on the kernel built beside the release that can be traced (kernel/README.md), and
+// keeps what each kept and its result, bootchart.json and ledger.json, in measured. Both are
+// diagnostics: one that could not be taken - a release published before its traceable kernel was,
+// a release whose spin-machine cannot run the probe, a boot whose sampler or trace wrote nothing -
+// is said, and fails nothing. Two boots, not one with both: the sampler would be in the ledger's
+// trace, and its cost in the chart's.
 //
 // mutate-lane: TestReleasesMeasureLaddersEachWithTheOneBefore
 func drawRelease(c *cobra.Command, root, tag, measured, scratch string) error {
-	ts, err := trees(root, nil, []string{tag + lab.ChartSuffix + "=--from release:" + tag + " --spin-machine release --edit bootchart"}, c.ErrOrStderr())
-	if err != nil {
-		return err
+	for _, d := range []struct{ probe, suffix, flags string }{
+		{"bootchart", lab.ChartSuffix, "--edit bootchart"},
+		{"ledger", lab.LedgerSuffix, "--kernel traceable:" + tag + " --edit ledger --append '" + lab.LedgerAppend + "'"},
+	} {
+		ts, err := trees(root, nil, []string{tag + d.suffix + "=--from release:" + tag + " --spin-machine release " + d.flags}, c.ErrOrStderr())
+		if err != nil {
+			say(c, "%s's boot was not taken by %s: %v", tag, d.probe, err)
+			continue
+		}
+		r, err := lab.Experiment{Probe: lab.Probes[d.probe], Trees: ts, Reps: 1, Scratch: scratch, Keep: measured, Log: c.ErrOrStderr()}.Run(c.Context())
+		if err != nil {
+			say(c, "%s's boot was not taken by %s: %v", tag, d.probe, err)
+			continue
+		}
+		if err := r.Write(filepath.Join(measured, d.probe+".json")); err != nil {
+			return err
+		}
 	}
-	r, err := lab.Experiment{Probe: lab.Probes["bootchart"], Trees: ts, Reps: 1, Scratch: scratch, Keep: measured, Log: c.ErrOrStderr()}.Run(c.Context())
-	if err != nil {
-		say(c, "%s's boot was not drawn: %v", tag, err)
-		return nil
-	}
-	return r.Write(filepath.Join(measured, "bootchart.json"))
+	return nil
 }
 
 // publishedReleases is how many of the newest releases missing asks GitHub for: all of them.
@@ -397,7 +414,7 @@ at https://spin-stack.github.io/spin-machine/ from every merge that changes a re
 				if err := lab.WriteRecord(filepath.Join(kept, r.Release+".json"), r); err != nil {
 					return couldNot(err)
 				}
-				for _, chart := range []string{r.Bootchart, r.Plot} {
+				for _, chart := range []string{r.Bootchart, r.Plot, r.Ledger} {
 					if chart == "" {
 						continue
 					}

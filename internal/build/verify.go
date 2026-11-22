@@ -4,13 +4,16 @@ package build
 
 import (
 	"bytes"
+	"cmp"
 	"debug/elf"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -187,4 +190,70 @@ func output(name string, args ...string) (string, error) {
 // hasLine is whether text has a line that is exactly line.
 func hasLine(text, line string) bool {
 	return regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `$`).MatchString(text)
+}
+
+// TraceableConfig holds the traceable kernel's config, at traceable, to the release kernel's, at
+// release: lockdown forced to none where the release forces confidentiality, and every other option
+// as the release has it. A ledger is read on that kernel as if it were the release's, and an
+// option that moved with the swap would make it another kernel. Each config is the .config the
+// kernel was compiled with, which kernel/Dockerfile keeps after olddefconfig.
+func TraceableConfig(release, traceable string) error {
+	r, err := kernelConfig(release)
+	if err != nil {
+		return err
+	}
+	t, err := kernelConfig(traceable)
+	if err != nil {
+		return err
+	}
+	swapped := map[string]struct{ release, traceable string }{
+		"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY": {"y", "n"},
+		"CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE":            {"n", "y"},
+	}
+	keys := slices.Collect(maps.Keys(r))
+	for k := range t {
+		if _, ok := r[k]; !ok {
+			keys = append(keys, k)
+		}
+	}
+	slices.Sort(keys)
+	var wrong []string
+	for _, k := range keys {
+		rv, tv := cmp.Or(r[k], "n"), cmp.Or(t[k], "n")
+		if s, ok := swapped[k]; ok {
+			if rv != s.release || tv != s.traceable {
+				wrong = append(wrong, fmt.Sprintf("%s is %s in the release kernel and %s in the traceable one, not %s and %s", k, rv, tv, s.release, s.traceable))
+			}
+			continue
+		}
+		if rv != tv {
+			wrong = append(wrong, fmt.Sprintf("%s is %s in the release kernel and %s in the traceable one", k, rv, tv))
+		}
+	}
+	if len(wrong) > 0 {
+		return fmt.Errorf("%s is not %s with lockdown forced to none: %s", traceable, release, strings.Join(wrong, "; "))
+	}
+	return nil
+}
+
+// kernelConfig is the options a kernel .config sets, each to its value, and to n where it says
+// one is not set.
+func kernelConfig(path string) (map[string]string, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // the config a kernel this build made was compiled with
+	if err != nil {
+		return nil, fmt.Errorf("reading the kernel config %s: %w", path, err)
+	}
+	options := map[string]string{}
+	for line := range strings.Lines(string(b)) {
+		line = strings.TrimSpace(line)
+		if k, ok := strings.CutSuffix(strings.TrimPrefix(line, "# "), " is not set"); ok && strings.HasPrefix(k, "CONFIG_") {
+			options[k] = "n"
+		} else if k, v, ok := strings.Cut(line, "="); ok {
+			options[k] = v
+		}
+	}
+	if len(options) == 0 {
+		return nil, fmt.Errorf("the kernel config %s sets no option", path)
+	}
+	return options, nil
 }

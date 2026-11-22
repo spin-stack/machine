@@ -83,6 +83,12 @@ Each file the release offers carries two Sigstore bundles beside it. The files a
 that built the file, and `<file>.provenance.sigstore.json`, its SLSA provenance (go-tools'
 `provenance`: this workflow at its commit, and every pin in `versions.yaml`). [Verify a release file](#verify-a-release-file) says how to check them.
 
+One more file is published beside the release and is no part of it:
+`spin-machine-VERSION-linux-x86_64.lab-only-traceable.bzImage`, with its two bundles. It is the
+release's kernel with lockdown forced to none, built by release.yml's `traceable` job from the same
+source and config, for the lab's ledger (kernel/README.md, "Lockdown and the BPF LSM"). Nothing
+spin boots is that kernel, and the tarball does not carry it.
+
 The release's CycloneDX SBOM says what the release is made of. `spin-machine-dev release` writes it
 from what the builds recorded: the apk databases QEMU and e2fsprogs were statically linked in (each
 build's `/lib/apk/db/installed`, extracted to `_output/sbom/`), the image's `packages.txt`, the
@@ -116,14 +122,17 @@ diagnostics. The release is booted again beside its no-systemd floor, both loggi
 a bound, re-measured with every release so that it stays one (docs/measuring.md, rule 8). The
 record keeps the floor's Δp50 against the release, with its 95% interval. One more boot of the
 release is drawn by the `bootchart` probe: its processes by systemd-bootchart and its units by
-`systemd-analyze plot`, to the first login (docs/measuring.md, "Boot charts").
+`systemd-analyze plot`, to the first login (docs/measuring.md, "Boot charts"). One more is
+accounted for by the `ledger` probe on the release's traceable kernel, every millisecond to the
+first login with its owner (docs/measuring.md, "The ledger").
 
 The job keeps the release's record, `docs/releases/RELEASE.json`: each number's p50 and p95, the
 host, the shape, the date, the run whose artifact holds every sample (90 days), and the release
 before it, with its numbers from the same run and each Δ with its 95% interval. `releases record`
 writes `docs/releases.md` from every record: a chart of the goal's numbers release by release
 (`docs/releases.svg`), the tables, and where each was measured, which links each release's charts,
-kept beside its record as `RELEASE-bootchart.svg` and `RELEASE-plot.svg`. The job proposes the records and
+kept beside its record as `RELEASE-bootchart.svg` and `RELEASE-plot.svg`, and its ledger, as
+`RELEASE-ledger.txt`. The job proposes the records and
 the page as a pull request, as the release app, so the checks on it run. A test fails when the page
 or its chart is not what the records say, so nobody edits either by hand. Once that pull request
 merges, `pages.yml` publishes the same page, with each record, at

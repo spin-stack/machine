@@ -132,6 +132,8 @@ compat.yml   changed: spin-machine-dev changed --base $BASE --pins ... <paths>, 
              compat:  spin-machine-dev needs
 release.yml  compat.yml ; spin-machine-dev release version ; release ; release notes ;
              release provenance ; release sign ; release tag ; then the publish action ;
+             traceable: spin-machine-dev release traceable-kernel ; release provenance ;
+             release sign ; release upload ;
              report.yml ; pause: spin-machine-dev lab check checkpoint-pause ;
              task trace ; task ship-it:wake
 refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|openssh|builders
@@ -184,6 +186,9 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--kernel run:N`: a parts.yml run's bzImage, or a Kernel workflow run's from before parts.yml. A
   run from before 2026-11-19 has none, and the lab refuses it by name. `--kernel` also takes the
   path of a bzImage.
+- `--kernel traceable:TAG`: the lab-only kernel published beside release TAG, its kernel with
+  lockdown forced to none, once its signature is release.yml's (kernel/README.md). Releases from
+  before #536 have none.
 - `--qemu run:N`, or a directory with `bin/` and `qemu/`.
 - `--spin-machine here`: built from this checkout.
 - `--spin-machine release`: built from the commit the release's `machine.env` names, fetched by
@@ -215,7 +220,7 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
   it (measuring.md, "Boot charts").
 - `--edit ledger`: sshd at LogLevel DEBUG1 and the `ledger` probe's two scripts. Its tree also
   boots a kernel that can be traced and the scheduler's tracepoints from the kernel's start,
-  `--kernel run:N --append '<lab.LedgerAppend>'` (measuring.md, "The ledger").
+  `--kernel traceable:TAG --append '<lab.LedgerAppend>'` (measuring.md, "The ledger").
 - `--edit carry-journal`, `carry-docker`, `carry-lane-logind` and `carry-keygen`: one of the
   image's deviations from Ubuntu taken back to what Ubuntu ships (docs/image.md, "Measured in this
   review"). Each goes after `--edit lane`.

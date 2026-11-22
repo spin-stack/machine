@@ -137,12 +137,23 @@ RUN cd /usr/src/linux && \
 
 COPY kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH} /usr/src/linux/.config
 
+# confidentiality for every kernel spin boots. none only for the lab's traceable kernel, built
+# beside a release from this config with that one option swapped and never in it
+# (kernel/README.md, "Lockdown and the BPF LSM"): spin-machine-dev release traceable-kernel
+# holds its config to the release kernel's, less that option.
+ARG KERNEL_LOCKDOWN
+
 # Every check below is a symbol that olddefconfig can silently drop and whose absence
 # presents as something other than a missing kernel option.
 RUN <<EOT
     set -e
     cd /usr/src/linux
 
+    case "${KERNEL_LOCKDOWN}" in
+    confidentiality) ;;
+    none) sed -i 's/^CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y$/CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y/' .config ;;
+    *) echo "ERROR: KERNEL_LOCKDOWN is confidentiality or none, not '${KERNEL_LOCKDOWN}'"; exit 1 ;;
+    esac
     make ARCH=${KERNEL_ARCH} olddefconfig
 
     echo "Verifying critical kernel configs after olddefconfig..."
@@ -223,7 +234,7 @@ RUN <<EOT
     # to, gets around them in silence. DEVMEM and PROC_KCORE are the two reads of the kernel's
     # memory, gone rather than left to lockdown alone.
     for opt in SECURITY SECURITYFS SECURITY_NETWORK SECURITY_PATH BPF_LSM SECURITY_LOCKDOWN_LSM \
-            SECURITY_LOCKDOWN_LSM_EARLY LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY; do
+            SECURITY_LOCKDOWN_LSM_EARLY "LOCK_DOWN_KERNEL_FORCE_$(echo "${KERNEL_LOCKDOWN}" | tr a-z A-Z)"; do
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig!"; exit 1; }
     done
     grep -q '^CONFIG_LSM="lockdown,bpf"' .config || { echo "ERROR: the LSMs are not lockdown and bpf!"; grep '^CONFIG_LSM=' .config; exit 1; }
