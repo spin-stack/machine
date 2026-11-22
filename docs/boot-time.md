@@ -195,6 +195,7 @@ them for boot time.
 | logind, its Varlink socket, `user-runtime-dir@`, `user@` without default dependencies; `dbus.socket` without sysinit | image drop-ins, configure-system.sh | lane 478 → 402 (11-13) | lane | lab 43518915618 |
 | Sessions of class `user-early-light` | configure-system.sh | lane 472 vs 436 | lane, mechanism: a root session would start `user@0` | lab 43518044150 |
 | Host keys made from the boot's first dispatch | spin-machine-sshd-keygen.service | lane 489 → 468 | lane | lab 43483372488 |
+| An Ed25519 host key only, no ECDSA | spin-machine-sshd-keygen.service | −5.0 [−8.3, −1.8], sshd accepting −4.4 [−6.9, −1.9], 60 boots a side | measured | lab 44979726719 |
 | MOTD and `pam_motd` off; `mlkem768x25519-sha256` alone | configure-system.sh | −12 on the first login; 104 → 40 a login against sntrup761 | ladder, mechanism: a root login runs the same PAM and kex | #240, lab 43479854381 |
 | timedated, firstboot, machine-id-commit masked; volatile journald; the timeouts; docker and containerd by socket; `nsswitch` | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity | - | - |
 | `10-seats.conf`, the getty's TERM, `/tmp`'s size | image drop-ins | function | - | - |
@@ -313,6 +314,7 @@ and a row measured in another shape than spin's has such a reason.
 | `systemd-user-sessions` without its ExecStart (it removes a /run/nologin the image never writes), its ExecStop kept | −0.6 [−5.2, +1.5] at 60 boots | spin | the same | 11-22 |
 | Mask `sshd-socket-generator`, again on spin's path | +0.8 [−4.0, +4.7] at 60 boots | spin | the same | 11-22 |
 | `DefaultMemoryAccounting=no`, for cheaper unit cgroups | +4.1 [+0.8, +7.1] at 60 boots, worse; sshd accepting +6.2 [+2.2, +8.0]. The cause is not measured | spin | the same | 11-22 |
+| `pam_selinux` (twice) and `pam_mail` out of sshd's PAM stack: SELinux is off and there is no mail | −1.9 [−4.9, +2.8] at 60 boots | spin | lab 44979726719 | 11-22 |
 
 ### The login
 
