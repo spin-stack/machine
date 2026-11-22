@@ -651,7 +651,7 @@ func ReadAhead(state *os.File, saved Saved, load LoadOptions) {
 // A fast load reads a page when the guest touches it, which reading every page ahead would undo,
 // and a stream state is read once, in order, by the load itself.
 func prefetches(saved Saved, load LoadOptions) bool {
-	return saved.Format == FormatMappedRAM && !load.Fast
+	return saved.Format == FormatMappedRAM
 }
 
 // prefetch asks the kernel to start reading the state's data into the page cache, extent by
