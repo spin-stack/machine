@@ -171,9 +171,10 @@ them for boot time.
 | `KERNEL_LZ4` | kernel/config-7.3-x86_64 | the alternatives lost: an uncompressed payload +9 ms in copies (laptop) | laptop | #326 |
 | `VT=n`, `X86_MSR=n`, `X86_CPUID=n` | kernel/config-7.3-x86_64 | function: dead code, less surface | - | kernel/Dockerfile |
 | qboot instead of SeaBIOS | qemu, `machine.DefaultBIOS` | cold +68.5 [+62.7, +71.7] | group F | lab 44818953987 |
-| QEMU 0001 (device creation in one memory transaction) with qboot's `pam.patch` | qemu/patches, qemu/qboot | cold +11.5 [+6.7, +20.2] together; neither is measured alone | group B | lab 44818953987 |
+| QEMU 0001 (device creation in one memory transaction) | qemu/patches | restored +11.7 [+0.9, +19.3], running +6.8 [+1.2, +8.8]: a restore starts QEMU too; cold +0.2 [−8.7, +7.1]. With `pam.patch`, cold +11.5 [+6.7, +20.2] (group B, lab 44818953987) | measured, 20 a side | lab 44993254745 |
+| qboot `pam.patch` (PAM in three writes) | qemu/qboot | cold +3.9 [−3.4, +8.0]: inside the noise, and the upper bound over +5 keeps it (rule 5 of docs/measuring.md) | measured, 40 a side | lab 44993790452 |
 | QEMU 0002, virtio-scsi `max_target`, which spin-machine passes | qemu/patches, machine | cold −8.9 [−15.5, −0.9] when it came in | measured | lab 44788216590 |
-| qboot `no-pci-walk.patch` | qemu/qboot | 5.0 ms nested in `firmware-stages`, not on a goal number | mechanism | lab 44535161371 |
+| qboot `no-pci-walk.patch` | qemu/qboot | cold +5.2 [−1.7, +9.2]: inside the noise, and the upper bound over +5 keeps it; 5.0 ms nested in `firmware-stages` | measured, 40 a side | lab 44993790452 |
 | qboot `mtrr.patch`, `write-pointer.patch` | qemu/qboot | function: write-back mappings, vmgenid | - | - |
 | `hpet=off` | machine | nothing on record: a timer the guest would enumerate and then not use | unmeasured | - |
 | ICH9 `sata=off`, `smbus=off` | machine | kernel to init 62.3 → 60.6 (09-08) | laptop, 400 boots | `fa1803f` |
@@ -211,6 +212,13 @@ them for boot time.
 | timedated, firstboot, machine-id-commit masked; volatile journald; the timeouts; docker and containerd by socket; `nsswitch` | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity | - | - |
 | `10-seats.conf`, the getty's TERM, `/tmp`'s size | image drop-ins | function | - | - |
 | The pressure probe's sender, started by a timer 10 s after the boot, at the lowest priority | spin-machine-pressure.timer and .service | function (docs/machine.md, "Pressure"); adding it: first login −0.5 [−3.6, +2.9], restored +1.8 [−2.0, +5.2] evicted and +0.9 [−2.5, +3.4] cached at 40 boots, the sender not yet started when the state was saved. After multi-user.target instead, beside the first login, sshd accepting to login +2.6 to +3.3 in three runs | measured | labs 44926664003, 44926917170; 44921602512, 44924252325, 44924755505 |
+
+**What holds each patch.** Every patch the table names, and QEMU's 0003 and 0004, which are not
+for boot time, has a test that fails when the patch is lost or rebased into doing nothing, since
+either still builds and boots. QEMU's are in qemu/README.md ("The patches"), qboot's in
+qemu/qboot/README.md, the kernel's in kernel/README.md. OpenSSH's is held by its build, which
+looks for the patched condition in the `auth2.c` it compiles, and by `boot:sshd-delay`. The qemu,
+qboot, kernel and openssh-source entries of `versions.yaml` name the checks a bump runs.
 
 **What only the lane uses.** spin's path earns nothing from `sshd-vsock.socket.d/10-lane.conf`,
 `sshd@.service.d/10-lane.conf`, `sshd@.service.d/keygen.conf` or the masked
