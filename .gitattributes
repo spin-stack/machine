@@ -1,0 +1,2 @@
+# Each supported release's query-qmp-schema, which spin-machine-dev releases schema writes.
+internal/qmpdef/testdata/released/** linguist-generated
