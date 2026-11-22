@@ -544,6 +544,16 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	if err := m.bindAll(ctx, disks, again.Disks); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
+	// The disks are taken here, before a byte of the state is read. QEMU adds a held machine's
+	// nodes inactive and takes them where it runs the guest, and when it cannot it leaves the
+	// guest stopped and tells the monitor nothing: the load completes, no RESUME comes, and the
+	// run state stays inmigrate (QEMU 11.2.0-rc0, migration_block_activate(NULL) in both run
+	// BHs). A lock on an image that another process held did that to a fast load in compat, and
+	// to a full one on purpose (#459). Taken here, QEMU's reason is Resume's error, and the run BHs
+	// find every node active.
+	if _, err := qmp.Do(ctx, m.c, blockdevSetActive, activeArgs{Active: true}); err != nil {
+		return fmt.Errorf("resuming: taking the machine's disks: %w", err)
+	}
 	for _, c := range again.CPUs {
 		args, err := c.deviceArgs()
 		if err != nil {
