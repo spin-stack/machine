@@ -283,10 +283,7 @@ func (r *recorder) selfResume(t *testing.T) {
 	if err := machine.CanResume(saved, here); err != nil {
 		t.Fatalf("a machine refuses its own checkpoint: %v", err)
 	}
-	root, err := rootDisk(overlay, r.base())
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := rootDisk(t, overlay, r.base())
 	if err := dst.Resume(ctx, state, saved, here, machine.LoadOptions{}, root, extDisk(t)); err != nil {
 		t.Fatalf("resuming: %v\n%s", err, dst.said())
 	}
@@ -315,9 +312,17 @@ func inflate(ctx context.Context, t *testing.T, sock string) {
 }
 
 // rootDisk is the root disk as a machine.Disk: the overlay, writable, over the base image, read
-// only, its chain read from the overlay's header as spin-machine reads one.
-func rootDisk(overlay, base string) (machine.Disk, error) {
-	return machine.OpenDisk(machine.DiskPath{Serial: "root", Path: overlay, Format: "qcow2", Under: []string{base}})
+// only, its chain read from the overlay's header as spin-machine reads one. Its files close when t ends:
+// the overlay's lock is on the description QEMU was handed, and one left to the garbage collector
+// outlives a killed machine and refuses the next machine its disk (#459).
+func rootDisk(t *testing.T, overlay, base string) machine.Disk {
+	t.Helper()
+	d, err := machine.OpenDisk(machine.DiskPath{Serial: "root", Path: overlay, Format: "qcow2", Under: []string{base}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	return d
 }
 
 // spinsMTU is the MTU spin announces to a workspace's NIC.
@@ -405,10 +410,7 @@ func startGuest(t *testing.T, s machine.Spec, mac string, events func(qmp.Event)
 // boot binds the overlay over base as the root disk and boots the machine.
 func (g *guest) boot(t *testing.T, overlay, base string) {
 	t.Helper()
-	root, err := rootDisk(overlay, base)
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := rootDisk(t, overlay, base)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := g.Boot(ctx, root); err != nil {
