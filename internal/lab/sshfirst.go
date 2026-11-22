@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,9 +22,10 @@ import (
 //
 // The machine gets a vsock device, and the image's systemd-ssh-generator binds sshd to AF_VSOCK
 // port 22 when it finds one. The host tries to connect every 2 ms; the first connection accepted
-// is sshd_accepts, and `true` run as spin over SSH is first_login. What first_login holds beyond
-// sshd_accepts is the first login's own chain: sshd's host keys, the key exchange, PAM, logind,
-// the user's manager. The console's prompt is timed in the same boot, the getty an echo.
+// is sshd_accepts, and `true` run as spin over SSH on that same connection is first_login. What
+// first_login holds beyond sshd_accepts is the first login's own chain: sshd's host keys, the key
+// exchange, PAM, logind, the user's manager. The console's prompt is timed in the same boot, the
+// getty an echo.
 type sshFirst struct{}
 
 func (sshFirst) Name() string { return "ssh-first" }
@@ -84,9 +86,10 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 
 	deadline := t0.Add(60 * time.Second)
 	var accepts time.Duration
+	var first net.Conn
 	for time.Now().Before(deadline) {
-		if VsockAccepts(cid, 22) {
-			accepts = time.Since(t0)
+		if c, err := DialVsock(cid); err == nil {
+			accepts, first = time.Since(t0), c
 			break
 		}
 		if err := mc.Exited(); err != nil {
@@ -94,22 +97,24 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	if accepts == 0 {
+	if first == nil {
 		return Miss("sshd never accepted on vsock; spin-machine: %s", strings.TrimSpace(mc.Stderr.String()))
 	}
-	var login time.Duration
-	var why error
-	for time.Now().Before(deadline) {
-		if _, why = m.Key.Login(cid, xssh.KeyExchangeMLKEM768X25519); why != nil {
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
-		login = time.Since(t0)
-		break
+	// The first login runs over the connection accepted. A login on a new one, after the accepted
+	// one closed, had sshd start a session for that one on the guest's one vCPU beside the login
+	// timed, which spin, opening the user's connection once, never makes it do (#450).
+	why := m.Key.LoginOn(first, cid, xssh.KeyExchangeMLKEM768X25519)
+	if why != nil {
+		m.Logf("the login on the connection accepted failed, logging in again: %v", why)
 	}
-	if login == 0 {
+	for why != nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		_, why = m.Key.Login(cid, xssh.KeyExchangeMLKEM768X25519)
+	}
+	if why != nil {
 		return Miss("sshd accepted and no login came: %v", why)
 	}
+	login := time.Since(t0)
 	if err := plugged(); err != nil {
 		return err
 	}

@@ -129,19 +129,30 @@ func NewCID() uint32 {
 	return uint32(100000 + rand.IntN(1<<20)) // mutate-exempt: where the range starts; any start clear of the host's own context ids (0-2) and its other machines' holds
 }
 
-// VsockAccepts says whether something accepts a connection on cid:port now. The connect timeout
-// is short because a machine not yet started is the common answer, and the default is two seconds
-// of not knowing.
+// DialVsock connects to cid's port 22. The connect timeout is short because a machine not yet
+// started is the common answer, and the default is two seconds of not knowing.
 // mutate-lane: TestEveryProbeMeasuresATree
-func VsockAccepts(cid, port uint32) bool {
+func DialVsock(cid uint32) (net.Conn, error) {
 	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
-		return false
+		return nil, fmt.Errorf("opening a vsock socket: %w", err)
 	}
-	defer func() { _ = unix.Close(fd) }()
 	tv := unix.NsecToTimeval((50 * time.Millisecond).Nanoseconds())
 	_ = unix.SetsockoptTimeval(fd, unix.AF_VSOCK, unix.SO_VM_SOCKETS_CONNECT_TIMEOUT, &tv)
-	return unix.Connect(fd, &unix.SockaddrVM{CID: cid, Port: port}) == nil
+	if err := unix.Connect(fd, &unix.SockaddrVM{CID: cid, Port: 22}); err != nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("connecting to vsock %d:22: %w", cid, err)
+	}
+	// Non-blocking, so that os.NewFile puts it on Go's poller: a blocking descriptor is closed
+	// only once nothing reads it, and the SSH client's reader blocks on it until the guest sends
+	// something, which it never does. Every login stayed open in the guest - its forwarder's
+	// child, sshd-session and logind's session - and a checkpoint saved after a login carried
+	// it, to be torn down on the guest's one vCPU beside the restored login (laptop, 2026-11-21).
+	if err := unix.SetNonblock(fd, true); err != nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("making the vsock socket non-blocking: %w", err)
+	}
+	return vsockConn{os.NewFile(uintptr(fd), "vsock")}, nil
 }
 
 // Login runs `true` as k.User over SSH on cid's port 22, offering only the key exchange kex, and says
@@ -151,6 +162,13 @@ func VsockAccepts(cid, port uint32) bool {
 func (k *Key) Login(cid uint32, kex string) (time.Duration, error) {
 	d, _, err := k.Run(cid, kex, "true")
 	return d, err
+}
+
+// LoginOn is Login over conn, a connection to cid's port 22 already made, which it closes.
+// mutate-lane: TestEveryProbeMeasuresATree
+func (k *Key) LoginOn(conn net.Conn, cid uint32, kex string) error {
+	_, err := k.session(conn, cid, kex, "true")
+	return err
 }
 
 // Run runs command as k.User over SSH on cid's port 22 and returns how long it took from the
@@ -164,28 +182,20 @@ func (k *Key) Run(cid uint32, kex, command string) (time.Duration, string, error
 // mutate-lane: TestEveryProbeMeasuresATree
 func (k *Key) run(cid uint32, kex, command string, wrap func(net.Conn) net.Conn) (time.Duration, string, error) {
 	t0 := time.Now()
-	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+	conn, err := DialVsock(cid)
 	if err != nil {
-		return 0, "", fmt.Errorf("opening a vsock socket: %w", err)
+		return 0, "", err
 	}
-	// As VsockAccepts': LoggedIn connects before the machine is there, and a connect waits two
-	// seconds by default for a context id that does not exist yet.
-	tv := unix.NsecToTimeval((50 * time.Millisecond).Nanoseconds())
-	_ = unix.SetsockoptTimeval(fd, unix.AF_VSOCK, unix.SO_VM_SOCKETS_CONNECT_TIMEOUT, &tv)
-	if err := unix.Connect(fd, &unix.SockaddrVM{CID: cid, Port: 22}); err != nil {
-		_ = unix.Close(fd)
-		return 0, "", fmt.Errorf("connecting to vsock %d:22: %w", cid, err)
+	out, err := k.session(wrap(conn), cid, kex, command)
+	if err != nil {
+		return 0, "", err
 	}
-	// Non-blocking, so that os.NewFile puts it on Go's poller: a blocking descriptor is closed
-	// only once nothing reads it, and the SSH client's reader blocks on it until the guest sends
-	// something, which it never does. Every login stayed open in the guest - its forwarder's
-	// child, sshd-session and logind's session - and a checkpoint saved after a login carried
-	// it, to be torn down on the guest's one vCPU beside the restored login (laptop, 2026-11-21).
-	if err := unix.SetNonblock(fd, true); err != nil {
-		_ = unix.Close(fd)
-		return 0, "", fmt.Errorf("making the vsock socket non-blocking: %w", err)
-	}
-	conn := wrap(vsockConn{os.NewFile(uintptr(fd), "vsock")})
+	return time.Since(t0), out, nil
+}
+
+// session runs command as k.User over SSH on conn, a connection to cid's port 22, and closes it.
+// mutate-lane: TestEveryProbeMeasuresATree
+func (k *Key) session(conn net.Conn, cid uint32, kex, command string) (string, error) {
 	defer func() { _ = conn.Close() }()
 	c, chans, reqs, err := xssh.NewClientConn(conn, "vsock", &xssh.ClientConfig{
 		User:            k.User(),
@@ -194,27 +204,27 @@ func (k *Key) run(cid uint32, kex, command string, wrap func(net.Conn) net.Conn)
 		Config:          xssh.Config{KeyExchanges: []string{kex}},
 	})
 	if err != nil {
-		return 0, "", fmt.Errorf("ssh to vsock %d:22: %w", cid, err)
+		return "", fmt.Errorf("ssh to vsock %d:22: %w", cid, err)
 	}
 	client := xssh.NewClient(c, chans, reqs)
 	defer func() { _ = client.Close() }()
 	s, err := client.NewSession()
 	if err != nil {
-		return 0, "", fmt.Errorf("opening a session on vsock %d:22: %w", cid, err)
+		return "", fmt.Errorf("opening a session on vsock %d:22: %w", cid, err)
 	}
 	defer func() { _ = s.Close() }()
 	out, err := s.Output(command)
 	if err != nil {
-		return 0, "", fmt.Errorf("running %q on vsock %d:22: %w", command, cid, err)
+		return "", fmt.Errorf("running %q on vsock %d:22: %w", command, cid, err)
 	}
-	return time.Since(t0), string(out), nil
+	return string(out), nil
 }
 
 // LoggedIn logs in on mc's cid until a login is done, and returns how long after t0 that was. A
 // machine never logged into is a Miss; one that exits first says why at once (Machine.Exited), not
 // when the wait runs out.
 //
-// It does not ask whether something accepts first, as VsockAccepts would. On spin's path that
+// It does not ask whether something accepts first and close that connection. On spin's path that
 // connection reaches the forwarder, which opens one to sshd, and sshd starts a session for it on
 // the guest's one vCPU beside the login measured. spin makes no such connection: its runner opens
 // the user's, once. Without it, the restored login read −3.6 ms [−7.3, −1.7] (bench, spin's shape,
