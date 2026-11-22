@@ -191,6 +191,7 @@ them for boot time.
 | 8 generators disabled, 3 tmpfiles rules masked | optimize-systemd.sh | cold +16.7 [+11.6, +23.3] | group C-generators | lab 44818953987 |
 | udev's coldplug filtered (`10-coldplug.conf`), `cpu` kept for hot-added cores | image | cold +14.9 [+8.2, +19.8]; restored +463.7, a guest saved with its coldplug still running | group C-coldplug | lab 44818953987 |
 | ssh.socket, ssh.service and sshd-keygen without default dependencies; logind and dbus-broker without PrivateTmp; udev at `StartupCPUWeight=1` | image drop-ins | −59.4 [−65.9, −56.2] with spin's forwarder early as well; the image's half alone −17.4 | measured | labs 44805051310, 44807457606 |
+| ssh.service without Ubuntu's `sshd -t` before it starts (`20-no-config-test.conf`); the check stays on reload | image drop-in | −3.2 [−7.2, −0.8], sshd accepting −2.4 [−6.4, −1.1], 60 boots a side | measured | lab 44977044826 |
 | logind, its Varlink socket, `user-runtime-dir@`, `user@` without default dependencies; `dbus.socket` without sysinit | image drop-ins, configure-system.sh | lane 478 → 402 (11-13) | lane | lab 43518915618 |
 | Sessions of class `user-early-light` | configure-system.sh | lane 472 vs 436 | lane, mechanism: a root session would start `user@0` | lab 43518044150 |
 | Host keys made from the boot's first dispatch | spin-machine-sshd-keygen.service | lane 489 → 468 | lane | lab 43483372488 |
@@ -305,6 +306,10 @@ and a row measured in another shape than spin's has such a reason.
 | systemd with `-Db_lto=true` | Ubuntu already passes `-flto=auto`: the same packages | - | image/systemd/Dockerfile | 11-19 |
 | Masks of 15 units and a generator the image does not have | they masked nothing. Deleted without a run; image/build.sh refuses such a mask | - | #352 | 11-21 |
 | PID 1's `LogLevel=err`, `LogTarget=journal`, `ShowStatus=no`, `StatusUnitFormat=name`; `kernel.printk = 3 3 3 3` | taken back −1.8 [−7.7, +3.2] at 40 boots; the console stays quiet through the command line. Deleted | spin | labs 44818953987, 44822157367, #354 | 11-21 |
+| Mask `systemd-udev-load-credentials` again, in spin's shape on one vCPU (it was −8 and −6 on two) | −2.1 [−6.3, +0.3] at 60 boots: not separable | spin | lab 44977044826 | 11-22 |
+| `systemd-user-sessions` without its ExecStart (it removes a /run/nologin the image never writes), its ExecStop kept | −0.6 [−5.2, +1.5] at 60 boots | spin | the same | 11-22 |
+| Mask `sshd-socket-generator`, again on spin's path | +0.8 [−4.0, +4.7] at 60 boots | spin | the same | 11-22 |
+| `DefaultMemoryAccounting=no`, for cheaper unit cgroups | +4.1 [+0.8, +7.1] at 60 boots, worse; sshd accepting +6.2 [+2.2, +8.0]. The cause is not measured | spin | the same | 11-22 |
 
 ### The login
 
