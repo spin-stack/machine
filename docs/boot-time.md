@@ -125,7 +125,8 @@ This is the goal's second number, `restore-first`'s evicted row. The rows come f
 The evicted row read 16 ms more than the cached one, and that was the disk. The read-ahead
 started in `Resume`, after the dial had waited ~19.5 ms for QEMU. Started before the dial, it
 runs beside QEMU's start: `running` 62.7, login 101, 6 ms over the cached row ("What the machine
-carries").
+carries"). Asked for by four goroutines instead of one, the evicted row is level with the cached
+one, login 96.2 against 96.3 (lab 44976924478). What is left of the restore is not the disk.
 
 **About a third of the restored login is sshd sleeping.** On a laptop, a restored login of
 32 ms split into 4.6 ms to the server's banner, ~5 ms of key exchange, 14.5 ms from the signed
@@ -174,6 +175,7 @@ them for boot time.
 | Checkpoints on 8 multifd channels | machine | restored into a QEMU started ahead 150 → 103 against 1 channel; 16 channels lose to 8 when 4 restore at once, +3.2 [+1.1, +5.8] | measured | labs 44789688221, 44792429636 |
 | The resume reads the state ahead | machine | restored into a QEMU started ahead −12.9 [−14.7, −9.8] | measured | lab 44809512339 |
 | `spin-machine restore` reads the state ahead before its dial (`machine.ReadAhead`), beside QEMU's start | cmd/spin-machine, machine | restored −9.3 [−12.2, −7.3] evicted, cached −0.2 [−2.2, +1.5] | measured, 30 a side | lab 44976494418 |
+| The read-ahead asked for by four goroutines, each every fourth 128 KiB piece | machine | restored −6.2 [−9.1, −4.3] evicted against one goroutine, cached −0.5 [−1.6, +1.9] | measured, 30 a side | lab 44976924478 |
 | `pci=lastbus=0` | machine/cmdline.go | kernel to init 87.6 → 51.1 (2026-09): 8192 configuration reads, each an exit | runner, mechanism | log.md, 09 |
 | `no_timer_check`, `tsc=reliable` | machine/cmdline.go | nothing on record (09-07) | unmeasured | - |
 | `TERM=dumb` | machine/cmdline.go | 687 → 19 ms to systemd's first line (09-10), while systemd queries the console | laptop, mechanism | `b5f361f` |
