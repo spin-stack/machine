@@ -32,7 +32,9 @@ func (sshFirst) Name() string { return "ssh-first" }
 func (sshFirst) About() string {
 	return "ms from the moment before QEMU is exec'd to sshd accepting on vsock, and to `true` run over SSH, as spin or, on spin's login, root"
 }
-func (sshFirst) Options() []Option     { return shape }
+func (sshFirst) Options() []Option {
+	return append(append([]Option{}, shape...), Option{"first", "true", "the first login's command: true, or userbus (systemctl --user, counted in userbus_ok)"})
+}
 func (sshFirst) Rows(Options) []string { return []string{"boot"} }
 func (sshFirst) Phases() int           { return 1 }
 
@@ -52,6 +54,7 @@ func (sshFirst) Metrics() []Metric {
 		{"qemu_rss_anon", "MiB", "of qemu_rss, anonymous memory: each machine's own"},
 		{"qemu_rss_file", "MiB", "of qemu_rss, mapped files: shared between the machines that map them"},
 		{"qemu_rss_shmem", "MiB", "of qemu_rss, shared memory, such as guest RAM in a memfd"},
+		{"userbus_ok", "count", "1 when the first login's own systemctl --user answered (first=userbus)"},
 		{"mgr_total", "ms", "user@0 start to ready"},
 		{"mgr_spawn", "ms", "user@0 start to systemd --user's main"},
 		{"mgr_generators", "ms", "user generators"},
@@ -109,7 +112,14 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	// The first login runs over the connection accepted. A login on a new one, after the accepted
 	// one closed, had sshd start a session for that one on the guest's one vCPU beside the login
 	// timed, which spin, opening the user's connection once, never makes it do (#450).
-	why := m.Key.LoginOn(first, cid, xssh.KeyExchangeMLKEM768X25519)
+	var why error
+	if m.Options["first"] == "userbus" {
+		var out string
+		out, why = m.Key.session(first, cid, xssh.KeyExchangeMLKEM768X25519, "systemctl --user list-units >/dev/null 2>&1 && echo USERBUS_OK; true")
+		m.Record("userbus_ok", map[bool]float64{true: 1, false: 0}[strings.Contains(out, "USERBUS_OK")])
+	} else {
+		why = m.Key.LoginOn(first, cid, xssh.KeyExchangeMLKEM768X25519)
+	}
 	if why != nil {
 		m.Logf("the login on the connection accepted failed, logging in again: %v", why)
 	}

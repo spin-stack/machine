@@ -233,6 +233,10 @@ grep -q '^ExecStartPost=.*systemctl --user set-environment' "$MNT/usr/lib/system
 		}}, nil
 	case "linger-root":
 		return Edit{Files: map[string]string{"/var/lib/systemd/linger/root": ""}}, nil
+	case "no-manager-wants":
+		return Edit{Setup: `test -e "$MNT/etc/systemd/system/user-runtime-dir@.service.d/20-manager.conf"
+rm "$MNT/etc/systemd/system/user-runtime-dir@.service.d/20-manager.conf"
+`}, nil
 	case "no-barrier":
 		return Edit{Files: map[string]string{"/etc/systemd/system/user@.service.d/10-login-barrier.conf": "# empty: shadows the vendor's After=systemd-user-sessions.service\n"},
 			Setup: `grep -qx 'After=systemd-user-sessions.service' "$MNT/usr/lib/systemd/system/user@.service.d/10-login-barrier.conf"
