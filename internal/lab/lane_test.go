@@ -54,12 +54,21 @@ func TestEveryProbeMeasuresATree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// ledger accounts only for a tree that carries its edit and its trace.
+	traced, err := MakeTree(filepath.Join(t.TempDir(), "traced"), TreeSpec{Name: "traced", From: from, SpinMachine: "here", Edits: []string{"lane", ledgerName}, Append: LedgerAppend},
+		Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), Log: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range ProbeNames() {
 		t.Run(name, func(t *testing.T) {
 			p := Probes[name]
 			trees, keep := trees, t.TempDir()
-			if name == bootchartName {
+			switch name {
+			case bootchartName:
 				trees = []*Tree{charted}
+			case ledgerName:
+				trees = []*Tree{traced}
 			}
 			r, err := Experiment{Probe: p, Trees: trees, Reps: 1, Options: Options{}, Scratch: t.TempDir(), Keep: keep, Log: io.Discard}.Run(t.Context())
 			if err != nil {
@@ -79,6 +88,12 @@ func TestEveryProbeMeasuresATree(t *testing.T) {
 			if name == bootchartName {
 				if b, err := os.ReadFile(filepath.Join(keep, "charted-1.bootchart.svg")); err != nil || !strings.Contains(string(b), "This file is a bootchart SVG file") {
 					t.Errorf("no chart kept: %v", err)
+				}
+			}
+			if name == ledgerName {
+				text, _, _, _ := LedgerFiles("traced", 1)
+				if b, err := os.ReadFile(filepath.Join(keep, text)); err != nil || !strings.Contains(string(b), "the first login the host measured") {
+					t.Errorf("no ledger kept: %v", err)
 				}
 			}
 			t.Log(r.Table())

@@ -142,6 +142,83 @@ before it.
 - It does not see every process. One that starts and exits between two samples, 5 ms apart, is
   never seen. The unit plot has each unit.
 
+## The ledger
+
+A ledger accounts for one boot from the moment before QEMU is exec'd to the first login, and
+every millisecond in it has an owner. Where a boot chart samples every 5 ms, the ledger reads the
+scheduler's own events from the kernel's start, so the time between two of them belongs to
+whichever task the vCPU ran. It finds where to look. A number then decides (rule 4).
+
+```
+spin-machine-dev lab dispatch ledger --reps 3 \
+  --tree "release=--from release --spin-machine release --kernel run:45061289985 --edit ledger \
+    --append '<lab.LedgerAppend>'"
+```
+
+**It needs a kernel that can be traced.** Lockdown at confidentiality takes tracefs away
+(kernel/README.md), so a release's own kernel records nothing. `run:45061289985` is the kernel of
+branch `ledger-533-kernel`: main's config with `CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y`, built by
+parts.yml and never released. Whether each release should get a traced boot is #536.
+`--append` takes `lab.LedgerAppend` as it stands in internal/lab/ledgerprobe.go: the scheduler's
+tracepoints from the kernel's start, on CLOCK_MONOTONIC, into a 2 MiB buffer that drops what
+does not fit rather than the boot.
+
+The run's artifact keeps `TREE-REP.ledger.txt`, `TREE-REP.ledger.json`, `TREE-REP.trace.txt` and
+`TREE-REP.journal.txt` beside `result.json`. Perfetto opens the trace as it is.
+
+**What it shows.** The table cuts the kernel's clock into windows where the boot and the login
+change hands. Each cut is an event in the trace: PID 1's exec of init, sshd-session's exec,
+sshd-auth's exec and exit, the fork of the login's process, its exec of the shell and of
+`/usr/bin/true`, and true's exit. Each window lists its CPU by owner, and idle. An owner is a task's
+unit, read from its cgroup after the login or from systemd's `ExecMainPID`, else its parent's.
+Kernel threads are one owner. PID 1 is the kernel's until it execs init, because the kernel's
+initcalls run in it. A task forked by PID 1 that nothing names is `unattributed`. The generators
+and the executors that exited before the login are the usual ones. A task named `9` is
+systemd-executor, which PID 1 starts by its file descriptor. A second table gives each owner's
+time from PID 1 to the login by state: running, runnable (waiting for the vCPU), disk
+(uninterruptible) and sleeping. The journal's lines for the login's phases come last, at
+journald's receipt of each. They are no earlier than when they were written, so the windows are
+cut from the trace, not from them.
+
+**Why it adds up.** On each CPU the time from one switch to the next is the task the first one
+put there, so the owners of a window add up to its length. That holds by construction, unless the
+trace lost events. A switch away from a task the CPU was not running counts as a break, and
+`breaks` is 0 in every boot so far. The parts that do not hold by construction are these:
+
+- *The kernel's 0 on the host's clock.* The host asks the guest for 20 markers in the trace,
+  50 ms apart. Each marker was written after its request left and before its answer arrived, so
+  each puts the kernel's 0 in a bracket. The brackets agree only if the two clocks run at one rate.
+  Spread over a second they met within ±0.15 ms (lab 45062836688). `kernel_zero` is that 0, and
+  everything before it (spin-machine, QEMU, qboot, the decompression) is one span.
+- *The residue.* That is `first_login` less `kernel_zero` and the command's exit on the kernel's
+  clock: sshd's answer crossing vsock and the client reading it. It read 0.4 to 1.2 ms in six
+  boots. A residue that is negative or large says the alignment is wrong.
+
+`kernel_zero` read 92 to 113 ms. The first boot of each run read ~112 and the others ~93
+(labs 45062548343, 45062836688). `boot:firmware-stages` read 73.7 ms from QEMU's exec to the
+kernel's clock on the same bench (lab 45062836494). The ~20 ms more in the ledger start before
+QEMU: spin-machine's own start and the held start's QMP. That is inferred, not measured
+(#537).
+
+**What it costs.** The trace and sshd's DEBUG1 run on the guest's vCPU beside the boot they
+record. In spin's shape, 20 a side, interleaved (lab 45063070048, bench, v20261122.05):
+
+| arm, against the release | first login | sshd accepts | console prompt | second login | QEMU RSS |
+|---|---|---|---|---|---|
+| the traceable kernel alone | −1.0 [−9.5, +4.9] | −5.6 [−12.1, +2.8] | +0.8 [−4.1, +4.7] | +1.0 [+0.3, +1.4] | +0.0 MiB |
+| the kernel, the trace and the edit | +3.0 [−2.4, +15.9] | +5.1 [−0.1, +15.6] | +12.1 [+7.1, +17.6] | +2.2 [+1.1, +2.8] | +2.0 MiB |
+
+The first login is within noise, and its interval reaches +16, so a ledger's numbers may run up
+to ~16 ms long. The boot chart's sampler cost +10.4 [+4.5, +16.8] (above). The second login's
++2.2 is sshd logging at DEBUG1. The probe's own `first_login` is a login with the trace
+running, and it is no goal number.
+
+**What it is not.** It is not a goal number, nor a saving. CPU on a window's path says what the
+vCPU did. It does not say what the window would have been without it: a task that waits for the
+login may run in the login's window whether or not the login waits for it. It does not split
+the time before the kernel's clock. It names a unit only for tasks it can still see after the
+login, or that systemd remembers.
+
 ## Avoid the pitfalls
 
 Each of these made a number say something it did not measure.

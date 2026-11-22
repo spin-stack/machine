@@ -34,6 +34,7 @@ on:
           - run-delay
           - usage
           - bootchart
+          - ledger
           - check:firmware
           - check:firmware-stages
           - check:waits
