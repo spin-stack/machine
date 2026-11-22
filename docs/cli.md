@@ -194,15 +194,15 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--edit nolinger`: spin not lingering, as this checkout builds the image.
 - `--edit forwarder-early`: `login=spin`'s forwarder, which stands for spin's supervisor, without
   systemd's default dependencies.
-- `--edit carry-masks`, `carry-generators`, `carry-logging` and `carry-coldplug`: what
+- `--edit carry-masks`, `carry-generators` and `carry-coldplug`: what
   optimize-systemd.sh and the coldplug filter do for boot time alone, taken back
   (docs/boot-time.md, "What the machine carries"). Each goes after `--edit lane`.
 - `--edit bootchart`: systemd-bootchart as PID 1, Ubuntu's package at its pin in versions.yaml,
   which samples the boot and execs systemd. The `bootchart` probe draws only a tree that carries
   it (measuring.md, "Boot charts").
-- `--edit carry-nsswitch`, `carry-journal`, `carry-docker`, `carry-timeouts`, `carry-lane-logind`
-  and `carry-keygen`: one of the image's deviations from Ubuntu that had no measurement of its own,
-  taken back to what Ubuntu ships (docs/image.md). Each goes after `--edit lane`.
+- `--edit carry-journal`, `carry-docker`, `carry-lane-logind` and `carry-keygen`: one of the
+  image's deviations from Ubuntu taken back to what Ubuntu ships (docs/image.md, "Measured in this
+  review"). Each goes after `--edit lane`.
 - `--systemd PATCH`: systemd built here with a patch from image/systemd/experiments, in every
   overlay.
 - `--openssh`: OpenSSH as this checkout builds it (image/openssh), built here, in every overlay.

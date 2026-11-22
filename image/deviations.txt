@@ -8,7 +8,6 @@ added /etc/environment.d/10-user-sockets.conf
 added /etc/locale.conf
 added /etc/machine-id
 added /etc/motd
-modified /etc/nsswitch.conf
 modified /etc/pam.d/common-session
 modified /etc/pam.d/login
 modified /etc/pam.d/sshd
@@ -25,7 +24,6 @@ masked /etc/systemd/system-generators/systemd-hibernate-resume-generator
 masked /etc/systemd/system-generators/systemd-rc-local-generator
 masked /etc/systemd/system-generators/systemd-system-update-generator
 masked /etc/systemd/system-generators/systemd-sysv-generator
-added /etc/systemd/system.conf.d/fast-boot.conf
 masked /etc/systemd/system/apt-daily-upgrade.timer
 masked /etc/systemd/system/apt-daily.timer
 added /etc/systemd/system/containerd.socket

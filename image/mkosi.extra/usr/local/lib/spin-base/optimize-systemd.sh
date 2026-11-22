@@ -89,20 +89,6 @@ for conf in "${MASK_TMPFILES[@]}"; do
     ln -sf /dev/null "/etc/tmpfiles.d/$conf"
 done
 
-# docs/image.md, "Units, generators and the manager"
-log "Configuring systemd manager timeouts..."
-mkdir -p /etc/systemd/system.conf.d
-
-cat <<'EOF' >/etc/systemd/system.conf.d/fast-boot.conf
-[Manager]
-DefaultTimeoutStartSec=15s
-DefaultTimeoutStopSec=10s
-DefaultDeviceTimeoutSec=10s
-
-RuntimeWatchdogSec=0
-ShutdownWatchdogSec=0
-EOF
-
 log "Configuring journald for minimal overhead..."
 mkdir -p /etc/systemd/journald.conf.d
 
@@ -149,20 +135,6 @@ ln -sf /usr/lib/systemd/system/spin-machine-pressure.timer \
 
 log "Setting default target to multi-user..."
 ln -sf /lib/systemd/system/multi-user.target /etc/systemd/system/default.target
-
-log "Optimizing nsswitch.conf..."
-cat <<'EOF' >/etc/nsswitch.conf
-passwd:         files
-group:          files
-shadow:         files
-gshadow:        files
-hosts:          files dns
-networks:       files
-protocols:      files
-services:       files
-ethers:         files
-rpc:            files
-EOF
 
 log "Pre-warming caches..."
 ldconfig || true
