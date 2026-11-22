@@ -11,10 +11,12 @@ import (
 // binary links is out of its way.
 func isolated(t *testing.T) {
 	t.Helper()
-	savedDefs, savedEnums, savedUnions, savedVariants := defs, enums, unions, isVariant
-	defs, enums = map[string][]def{}, map[reflect.Type][]string{}
+	savedDefs, savedEnums, savedProbed, savedUnions, savedVariants := defs, enums, probed, unions, isVariant
+	defs, enums, probed = map[string][]def{}, map[reflect.Type][]string{}, map[reflect.Type]map[string]bool{}
 	unions, isVariant = map[reflect.Type][]reflect.Type{}, map[reflect.Type]bool{}
-	t.Cleanup(func() { defs, enums, unions, isVariant = savedDefs, savedEnums, savedUnions, savedVariants })
+	t.Cleanup(func() {
+		defs, enums, probed, unions, isVariant = savedDefs, savedEnums, savedProbed, savedUnions, savedVariants
+	})
 }
 
 // A definition carries its name to the wire, and only a defined event is an event: a command's
