@@ -346,7 +346,7 @@ func TestVerifySaysWhatIsMissingAndAsksQEMUForTheArguments(t *testing.T) {
 	if _, stderr, status := verb(t, "verify", "args"); status != 0 {
 		t.Fatalf("args: exit %d, %q", status, stderr)
 	}
-	if got := read(t, calls); got != "go test ./machine -run TestQEMUAcceptsEveryArgument|TestAChainOverDescriptors -count=1 -v\n" {
+	if got := read(t, calls); got != "go test ./machine -run TestQEMUAcceptsEveryArgument|TestAChainOverDescriptors|TestEachQEMUPatchDoesItsJob -count=1 -v\n" {
 		t.Errorf("go ran %q", got)
 	}
 	if read(t, filepath.Join(dir, "env")) != "SPIN_MACHINE_OUTPUT="+filepath.Join(dir, "_output")+"\n" || os.Getenv("SPIN_MACHINE_OUTPUT") != "before" {

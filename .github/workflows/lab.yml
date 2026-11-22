@@ -37,6 +37,7 @@ on:
           - check:firmware-stages
           - check:waits
           - check:record
+          - check:patches
           - check:rollback
           - check:checkpoint-pause
           - check:cpu-plug

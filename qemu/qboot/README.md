@@ -45,6 +45,16 @@ configuration-space exits, 5.0 ms on nested KVM against 2.2 on bare metal (boot:
 lab runs 44535161371 and 44535156851, 2026-11-19). `no-pci-walk.patch` keeps the chipset check,
 MMCONFIG and the BIOS32 entry, and drops the walk.
 
+## What holds each patch
+
+The build greps each patch's code out of the tree it compiled, so a patch that applied to nothing
+fails there. What it does is held where it shows: `write-pointer.patch` by `task boot:firmware`
+(vmgenid published and the guest reseeded after a restore), `mtrr.patch` by `task boot:patches`
+(the guest's `/proc/mtrr` has the PCI hole uncachable), which compat runs. `pam.patch` and
+`no-pci-walk.patch` only save time. Taken back alone, cold read +3.9 [−3.4, +8.0] and +5.2
+[−1.7, +9.2] ms, 40 boots a side (lab 44993790452): inside the noise, kept because the upper
+bounds are over +5 ms (docs/measuring.md, rule 5).
+
 ## Build
 
 `spin-machine-dev build qemu` builds it, in the `qboot` stage of `qemu/Dockerfile`, and it lands beside

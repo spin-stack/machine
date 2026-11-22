@@ -3,13 +3,30 @@
 One build, **statically linked**, against musl on Alpine. `spin-machine-dev build qemu` builds it from
 source (tens of minutes). `spin-machine-dev fetch qemu` unpacks the published build of the pinned
 version (seconds). `devices.mak` is the device allowlist, and `patches/` holds the changes this
-tree makes to QEMU's source: 0001 builds the memory map once for device creation, 0002 gives
-virtio-scsi a `max_target` property, and 0003 adds the migration capability `x-defer-disk-flush`,
-which keeps a checkpoint's stop off the host's disk. 0005 has a machine made for an incoming
-migration write its TSC only from the migration, so that KVM takes the checkpoint's TSC as given
-(#452).
-`docs/boot-time.md`, "What the machine carries", says what 0001 and 0002 earn, and
-`docs/memory-and-disk.md`, "A busy host disk", what 0003 does.
+tree makes to QEMU's source, applied in name order with no fuzz (`source.sh`).
+
+## The patches
+
+Each patch has one test that fails when it is lost, or rebased into applying and doing nothing:
+it still builds and starts every machine, so nothing else would. `verify args` asks the TCG
+binary with no guest (`TestEachQEMUPatchDoesItsJob`, every push against the published QEMU in
+ci.yml and every QEMU parts.yml builds). `boot:patches` asks a guest of spin's shape what only a
+guest sees (`patches_test.go`, compat.yml on every change that reaches the machine, QEMU or the
+kernel). None is in QEMU 11.2.0-rc0, the tree they apply to without fuzz, and none has been
+posted upstream.
+
+| Patch | What and why | Earns | Held by |
+|---|---|---|---|
+| 0001 | Device creation and the machine-done notifiers in one memory transaction: 283 of a start's 438 flat view rebuilds gone | restored +11.7 [+0.9, +19.3], cold within noise (lab 44993254745) | `verify args`: the flat views built from QEMU's start to its first answer, at spin's shape |
+| 0002 | virtio-scsi `max_target`, which the machine sets to its hotplug disks less one, so the guest scans 16 targets and not 256; a disk beyond it is refused | cold −8.9 [−15.5, −0.9] (lab 44788216590) | the build (`-device virtio-scsi-pci,help`); `verify args`: a disk beyond max_target refused; `boot:patches`: the guest's SCSI host refuses a scan of target 16 |
+| 0003 | The migration capability `x-defer-disk-flush`: from a checkpoint's stop until the guest runs, QEMU's own flushes stop at the page cache | the busy-disk stop −22.0 [−29.2, −15.8] (lab 44962720682, `docs/memory-and-disk.md`, "A busy host disk") | `verify qemu` (the capability in the schema); `verify args`: a save over a disk whose flushes fail completes only with the capability |
+| 0004 | `query-blockstats` `x-flat`: a device's counters without its backing chain | DiskUsage's main-loop time 293 → 96 µs, −197 [−202, −181] (lab 44973302743) | `verify qemu` (the member); `verify args`: no `parent` or `backing` under x-flat, both without |
+| 0005 | A machine made for an incoming migration writes its TSC only from the migration, so KVM takes the checkpoint's TSC as given (#452) | correctness: without it a guest saved with a timer due sleeps until its old TSC deadline, the restored p95 539-548 ms (lab 44987412171) | `boot:patches`: a guest restored 650 ms ahead of its new vCPU's TSC goes no more than 200 ms without a line (#472) |
+
+`docs/boot-time.md`, "What the machine carries", says what each earns among everything else the
+machine carries. The qemu entry of `versions.yaml` says what a bump runs.
+
+## Static
 
 A dynamically linked QEMU is not one artefact. It is an artefact plus the libraries it was
 compiled against. Extracted onto a host with different ones it dies at start-up

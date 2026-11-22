@@ -94,7 +94,7 @@ jobs:
       # run boots the release's base image, so a change to it reaches nothing this checks.
       - name: Does the change reach the machine
         id: machine
-        run: spin-machine-dev changed --base "$BASE" --pins qemu-builder,alpine,qemu,debian,debian-snapshot,qboot,kernel,moby-check-config machine cmd/spin-machine qemu kernel cmd/spin-machine-dev internal/build internal/lab/compat.go internal/lab/tree.go internal/lab/sources.go boot/harness_test.go boot/record_test.go boot/events_test.go boot/verbs_test.go boot/cpuplug_test.go boot/lockdown_test.go boot/testdata/lockdown-check.sh boot/Taskfile.yml go.mod .github/workflows/compat.yml
+        run: spin-machine-dev changed --base "$BASE" --pins qemu-builder,alpine,qemu,debian,debian-snapshot,qboot,kernel,moby-check-config machine cmd/spin-machine qemu kernel cmd/spin-machine-dev internal/build internal/lab/compat.go internal/lab/tree.go internal/lab/sources.go boot/harness_test.go boot/record_test.go boot/patches_test.go boot/events_test.go boot/verbs_test.go boot/cpuplug_test.go boot/lockdown_test.go boot/testdata/lockdown-check.sh boot/Taskfile.yml go.mod .github/workflows/compat.yml
 
       - name: Does the change reach QEMU
         id: qemu
@@ -174,6 +174,11 @@ jobs:
 
       - name: The machine's record refuses what QEMU loads silently, and not its own checkpoint
         run: go tool task boot:record
+
+      # A patch dropped at a bump, or rebased into doing nothing, still builds and boots; this is
+      # where it fails (qemu/README.md, "The patches").
+      - name: Each QEMU and qboot patch does what it is carried for, seen from a guest
+        run: go tool task boot:patches
 
       # A QEMU or a kernel that lost a hotplug after a migration would leave a workspace
       # checkpointed with memory at the size it was (#433).
