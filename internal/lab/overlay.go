@@ -213,16 +213,12 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLaneLogindEdit, nil
 	case "carry-keygen":
 		return carryKeygenEdit, nil
-	case "logind-weight":
-		return logindWeightEdit, nil
-	case "offpath-weight":
-		return offpathWeightEdit, nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	case ledgerName:
 		return ledgerEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, logind-weight, offpath-weight, bootchart, ledger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, bootchart, ledger", name)
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
@@ -326,27 +322,6 @@ rm "$MNT/etc/systemd/system/dbus.socket"
 var carryKeygenEdit = Edit{
 	Setup: `rm "$MNT/etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.service"
 test -L "$MNT/etc/systemd/system/ssh.service.wants/spin-machine-sshd-keygen.service"
-`,
-}
-
-// logindWeightEdit and offpathWeightEdit are #553's arms: the CPU weight while the boot runs,
-// high on logind and the login user's manager, the units user@0's chain is, and lowest on two units
-// spin's login does not wait for. udevd and its trigger are at the lowest weight in the image already.
-var logindWeightEdit = Edit{
-	Files: map[string]string{
-		"/etc/systemd/system/systemd-logind.service.d/zz-weight.conf":    "[Service]\nStartupCPUWeight=1000\n",
-		"/etc/systemd/system/user-runtime-dir@.service.d/zz-weight.conf": "[Service]\nStartupCPUWeight=1000\n",
-		"/etc/systemd/system/user@.service.d/zz-weight.conf":             "[Service]\nStartupCPUWeight=1000\n",
-	},
-}
-
-var offpathWeightEdit = Edit{
-	Files: map[string]string{
-		"/etc/systemd/system/spin-machine-sshd-keygen.service.d/zz-weight.conf":      "[Service]\nStartupCPUWeight=1\n",
-		"/etc/systemd/system/systemd-udev-load-credentials.service.d/zz-weight.conf": "[Service]\nStartupCPUWeight=1\n",
-	},
-	Setup: `test -e "$MNT/usr/lib/systemd/system/spin-machine-sshd-keygen.service"
-test -e "$MNT/usr/lib/systemd/system/systemd-udev-load-credentials.service"
 `,
 }
 
