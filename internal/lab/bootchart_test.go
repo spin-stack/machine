@@ -5,6 +5,7 @@ package lab
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -261,5 +262,112 @@ func TestTheUnitsOnACriticalChainAreReadOffItsTree(t *testing.T) {
 		"systemd-logind.service", "systemd-logind-varlink.socket"}
 	if got := chainUnits(system); !slices.Equal(got, want) {
 		t.Errorf("chainUnits =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// guestAnswering is a login to a guest that prints, for each command, the answer of the first
+// prefix in answers that starts it, and fails a command none starts, as systemd-analyze fails on a
+// boot that has not finished.
+func guestAnswering(asked *[]string, answers map[string]string) func(string) (string, error) {
+	return func(command string) (string, error) {
+		*asked = append(*asked, command)
+		for prefix, answer := range answers {
+			if strings.HasPrefix(command, prefix) {
+				return answer, nil
+			}
+		}
+		return "", errors.New("Bootup is not yet finished")
+	}
+}
+
+// dependencyMeasurement is a measurement of repetition 1 on spin's path that keeps its files in a
+// directory of its own and its log in log, with dot on the PATH as script, or no dot when script
+// is "".
+func dependencyMeasurement(t *testing.T, log *strings.Builder, script string) *Measurement {
+	t.Helper()
+	bin := t.TempDir()
+	if script != "" {
+		write(t, filepath.Join(bin, "dot"), []byte("#!/bin/sh\n"+script+"\n"))
+	}
+	t.Setenv("PATH", bin)
+	return &Measurement{Tree: treeWith(t, nil), Keep: t.TempDir(), Key: &Key{SpinsPath: true}, log: log}
+}
+
+// The dependency view keeps the chains as the guest printed them under the commands that printed
+// them, asks for the ordering among the system chain's units, keeps it as dot, and keeps graphviz's
+// drawing of exactly that dot: v20261122.06's chains (lab 45070438471).
+func TestTheDependencyViewKeepsTheChainsAndTheirOrderingGraph(t *testing.T) {
+	b, err := os.ReadFile("testdata/chain-45070438471.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, user, _ := strings.Cut(strings.TrimPrefix(string(b), "$ "), "\n$ systemd-analyze --user critical-chain --no-pager\n")
+	_, system, _ = strings.Cut(system, "\n")
+	var log strings.Builder
+	m := dependencyMeasurement(t, &log, `echo '<svg>'; exec /bin/cat`)
+	var asked []string
+	order := "digraph systemd {\n\t\"spin-lab-forward.service\"->\"basic.target\" [color=\"green\"];\n}\n"
+	if err := keepDependencies(m, guestAnswering(&asked, map[string]string{
+		"systemd-analyze critical-chain": system, "systemd-analyze --user critical-chain": user, "systemd-analyze dot --order": order,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	chainFile, orderFile, graphFile := DependencyFiles(m.Tree.Name(), 1)
+	if got := read(t, filepath.Join(m.Keep, chainFile)); got != string(b) {
+		t.Errorf("the chains kept are not the guest's under their commands:\n%s", got)
+	}
+	if len(asked) != 3 || !strings.Contains(asked[2], "--from-pattern='user@0.service'") || !strings.Contains(asked[2], "--to-pattern='-.slice'") {
+		t.Errorf("the guest was asked %q", asked)
+	}
+	if got := read(t, filepath.Join(m.Keep, orderFile)); got != order {
+		t.Errorf("the ordering kept is %q", got)
+	}
+	if got := read(t, filepath.Join(m.Keep, graphFile)); got != "<svg>\n"+order {
+		t.Errorf("the drawing kept is not dot's of the ordering: %q", got)
+	}
+	if log.Len() != 0 {
+		t.Errorf("a whole view logged %q", log.String())
+	}
+}
+
+// What the guest or graphviz cannot give is left out and the log says why, and what was given is
+// still kept; a view that cannot be written fails the measurement.
+func TestTheDependencyViewKeepsWhatItWasGiven(t *testing.T) {
+	chain := "ssh.service +16ms\n└─spin-machine-sshd-keygen.service @64ms +37ms\n"
+	for _, c := range []struct {
+		name, dot string
+		answers   map[string]string
+		kept      []bool // chain, order, graph
+		said      string
+	}{
+		{"no chain", `exec /bin/cat`, map[string]string{}, []bool{false, false, false}, "no critical chain"},
+		{"no user chain", `exec /bin/cat`, map[string]string{"systemd-analyze critical-chain": chain, "systemd-analyze dot": "digraph {}"}, []bool{true, true, true}, "no critical chain of the login user's manager"},
+		{"no unit", `exec /bin/cat`, map[string]string{"systemd-analyze critical-chain": "Bootup is not yet finished.\n", "systemd-analyze --user": ""}, []bool{true, false, false}, "names no unit"},
+		{"no ordering", `exec /bin/cat`, map[string]string{"systemd-analyze critical-chain": chain, "systemd-analyze --user": ""}, []bool{true, false, false}, "no ordering graph"},
+		{"no graphviz", "", map[string]string{"systemd-analyze critical-chain": chain, "systemd-analyze --user": "", "systemd-analyze dot": "digraph {}"}, []bool{true, true, false}, "kept as dot only"},
+	} {
+		var log strings.Builder
+		m := dependencyMeasurement(t, &log, c.dot)
+		var asked []string
+		if err := keepDependencies(m, guestAnswering(&asked, c.answers)); err != nil {
+			t.Errorf("%s: %v", c.name, err)
+		}
+		chainFile, orderFile, graphFile := DependencyFiles(m.Tree.Name(), 1)
+		for i, f := range []string{chainFile, orderFile, graphFile} {
+			if _, err := os.Stat(filepath.Join(m.Keep, f)); (err == nil) != c.kept[i] {
+				t.Errorf("%s: %s kept is %v, want %v", c.name, f, err == nil, c.kept[i])
+			}
+		}
+		if !strings.Contains(log.String(), c.said) {
+			t.Errorf("%s: the log says %q, not %q", c.name, log.String(), c.said)
+		}
+	}
+
+	var log strings.Builder
+	m := dependencyMeasurement(t, &log, `exec /bin/cat`)
+	m.Keep = filepath.Join(m.Keep, "gone")
+	var asked []string
+	if err := keepDependencies(m, guestAnswering(&asked, map[string]string{"systemd-analyze": chain})); err == nil || !strings.Contains(err.Error(), "keeping the critical chain") {
+		t.Errorf("a chain that could not be written: %v", err)
 	}
 }

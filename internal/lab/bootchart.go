@@ -240,7 +240,7 @@ var chainedUnit = regexp.MustCompile(`(?m)^[\s│├└─]*(\S+\.(?:service|soc
 // chainUnits are the units on critical-chain's chains, each once, in the order printed.
 func chainUnits(chain string) []string {
 	var units []string
-	for _, m := range chainedUnit.FindAllStringSubmatch(chain, -1) {
+	for _, m := range chainedUnit.FindAllStringSubmatch(chain, -1) { // mutate-exempt: any n below 0 finds every match
 		if !slices.Contains(units, m[1]) {
 			units = append(units, m[1])
 		}
@@ -262,17 +262,13 @@ func orderAmong(units []string) string {
 	return b.String()
 }
 
-// keepDependencies keeps the dependency view of a finished boot beside chart: the login's
-// critical chains, the system manager's and the login user's own, and the ordering among the
-// system chain's units, drawn by graphviz where the probe runs. Like the plot, a view that could
-// not be taken is left out and the log says why; only a file that could not be written fails the
-// measurement.
-func keepDependencies(m *Measurement, cid uint32, tree string, rep int) error {
-	chainFile, orderFile, graphFile := DependencyFiles(tree, rep)
-	run := func(command string) (string, error) {
-		_, out, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, command)
-		return out, err
-	}
+// keepDependencies keeps the dependency view of a finished boot in m.Keep, from what run, a login
+// to the guest, prints: the login's critical chains, the system manager's and the login user's
+// own, and the ordering among the system chain's units, drawn by graphviz where the probe runs.
+// Like the plot, a view that could not be taken is left out and the log says why; only a file
+// that could not be written fails the measurement.
+func keepDependencies(m *Measurement, run func(command string) (string, error)) error {
+	chainFile, orderFile, graphFile := DependencyFiles(m.Tree.Name(), m.Rep+1)
 	system := "systemd-analyze critical-chain --no-pager " + loginUnits(m.Key.SpinsPath)
 	chain, err := run(system)
 	if err != nil {
@@ -402,7 +398,10 @@ func (bootchart) Measure(_ context.Context, m *Measurement) error {
 			return fmt.Errorf("keeping the plot: %w", err)
 		}
 	}
-	if err := keepDependencies(m, cid, m.Tree.Name(), m.Rep+1); err != nil {
+	if err := keepDependencies(m, func(command string) (string, error) {
+		_, out, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, command)
+		return out, err
+	}); err != nil {
 		return err
 	}
 	m.RecordMs("first_login", login)

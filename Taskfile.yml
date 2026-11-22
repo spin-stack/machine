@@ -111,6 +111,14 @@ tasks:
     cmds:
       - '{{.SPIN_MACHINE_DEV}} vsock'
 
+  graphviz:
+    desc: graphviz's dot, which draws the bootchart probe's ordering graph (lab.yml runs it by this name); the probe keeps the graph as dot without it.
+    status:
+      - command -v dot
+    cmds:
+      - sudo apt-get update -q
+      - sudo apt-get install -y -q graphviz
+
   test:
     desc: Test the machine definition, under the race detector, with its coverage in coverage.out and held to a floor.
     vars:
