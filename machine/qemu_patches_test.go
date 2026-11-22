@@ -103,7 +103,8 @@ func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 				}
 			}
 			said, err := qmp.Do(ctx, m.c, humanMonitorCommand, hmpCommand{Line: `qemu-io written "write 0 4k"`})
-			if err != nil || !strings.Contains(said, "wrote") {
+			// qemu-io prints what it wrote on QEMU's stdout, and HMP answers only an error.
+			if err != nil || strings.Contains(said, "Error") {
 				t.Fatalf("writing the disk: %q, %v", said, err)
 			}
 			if _, err := qmp.Do(ctx, m.c, migrateSetCapabilities, capabilities{Capabilities: []capabilityState{{Capability: deferDiskFlush, State: deferred}}}); err != nil {

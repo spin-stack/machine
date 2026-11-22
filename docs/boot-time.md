@@ -212,6 +212,13 @@ them for boot time.
 | `10-seats.conf`, the getty's TERM, `/tmp`'s size | image drop-ins | function | - | - |
 | The pressure probe's sender, started by a timer 10 s after the boot, at the lowest priority | spin-machine-pressure.timer and .service | function (docs/machine.md, "Pressure"); adding it: first login −0.5 [−3.6, +2.9], restored +1.8 [−2.0, +5.2] evicted and +0.9 [−2.5, +3.4] cached at 40 boots, the sender not yet started when the state was saved. After multi-user.target instead, beside the first login, sshd accepting to login +2.6 to +3.3 in three runs | measured | labs 44926664003, 44926917170; 44921602512, 44924252325, 44924755505 |
 
+**What holds each patch.** Every patch the table names, and QEMU's 0003 and 0004, which are not
+for boot time, has a test that fails when the patch is lost or rebased into doing nothing, since
+either still builds and boots. QEMU's are in qemu/README.md ("The patches"), qboot's in
+qemu/qboot/README.md, the kernel's in kernel/README.md. OpenSSH's is held by its build, which
+looks for the patched condition in the `auth2.c` it compiles, and by `boot:sshd-delay`. The qemu,
+qboot, kernel and openssh-source entries of `versions.yaml` name the checks a bump runs.
+
 **What only the lane uses.** spin's path earns nothing from `sshd-vsock.socket.d/10-lane.conf`,
 `sshd@.service.d/10-lane.conf`, `sshd@.service.d/keygen.conf` or the masked
 `systemd-nologin.conf`. The probes still offer `login=lane`, and the no-systemd floor uses it.
