@@ -17,64 +17,69 @@
 <line x1="64.0" y1="72.0" x2="776.0" y2="72.0" stroke="#808080" stroke-opacity="0.3"/>
 <text x="56.0" y="76.0" text-anchor="end">700</text>
 <text transform="translate(16 201.0) rotate(-90)" text-anchor="middle">ms</text>
-<text x="108.5" y="350.0" text-anchor="middle">v20261119.02</text>
-<text x="197.5" y="350.0" text-anchor="middle">v20261120.01</text>
-<text x="286.5" y="350.0" text-anchor="middle">v20261120.02</text>
-<text x="375.5" y="350.0" text-anchor="middle">v20261120.03</text>
-<text x="464.5" y="350.0" text-anchor="middle">v20261120.04</text>
-<text x="553.5" y="350.0" text-anchor="middle">v20261121.01</text>
-<text x="642.5" y="350.0" text-anchor="middle">v20261122.01</text>
-<text x="731.5" y="350.0" text-anchor="middle">v20261122.02</text>
-<g class="shape"><line x1="509.0" y1="72.0" x2="509.0" y2="330.0" stroke="#808080" stroke-dasharray="2 4"/><text x="505.0" y="84.0" text-anchor="end">shape changes</text><title>from here: 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin&#39;s login</title></g>
+<text transform="translate(107.6 346.0) rotate(-40)" text-anchor="end">v20261119.02</text>
+<text transform="translate(186.7 346.0) rotate(-40)" text-anchor="end">v20261120.01</text>
+<text transform="translate(265.8 346.0) rotate(-40)" text-anchor="end">v20261120.02</text>
+<text transform="translate(344.9 346.0) rotate(-40)" text-anchor="end">v20261120.03</text>
+<text transform="translate(424.0 346.0) rotate(-40)" text-anchor="end">v20261120.04</text>
+<text transform="translate(503.1 346.0) rotate(-40)" text-anchor="end">v20261121.01</text>
+<text transform="translate(582.2 346.0) rotate(-40)" text-anchor="end">v20261122.01</text>
+<text transform="translate(661.3 346.0) rotate(-40)" text-anchor="end">v20261122.02</text>
+<text transform="translate(740.4 346.0) rotate(-40)" text-anchor="end">v20261122.03</text>
+<g class="shape"><line x1="459.6" y1="72.0" x2="459.6" y2="330.0" stroke="#808080" stroke-dasharray="2 4"/><text x="455.6" y="84.0" text-anchor="end">shape changes</text><title>from here: 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin&#39;s login</title></g>
 <line class="goal" x1="64.0" y1="293.1" x2="776.0" y2="293.1" stroke="#808080" stroke-width="1.5" stroke-dasharray="6 4"/>
 <text x="776.0" y="287.1" text-anchor="end">goal 100 ms</text>
 <g class="run" data-number="cold">
-<polygon class="band" points="108.5,132.6 197.5,139.7 286.5,140.8 375.5,151.2 464.5,154.3 464.5,162.1 375.5,155.3 286.5,144.8 197.5,142.9 108.5,139.3" fill="#2a78d6" fill-opacity="0.25"/>
-<polyline points="108.5,139.3 197.5,142.9 286.5,144.8 375.5,155.3 464.5,162.1" fill="none" stroke="#2a78d6" stroke-width="2"/>
-<circle cx="108.5" cy="139.3" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261119.02 cold: p50 518, p95 536 ms</title></circle>
-<text x="108.5" y="129.3" text-anchor="middle">518</text>
-<circle cx="197.5" cy="142.9" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.01 cold: p50 508, p95 516 ms</title></circle>
-<text x="197.5" y="132.9" text-anchor="middle">508</text>
-<circle cx="286.5" cy="144.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.02 cold: p50 502, p95 513 ms</title></circle>
-<text x="286.5" y="134.8" text-anchor="middle">502</text>
-<circle cx="375.5" cy="155.3" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.03 cold: p50 474, p95 485 ms</title></circle>
-<text x="375.5" y="145.3" text-anchor="middle">474</text>
-<circle cx="464.5" cy="162.1" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.04 cold: p50 456, p95 477 ms</title></circle>
-<text x="464.5" y="152.1" text-anchor="middle">456</text>
+<polygon class="band" points="103.6,132.6 182.7,139.7 261.8,140.8 340.9,151.2 420.0,154.3 420.0,162.1 340.9,155.3 261.8,144.8 182.7,142.9 103.6,139.3" fill="#2a78d6" fill-opacity="0.25"/>
+<polyline points="103.6,139.3 182.7,142.9 261.8,144.8 340.9,155.3 420.0,162.1" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="103.6" cy="139.3" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261119.02 cold: p50 518, p95 536 ms</title></circle>
+<text x="103.6" y="129.3" text-anchor="middle">518</text>
+<circle cx="182.7" cy="142.9" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.01 cold: p50 508, p95 516 ms</title></circle>
+<text x="182.7" y="132.9" text-anchor="middle">508</text>
+<circle cx="261.8" cy="144.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.02 cold: p50 502, p95 513 ms</title></circle>
+<text x="261.8" y="134.8" text-anchor="middle">502</text>
+<circle cx="340.9" cy="155.3" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.03 cold: p50 474, p95 485 ms</title></circle>
+<text x="340.9" y="145.3" text-anchor="middle">474</text>
+<circle cx="420.0" cy="162.1" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.04 cold: p50 456, p95 477 ms</title></circle>
+<text x="420.0" y="152.1" text-anchor="middle">456</text>
 </g>
 <g class="run" data-number="cold">
-<polygon class="band" points="553.5,150.8 642.5,151.1 731.5,173.3 731.5,178.7 642.5,158.8 553.5,158.9" fill="#2a78d6" fill-opacity="0.25"/>
-<polyline points="553.5,158.9 642.5,158.8 731.5,178.7" fill="none" stroke="#2a78d6" stroke-width="2"/>
-<circle cx="553.5" cy="158.9" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261121.01 cold: p50 464, p95 486 ms</title></circle>
-<text x="553.5" y="148.9" text-anchor="middle">464</text>
-<circle cx="642.5" cy="158.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.01 cold: p50 464, p95 485 ms</title></circle>
-<text x="642.5" y="148.8" text-anchor="middle">464</text>
-<circle cx="731.5" cy="178.7" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.02 cold: p50 411, p95 425 ms</title></circle>
-<text x="731.5" y="168.7" text-anchor="middle">411</text>
+<polygon class="band" points="499.1,150.8 578.2,151.1 657.3,173.3 736.4,171.8 736.4,178.7 657.3,178.7 578.2,158.8 499.1,158.9" fill="#2a78d6" fill-opacity="0.25"/>
+<polyline points="499.1,158.9 578.2,158.8 657.3,178.7 736.4,178.7" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="499.1" cy="158.9" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261121.01 cold: p50 464, p95 486 ms</title></circle>
+<text x="499.1" y="148.9" text-anchor="middle">464</text>
+<circle cx="578.2" cy="158.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.01 cold: p50 464, p95 485 ms</title></circle>
+<text x="578.2" y="148.8" text-anchor="middle">464</text>
+<circle cx="657.3" cy="178.7" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.02 cold: p50 411, p95 425 ms</title></circle>
+<text x="657.3" y="168.7" text-anchor="middle">411</text>
+<circle cx="736.4" cy="178.7" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.03 cold: p50 410, p95 429 ms</title></circle>
+<text x="736.4" y="168.7" text-anchor="middle">410</text>
 </g>
 <g class="run" data-number="restore">
-<polygon class="band" points="108.5,262.6 197.5,217.7 286.5,97.2 375.5,281.2 464.5,288.9 464.5,290.0 375.5,284.0 286.5,263.1 197.5,261.9 108.5,263.4" fill="#d95926" fill-opacity="0.25"/>
-<polyline points="108.5,263.4 197.5,261.9 286.5,263.1 375.5,284.0 464.5,290.0" fill="none" stroke="#d95926" stroke-width="2"/>
-<circle cx="108.5" cy="263.4" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261119.02 restore: p50 181, p95 183 ms</title></circle>
-<text x="108.5" y="253.4" text-anchor="middle">181</text>
-<circle cx="197.5" cy="261.9" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.01 restore: p50 185, p95 305 ms</title></circle>
-<text x="197.5" y="251.9" text-anchor="middle">185</text>
-<circle cx="286.5" cy="263.1" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.02 restore: p50 182, p95 632 ms</title></circle>
-<text x="286.5" y="253.1" text-anchor="middle">182</text>
-<circle cx="375.5" cy="284.0" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.03 restore: p50 125, p95 132 ms</title></circle>
-<text x="375.5" y="274.0" text-anchor="middle">125</text>
-<circle cx="464.5" cy="290.0" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.04 restore: p50 108, p95 111 ms</title></circle>
-<text x="464.5" y="280.0" text-anchor="middle">108</text>
+<polygon class="band" points="103.6,262.6 182.7,217.7 261.8,97.2 340.9,281.2 420.0,288.9 420.0,290.0 340.9,284.0 261.8,263.1 182.7,261.9 103.6,263.4" fill="#d95926" fill-opacity="0.25"/>
+<polyline points="103.6,263.4 182.7,261.9 261.8,263.1 340.9,284.0 420.0,290.0" fill="none" stroke="#d95926" stroke-width="2"/>
+<circle cx="103.6" cy="263.4" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261119.02 restore: p50 181, p95 183 ms</title></circle>
+<text x="103.6" y="253.4" text-anchor="middle">181</text>
+<circle cx="182.7" cy="261.9" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.01 restore: p50 185, p95 305 ms</title></circle>
+<text x="182.7" y="251.9" text-anchor="middle">185</text>
+<circle cx="261.8" cy="263.1" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.02 restore: p50 182, p95 632 ms</title></circle>
+<text x="261.8" y="253.1" text-anchor="middle">182</text>
+<circle cx="340.9" cy="284.0" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.03 restore: p50 125, p95 132 ms</title></circle>
+<text x="340.9" y="274.0" text-anchor="middle">125</text>
+<circle cx="420.0" cy="290.0" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.04 restore: p50 108, p95 111 ms</title></circle>
+<text x="420.0" y="280.0" text-anchor="middle">108</text>
 </g>
 <g class="run" data-number="restore">
-<polygon class="band" points="553.5,287.1 642.5,287.5 731.5,292.6 731.5,294.5 642.5,289.3 553.5,289.6" fill="#d95926" fill-opacity="0.25"/>
-<polyline points="553.5,289.6 642.5,289.3 731.5,294.5" fill="none" stroke="#d95926" stroke-width="2"/>
-<circle cx="553.5" cy="289.6" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261121.01 restore: p50 110, p95 116 ms</title></circle>
-<text x="553.5" y="279.6" text-anchor="middle">110</text>
-<circle cx="642.5" cy="289.3" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.01 restore: p50 110, p95 115 ms</title></circle>
-<text x="642.5" y="279.3" text-anchor="middle">110</text>
-<circle cx="731.5" cy="294.5" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.02 restore: p50 96.2, p95 101 ms</title></circle>
-<text x="731.5" y="284.5" text-anchor="middle">96.2</text>
+<polygon class="band" points="499.1,287.1 578.2,287.5 657.3,292.6 736.4,293.7 736.4,296.8 657.3,294.5 578.2,289.3 499.1,289.6" fill="#d95926" fill-opacity="0.25"/>
+<polyline points="499.1,289.6 578.2,289.3 657.3,294.5 736.4,296.8" fill="none" stroke="#d95926" stroke-width="2"/>
+<circle cx="499.1" cy="289.6" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261121.01 restore: p50 110, p95 116 ms</title></circle>
+<text x="499.1" y="279.6" text-anchor="middle">110</text>
+<circle cx="578.2" cy="289.3" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.01 restore: p50 110, p95 115 ms</title></circle>
+<text x="578.2" y="279.3" text-anchor="middle">110</text>
+<circle cx="657.3" cy="294.5" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.02 restore: p50 96.2, p95 101 ms</title></circle>
+<text x="657.3" y="284.5" text-anchor="middle">96.2</text>
+<circle cx="736.4" cy="296.8" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.03 restore: p50 90.2, p95 98.6 ms</title></circle>
+<text x="736.4" y="286.8" text-anchor="middle">90.2</text>
 </g>
 <rect x="64.0" y="24" width="20" height="12" fill="#2a78d6" fill-opacity="0.25"/><line x1="64.0" y1="30" x2="84.0" y2="30" stroke="#2a78d6" stroke-width="2"/><text x="90.0" y="34">cold boot to first login</text>
 <rect x="282.0" y="24" width="20" height="12" fill="#d95926" fill-opacity="0.25"/><line x1="282.0" y1="30" x2="302.0" y2="30" stroke="#d95926" stroke-width="2"/><text x="308.0" y="34">restore to first login</text>
