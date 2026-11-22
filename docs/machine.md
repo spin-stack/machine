@@ -204,7 +204,7 @@ u, err := p.Usage(ctx)              // counters; two Usages say what was used be
 | `Stall{Seen: Guest, Resource}` | the guest's tasks waited for a vCPU, for memory it does not have, or for its disks: at least 150 ms in 1 s, by the guest kernel's PSI | the guest, as `spin-machine-pressure.service` |
 | `Stall{Seen: Host, Resource}` | QEMU's threads waited for the host's CPU, memory or IO, by the PSI of QEMU's cgroup | the host |
 | `OOMKill{Kills}` | the guest's OOM killer killed that many processes since the last report | the guest |
-| `SlowCommand{Command, Took, Baseline}` | a QMP command on Start's monitor took at least 100 ms and 4 times what it took before: `query-blockstats` took 536 ms against 14 while host hogs shared QEMU's one core (laptop, 2026-11-21) | the host, in the monitor's one client |
+| `SlowCommand{Command, Took, Baseline}` | a QMP command on Start's monitor took at least 100 ms and 4 times what it took before. It is QEMU stalled, not the command: each one longer than 50 ms in the pressure probe's lane had QEMU's main thread blocked in the host (reclaim at `memory.high`, a swap-in, `mmap` behind the vCPU's faults) or its monitor thread throttled by `cpu.max` (80 ms). query-status met the same stalls at `memory.high` and `cpu.max`. Two busy loops on QEMU's core cost a call 4-6 ms at most (laptop, 2026-11-21, #402) | the host, in the monitor's one client |
 | `GuestLost{Err}` | the guest's sender's connection ended, and the guest is blind until it dials again | the host |
 | `Limited{Limit, Device, Set, Used, Events, Since}` | in the last second, a limit spin set held the machine: on QEMU's own cgroup `cpu.max`, `memory.high`, `memory.max` (and its OOM kill), or one key of `io.max` on one device; inside QEMU one field of a disk's `DiskLimit`, `Device` its serial | the host, from QEMU's cgroup each second, and from `query-blockstats` while Start's monitor holds a disk |
 
@@ -219,7 +219,7 @@ loops in the guest brought guest CPU stalls each second and no host ones. One lo
 hogs on the vCPU's core, brought host CPU stalls each second. The guest's CPU total did not move
 then. A load rarely stalls one resource alone: two readers of the disk on that one vCPU brought
 guest IO stalls, and guest CPU and host CPU stalls with them. Who causes a host stall is in every machine's `Usage`: QEMU's cgroup's `cpu.stat`,
-`memory.stat` (dirty and writeback pages), `io.stat`, each disk's `query-blockstats`, and the
+`memory.stat` (dirty and writeback pages), `io.stat`, each disk's counters (`DiskUsage`), and the
 balloon's count of the guest's OOM kills and allocation stalls. Its `Stalled` fields are the
 cgroup's PSI totals. A host's IO is someone else's IO only when the disks are on a disk. A disk
 on tmpfs is memory to the host (#394).
@@ -253,8 +253,8 @@ Each limit is read from its own files:
 - **A `DiskLimit`.** The disk's `query-blockstats` counter ran at 90% of the field's limit or more
   over the second, as for `io.max`: QEMU counts nothing of what it held either. The cgroup never
   sees this limit, so the watch reads it from QEMU. It asks only while a disk is held through the
-  monitor Start connected, one `query-blockstats` a second, so a machine with no limit pays no
-  command. A limit set through a second monitor is not reported. Held at 4 MiB/s, the guest's
+  monitor Start connected, one `DiskUsage` a second, so a machine with no limit pays no
+  command. It costs QEMU's main loop ~0.1 ms, each disk's own counters (#402). A limit set through a second monitor is not reported. Held at 4 MiB/s, the guest's
   direct reads brought a `Limited` each second with `Used` at 4.19-4.25 MB/s, and guest IO stalls
   with it (task boot:pressure, laptop, 2026-11-21).
 
