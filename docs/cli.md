@@ -117,16 +117,23 @@ parts.yml    changed: spin-machine-dev changed --base $BASE --pins ... <paths>, 
              kernel:  spin-machine-dev build kernel --cache-registry
              image:   spin-machine-dev build e2fsprogs ; spin-machine-dev build image
              parts:   spin-machine-dev needs
-compat.yml   task boot:buildkit ; spin-machine-dev vsock ;
-             spin-machine-dev build qemu kernel spin-machine ; task boot:here ; task boot:record ;
-             spin-machine-dev lab compat ; task boot:lockdown
+compat.yml   changed: spin-machine-dev changed --base $BASE --pins ... <paths>, for the machine,
+                      QEMU and the kernel
+             resume:  (when the change reaches the machine) spin-machine-dev vsock ;
+                      spin-machine-dev build qemu, or fetch qemu when the change does not reach it ;
+                      task boot:buildkit and spin-machine-dev build kernel when it reaches it ;
+                      task boot:here ; task boot:record ; task boot:cpu-plug ;
+                      spin-machine-dev lab compat ; task boot:lockdown
+             compat:  spin-machine-dev needs
 release.yml  compat.yml ; spin-machine-dev release version ; release ; release notes ;
              release provenance ; release sign ; release tag ; then the publish action ;
-             report.yml ; task trace ; task ship-it:wake
+             report.yml ; pause: spin-machine-dev lab check checkpoint-pause ;
+             task trace ; task ship-it:wake
 refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|builders
 report.yml   task bin ; task vsock ; spin-machine-dev releases measure TAG... ; then in main's
              checkout: task bin ; spin-machine-dev releases record LADDER_JSON... ;
-             task git:app ; spin-machine-dev releases propose
+             spin-machine-dev releases schema TAG... ; task git:app ;
+             spin-machine-dev releases propose
 osv.yml      spin-machine-dev osv --issues ; spin-machine-dev cves
 lab.yml      task vsock ; task lab:ci
 pages.yml    task bin ; spin-machine-dev releases site --out _site
@@ -263,7 +270,8 @@ spin-machine-dev releases show RELEASE                            a record: its 
 spin-machine-dev releases compare A B                             two records side by side: B's Δ when it was measured against A
 spin-machine-dev releases doc [--check]                           docs/releases.md and .svg from the records; --check exits 1 when either differs
 spin-machine-dev releases site --out OUT                          the same as a web page, OUT/index.html, each record beside it in OUT/releases
-spin-machine-dev releases propose                                 the records this checkout wrote, as a pull request against main
+spin-machine-dev releases schema TAG...                           each release's QEMU's query-qmp-schema, in internal/qmpdef/testdata/released, which go test holds the machine package to
+spin-machine-dev releases propose                                 the records and schemas this checkout wrote, as a pull request against main
 ```
 
 `measure` runs a ladder of two for each release: the published release before it, and the release.
