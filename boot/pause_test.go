@@ -81,19 +81,28 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 		name, fill, writer string
 		// busy is a host writer on the state's file system throughout the saves (busyDisk).
 		busy bool
+		// pressure is the host's memory taken but SPIN_PAUSE_HEADROOM_MB (hogMemory).
+		pressure bool
 	}{
-		{"idle", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1536", "", false},
-		{"writing", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer, false},
+		{"idle", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1536", "", false, false},
+		{"writing", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer, false, false},
 		// Its guest also writes 1 MiB of its own disk every ~100 ms past its page cache and
 		// without a sync, so a stop always has the guest's writes still to flush: with
 		// conv=fsync instead, the guest had flushed them itself and the stop found nothing to.
 		{"writing beside a busy disk", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer +
-			" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 oflag=direct conv=notrunc 2>/dev/null; sleep 0.1; done) &", true},
+			" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 oflag=direct conv=notrunc 2>/dev/null; sleep 0.1; done) &", true, false},
+		{"writing under memory pressure", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer, false, true},
+		{"writing under memory pressure beside a busy disk", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer +
+			" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 oflag=direct conv=notrunc 2>/dev/null; sleep 0.1; done) &", true, true},
 	} {
+		if re := os.Getenv("SPIN_PAUSE_CASES"); re != "" && !regexp.MustCompile(re).MatchString(tc.name) {
+			continue
+		}
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 			s, mac := r.next(t, "/bin/sh")
+			traced(t, &s, tc.name)
 			raw := filepath.Join(r.dir, fmt.Sprintf("p%d.sock", r.n))
 			s.Monitors = []machine.Monitor{{Socket: raw}}
 			g := startGuest(t, s, mac, nil)
@@ -125,6 +134,9 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 
 			if tc.busy {
 				busyDisk(t)
+			}
+			if tc.pressure {
+				hogMemory(t, int64(envInt(t, "SPIN_PAUSE_HEADROOM_MB", 1024)))
 			}
 			var pauses []pause
 			for range saves {

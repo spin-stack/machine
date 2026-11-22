@@ -90,6 +90,10 @@ jobs:
       # GitHub reads a workflow command (::error::) only at the start of a line, where Task's
       # prefixed output puts the task's name.
       TASK_OUTPUT: interleaved
+      SPIN_PAUSE_TRACE: /tmp/p437
+      SPIN_PAUSE_CASES: "writing beside a busy disk|under memory pressure"
+      SPIN_PAUSE_SAVES: "12"
+      SPIN_PAUSE_HEADROOM_MB: "1024"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,8 +111,19 @@ jobs:
         run: go tool task vsock
 
       # Makes the trees, runs the probe, writes result.json and puts the table on the summary.
+      - name: Install bpftrace
+        run: (sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bpftrace) || true; free -m; swapon --show; nproc; cat /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/defrag; lsblk; df -h
+
       - name: Run the experiment
         run: go tool task lab:ci
+
+      - name: Keep the trace
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: p437-${{ github.run_id }}
+          path: /tmp/p437
+          if-no-files-found: ignore
 
       - name: Keep the result
         if: always()
