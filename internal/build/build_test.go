@@ -59,11 +59,11 @@ func TestAPlanIsWhatWasNamedAndWhatItIsMadeWith(t *testing.T) {
 		return n
 	}
 	all, err := Plan(nil)
-	if err != nil || !slices.Equal(names(all), []string{"qemu", "kernel", "e2fsprogs", "systemd", "image"}) {
+	if err != nil || !slices.Equal(names(all), []string{"qemu", "kernel", "e2fsprogs", "systemd", "openssh", "image"}) {
 		t.Errorf("Plan(nil) = %v, %v; want every part, in order", names(all), err)
 	}
 	image, err := Plan([]string{"image", "kernel"})
-	if err != nil || !slices.Equal(names(image), []string{"kernel", "e2fsprogs", "systemd", "image"}) {
+	if err != nil || !slices.Equal(names(image), []string{"kernel", "e2fsprogs", "systemd", "openssh", "image"}) {
 		t.Errorf("Plan(image, kernel) = %v, %v; want kernel and the image with what it is made with, in order", names(image), err)
 	}
 	if _, err := Plan([]string{"qemu", "nope"}); err == nil || !strings.Contains(err.Error(), `"nope"`) {
@@ -339,7 +339,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	log := fakeDocker(t, "")
 	goLog := fakeGo(t, staticELF(t))
 	o := Options{Root: root, Out: out, Pins: v, Jobs: 3, Registry: true, Export: true, SystemdExperiment: "exp"}
-	for _, f := range []string{"bin/qemu-img", "qemu/x", "sbom/qemu.apk", "kernel/old.patch", "bin/debugfs", "e2fsprogs/x", "systemd/old.deb", "bin/keep"} {
+	for _, f := range []string{"bin/qemu-img", "qemu/x", "sbom/qemu.apk", "kernel/old.patch", "bin/debugfs", "e2fsprogs/x", "systemd/old.deb", "openssh/old.deb", "bin/keep"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(out, f)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -352,7 +352,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 			t.Fatalf("%s: %v", p.Name, err)
 		}
 	}
-	for _, f := range []string{"bin/qemu-img", "qemu", "sbom/qemu.apk", "kernel", "bin/debugfs", "e2fsprogs", "systemd/old.deb"} {
+	for _, f := range []string{"bin/qemu-img", "qemu", "sbom/qemu.apk", "kernel", "bin/debugfs", "e2fsprogs", "systemd/old.deb", "openssh/old.deb"} {
 		if _, err := os.Stat(filepath.Join(out, f)); err == nil {
 			t.Errorf("%s survived its part's build", f)
 		}
@@ -374,8 +374,9 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 		"buildx build --file kernel/Dockerfile --target kernel --platform linux/amd64 " + reg + ":kernel",
 		"buildx build --file e2fsprogs/Dockerfile --target extract --platform linux/amd64 " + reg + ":e2fsprogs",
 		"buildx build --file image/systemd/Dockerfile --target debs --platform linux/amd64 " + reg + ":systemd",
+		"buildx build --file image/openssh/Dockerfile --target debs --platform linux/amd64 " + reg + ":openssh",
 		"buildx build --file image/Dockerfile --platform linux/amd64 " + reg + ":image",
-		"run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined --cap-add SYS_ADMIN -v " + out + ":/out -v " + filepath.Join(root, ".cache", "mkosi") + ":/cache -v " + filepath.Join(out, "systemd") + ":/debs:ro " + imageBuilder,
+		"run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined --cap-add SYS_ADMIN -v " + out + ":/out -v " + filepath.Join(root, ".cache", "mkosi") + ":/cache -v " + filepath.Join(out, "systemd") + ":/debs/systemd:ro -v " + filepath.Join(out, "openssh") + ":/debs/openssh:ro " + imageBuilder,
 	} {
 		if i >= len(got) || !strings.HasPrefix(got[i], want) {
 			t.Errorf("call %d = %q, want it to start %q", i, at(got, i), want)
@@ -386,6 +387,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 		{"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_ARCH=x86_64", "--build-arg KERNEL_NPROC=3", "--output type=local,dest=" + out + " ."},
 		{"--output type=local,dest=" + out + " ."},
 		{"--build-arg SYSTEMD_EXPERIMENT=exp", "--build-arg JOBS=3", "--output type=local,dest=" + filepath.Join(out, "systemd") + " ."},
+		{"--build-arg JOBS=3", "--output type=local,dest=" + filepath.Join(out, "openssh") + " ."},
 		{"--tag " + imageBuilder + " --load ."},
 	} {
 		for _, w := range want {

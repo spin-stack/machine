@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package build makes the machine's parts - QEMU and its firmware, the guest kernel, e2fsprogs,
-// the systemd the image installs, the base image and spin-machine - into _output, each from what
+// the systemd and OpenSSH the image installs, the base image and spin-machine - into _output, each from what
 // versions.yaml pins and what this tree holds, and asserts what came out.
 //
 // A part is built when it is missing or stale: each one built leaves a manifest beside it naming
@@ -88,10 +88,12 @@ var Parts = []Part{
 	{Name: "e2fsprogs", Paths: []string{"e2fsprogs"}, Pins: strings.Fields("e2fsprogs-builder e2fsprogs"),
 		make: makeE2fsprogs, check: VerifyE2fsprogs},
 	{Name: "systemd", Paths: []string{"image/systemd"}, Pins: strings.Fields("ubuntu systemd-source"),
-		make: makeSystemd, check: verifySystemd},
-	// The image is made with the e2fsprogs above and installs the systemd above, and the pressure
-	// probe's guest half, compiled from this tree.
-	{Name: "image", Needs: []string{"e2fsprogs", "systemd"}, Paths: []string{"image", "cmd/spin-machine-pressure", "internal/pressure", "go.mod", "go.sum"},
+		make: makeDebs, check: verifyDebs("systemd")},
+	{Name: "openssh", Paths: []string{"image/openssh"}, Pins: strings.Fields("ubuntu openssh-source"),
+		make: makeDebs, check: verifyDebs("openssh")},
+	// The image is made with the e2fsprogs above and installs the systemd and OpenSSH above, and
+	// the pressure probe's guest half, compiled from this tree.
+	{Name: "image", Needs: []string{"e2fsprogs", "systemd", "openssh"}, Paths: []string{"image", "cmd/spin-machine-pressure", "internal/pressure", "go.mod", "go.sum"},
 		Pins: strings.Fields("ubuntu mkosi task git-lfs buildkit"), make: makeImage, check: verifyImage},
 }
 
@@ -459,9 +461,11 @@ func makeE2fsprogs(ctx context.Context, o Options, p Part) error {
 	return docker(ctx, o, buildx(o, "e2fsprogs", "e2fsprogs/Dockerfile", "extract", args, "--output", "type=local,dest="+o.Out)...)
 }
 
-func makeSystemd(ctx context.Context, o Options, p Part) error {
-	dest := filepath.Join(o.Out, "systemd")
-	if err := emptied(o.Out, "systemd"); err != nil {
+// makeDebs builds the packages of image/<part>/Dockerfile into _output/<part>, for the image to
+// install: systemd's and OpenSSH's.
+func makeDebs(ctx context.Context, o Options, p Part) error {
+	dest := filepath.Join(o.Out, p.Name)
+	if err := emptied(o.Out, p.Name); err != nil {
 		return err
 	}
 	args, err := partArgs(o, p)
@@ -469,7 +473,7 @@ func makeSystemd(ctx context.Context, o Options, p Part) error {
 		return err
 	}
 	args = append(args, "--build-arg", fmt.Sprintf("JOBS=%d", o.Jobs))
-	return docker(ctx, o, buildx(o, "systemd", "image/systemd/Dockerfile", "debs", args, "--output", "type=local,dest="+dest)...)
+	return docker(ctx, o, buildx(o, p.Name, "image/"+p.Name+"/Dockerfile", "debs", args, "--output", "type=local,dest="+dest)...)
 }
 
 // makeImage builds the container that builds the image, then runs it. `docker run` and not
@@ -494,7 +498,8 @@ func makeImage(ctx context.Context, o Options, p Part) error {
 	}
 	return docker(ctx, o, "run", "--rm",
 		"--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined", "--cap-add", "SYS_ADMIN",
-		"-v", o.Out+":/out", "-v", cache+":/cache", "-v", filepath.Join(o.Out, "systemd")+":/debs:ro",
+		"-v", o.Out+":/out", "-v", cache+":/cache",
+		"-v", filepath.Join(o.Out, "systemd")+":/debs/systemd:ro", "-v", filepath.Join(o.Out, "openssh")+":/debs/openssh:ro",
 		imageBuilder)
 }
 

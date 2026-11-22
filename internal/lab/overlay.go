@@ -396,10 +396,17 @@ install -D -m 0755 ` + bin + ` "$MNT/usr/libexec/spin-machine-pressure"
 	}, nil
 }
 
-// systemdPackages is the edit that replaces the overlay's systemd with the packages in debs: each
-// package's files that the new one no longer has are removed first, /etc is the image's, and the
-// overlay is checked to hold the rebuilt systemd afterwards.
-func systemdPackages(debs string) Edit {
+// systemdIsRebuilt and opensshIsRebuilt fail an overlay whose systemd or sshd is not the rebuilt
+// one, by the +spin1 its version carries.
+const (
+	systemdIsRebuilt = `grep -q 'spin1' "$MNT/usr/lib/systemd/libsystemd-shared-"*.so 2>/dev/null || strings "$MNT/usr/lib/systemd/systemd" | grep -q '+spin1' || { echo "the overlay's systemd is not the rebuilt one" >&2; exit 1; }`
+	opensshIsRebuilt = `grep -aqF '+spin1' "$MNT/usr/lib/openssh/sshd-auth" || { echo "the overlay's sshd-auth is not the rebuilt one" >&2; exit 1; }`
+)
+
+// packagesEdit is the edit that replaces the overlay's packages with those in debs that it has
+// installed: each package's files that the new one no longer has are removed first, /etc is the
+// image's, and rebuilt checks the overlay afterwards.
+func packagesEdit(debs, rebuilt string) Edit {
 	return Edit{Setup: `debs=` + debs + `
 replaced=0
 for deb in "$debs"/*.deb; do
@@ -417,6 +424,6 @@ for deb in "$debs"/*.deb; do
 	replaced=$((replaced + 1))
 done
 test "$replaced" -gt 0
-grep -q 'spin1' "$MNT/usr/lib/systemd/libsystemd-shared-"*.so 2>/dev/null || strings "$MNT/usr/lib/systemd/systemd" | grep -q '+spin1' || { echo "the overlay's systemd is not the rebuilt one" >&2; exit 1; }
+` + rebuilt + `
 `}
 }

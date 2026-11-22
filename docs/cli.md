@@ -199,6 +199,7 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
   (docs/boot-time.md, "What the machine carries"). Each goes after `--edit lane`.
 - `--systemd PATCH`: systemd built here with a patch from image/systemd/experiments, in every
   overlay.
+- `--openssh`: OpenSSH as this checkout builds it (image/openssh), built here, in every overlay.
 
 Nothing is written through the tree a tree starts from. Parts are links, and a replaced part is a
 copy. The lab refuses a tree whose manifest is missing, names no source for a part, or does not
@@ -385,9 +386,9 @@ the last lines of its step from the job's log, and exits 1 when the run did not 
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
 `firmware`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug`, `compat` (every release whose machine is this one, through `lab compat`),
-`hotadd`, `logind`, `lockdown` and `finish-migrate` (a checkpoint continued at once on two busy CPUs, which a qemu bump runs). Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
+`hotadd`, `logind`, `lockdown`, `sshd-delay` and `finish-migrate` (a checkpoint continued at once on two busy CPUs, which a qemu bump runs). Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
 `lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
-`firmware-stages`, `waits`, `record`, `rollback`, `checkpoint-pause` and `cpu-plug`, the targets its `probe` input
+`firmware-stages`, `waits`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug` and `sshd-delay`, the targets its `probe` input
 lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its

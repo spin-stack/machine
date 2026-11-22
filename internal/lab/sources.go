@@ -288,26 +288,47 @@ func readEnv(path string) (map[string]string, error) {
 func (s Sources) systemd(patch, dir string) (NamedEdit, error) {
 	// --rebuild: the packages under _output/systemd are whatever was last built, and an
 	// experiment's are not the release's.
-	cmd := exec.Command("go", "run", "./cmd/spin-machine-dev", "build", "systemd",
-		"--systemd-experiment", patch, "--cache-export=false", "--rebuild")
-	cmd.Dir, cmd.Stdout, cmd.Stderr = s.Checkout, s.Log, s.Log
-	if err := cmd.Run(); err != nil {
+	debs, err := s.packages(dir, "systemd", "--systemd-experiment", patch, "--rebuild")
+	if err != nil {
 		return NamedEdit{}, fmt.Errorf("building systemd with the experiment %s: %w", patch, err)
 	}
-	debs := filepath.Join(dir, "systemd")
-	if err := os.MkdirAll(debs, 0o755); err != nil {
-		return NamedEdit{}, fmt.Errorf("making %s: %w", debs, err)
+	return NamedEdit{Name: "systemd " + patch, Edit: packagesEdit(debs, systemdIsRebuilt)}, nil
+}
+
+// addOpenSSH builds OpenSSH as this checkout does on this host, puts its packages under the tree
+// at dir, and adds the edit that installs them into an overlay to m.
+// mutate-lane: TestEveryProbeMeasuresATree, with SPIN_LAB_OPENSSH=1.
+func (s Sources) addOpenSSH(m *Manifest, dir string) error {
+	debs, err := s.packages(dir, "openssh")
+	if err != nil {
+		return fmt.Errorf("building this checkout's OpenSSH: %w", err)
 	}
-	built, err := filepath.Glob(filepath.Join(s.Checkout, "_output", "systemd", "*.deb"))
+	m.Edits = append(m.Edits, NamedEdit{Name: "openssh", Edit: packagesEdit(debs, opensshIsRebuilt)})
+	return nil
+}
+
+// packages builds part's packages in this checkout with flags and copies them into dir/part.
+// mutate-lane: TestEveryProbeMeasuresATree
+func (s Sources) packages(dir, part string, flags ...string) (string, error) {
+	cmd := exec.Command("go", append([]string{"run", "./cmd/spin-machine-dev", "build", part, "--cache-export=false"}, flags...)...)
+	cmd.Dir, cmd.Stdout, cmd.Stderr = s.Checkout, s.Log, s.Log
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	debs := filepath.Join(dir, part)
+	if err := os.MkdirAll(debs, 0o755); err != nil {
+		return "", fmt.Errorf("making %s: %w", debs, err)
+	}
+	built, err := filepath.Glob(filepath.Join(s.Checkout, "_output", part, "*.deb"))
 	if err != nil || len(built) == 0 {
-		return NamedEdit{}, fmt.Errorf("the systemd build left no packages in _output/systemd (%v)", err)
+		return "", fmt.Errorf("the %s build left no packages in _output/%s (%v)", part, part, err)
 	}
 	for _, d := range built {
 		if err := replace(d, filepath.Join(debs, filepath.Base(d)), 0o644); err != nil {
-			return NamedEdit{}, err
+			return "", err
 		}
 	}
-	return NamedEdit{Name: "systemd " + patch, Edit: systemdPackages(debs)}, nil
+	return debs, nil
 }
 
 func fileExists(p string) bool {
