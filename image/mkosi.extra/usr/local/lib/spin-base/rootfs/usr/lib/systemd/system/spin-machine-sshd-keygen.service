@@ -6,6 +6,9 @@ Conflicts=shutdown.target
 Before=shutdown.target
 Before=ssh.service sshd.service
 ConditionPathExists=/usr/bin/ssh-keygen
+# spin's handoff writes this key before systemd starts, with a drop-in naming it as sshd's only
+# HostKey, so a key made here would never be loaded (docs/image.md, "The host keys").
+ConditionPathExists=!/run/spin/ssh/ssh_host_ed25519_key
 
 [Service]
 Type=oneshot

@@ -48,7 +48,6 @@ added /etc/systemd/system/serial-getty@.service.d/term.conf
 added /etc/systemd/system/sockets.target.wants/containerd.socket
 added /etc/systemd/system/ssh.service.d/10-lane.conf
 added /etc/systemd/system/ssh.service.d/20-no-config-test.conf
-added /etc/systemd/system/ssh.service.wants/spin-machine-sshd-keygen.service
 added /etc/systemd/system/ssh.socket.d/10-lane.conf
 added /etc/systemd/system/sshd-keygen.service.d/10-lane.conf
 added /etc/systemd/system/sshd-vsock.socket.d/10-lane.conf
