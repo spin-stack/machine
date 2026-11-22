@@ -72,7 +72,14 @@ type GuestUsage struct {
 	At                    time.Time
 }
 
-var queryBlockstats = qmpdef.Define[qmp.None, []blockStats]("query-blockstats")
+// Unstable: it sends x-flat, the member qemu/patches adds (0004).
+var queryBlockstats = qmpdef.Define[blockstatsArgs, []blockStats]("query-blockstats", qmpdef.Unstable)
+
+// blockstatsArgs asks, with Flat, for each device's own counters without the statistics of every
+// image under it.
+type blockstatsArgs struct {
+	Flat bool `json:"x-flat,omitempty"`
+}
 
 type blockStats struct {
 	QDev  string `json:"qdev"`
@@ -85,9 +92,9 @@ type blockStats struct {
 	} `json:"stats"`
 }
 
-// Usage reads what the machine has used: QEMU's cgroup, then two questions to QEMU,
-// query-blockstats (6 ms p50 with 16 hotplug places, laptop, 2026-11-21) and the balloon's report
-// (0.45 ms). It refuses a QEMU in its caller's cgroup, whose counters are every machine's.
+// Usage reads what the machine has used: QEMU's cgroup, then two questions to QEMU, DiskUsage and
+// the balloon's report (0.45 ms). It refuses a QEMU in its caller's cgroup, whose counters are
+// every machine's.
 // mutate-lane: TestThePressureProbeReportsEachPressure
 func (p *Process) Usage(ctx context.Context) (Usage, error) {
 	if p.cgroup == "" {
@@ -97,13 +104,8 @@ func (p *Process) Usage(ctx context.Context) (Usage, error) {
 	if err != nil {
 		return Usage{}, err
 	}
-	stats, err := qmp.Do(ctx, p.c, queryBlockstats, qmp.None{})
-	if err != nil {
-		return Usage{}, fmt.Errorf("reading the machine's disk counters: %w", err)
-	}
-	for _, s := range stats {
-		u.Disks = append(u.Disks, DiskUsage{Device: deviceOf(s.QDev), Read: s.Stats.Read, Written: s.Stats.Written,
-			Reads: s.Stats.Reads, Writes: s.Stats.Writes, Flushes: s.Stats.Flushes})
+	if u.Disks, err = p.DiskUsage(ctx); err != nil {
+		return Usage{}, err
 	}
 	st, err := p.guestStats(ctx)
 	switch {
@@ -121,6 +123,41 @@ func (p *Process) Usage(ctx context.Context) (Usage, error) {
 	}
 	u.At = time.Now()
 	return u, nil
+}
+
+// DiskUsage is what each disk device did, as QEMU counts it: Usage's Disks, and what the probe
+// reads a held disk's rate from each second.
+//
+// It asks query-blockstats for each device's own counters (x-flat). Without it, QEMU answers each
+// device with every image of its backing chain, twice under a place's throttle filter, so the
+// reply grows with each image a seal adds: ~3.6 KiB and ~70 µs of QEMU's main loop, which runs
+// the disks' I/O too, per image, 0.37 ms with the overlay over the base every workspace boots and
+// 2.5 ms with 32 (laptop, 2026-11-21, #402). A QEMU without qemu/patches' 0004, as every release
+// up to v20261121.01 ships, refuses the member: it is asked again without it, and from then on
+// only without it.
+func (m *QEMU) DiskUsage(ctx context.Context) ([]DiskUsage, error) {
+	stats, err := m.blockstats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the machine's disk counters: %w", err)
+	}
+	var disks []DiskUsage
+	for _, s := range stats {
+		disks = append(disks, DiskUsage{Device: deviceOf(s.QDev), Read: s.Stats.Read, Written: s.Stats.Written,
+			Reads: s.Stats.Reads, Writes: s.Stats.Writes, Flushes: s.Stats.Flushes})
+	}
+	return disks, nil
+}
+
+func (m *QEMU) blockstats(ctx context.Context) ([]blockStats, error) {
+	if !m.chained.Load() {
+		stats, err := qmp.Do(ctx, m.c, queryBlockstats, blockstatsArgs{Flat: true})
+		var refused *qmp.Error
+		if !errors.As(err, &refused) || !strings.Contains(refused.Desc, "'x-flat'") {
+			return stats, err
+		}
+		m.chained.Store(true)
+	}
+	return qmp.Do(ctx, m.c, queryBlockstats, blockstatsArgs{})
 }
 
 // deviceOf is the id of the device a block backend's qdev path names:

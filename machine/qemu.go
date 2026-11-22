@@ -31,6 +31,9 @@ type QEMU struct {
 	data int64
 	// held is each disk SetDiskLimit holds, which the probe's watch reads from its own goroutine.
 	held heldDisks
+	// chained is whether QEMU refused query-blockstats' x-flat (DiskUsage). Atomic because Usage
+	// and the probe's watch ask from their own goroutines.
+	chained atomic.Bool
 }
 
 var _ VM = (*QEMU)(nil)

@@ -1,0 +1,139 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Sat, 21 Nov 2026 23:00:00 -0300
+Subject: [PATCH] block: query-blockstats x-flat, a device's counters
+ without its backing chain
+
+query-blockstats answers each device with the statistics of every node
+below it: its data child as "parent" and its filtered or COW child as
+"backing", each with the nodes below it in turn.  A qcow2 overlay's
+reply holds its whole backing chain, and a filter's child appears
+twice, once as each.  A caller that wants a device's own counters, the
+bytes and operations its guest asked for, gets a reply that grows with
+every image in the chain.  In spin-machine, whose disks sit under a
+throttle filter, one device's reply grew by ~3.6 KiB and the main
+loop's time building it by ~70 us for each image added to the chain:
+0.37 ms with an overlay over a base, 2.5 ms and 124 KiB with 32
+overlays (laptop, 2026-11-21).  The command runs on the main loop,
+which also runs these disks' I/O, and a host polling its machines'
+counters asks it every second.
+
+Add the member x-flat: with it, each device's or node's statistics
+come without "parent" and "backing", so the reply is one entry per
+device whatever its chain.
+
+Assisted-by: LLM
+---
+diff -ruN a/block/monitor/block-hmp-cmds.c b/block/monitor/block-hmp-cmds.c
+--- a/block/monitor/block-hmp-cmds.c
++++ b/block/monitor/block-hmp-cmds.c
+@@ -724,7 +724,7 @@
+ {
+     BlockStatsList *stats_list, *stats;
+ 
+-    stats_list = qmp_query_blockstats(false, false, NULL);
++    stats_list = qmp_query_blockstats(false, false, false, false, NULL);
+ 
+     for (stats = stats_list; stats; stats = stats->next) {
+         if (!stats->value->device) {
+diff -ruN a/block/qapi.c b/block/qapi.c
+--- a/block/qapi.c
++++ b/block/qapi.c
+@@ -629,8 +629,14 @@
+     qemu_mutex_unlock(&stats->lock);
+ }
+ 
++/*
++ * The statistics of @bs and, unless @flat, of the nodes below it: its data
++ * child as "parent" and, at the BlockBackend level, its filtered or COW child
++ * as "backing", each with the nodes below it in turn.  So a device's reply
++ * holds its whole backing chain, and a filter's child twice.
++ */
+ static BlockStats * GRAPH_RDLOCK
+-bdrv_query_bds_stats(BlockDriverState *bs, bool blk_level)
++bdrv_query_bds_stats(BlockDriverState *bs, bool blk_level, bool flat)
+ {
+     BdrvChild *parent_child;
+     BlockDriverState *filter_or_cow_bs;
+@@ -658,6 +664,10 @@
+ 
+     s->driver_specific = bdrv_get_specific_stats(bs);
+ 
++    if (flat) {
++        return s;
++    }
++
+     parent_child = bdrv_primary_child(bs);
+     if (!parent_child ||
+         !(parent_child->role & (BDRV_CHILD_DATA | BDRV_CHILD_FILTERED)))
+@@ -685,7 +695,7 @@
+         }
+     }
+     if (parent_child) {
+-        s->parent = bdrv_query_bds_stats(parent_child->bs, blk_level);
++        s->parent = bdrv_query_bds_stats(parent_child->bs, blk_level, false);
+     }
+ 
+     filter_or_cow_bs = bdrv_filter_or_cow_bs(bs);
+@@ -695,7 +705,7 @@
+          * compatibility to when we put bs0->backing here, which might
+          * be either)
+          */
+-        s->backing = bdrv_query_bds_stats(filter_or_cow_bs, blk_level);
++        s->backing = bdrv_query_bds_stats(filter_or_cow_bs, blk_level, false);
+     }
+ 
+     return s;
+@@ -734,6 +744,7 @@
+ 
+ BlockStatsList *qmp_query_blockstats(bool has_query_nodes,
+                                      bool query_nodes,
++                                     bool has_x_flat, bool x_flat,
+                                      Error **errp)
+ {
+     BlockStatsList *head = NULL, **tail = &head;
+@@ -745,7 +756,7 @@
+     /* Just to be safe if query_nodes is not always initialized */
+     if (has_query_nodes && query_nodes) {
+         for (bs = bdrv_next_node(NULL); bs; bs = bdrv_next_node(bs)) {
+-            QAPI_LIST_APPEND(tail, bdrv_query_bds_stats(bs, false));
++            QAPI_LIST_APPEND(tail, bdrv_query_bds_stats(bs, false, x_flat));
+         }
+     } else {
+         for (blk = blk_all_next(NULL); blk; blk = blk_all_next(blk)) {
+@@ -756,7 +767,7 @@
+                 continue;
+             }
+ 
+-            s = bdrv_query_bds_stats(blk_bs(blk), true);
++            s = bdrv_query_bds_stats(blk_bs(blk), true, x_flat);
+             s->device = g_strdup(blk_name(blk));
+ 
+             qdev = blk_get_attached_dev_id(blk);
+diff -ruN a/qapi/block-core.json b/qapi/block-core.json
+--- a/qapi/block-core.json
++++ b/qapi/block-core.json
+@@ -1281,6 +1281,14 @@
+ #     nodes that were created implicitly are skipped over in this
+ #     mode.  (Since 2.3)
+ #
++# @x-flat: If true, omit the statistics of the nodes below each device
++#     or node, "parent" and "backing", whose size grows with the
++#     device's backing chain.  Default is false.  (Since 11.2)
++#
++# Features:
++#
++# @unstable: Member @x-flat is experimental.
++#
+ # Returns: A list of statistics for each virtual block device.
+ #
+ # Since: 0.14
+@@ -1388,7 +1396,8 @@
+ #        }
+ ##
+ { 'command': 'query-blockstats',
+-  'data': { '*query-nodes': 'bool' },
++  'data': { '*query-nodes': 'bool',
++            '*x-flat': { 'type': 'bool', 'features': [ 'unstable' ] } },
+   'returns': ['BlockStats'],
+   'allow-preconfig': true }
+ 
