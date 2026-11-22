@@ -109,6 +109,24 @@ A restore that starts QEMU itself adds ~25 ms (108 against 83.2). From the page 
 load is ~10 ms instead of ~50 on a laptop, so the evicted load is the disk. Eight restores let go
 at once read ~190-240 ms each under `defer`, against ~100 alone ("Open experiments", the burst).
 
+### Restore, QEMU started by the restore
+
+This is the goal's second number, `restore-first`'s evicted row. The rows come from lab
+44976494418 (v20261122.01's parts, main's spin-machine at ee1be0f, 30 restores).
+
+| Phase | p50 | Source | How well known |
+|---|---|---|---|
+| The monitor's socket listening | 2.5 | `listening`. `machine.Start` binds it before QEMU exists, so it no longer marks QEMU's start | measured |
+| QEMU's exec to its first answer | ~19.5 | `transport`, lab 44912471522 (v20261121.01). `spin-machine restore` waits on it in its dial | measured, another run |
+| The first answer to `spin-machine restore` returning: 17 QMP commands, the load, device state, `cont` | ~49 evicted, ~35 cached | `running` 70.8 evicted and 57.0 cached, less the two rows above | by difference |
+| Running to the first login | 40.2 | `login` 111 less `running` 70.8 | by difference |
+| **Total** | **111** evicted, 95.2 cached | the same | |
+
+The evicted row read 16 ms more than the cached one, and that was the disk. The read-ahead
+started in `Resume`, after the dial had waited ~19.5 ms for QEMU. Started before the dial, it
+runs beside QEMU's start: `running` 62.7, login 101, 6 ms over the cached row ("What the machine
+carries").
+
 ## What the machine carries
 
 This table lists every change the tree makes for boot time, with what it earns in spin's shape.
@@ -144,6 +162,7 @@ them for boot time.
 | Every machine started held, so QEMU can start ahead | machine | the "QEMU started ahead" rows: ~28 ms cold, ~25 restored | measured | report 44811347183 |
 | Checkpoints on 8 multifd channels | machine | restored into a QEMU started ahead 150 → 103 against 1 channel; 16 channels lose to 8 when 4 restore at once, +3.2 [+1.1, +5.8] | measured | labs 44789688221, 44792429636 |
 | The resume reads the state ahead | machine | restored into a QEMU started ahead −12.9 [−14.7, −9.8] | measured | lab 44809512339 |
+| `spin-machine restore` reads the state ahead before its dial (`machine.ReadAhead`), beside QEMU's start | cmd/spin-machine, machine | restored −9.3 [−12.2, −7.3] evicted, cached −0.2 [−2.2, +1.5] | measured, 30 a side | lab 44976494418 |
 | `pci=lastbus=0` | machine/cmdline.go | kernel to init 87.6 → 51.1 (2026-09): 8192 configuration reads, each an exit | runner, mechanism | log.md, 09 |
 | `no_timer_check`, `tsc=reliable` | machine/cmdline.go | nothing on record (09-07) | unmeasured | - |
 | `TERM=dumb` | machine/cmdline.go | 687 → 19 ms to systemd's first line (09-10), while systemd queries the console | laptop, mechanism | `b5f361f` |

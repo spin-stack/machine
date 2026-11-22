@@ -341,6 +341,10 @@ func restore(o restoreFlags) error {
 		return fmt.Errorf("opening the state: %w", err)
 	}
 	defer func() { _ = f.Close() }()
+	var told timeline
+	load := machine.LoadOptions{Fast: o.fast, Channels: o.channels, Phases: told.tell}
+	// Before the dial, which waits for QEMU to have made its machine.
+	machine.ReadAhead(f, saved, load)
 	m, err := dial(o.qmp, 5*time.Second)
 	if err != nil {
 		return err
@@ -362,8 +366,7 @@ func restore(o restoreFlags) error {
 			return err
 		}
 	}
-	var told timeline
-	err = m.Resume(ctx, f, saved, here, machine.LoadOptions{Fast: o.fast, Channels: o.channels, Phases: told.tell}, disks...)
+	err = m.Resume(ctx, f, saved, here, load, disks...)
 	told.print(os.Stderr)
 	var r *machine.Refusal
 	if errors.As(err, &r) {

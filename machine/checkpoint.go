@@ -523,9 +523,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	default:
 		return fmt.Errorf("resuming: a checkpoint in format %q, and this machine reads %s and %s", saved.Format, FormatMappedRAM, FormatStream)
 	}
-	if prefetches(saved, load) {
-		prefetch(state)
-	}
+	ReadAhead(state, saved, load)
 	var again added
 	if len(saved.Added) > 0 {
 		if err := json.Unmarshal(saved.Added, &again); err != nil {
@@ -596,6 +594,17 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		m.then, m.data = load.Phases, data
 	}
 	return nil
+}
+
+// ReadAhead starts reading state into the page cache, when Resume would read it with load, and
+// returns at once. Resume calls it too, once it holds the machine's monitor. A restore that starts
+// QEMU itself holds the state ~20 ms before QEMU answers its monitor, and calling ReadAhead then
+// runs the read beside QEMU's start instead of after it. Called twice, the second call asks for
+// pages already read or on their way, which the kernel skips.
+func ReadAhead(state *os.File, saved Saved, load LoadOptions) {
+	if prefetches(saved, load) {
+		prefetch(state)
+	}
 }
 
 // prefetches is whether a resume reads the state ahead: only a full load of a mapped-ram state.
