@@ -6,6 +6,7 @@ import (
 	"context"
 	"os/exec"
 	"slices"
+	"strings"
 
 	"github.com/spin-stack/go-tools/versions"
 )
@@ -18,6 +19,9 @@ import (
 // it, and a path filter cannot say which lines of a file changed: without it a bump of e2fsprogs
 // rebuilds QEMU and the kernel, tens of minutes each. The comparison is of the build arguments,
 // exactly what a Dockerfile is handed, so a note edited in versions.yaml builds nothing.
+//
+// The comparison is with where the change forked from base (their merge base), so a base that moved
+// on after the fork, as origin/main does under a dispatched branch, is not taken for the change.
 //
 // It errs towards building. No base (a dispatch, a branch's first push), a base this clone does
 // not have, or a versions.yaml at base that cannot be read for these pins (before the file or the
@@ -34,6 +38,11 @@ func Touches(ctx context.Context, root, base string, now *versions.Versions, pin
 	if _, err := git("cat-file", "-e", base+"^{commit}"); err != nil {
 		return true
 	}
+	fork, err := git("merge-base", base, "HEAD")
+	if err != nil {
+		return true
+	}
+	base = strings.TrimSpace(string(fork))
 	// --quiet exits 1 for a difference and 0 for none; anything else is git failing, and building.
 	diff := exec.CommandContext(ctx, "git", append([]string{"diff", "--quiet", base, "HEAD", "--"}, paths...)...)
 	diff.Dir = root
