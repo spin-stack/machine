@@ -33,8 +33,9 @@ import (
 // again. On a nested host that is the L1's handling alone. The two trips through the L0 around it,
 // and exits the L0 handles without the L1 (its own EPT faults, its own interrupts), are not in it,
 // so a nested exit's time here is a floor on what the guest waited. A HLT's time is the guest's
-// idle as well as its wake-up. The MSRs, ports, MMIO addresses and CPUID leaves behind the exits, and the exits split between the guest's kernel and its userspace, are kept beside
-// result.json for a person to read.
+// idle as well as its wake-up. The MSRs, ports, MMIO addresses and CPUID leaves behind the exits,
+// and the exits split between the guest's kernel and the rest (its userspace, the firmware and the
+// decompressor, which run at low addresses), are kept beside result.json for a person to read.
 //
 // The host is the run's alone: every exit the histograms see is this guest's.
 type exitsProbe struct{}
@@ -105,7 +106,7 @@ var exitsHists = []struct{ name, file string }{
 	{"ports", "events/kvm/kvm_pio/hist"},
 	{"MMIO (type 0 read unsatisfied, 1 read, 2 write)", "events/kvm/kvm_mmio/hist"},
 	{"CPUID leaves", "events/kvm/kvm_cpuid/hist"},
-	{"exits from the guest's kernel, then from its userspace", "events/kvm/kvm_exit/hist"},
+	{"exits from the guest's kernel, then from below it (userspace, firmware, decompressor)", "events/kvm/kvm_exit/hist"},
 }
 
 // exitsScript arms (or, with disarm, removes) the host's triggers, as root. Disarming ignores
