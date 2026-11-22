@@ -20,6 +20,39 @@ in the workflow that produced it.
 CI calls the same targets a developer calls. A second definition of what the gate is, kept in a
 workflow file, goes out of step with the first exactly when a check is added.
 
+`compat.yml` is the compatibility check that boots. On the KVM fleet it resumes a checkpoint of
+every release whose machine is this one on this change's machine (`spin-machine-dev lab compat`),
+beside `boot:record`, `boot:cpu-plug` and `boot:lockdown`. It runs in parallel with CI on every
+pull request and every push to main that reaches the machine, and before every release. Its last
+job, `compat`, reports on every change, so a ruleset can require it as it requires `parts`. A
+change that reaches QEMU or the kernel builds that part, and compat checks the part it built. A
+change that reaches neither fetches main's published QEMU and boots the release's kernel. A
+release builds both.
+
+Whether the machine package still speaks every supported release's QEMU is `go test`'s, in
+seconds and with no VM. `internal/qmpdef` holds each command, member and enum value the package
+sends unasked to every release's recorded `query-qmp-schema` (`internal/qmpdef/testdata/released`).
+A value or member only newer QEMUs have is marked probed, and a test in `machine` drives
+`Checkpoint` and `DiskUsage` against a fake QEMU built from each release's schema, so it is sent
+only after asking. #435 sent `x-defer-disk-flush` to every QEMU, and only the booted compat run
+found it. Whatever the package sends only after asking is `qmpdef.Probed` or tagged
+`qmpdef:"probed"`; anything else is held as sent unconditionally. `report.yml` records each new
+release's schema with its record (`spin-machine-dev releases schema`, from the release's
+`qemu-system-x86_64`, which needs `/dev/kvm` to answer). A release's schema is deleted with every
+older one in the change whose compat table first says its checkpoints are not meant to resume, or
+that drops it from the window. When that leaves a probed value or member every remaining release
+has, `TestEverySupportedQEMUTakesWhatTheModuleSends` fails, and the ask and its fallback go in the
+same change.
+
+| Check | Where | When |
+| --- | --- | --- |
+| `task lint test coverage mutate`, the schema checks among the tests, `verify args` | `ci.yml` | every pull request and push to main |
+| QEMU, the kernel and the image, built and verified | `parts.yml` | a change that reaches the part |
+| a checkpoint of each release resumes, `boot:record`, `boot:cpu-plug`, `boot:lockdown` | `compat.yml`, KVM fleet | a change that reaches the machine, and every release before it is built |
+| the goal's two numbers | `report.yml`, bench | every release, once published |
+| `boot:checkpoint-pause`, the pause a checkpoint stops the guest for | `release.yml`'s `pause`, bench | every release, once published, and a QEMU bump (versions.yaml) |
+| `boot:finish-migrate` | by hand, on a busy host | a QEMU bump (versions.yaml) |
+
 `spin-machine-dev releases measure` is the end-to-end check, and `report.yml` runs it on every
 release. It boots the release from its published tarball to the first SSH login, and the
 repository keeps its numbers (`docs/releases.md`).
