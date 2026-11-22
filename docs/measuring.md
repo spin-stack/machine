@@ -69,7 +69,9 @@ spin-machine-dev lab dispatch bootchart --reps 3 \
   --tree 'pr=--from release --spin-machine release --edit lane --edit bootchart'
 ```
 
-The run's artifact keeps `TREE-REP.bootchart.svg` and `TREE-REP.plot.svg` beside `result.json`.
+The run's artifact keeps `TREE-REP.bootchart.svg` and `TREE-REP.plot.svg` beside `result.json`,
+with the dependency view of the same boot: `TREE-REP.chain.txt`, `TREE-REP.order.dot` and
+`TREE-REP.order.svg`.
 `lab show RUN_ID` downloads them into `_output/lab/runs/RUN_ID/result/`. A browser draws them.
 `TREE-REP.bootchart.json` is the chart's samples, for a comparison a script makes.
 
@@ -112,6 +114,34 @@ v20261122.04's plot (release run 45041820698, first login at 340 ms):
 - `dev-vda.device` reads activating from 110 ms to the plot's end. The kernel mounted root from
   it, and the unit waits only for udevd to announce the disk. Every unit left of the line became
   active while it was still activating, so none of them waited for it.
+
+**Reading the chain and the graph.** Once the boot has finished, the probe asks
+`systemd-analyze critical-chain` about the units the login waits for: on spin's path the forwarder
+that stands for spin's supervisor, `ssh.service` and the login user's manager (`user@0.service`);
+on the lane, `sshd-vsock.socket` and the user's manager. `TREE-REP.chain.txt` keeps that, and below
+it the login user's own manager's chain (`systemd-analyze --user critical-chain`).
+`TREE-REP.order.dot` is `systemd-analyze dot --order` restricted to edges whose two ends are both
+on the system's chains, and `TREE-REP.order.svg` is graphviz's drawing of it. Every edge there is
+green, an `After=`: an arrow from A to B says A is ordered after B.
+
+- A unit's `@` is when it became active, in ms **from PID 1's start, not the kernel's**. The plot
+  and the chart use the kernel's clock: add `systemctl show -p UserspaceTimestampMonotonic`, 87 ms
+  on v20261122.06. Its `+` is how long it was activating.
+- Each line's child is the unit it was ordered after that became active last. systemd-analyze
+  infers that from `After=` and the times. A unit on the chain was ordered behind its child, and
+  the time between the child's end and the unit's start was the unit's wait for its ordering, or
+  PID 1 starting it. Time a unit's process spent waiting for the vCPU is inside its `+`, and the
+  chart says how much.
+- A chain ends at `-.slice` and `-.mount`, active at PID 1's 21 ms on v20261122.06 (108 ms of
+  the kernel's clock): what happens before that is in the plot and the chart, not here.
+
+On v20261122.06 (lab 45070438471, bench, spin's shape, boot 2): the forwarder became active at
+161 ms, 3 ms after `basic.target` at 158, which came after `sockets.target` and `docker.socket`,
+after `sysinit.target` at 149, after `systemd-tmpfiles-setup.service` (123, +25), after
+`systemd-journald.service` (63, +55). `ssh.service` was active at 123 ms (107, +16). So the
+forwarder waited ~38 ms after sshd was ready, for `basic.target`, which every unit with default
+dependencies waits for (#TODO). The graph shows the same: the forwarder's arrows go to
+`ssh.service` and to `basic.target`.
 
 **What it costs.** The sampler runs on the guest's one vCPU beside the boot it draws. With the
 edit, `ssh-first` read the first login +10.4 ms [+4.5, +16.8], sshd accepting +8.5

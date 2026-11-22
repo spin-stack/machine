@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -175,10 +176,10 @@ func TestBootchartRefusesATreeWithoutItsEdit(t *testing.T) {
 }
 
 // A measurement's files are named for the person who downloads them: the chart, its samples beside
-// it under the chart's name, and the plot.
+// it under the chart's name, the plot, and the dependency view.
 func TestBootchartNamesTheFilesItKept(t *testing.T) {
 	d := (bootchart{}).Detail(&Result{Samples: []Sample{{Tree: "fork", Rep: 2}}})
-	if !strings.Contains(d, "fork-2.bootchart.svg, fork-2.bootchart.json, fork-2.plot.svg") {
+	if !strings.Contains(d, "fork-2.bootchart.svg, fork-2.bootchart.json, fork-2.plot.svg, fork-2.chain.txt, fork-2.order.dot, fork-2.order.svg\n") {
 		t.Errorf("Detail = %q", d)
 	}
 }
@@ -224,5 +225,41 @@ func TestTheFirstLoginIsDrawnOnThePlotWhereItRan(t *testing.T) {
 		if _, err := markLogin(without, 0.1); err == nil || !strings.Contains(err.Error(), "not a systemd-analyze plot") {
 			t.Errorf("a plot with no %s was marked: %v", part, err)
 		}
+	}
+}
+
+// The ordering graph is asked for among the chain's units and nothing else, each named to
+// systemd-analyze as the guest's shell hands it over, an escaped device name as well.
+func TestTheOrderingGraphIsAskedForAmongTheChainsUnits(t *testing.T) {
+	bin := t.TempDir()
+	write(t, filepath.Join(bin, "systemd-analyze"), []byte("#!/bin/sh\nfor a; do echo \"$a\"; done\n"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	units := []string{"basic.target", `systemd-fsck@dev-disk-by\x2dlabel-root.service`}
+	out, err := exec.Command("sh", "-c", orderAmong(units)).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "dot\n--order\n--from-pattern=basic.target\n--from-pattern=systemd-fsck@dev-disk-by\\x2dlabel-root.service\n" +
+		"--to-pattern=basic.target\n--to-pattern=systemd-fsck@dev-disk-by\\x2dlabel-root.service\n"
+	if string(out) != want {
+		t.Errorf("systemd-analyze was handed\n%s\nwant\n%s", out, want)
+	}
+}
+
+// The units on a critical chain are read off systemd-analyze's tree, each once, and nothing of
+// its header or times is taken for one: v20261122.06's chains to spin's login (lab 45070438471,
+// bench, spin's shape, its second boot), the system manager's, before the login user's own.
+func TestTheUnitsOnACriticalChainAreReadOffItsTree(t *testing.T) {
+	b, err := os.ReadFile("testdata/chain-45070438471.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, _, _ := strings.Cut(string(b), "$ systemd-analyze --user")
+	want := []string{"spin-lab-forward.service", "basic.target", "sockets.target", "docker.socket", "sysinit.target",
+		"systemd-tmpfiles-setup.service", "systemd-journald.service", "systemd-journald.socket", "-.mount", "-.slice",
+		"ssh.service", "spin-machine-sshd-keygen.service", "user@0.service", "user-runtime-dir@0.service",
+		"systemd-logind.service", "systemd-logind-varlink.socket"}
+	if got := chainUnits(system); !slices.Equal(got, want) {
+		t.Errorf("chainUnits =\n%q\nwant\n%q", got, want)
 	}
 }

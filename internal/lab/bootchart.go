@@ -163,7 +163,7 @@ func download(url, path string) error {
 
 // bootchart draws a tree's boot, a tree made with the bootchart edit: systemd-bootchart's chart of
 // every process from PID 1 to the first login, and systemd-analyze plot's of every unit, from the
-// same boot, kept beside result.json. It is a diagnostic and never a goal number: the sampler runs
+// same boot, kept beside result.json with the boot's dependency view (keepDependencies). It is a diagnostic and never a goal number: the sampler runs
 // on the guest's vCPU beside the boot it draws, and its first_login is not ssh-first's.
 //
 // The first login is the one that stops the chart: its command signals the sampler, which stops at
@@ -173,7 +173,7 @@ type bootchart struct{}
 
 func (bootchart) Name() string { return bootchartName }
 func (bootchart) About() string {
-	return "a boot drawn by systemd-bootchart to the first login, which stops it, and by systemd-analyze plot: charts kept beside result.json"
+	return "a boot drawn by systemd-bootchart to the first login, which stops it, and by systemd-analyze plot, with the login's critical chains and their ordering graph: kept beside result.json"
 }
 func (bootchart) Options() []Option     { return shape }
 func (bootchart) Rows(Options) []string { return []string{"boot"} }
@@ -233,8 +233,9 @@ func loginUnits(spinsPath bool) string {
 }
 
 // chainedUnit is a unit's name at the start of a line of critical-chain's tree, after the tree's
-// drawing.
-var chainedUnit = regexp.MustCompile(`(?m)^[\s│├└─]*([^\s@+]+\.(?:service|socket|target|mount|device|slice|scope|path|timer|swap|automount))\b`)
+// drawing and before a space and its times: a template's instance carries an @ of its own, as
+// user@0.service does.
+var chainedUnit = regexp.MustCompile(`(?m)^[\s│├└─]*(\S+\.(?:service|socket|target|mount|device|slice|scope|path|timer|swap|automount))(?:\s|$)`)
 
 // chainUnits are the units on critical-chain's chains, each once, in the order printed.
 func chainUnits(chain string) []string {
