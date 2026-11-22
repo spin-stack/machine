@@ -5,8 +5,8 @@
 # checkpoints keep resuming, so a stable release is one versions.yaml line. parts.yml builds it
 # on the pull request; a person boots it and merges it. Nothing here publishes.
 #
-# And the systemd source package the image rebuilds (spin-machine-dev refresh systemd), which the archive
-# stops serving the day Ubuntu replaces it.
+# And the systemd and openssh source packages the image rebuilds (spin-machine-dev refresh systemd,
+# refresh openssh), which the archive stops serving the day Ubuntu replaces them.
 #
 # And, weekly, QEMU's and e2fsprogs' builder images (spin-machine-dev refresh builders): Alpine with
 # each part's apk.list installed, made again, published, and proposed when a package in them moved.
@@ -80,14 +80,19 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: spin-machine-dev refresh kernel
 
-  # Its own job, as apk's: the refresh leaves the checkout on the branch it proposed. Ubuntu's
-  # archive serves only the systemd source resolute publishes now, so image/systemd fails to build
-  # from the day it moves until the pin follows; this proposes the move that day. parts.yml builds
-  # the pull request.
-  systemd:
+  # A job of its own for each source, as apk's: the refresh leaves the checkout on the branch it
+  # proposed. Ubuntu's archive serves only the source resolute publishes now, so image/systemd and
+  # image/openssh fail to build from the day it moves until the pin follows; this proposes the move
+  # that day. parts.yml builds the pull request, and for openssh that build is also where a patch
+  # in image/openssh that no longer applies without fuzz to the new source fails.
+  sources:
     if: github.ref == 'refs/heads/main' && github.event.schedule != '17 7 * * 1'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        source: [systemd, openssh]
     steps:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
@@ -120,14 +125,15 @@ jobs:
       - name: spin-machine-dev
         run: go tool task bin
 
-      - name: Propose the systemd resolute publishes now
+      - name: Propose the ${{ matrix.source }} resolute publishes now
         env:
           # versions refresh opens the pull request as GITHUB_TOKEN before GH_TOKEN, and the run's
           # own, set above, can neither open it nor start the checks on it; git pushes through gh,
           # as GH_TOKEN.
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: spin-machine-dev refresh systemd
+          SOURCE: ${{ matrix.source }}
+        run: spin-machine-dev refresh "$SOURCE"
 
   # Its own job: each refresh above leaves the checkout on the branch it proposed. Weekly, and not
   # daily as the apk locks it replaced were: a pinned builder keeps its packages after the mirror

@@ -71,14 +71,17 @@ against its sha256 - for the bump's pull request.`,
 
 func refreshCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:    "refresh kernel|systemd|builders",
-		Short:  "Propose what upstream moved as a pull request: the kernel's series, the systemd source, the builders",
+		Use:    "refresh kernel|systemd|openssh|builders",
+		Short:  "Propose what upstream moved as a pull request: the kernel's series, the systemd and openssh sources, the builders",
 		Hidden: true,
 		Long: `Propose, as a pull request, what upstream moved since the pin:
 
   kernel   the newest release of the kernel's series, and never past it (versions.yaml's note);
            most of what a stable release fixes is fixed before it is called a CVE
   systemd  the systemd source package the archive publishes now
+  openssh  the openssh source package the archive publishes now; parts.yml's image build on the
+           pull request applies every patch in image/openssh to it without fuzz, and fails there
+           when one no longer applies
   builders QEMU's and e2fsprogs' builder images (builder/Dockerfile) made again from each apk.list
            on the pinned Alpine, published, and pinned, when a package in them moved; the
            pull request lists the packages that did. Run on a branch other than main, it
@@ -87,9 +90,9 @@ func refreshCmd() *cobra.Command {
 
 Each branch is named for what it proposes, so a set proposed once is not proposed again, closed or
 not: a person who closed it said no to it; a newer one closes the one it supersedes. Nothing is
-proposed when the pins are current. refresh.yml runs it as the release app: kernel and systemd
-every day, builders every week.`,
-		ValidArgs: []string{"kernel", "systemd", "builders"},
+proposed when the pins are current. refresh.yml runs it as the release app: kernel, systemd and
+openssh every day, builders every week.`,
+		ValidArgs: []string{"kernel", "systemd", "openssh", "builders"},
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE: func(c *cobra.Command, args []string) error {
 			w, err := open()
@@ -101,6 +104,8 @@ every day, builders every week.`,
 				return versionsTool(c.Context(), c, w.root, "refresh", "-propose", "-label", "kernel", "kernel")
 			case "systemd":
 				return versionsTool(c.Context(), c, w.root, "refresh", "-propose", "-label", "systemd", "systemd-source")
+			case "openssh":
+				return versionsTool(c.Context(), c, w.root, "refresh", "-propose", "-label", "openssh", "openssh-source")
 			}
 			return proposeBuilders(c.Context(), c, w)
 		},
