@@ -15,8 +15,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"github.com/spin-stack/machine/qmp"
 )
 
 // Limit is one of the limits spin sets: on the cgroup QEMU runs in, or on one disk inside QEMU.
@@ -299,8 +297,8 @@ func (h *heldDisks) set(serial, device string, l DiskLimit) {
 }
 
 // heldSample adds the limits and counters of each disk SetDiskLimit holds to s, from one
-// query-blockstats, and asks QEMU nothing while it holds none: every machine of a host would pay
-// a command a second for a limit few of them are under.
+// DiskUsage, and asks QEMU nothing while it holds none: every machine of a host would pay a
+// command a second for a limit few of them are under.
 func (m *QEMU) heldSample(ctx context.Context, s *limitSample) error {
 	m.held.mu.Lock()
 	held := maps.Clone(m.held.by)
@@ -308,18 +306,18 @@ func (m *QEMU) heldSample(ctx context.Context, s *limitSample) error {
 	if len(held) == 0 {
 		return nil
 	}
-	stats, err := qmp.Do(ctx, m.c, queryBlockstats, qmp.None{})
+	disks, err := m.DiskUsage(ctx)
 	if err != nil {
 		return fmt.Errorf("reading the held disks' counters: %w", err)
 	}
 	s.diskMax, s.diskStat = map[string]map[string]int64{}, map[string]map[string]int64{}
 	for serial, h := range held {
-		i := slices.IndexFunc(stats, func(b blockStats) bool { return deviceOf(b.QDev) == h.device })
+		i := slices.IndexFunc(disks, func(d DiskUsage) bool { return d.Device == h.device })
 		if i < 0 {
 			continue
 		}
-		st := stats[i].Stats
-		s.diskStat[serial] = map[string]int64{"rbytes": st.Read, "wbytes": st.Written, "rios": st.Reads, "wios": st.Writes}
+		d := disks[i]
+		s.diskStat[serial] = map[string]int64{"rbytes": d.Read, "wbytes": d.Written, "rios": d.Reads, "wios": d.Writes}
 		limits := map[string]int64{}
 		for k, v := range map[string]int64{"rbps": h.limit.ReadBytes, "wbps": h.limit.WriteBytes, "riops": h.limit.Reads, "wiops": h.limit.Writes} {
 			if v > 0 {
