@@ -76,9 +76,9 @@ type GuestUsage struct {
 var queryBlockstats = qmpdef.Define[blockstatsArgs, []blockStats]("query-blockstats", qmpdef.Unstable)
 
 // blockstatsArgs asks, with Flat, for each device's own counters without the statistics of every
-// image under it.
+// image under it. Flat is probed: a released QEMU may refuse it, and DiskUsage then asks without.
 type blockstatsArgs struct {
-	Flat bool `json:"x-flat,omitempty"`
+	Flat bool `json:"x-flat,omitempty" qmpdef:"probed"`
 }
 
 type blockStats struct {
@@ -133,7 +133,7 @@ func (p *Process) Usage(ctx context.Context) (Usage, error) {
 // reply grows with each image a seal adds: ~3.6 KiB and ~70 µs of QEMU's main loop, which runs
 // the disks' I/O too, per image, 0.37 ms with the overlay over the base every workspace boots and
 // 2.5 ms with 32 (laptop, 2026-11-21, #402). A QEMU without qemu/patches' 0004, as every release
-// up to v20261121.01 ships, refuses the member: it is asked again without it, and from then on
+// up to v20261122.01 ships, refuses the member: it is asked again without it, and from then on
 // only without it.
 func (m *QEMU) DiskUsage(ctx context.Context) ([]DiskUsage, error) {
 	stats, err := m.blockstats(ctx)
