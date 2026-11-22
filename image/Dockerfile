@@ -102,6 +102,7 @@ ENV TASK_VERSION=${TASK_VERSION} TASK_SHA256=${TASK_SHA256_LINUX_AMD64} \
 
 COPY image/mkosi.conf image/mkosi.postinst.chroot /work/
 COPY image/mkosi.extra /work/mkosi.extra
+COPY image/deviations.py image/deviations.txt /usr/local/share/spin-image/
 COPY image/build.sh /usr/local/bin/build-base-image
 RUN chmod +x /usr/local/bin/build-base-image /work/mkosi.postinst.chroot \
              /work/mkosi.extra/usr/local/lib/spin-base/*.sh
