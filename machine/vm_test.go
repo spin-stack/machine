@@ -389,10 +389,18 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// migrationEvents is QEMU's MIGRATION for each of statuses, one line each.
+// resumeEvent is QEMU's RESUME: the guest's vCPUs started.
+const resumeEvent = `{"event": "RESUME", "timestamp": {"seconds": 1, "microseconds": 3}}` + "\n"
+
+// migrationEvents is QEMU's MIGRATION for each of statuses, one line each, and its RESUME for a
+// status "RESUME", where a load runs the guest.
 func migrationEvents(statuses ...string) string {
 	var b strings.Builder
 	for _, st := range statuses {
+		if st == "RESUME" {
+			b.WriteString(resumeEvent)
+			continue
+		}
 		b.WriteString(`{"event": "MIGRATION", "data": {"status": "` + st + `"}, "timestamp": {"seconds": 1, "microseconds": 2}}` + "\n")
 	}
 	return b.String()
@@ -400,8 +408,9 @@ func migrationEvents(statuses ...string) string {
 
 // migrations sends a MIGRATION for each status in turn, as QEMU does with the events capability
 // on: those up to pre-switchover before the answer to migrate or migrate-incoming, the rest before
-// the answer to migrate-continue. query-migrate answers the last status sent, and a failed one
-// with its reason. query-migrate-capabilities answers as the QEMU qemu/patches builds.
+// the answer to migrate-continue. cont sends RESUME before its answer. query-migrate answers the
+// last status sent, and a failed one with its reason. query-migrate-capabilities answers as the
+// QEMU qemu/patches builds.
 func migrations(then func(c call) string, statuses ...string) func(c call) string {
 	sent := 0
 	upTo := func(stop string) string {
@@ -422,6 +431,8 @@ func migrations(then func(c call) string, statuses ...string) func(c call) strin
 			return upTo("pre-switchover") + then(c)
 		case "migrate-continue":
 			return upTo("") + then(c)
+		case "cont":
+			return resumeEvent + then(c)
 		case "query-migrate":
 			if sent > 0 && statuses[sent-1] == "failed" {
 				return ret(`{"status": "failed", "error-desc": "No space left on device"}`)
@@ -806,13 +817,13 @@ func TestResume(t *testing.T) {
 		caps     map[string]bool
 		cont     bool
 	}{
-		{"fast, at postcopy-active", mapped, LoadOptions{Fast: true}, 1, []string{"setup", "postcopy-active"}, "running",
+		{"fast, at postcopy-active", mapped, LoadOptions{Fast: true}, 1, []string{"setup", "postcopy-active", "RESUME"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false, "events": true}, false},
-		{"in full, past postcopy-active, which it never asked for", mapped, LoadOptions{}, DefaultChannels, []string{"active", "postcopy-active", "completed"}, "running",
+		{"in full, past postcopy-active, which it never asked for", mapped, LoadOptions{}, DefaultChannels, []string{"active", "postcopy-active", "RESUME", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": DefaultChannels > 1, "events": true}, false},
-		{"in full, by one channel, named", mapped, LoadOptions{Channels: 1}, 1, []string{"active", "completed"}, "running",
+		{"in full, by one channel, named", mapped, LoadOptions{Channels: 1}, 1, []string{"active", "RESUME", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false, "events": true}, false},
-		{"in full, by two channels", mapped, LoadOptions{Channels: 2}, 2, []string{"active", "completed"}, "running",
+		{"in full, by two channels", mapped, LoadOptions{Channels: 2}, 2, []string{"active", "RESUME", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true, "events": true}, false},
 		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream, From: from}, LoadOptions{}, 1, []string{"completed"}, "paused",
 			map[string]bool{"mapped-ram": false, "pause-before-switchover": false, "events": true}, true},

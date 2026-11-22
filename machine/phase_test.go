@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -144,9 +145,9 @@ func TestAResumeTellsItsPhases(t *testing.T) {
 		after    string // the run state once loaded
 		want     []string
 	}{
-		{"in full", LoadOptions{}, []string{"active", "completed"}, "running", []string{"LoadStarted", "StateLoaded", "GuestRunning"}},
+		{"in full", LoadOptions{}, []string{"active", "RESUME", "completed"}, "running", []string{"LoadStarted", "StateLoaded", "GuestRunning"}},
 		{"in full, saved stopped", LoadOptions{}, []string{"active", "completed"}, "paused", []string{"LoadStarted", "StateLoaded", "GuestRunning"}},
-		{"fast", LoadOptions{Fast: true}, []string{"active", "postcopy-active"}, "running", []string{"LoadStarted", "GuestRunning", "StateLoaded"}},
+		{"fast", LoadOptions{Fast: true}, []string{"active", "postcopy-active", "RESUME"}, "running", []string{"LoadStarted", "GuestRunning", "StateLoaded"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{}
@@ -190,5 +191,41 @@ func TestAResumeTellsItsPhases(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A fast resume returns, and tells the guest running, once QEMU says the guest runs (RESUME). QEMU
+// says postcopy-active first and starts the guest after it, from a BH on its main loop, which a
+// disk it cannot take keeps from ever running the guest (#459, #465).
+func TestAFastResumeTellsTheGuestRunningWhenQEMURunsIt(t *testing.T) {
+	from := fakeTarget(t)
+	f := &fakeQEMU{answer: migrations(machineAnswers("inmigrate", "root"), "setup", "postcopy-active")}
+	m := f.attach(t)
+	p := &phases{}
+	state, root := image(t, "raw").File, Disk{Serial: "root", Images: []Image{image(t, "qcow2")}}
+	done := make(chan error, 1)
+	go func() {
+		done <- m.Resume(ctx(t), state, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{Fast: true, Phases: p.tell}, root)
+	}()
+	for !slices.Contains(f.commands(), "migrate-incoming") {
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Resume returned %v at postcopy-active, before QEMU ran the guest", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	ran := time.Now()
+	f.send(resumeEvent)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	for _, ph := range p.told {
+		if r, ok := ph.(GuestRunning); ok && r.At.Before(ran) {
+			t.Errorf("GuestRunning at %v, %v before QEMU ran the guest", r.At, ran.Sub(r.At))
+		}
+	}
+	if got, want := p.names(), []string{"LoadStarted", "GuestRunning"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("phases %v, want %v", got, want)
 	}
 }
