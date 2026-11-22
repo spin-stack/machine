@@ -207,16 +207,21 @@
 
 - name: systemd-bootchart
   kind: download
-  source: https://launchpad.net/ubuntu/+archive/primary/+files/systemd-bootchart_{version}_amd64.deb
-  version: 235-2build1
-  pin: 166b304dce2076d9ee4fbc370dbec2edf9eeff81f1d2778cb826b3d3081529fc
-  track: page https://packages.ubuntu.com/resolute/amd64/systemd-bootchart/download
+  source: https://github.com/spin-stack/systemd-bootchart/archive/{version}.tar.gz
+  version: c9eb2b24491a19fd209fa59b264c3f43dc4d06d2
+  pin: f8831f14f16e61c0d5c344b0aea52664d50fcf1b1cf5ad1e93ad83f702523699
+  track: commit https://github.com/spin-stack/systemd-bootchart.git main
   note: >-
-    internal/lab's bootchart edit: Ubuntu's systemd-bootchart as resolute publishes it, put into a
-    lab overlay and never into the base image. The tree that carries it boots with it as PID 1,
-    which samples the boot and execs systemd. After the bump: `spin-machine-dev lab dispatch
-    bootchart --tree 'release=--from release --edit bootchart' --reps 1` draws a chart that
-    reaches the first login (docs/measuring.md, "Boot charts").
+    internal/lab's bootchart edit: spin-stack's fork of systemd-bootchart, compiled by
+    internal/lab/bootchart.Dockerfile into a lab overlay and never into the base image. The fork
+    names a process by what it became, labels it with its cgroup v2 unit, and keeps every process
+    that ran; Ubuntu's 235 did none of it on this machine (spin-stack/machine#521). The tree that
+    carries it boots with it as PID 1, which samples the boot and execs systemd. Pinned to a commit
+    of a pull request's branch while the fork's stack lands, so outdated names main's tip, not
+    the next commit of the stack: `spin-machine-dev bump systemd-bootchart <commit>` moves it. After
+    the bump: `spin-machine-dev lab dispatch bootchart --tree 'release=--from release --edit
+    bootchart' --reps 1` draws a chart that reaches the first login, with no process named by a
+    file descriptor and each labelled with its unit (docs/measuring.md, "Boot charts").
 
 - name: mkosi
   kind: download

@@ -15,25 +15,49 @@ import (
 	"testing"
 )
 
-// checkoutPinning is a checkout whose versions.yaml pins systemd-bootchart to body, served by a
-// server of the test's own.
+const bootchartCommit = "c9eb2b24491a19fd209fa59b264c3f43dc4d06d2"
+
+// checkoutPinning is a checkout whose versions.yaml pins systemd-bootchart's source to body, served
+// by a server of the test's own.
 func checkoutPinning(t *testing.T, body string, pin string) string {
 	t.Helper()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
 	t.Cleanup(srv.Close)
-	// The server's certificate trusted, as the archive's is.
+	// The server's certificate trusted, as GitHub's is.
 	saved := http.DefaultTransport
 	http.DefaultTransport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultTransport = saved })
 	checkout := t.TempDir()
-	write(t, filepath.Join(checkout, "versions.yaml"), []byte(`- name: systemd-bootchart
+	write(t, filepath.Join(checkout, "versions.yaml"), []byte(`- name: ubuntu
+  kind: image
+  source: mirror.gcr.io/library/ubuntu
+  version: '26.04'
+  pin: sha256:`+sha("ubuntu")+`
+  track: digest
+- name: systemd-bootchart
   kind: download
-  source: `+srv.URL+`/systemd-bootchart_{version}_amd64.deb
-  version: 235-2build1
+  source: `+srv.URL+`/archive/{version}.tar.gz
+  version: `+bootchartCommit+`
   pin: `+pin+`
-  track: page https://packages.ubuntu.com/resolute/amd64/systemd-bootchart/download
+  track: commit https://github.com/spin-stack/systemd-bootchart.git main
 `))
 	return checkout
+}
+
+// fakeDocker puts a docker on the PATH that records its arguments and runs script, and returns
+// where the arguments are recorded: no file there is no build.
+func fakeDocker(t *testing.T, script string) string {
+	t.Helper()
+	bin := t.TempDir()
+	log := filepath.Join(bin, "calls")
+	write(t, filepath.Join(bin, "docker"), []byte("#!/bin/sh\necho \"$*\" >> "+log+"\n"+script+"\n"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
+// builds is a docker that writes body as the binary into the directory its --output names.
+func builds(body string) string {
+	return `for a; do case "$a" in type=local,dest=*) printf '` + body + `' > "${a#type=local,dest=}/systemd-bootchart";; esac; done`
 }
 
 func sha(s string) string {
@@ -41,32 +65,68 @@ func sha(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// The bootchart edit installs the package its checkout pins, fetched into the tree, and only that:
-// a download that is not the pin's makes no edit and leaves nothing in the tree.
-func TestTheBootchartEditInstallsThePinnedPackage(t *testing.T) {
+// The bootchart edit compiles the source its checkout pins, fetched into the tree, and installs
+// the binary that build wrote, and only that.
+func TestTheBootchartEditInstallsWhatThePinnedSourceBuilt(t *testing.T) {
 	dir := t.TempDir()
-	e, err := namedEdit("bootchart", checkoutPinning(t, "the package", sha("the package")), dir)
+	log := fakeDocker(t, builds("the binary"))
+	e, err := namedEdit("bootchart", checkoutPinning(t, "the source", sha("the source")), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	deb := filepath.Join(dir, "bootchart", "systemd-bootchart_235-2build1_amd64.deb")
-	if b, err := os.ReadFile(deb); err != nil || string(b) != "the package" {
-		t.Errorf("the tree's package = %q, %v", b, err)
+	source := filepath.Join(dir, "bootchart", "source")
+	if b, err := os.ReadFile(filepath.Join(source, bootchartCommit+".tar.gz")); err != nil || string(b) != "the source" {
+		t.Errorf("the tree's source = %q, %v", b, err)
 	}
-	if !strings.Contains(e.Setup, sha("the package")+"  "+deb) || !strings.Contains(e.Setup, `ln -sfn /usr/lib/systemd/systemd-bootchart "$MNT/usr/sbin/init"`) {
-		t.Errorf("the edit neither checks the package nor boots it:\n%s", e.Setup)
+	call, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(e.Files["/etc/systemd/bootchart.conf"], "Frequency=200") {
-		t.Errorf("bootchart.conf = %q", e.Files["/etc/systemd/bootchart.conf"])
+	for _, want := range []string{"SYSTEMD_BOOTCHART_SHA256=" + sha("the source"), "SYSTEMD_BOOTCHART_VERSION=" + bootchartCommit,
+		"UBUNTU_IMAGE=mirror.gcr.io/library/ubuntu:26.04@sha256:" + sha("ubuntu"), "bootchart.Dockerfile"} {
+		if !strings.Contains(string(call), want) {
+			t.Errorf("the build was not handed %s: %s", want, call)
+		}
+	}
+	if f := strings.Fields(string(call)); f[len(f)-1] != source {
+		t.Errorf("the build's context is not the fetched source %s: %s", source, call)
+	}
+	bin := filepath.Join(dir, "bootchart", "systemd-bootchart")
+	if !strings.Contains(e.Setup, sha("the binary")+"  "+bin) || !strings.Contains(e.Setup, "install -m 0755 "+bin+` "$MNT/usr/lib/systemd/systemd-bootchart"`) ||
+		!strings.Contains(e.Setup, `ln -sfn /usr/lib/systemd/systemd-bootchart "$MNT/usr/sbin/init"`) {
+		t.Errorf("the edit neither checks the binary built nor boots it:\n%s", e.Setup)
+	}
+	conf := e.Files["/etc/systemd/bootchart.conf"]
+	if !strings.Contains(conf, "Frequency=200") || !strings.Contains(conf, "ControlGroup=yes") {
+		t.Errorf("bootchart.conf = %q", conf)
+	}
+}
+
+// A source that is not the pin's is never built, and a build that fails or writes no binary makes
+// no edit and says why.
+func TestTheBootchartEditRefusesWhatItCannotBuild(t *testing.T) {
+	dir := t.TempDir()
+	log := fakeDocker(t, builds("the binary"))
+	if _, err := namedEdit("bootchart", checkoutPinning(t, "another source", sha("the source")), dir); err == nil ||
+		!strings.Contains(err.Error(), "versions.yaml pins "+sha("the source")) {
+		t.Errorf("a source that is not the pin's: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bootchart", "source", bootchartCommit+".tar.gz")); err == nil {
+		t.Error("a source that is not the pin's was left in the tree")
+	}
+	if _, err := os.Stat(log); err == nil {
+		t.Error("a source that is not the pin's was built")
 	}
 
-	dir = t.TempDir()
-	if _, err := namedEdit("bootchart", checkoutPinning(t, "another package", sha("the package")), dir); err == nil ||
-		!strings.Contains(err.Error(), "versions.yaml pins "+sha("the package")) {
-		t.Errorf("a package that is not the pin's: %v", err)
+	fakeDocker(t, "echo 'configure: error: no C compiler'; exit 1")
+	if _, err := namedEdit("bootchart", checkoutPinning(t, "the source", sha("the source")), t.TempDir()); err == nil ||
+		!strings.Contains(err.Error(), "building systemd-bootchart at "+bootchartCommit) || !strings.Contains(err.Error(), "no C compiler") {
+		t.Errorf("a build that failed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "bootchart", "systemd-bootchart_235-2build1_amd64.deb")); err == nil {
-		t.Error("a package that is not the pin's was left in the tree")
+	fakeDocker(t, "")
+	if _, err := namedEdit("bootchart", checkoutPinning(t, "the source", sha("the source")), t.TempDir()); err == nil ||
+		!strings.Contains(err.Error(), "wrote no binary") {
+		t.Errorf("a build that wrote nothing: %v", err)
 	}
 }
 

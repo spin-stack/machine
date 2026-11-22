@@ -10,7 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/go-tools/versions"
+	"github.com/spin-stack/machine/internal/build"
 	xssh "golang.org/x/crypto/ssh"
 )
 
@@ -29,26 +30,29 @@ const bootchartName = "bootchart"
 // desktop's 20 s at 25 Hz, which would draw a boot to the first login of ~300 ms in eight samples:
 // 200 Hz is a sample each 5 ms, and the probe stops it at the first login, so Samples is only a
 // ceiling, 10 s, for a boot nobody logs into. ScaleX is pixels a second, 2000 so that a 5 ms
-// sample is 10 px wide. Cmdline names a process by its command line: by default version 235 takes
-// the first word of /proc/PID/sched, and it named journald, logind and udevd "9" (lab 45036914740).
-// ControlGroup stays off: it reads cgroup v1's hierarchy and labelled every process (null) on this
-// machine's v2 (lab 45036002014). What the sampling costs is measured, not assumed
-// (docs/measuring.md, "Boot charts").
+// sample is 10 px wide. ControlGroup labels each process with its unit, which spin-stack's fork
+// reads from cgroup v2's /proc/PID/cgroup and totals in a table of CPU by unit; Ubuntu's 235 read
+// v1's hierarchy and labelled every process (null) (lab 45036002014). Cmdline stays off: it was
+// on only because 235 named a process by the first word of /proc/PID/sched, which named journald,
+// logind and udevd "9" (lab 45036914740), and the fork reads /proc/PID/comm again whenever a
+// process runs, so the name is what it became and the unit says whose it is. What the sampling
+// costs is measured, not assumed (docs/measuring.md, "Boot charts").
 const bootchartConf = `[Bootchart]
 Samples=2000
 Frequency=200
 Relative=no
 Filter=yes
 ScaleX=2000
-Cmdline=yes
-ControlGroup=no
+Cmdline=no
+ControlGroup=yes
 `
 
-// bootchartEdit is systemd-bootchart, Ubuntu's package at its pin in this checkout's
-// versions.yaml, in the overlay as PID 1: /sbin/init is pointed at it, and it forks its sampler
-// and execs systemd, so the tree boots with its own command line and no init= of its own. The
-// package is fetched into the tree at dir and checked against its pin there, and again by the
-// edit before it installs it.
+// bootchartEdit is systemd-bootchart, built from spin-stack/systemd-bootchart at the commit this
+// checkout's versions.yaml pins, in the overlay as PID 1: /sbin/init is pointed at it, and it
+// forks its sampler and execs systemd, so the tree boots with its own command line and no init= of
+// its own. The commit's tarball is fetched into the tree at dir and checked against its pin there,
+// and compiled in a container (bootchart.Dockerfile), which checks it again; the edit checks the
+// binary it installs is the one that build wrote.
 func bootchartEdit(checkout, dir string) (Edit, error) {
 	pins, err := versions.Load(filepath.Join(checkout, versions.File))
 	if err != nil {
@@ -58,17 +62,30 @@ func bootchartEdit(checkout, dir string) (Edit, error) {
 	if err != nil {
 		return Edit{}, err
 	}
-	deb := filepath.Join(dir, bootchartName, path.Base(e.URL()))
-	if err := fetchPinned(e.URL(), e.Pin, deb); err != nil {
+	source := filepath.Join(dir, bootchartName, "source")
+	if err := fetchPinned(e.URL(), e.Pin, filepath.Join(source, e.Version+".tar.gz")); err != nil {
 		return Edit{}, err
+	}
+	args, err := build.Args(pins, strings.Fields("ubuntu systemd-bootchart")...)
+	if err != nil {
+		return Edit{}, err
+	}
+	out := filepath.Join(dir, bootchartName)
+	cmd := exec.Command("docker", slices.Concat([]string{"buildx", "build", "--progress=plain", "--platform", "linux/amd64",
+		"--file", filepath.Join(checkout, "internal", "lab", "bootchart.Dockerfile")}, args,
+		[]string{"--output", "type=local,dest=" + out, source})...)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		return Edit{}, fmt.Errorf("building systemd-bootchart at %s: %w: %s", e.Version, err, b)
+	}
+	bin := filepath.Join(out, "systemd-bootchart")
+	sum, err := fileSHA256(bin)
+	if err != nil {
+		return Edit{}, fmt.Errorf("the systemd-bootchart build at %s wrote no binary: %w", e.Version, err)
 	}
 	return Edit{
 		Files: map[string]string{"/etc/systemd/bootchart.conf": bootchartConf},
-		// Only the binary: the package's bootchart.conf is its defaults, and its unit charts a boot
-		// from where systemd starts it, which is not this one.
-		Setup: `echo "` + e.Pin + `  ` + deb + `" | sha256sum -c --quiet
-dpkg-deb --fsys-tarfile ` + deb + ` | tar -x -C "$MNT" ./usr/lib/systemd/systemd-bootchart
-test -x "$MNT/usr/lib/systemd/systemd-bootchart"
+		Setup: `echo "` + sum + `  ` + bin + `" | sha256sum -c --quiet
+install -m 0755 ` + bin + ` "$MNT/usr/lib/systemd/systemd-bootchart"
 test "$(basename "$(readlink "$MNT/usr/sbin/init")")" = systemd || { echo "the overlay's /sbin/init is not systemd, so a chart of it would not be of this machine" >&2; exit 1; }
 ln -sfn /usr/lib/systemd/systemd-bootchart "$MNT/usr/sbin/init"
 `,
