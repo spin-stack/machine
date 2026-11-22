@@ -173,3 +173,12 @@ func TestBootchartRefusesATreeWithoutItsEdit(t *testing.T) {
 		t.Errorf("charts named for measurements that drew none:\n%s", d)
 	}
 }
+
+// A measurement's files are named for the person who downloads them: the chart, its samples beside
+// it under the chart's name, and the plot.
+func TestBootchartNamesTheFilesItKept(t *testing.T) {
+	d := (bootchart{}).Detail(&Result{Samples: []Sample{{Tree: "fork", Rep: 2}}})
+	if !strings.Contains(d, "fork-2.bootchart.svg, fork-2.bootchart.json, fork-2.plot.svg") {
+		t.Errorf("Detail = %q", d)
+	}
+}
