@@ -100,6 +100,29 @@ order. The gaps in their numbers are patches deleted once a run read nothing for
 (0006, 0009 and 0011, #345). They share one row in `docs/boot-time.md`, "What the machine
 carries", which says what they earn together.
 
+`patch --fuzz=0` refuses a patch that no longer applies. What it cannot see is a patch deleted
+from the directory, or one whose effect a kernel bump took away while its text still applied:
+that kernel builds, boots and is a few milliseconds slower. So `Dockerfile` reads each patch's
+effect out of the vmlinux it built, before the symbol table is stripped, and fails the build
+naming every patch it cannot find. It runs wherever the kernel is built: `spin-machine-dev
+build kernel`, `parts.yml` and `compat.yml` on every change that reaches the kernel, and so on
+every kernel bump.
+
+| Patch | What the build asserts |
+| --- | --- |
+| 0001 | `vfs_read` has no call to `__fentry__`: objtool wrote the site as a NOP |
+| 0002 | `ftrace_check_for_weak_functions` calls nothing: no workqueue, no scan queued |
+| 0003 | `trace_eval_init` queues no work, and `trace_format_open` calls `trace_eval_ensure` |
+| 0004 | `raw_pci_read` and `raw_pci_write` read `raw_pci_ext_ops` before `raw_pci_ops` |
+| 0005 | `pci_setup_device` calls `pci_cache_capabilities` |
+| 0007 | the image no longer holds `unwind_init`'s "Corrupt .orc_unwind table" message |
+| 0008 | the compiled `kernel/trace/ftrace.c` takes a range out with `memmove(first, stop, ...)` |
+| 0010 | `early_quirks` calls `kvm_para_available` before its scan |
+
+None of them is a guest check. What the patches save is CPU and VM exits, which a guest cannot
+count, and the format files 0003 defers are behind lockdown. A new patch adds its row here and
+its assertion in that step, and shows it red on a branch without the patch.
+
 A change to the config is a new kernel for every guest's next boot, and the release notes say
 what changed (`internal/release` lists the options turned on, off or changed). It does not
 move the machine's record, and checkpoints keep resuming: each resumed guest goes on running the

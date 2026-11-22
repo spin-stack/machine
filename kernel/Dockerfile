@@ -145,12 +145,6 @@ RUN <<EOT
 
     make ARCH=${KERNEL_ARCH} olddefconfig
 
-    # What patches/0001 is for: objtool records the fentry sites and writes them as NOPs, so
-    # ftrace_init does not rewrite ~41k call sites at every boot (7 ms, measured 2026-09-29).
-    grep -q '^CONFIG_FTRACE_MCOUNT_USE_OBJTOOL=y' .config || { echo "ERROR: objtool does not record the fentry sites (patches/0001)"; grep MCOUNT .config; exit 1; }
-    # --mnop and CC_USING_NOP_MCOUNT follow from these two together (Makefile, scripts/Makefile.lib).
-    grep -q '^CONFIG_HAVE_OBJTOOL_NOP_MCOUNT=y' .config || { echo "ERROR: objtool cannot write the fentry sites as NOPs here (patches/0001)"; exit 1; }
-
     echo "Verifying critical kernel configs after olddefconfig..."
     grep -q "CONFIG_VIRTIO_NET=y" .config || (echo "ERROR: CONFIG_VIRTIO_NET not enabled after olddefconfig!" ; grep VIRTIO_NET .config ; exit 1)
     grep -q "CONFIG_VIRTIO_PCI=y" .config || (echo "ERROR: CONFIG_VIRTIO_PCI not enabled!" ; exit 1)
@@ -415,6 +409,66 @@ RUN cd linux && make ARCH=${KERNEL_ARCH} -j${KERNEL_NPROC} \
         KBUILD_BUILD_TIMESTAMP="$(date -u -d "$(echo "${DEBIAN_SNAPSHOT}" | cut -c1-8)")" \
         KBUILD_BUILD_USER=spin-machine KBUILD_BUILD_HOST=build \
         all
+
+# Each patch in patches/, asserted on the vmlinux it went into, while it still has its symbol
+# table. `patch --fuzz=0` above says a patch applied; a patch deleted from the directory, or one
+# whose effect a kernel bump took away while its text still applied, leaves a kernel that builds,
+# boots and is a few milliseconds slower, and nothing else says so. Every failure is reported,
+# not the first, so a kernel bump sees at once which patches to read again. Where the code a
+# patch leaves behind is visible in the machine code, that is what is read; 0008's is not, and
+# the tree that was compiled is. The guest cannot check any of them: what they save is CPU and
+# VM exits, which it cannot count, and 0003's format files are behind lockdown.
+RUN <<EOT
+    set -u
+    cd /usr/src/linux
+    failed=0
+    dis() { objdump -d --no-show-raw-insn --disassemble="$1" vmlinux; }
+    lost() { echo "ERROR: patches/$1 is not in this vmlinux: $2"; failed=1; }
+    for f in vfs_read ftrace_check_for_weak_functions trace_eval_init trace_format_open \
+            raw_pci_read raw_pci_write pci_setup_device early_quirks; do
+        dis "$f" | grep -q "<$f>:" || { echo "ERROR: no function $f in vmlinux; the check that names it reads nothing"; failed=1; }
+    done
+
+    # 0001: objtool wrote the fentry sites as NOPs, so ftrace_init does not rewrite ~41k calls
+    # at boot (7.0 ms, 2026-09-29). Without it every traced function still calls __fentry__.
+    ! dis vfs_read | grep -q '<__fentry__>' || lost 0001 "vfs_read still calls __fentry__"
+
+    # 0002: the weak function scan is compiled out when sorttable has zeroed those entries, so
+    # boot queues no kallsyms walk of every record (11.9 ms of a kworker). Without it, this
+    # initcall allocates a workqueue and queues the scan.
+    ! dis ftrace_check_for_weak_functions | grep -w call | grep -vq '<__fentry__>' ||
+        lost 0002 "ftrace_check_for_weak_functions still calls out (alloc_workqueue, queue_work)"
+
+    # 0003: boot does not queue the eval map rewrite of every event format (9.0 ms of a
+    # kworker), and the first read of a format does it.
+    ! dis trace_eval_init | grep -q '<queue_work_on>' || lost 0003 "trace_eval_init still queues the eval map rewrite"
+    dis trace_format_open | grep -q '<trace_eval_ensure>' || lost 0003 "trace_format_open does not apply the deferred eval maps"
+
+    # 0004: configuration space through ECAM first, one exit an access, not type 1's two. The
+    # first of the two ops tables each function reads is the one it prefers.
+    for f in raw_pci_read raw_pci_write; do
+        first=$(dis "$f" | grep -Eo -m1 '<raw_pci_(ext_)?ops>')
+        [ "$first" = '<raw_pci_ext_ops>' ] || lost 0004 "$f reads ${first:-neither ops table} first, not raw_pci_ext_ops"
+    done
+
+    # 0005: each device's capability list is walked once, at setup, and searches answer from it.
+    dis pci_setup_device | grep -q '<pci_cache_capabilities>' || lost 0005 "pci_setup_device does not read the capability list once"
+
+    # 0007: ORC's lookup table is built in one pass, so unwind_init has no binary search left
+    # to fail, and the message it gave when one did is gone.
+    ! grep -aqF 'Corrupt .orc_unwind table' vmlinux || lost 0007 "unwind_init still binary-searches for every block"
+
+    # 0008: a freed range's ftrace records go with one memmove. The machine code of either loop
+    # looks alike, so the source that was compiled is read.
+    grep -qF 'memmove(first, stop,' kernel/trace/ftrace.c || lost 0008 "ftrace_free_mem moves the page once for every record"
+
+    # 0010: early_quirks() asks whether it runs under KVM before scanning bus 0 through port
+    # I/O. The call is there only when the patch is and CONFIG_KVM_GUEST is on.
+    dis early_quirks | grep -q '<kvm_para_available>' || lost 0010 "early_quirks scans bus 0 in a KVM guest"
+
+    [ "$failed" = 0 ] || exit 1
+    echo "kernel patches: each is in this vmlinux"
+EOT
 
 # What this kernel is made of, one source or header a line: the union of the dependency lists
 # the build writes beside every object it compiled (.<object>.o.cmd: source_ and deps_). A CVE
