@@ -33,7 +33,8 @@ func TestReadAheadReadsTheDataAndNotTheHoles(t *testing.T) {
 	for i := range data {
 		data[i] = 1
 	}
-	for _, off := range []int64{0, 8 * mib} { // data, a hole of 7 MiB, data
+	const short = mib + 64<<10
+	for _, off := range []int64{0, short, 8 * mib} { // data, a hole of 64 KiB, data, a hole of ~6 MiB, data
 		if _, err := f.WriteAt(data, off); err != nil {
 			t.Fatal(err)
 		}
@@ -54,13 +55,13 @@ func TestReadAheadReadsTheDataAndNotTheHoles(t *testing.T) {
 	}
 	ReadAhead(f, Saved{Format: FormatMappedRAM}, LoadOptions{})
 	deadline := time.Now().Add(10 * time.Second)
-	for cached(t, f, 0, mib)+cached(t, f, 8*mib, mib) < 2*mib {
+	for cached(t, f, 0, mib)+cached(t, f, short, mib)+cached(t, f, 8*mib, mib) < 3*mib {
 		if time.Now().After(deadline) {
-			t.Fatalf("the data was not read ahead: %d and %d bytes cached", cached(t, f, 0, mib), cached(t, f, 8*mib, mib))
+			t.Fatalf("the data was not read ahead: %d, %d and %d bytes cached", cached(t, f, 0, mib), cached(t, f, short, mib), cached(t, f, 8*mib, mib))
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if n := cached(t, f, 2*mib, 4*mib); n != 0 {
+	if n := cached(t, f, 3*mib, 4*mib); n != 0 {
 		t.Errorf("%d bytes of the hole were read ahead", n)
 	}
 }

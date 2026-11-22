@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -622,31 +623,49 @@ func prefetches(saved Saved, load LoadOptions) bool {
 //
 // It is best effort and returns at once: data the kernel does not read ahead is read by the load
 // as before.
+//
+// Four goroutines ask, each for every fourth piece. One asking alone left a restore from the disk
+// 6 ms behind the same restore from the page cache, and four made the two equal (restore-first's
+// login −6.2 ms [−9.1, −4.3], bench, 30 a side, lab 44976924478). Each request is a syscall that
+// allocates the pages and submits their read, and one goroutine making them in turn was slower
+// than the disk.
 func prefetch(state *os.File) {
 	const prefetchChunk = 128 << 10 // mutate-exempt: the size of each request is speed, not what is read; the loop asks for every byte of each extent whatever it is
 	f, err := os.Open(fmt.Sprintf("/proc/self/fd/%d", state.Fd()))
 	if err != nil {
 		return
 	}
+	const askers = 4 // mutate-exempt: how many ask is speed, not what is read; the pieces of each extent are shared out among them whatever their number
+	var left sync.WaitGroup
+	left.Add(askers)
 	go func() {
-		defer func() { _ = f.Close() }()
-		fd := int(f.Fd())
-		for off := int64(0); ; { // mutate-exempt: SEEK_DATA from 1 finds the data the page at 0 starts, so a start of 1 reads the same pages
-			start, err := unix.Seek(fd, off, unix.SEEK_DATA)
-			if err != nil {
-				return
-			}
-			end, err := unix.Seek(fd, start, unix.SEEK_HOLE)
-			if err != nil {
-				return
-			}
-			// The kernel reads at most the device's readahead window of one request (128 KiB
-			// unless the disk says more) and drops the rest, so the extent is asked for in pieces.
-			for off = start; off < end; off += prefetchChunk {
-				_ = unix.Fadvise(fd, off, min(prefetchChunk, end-off), unix.FADV_WILLNEED) // mutate-exempt: past the extent's end a request reads the hole after it, which holds nothing; what is read of the data is the same
-			}
-		}
+		left.Wait()
+		_ = f.Close()
 	}()
+	for i := range int64(askers) {
+		go func() {
+			defer left.Done()
+			fd := int(f.Fd())
+			for off := int64(0); ; { // mutate-exempt: SEEK_DATA from 1 finds the data the page at 0 starts, so a start of 1 reads the same pages
+				start, err := unix.Seek(fd, off, unix.SEEK_DATA)
+				if err != nil {
+					return
+				}
+				end, err := unix.Seek(fd, start, unix.SEEK_HOLE)
+				if err != nil {
+					return
+				}
+				// The kernel reads at most the device's readahead window of one request (128 KiB
+				// unless the disk says more) and drops the rest, so the extent is asked for in pieces.
+				first := start + i*prefetchChunk // mutate-exempt: starting i pieces before the extent instead hands each goroutine the same pieces, four apart, so every piece is still asked for
+				for off = first; off < end; off += askers * prefetchChunk {
+					_ = unix.Fadvise(fd, off, min(prefetchChunk, end-off), unix.FADV_WILLNEED) // mutate-exempt: past the extent's end a request reads the hole after it, which holds nothing; what is read of the data is the same
+				}
+				// The last stride can end past a short hole, inside the next extent.
+				off = end
+			}
+		}()
+	}
 }
 
 // Loaded returns once the load is complete, which it may be before Loaded is called: the client
