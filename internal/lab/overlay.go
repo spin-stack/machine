@@ -228,6 +228,23 @@ grep -q '^ExecStop=' "$MNT/usr/lib/systemd/system/systemd-user-sessions.service"
 			Links: map[string]string{"/etc/systemd/system-generators/sshd-socket-generator": "/dev/null"},
 			Setup: `test -x "$MNT/usr/lib/systemd/system-generators/sshd-socket-generator"`,
 		}, nil
+	case "udev-after-basic":
+		return Edit{Setup: `for u in systemd-udevd.service systemd-udev-trigger.service; do
+	grep -qx 'Before=sysinit.target' "$MNT/usr/lib/systemd/system/$u"
+	sed '/^Before=sysinit.target$/d' "$MNT/usr/lib/systemd/system/$u" > "$MNT/etc/systemd/system/$u"
+	! grep -q 'Before=sysinit.target' "$MNT/etc/systemd/system/$u"
+done`}, nil
+	case "getty-weight":
+		return Edit{
+			Files: map[string]string{"/etc/systemd/system/serial-getty@.service.d/20-startup.conf": "[Service]\nStartupCPUWeight=1\n"},
+		}, nil
+	case "unused-sockets":
+		return Edit{
+			Mask: []string{"systemd-factory-reset.socket", "systemd-mute-console.socket", "systemd-sysext.socket", "systemd-creds.socket"},
+			Setup: `for u in systemd-factory-reset.socket systemd-mute-console.socket systemd-sysext.socket systemd-creds.socket; do
+	test -e "$MNT/usr/lib/systemd/system/$u"
+done`,
+		}, nil
 	case "no-memory-accounting":
 		return Edit{
 			Files: map[string]string{"/etc/systemd/system.conf.d/20-accounting.conf": "[Manager]\nDefaultMemoryAccounting=no\n"},
