@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	xssh "golang.org/x/crypto/ssh"
 	"golang.org/x/sys/unix"
 
 	"github.com/spin-stack/machine/machine"
@@ -139,6 +140,11 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
+	if os.Getenv("SCRATCH_TL") != "" {
+		d1, tl1, err1 := m.Key.timedLogin(c.cid)
+		d2, tl2, err2 := m.Key.timedLogin(c.cid)
+		m.Logf("restored login %v %v\n%s\nsecond %v %v\n%s", d1, err1, tl1, d2, err2, tl2)
+	}
 	login, err := m.Key.LoggedIn(mc, c.cid, t0)
 	if err != nil {
 		return err
@@ -264,6 +270,15 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 	}
 	if err := plugged(); err != nil {
 		return nil, err
+	}
+	if os.Getenv("SCRATCH_DBG") != "" {
+		_, out, err := m.Key.Run(c.cid, xssh.KeyExchangeMLKEM768X25519, `echo 'LogLevel DEBUG3' > /etc/ssh/sshd_config.d/00-dbg.conf; systemctl restart ssh.service; sleep 1; echo ok`)
+		m.Logf("dbg on: %q %v", out, err)
+		time.Sleep(500 * time.Millisecond)
+		d, tl, err := m.Key.timedLogin(c.cid)
+		m.Logf("timed login %v %v\n%s", d, err, tl)
+		_, out, err = m.Key.Run(c.cid, xssh.KeyExchangeMLKEM768X25519, `journalctl -o short-precise --no-pager -n 400 | grep -E 'sshd|systemd-logind|pam' | tail -150`)
+		m.Logf("journal %v\n%s", err, out)
 	}
 	t0 = time.Now()
 	if err := m.SpinMachine(append([]string{"save", "--qmp", qmp, "--to", c.state}, channels...)...); err != nil {
