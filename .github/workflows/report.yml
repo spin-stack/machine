@@ -120,6 +120,14 @@ jobs:
         working-directory: main
         run: spin-machine-dev releases record ../_output/lab/measured/*/ladder.json --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
+      # Each release's QEMU's query-qmp-schema, which go test holds the machine package to
+      # (internal/qmpdef/testdata/released): proposed with the record, so the next change is checked
+      # against the QEMU this release ships, with no VM. Unquoted: one word a release.
+      - name: Record each release's QMP schema
+        if: ${{ inputs.record && !cancelled() }}
+        working-directory: main
+        run: spin-machine-dev releases schema $VERSIONS
+
       # The app's token is made here and not first: it lasts an hour, and measuring past releases
       # takes longer.
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
