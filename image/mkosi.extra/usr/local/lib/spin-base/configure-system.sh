@@ -97,6 +97,18 @@ grep -qx 'After=sysinit.target' /usr/lib/systemd/system/dbus.socket
 sed -e '/^Wants=sysinit.target$/d' -e '/^After=sysinit.target$/d' \
     /usr/lib/systemd/system/dbus.socket > /etc/systemd/system/dbus.socket
 #
+# udevd and its coldplug not before sysinit.target, copies without that line for the same reason.
+# udevd runs at the lowest weight while the boot runs (systemd-udevd.service.d/20-startup.conf),
+# so its start came after every early unit and sysinit.target, basic.target and spin's supervisor
+# waited for it. Without the order, cold first login -46.3 [-49.4, -39.8] ms, basic.target 286 ->
+# 242 ms on the guest's clock, udevd ready after the login (bench, spin's shape, lab 44977226981,
+# 2026-11-22). A checkpoint saved with udev still at work then has the guest's tick running, and
+# QEMU's patch 0005 is what keeps that checkpoint's restore from sleeping ~450 ms (#452).
+for u in systemd-udevd.service systemd-udev-trigger.service; do
+    grep -qx 'Before=sysinit.target' "/usr/lib/systemd/system/$u"
+    sed '/^Before=sysinit.target$/d' "/usr/lib/systemd/system/$u" > "/etc/systemd/system/$u"
+done
+#
 # No /run/nologin at boot. systemd-tmpfiles-setup writes it and systemd-user-sessions.service
 # removes it late, and until then pam_nologin turns every user away - in the lane, the first
 # login's sshd ran first and was refused: "Access denied for user spin by PAM account
