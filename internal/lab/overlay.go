@@ -197,6 +197,14 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return floorEdit, nil
 	case "nolinger":
 		return noLingerEdit, nil
+	case "manager-wants":
+		return Edit{Files: map[string]string{"/etc/systemd/system/user-runtime-dir@.service.d/20-manager.conf": "[Unit]\nWants=user@%i.service\n"}}, nil
+	case "user-early":
+		return Edit{Setup: `grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
+sed -i 's/class=user-early-light/class=user-early/' "$MNT/etc/pam.d/common-session"
+grep -q 'pam_systemd.so.*class=user-early$' "$MNT/etc/pam.d/common-session" || grep -q 'pam_systemd.so.*class=user-early ' "$MNT/etc/pam.d/common-session"
+! grep -q 'user-early-light' "$MNT/etc/pam.d/common-session"
+`}, nil
 	case "forwarder-early":
 		return forwarderEarlyEdit, nil
 	case "carry-masks":
