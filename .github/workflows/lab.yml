@@ -32,6 +32,7 @@ on:
           - density
           - transport
           - run-delay
+          - usage
           - check:firmware
           - check:firmware-stages
           - check:waits

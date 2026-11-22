@@ -452,6 +452,7 @@ var Probes = map[string]Probe{
 	"run-delay":        runDelay{},
 	"ssh-first":        sshFirst{},
 	"transport":        transport{},
+	"usage":            usage{},
 }
 
 // ProbeNames are the probes' names, sorted.

@@ -358,6 +358,13 @@ default `load=cpu`. A row such as `16:nice=10` runs the crowd's QEMUs at that ni
 gives the measured QEMU the share it would get at the same value below 0. The detail under its
 table lists each kind of thread's wait.
 
+`usage` is what reading a running machine's disk counters costs it: `DiskUsage`, which `Usage`
+and the probe's watch of a held disk send (#402). After the cold login it times `calls` round
+trips (default 200) of DiskUsage, each beside a query-status, and QEMU's main thread's CPU time
+across each. It then pins QEMU's threads to one host CPU beside two busy loops and times them
+again. `depth` puts that many images in the root disk's chain (default 1, the overlay over the
+base), as each seal of a workspace's disk adds one.
+
 `lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
 compare. Use `--host bench` (nested, the default) unless the question is nested against metal. `--ref` names the branch whose lab.yml and probes run (default
