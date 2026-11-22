@@ -133,6 +133,14 @@ while read -r pkg version _; do
     echo "==> held: $pkg $version"
 done < "$SHARE/packages.txt"
 
+# docs/image.md, "The inventory".
+python3 -I /usr/local/share/spin-image/deviations.py "$tree" > /work/deviations.txt
+diff -u /usr/local/share/spin-image/deviations.txt /work/deviations.txt || {
+    echo "ERROR: the image differs from its packages in ways image/deviations.txt does not list (above):" >&2
+    echo "       update it, and docs/image.md says why for each" >&2
+    exit 1; }
+echo "==> $(wc -l < /work/deviations.txt) deviations from the packages, as image/deviations.txt lists"
+
 # The filesystem, sized to what the tree needs, plus a small margin, and nothing else. Free space in the base
 # is free space in every overlay built on it, whether or not that overlay's disk was meant to
 # have it: a disk larger than the image, with the filesystem grown to fill it, has the space it
