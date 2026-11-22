@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -135,7 +136,9 @@ func Parse(line []byte) (Line, error) {
 			if err != nil || n < 0 {
 				return nil, fmt.Errorf("a pressure line that is not one: %q", line)
 			}
-			us[i] = time.Duration(n) * time.Microsecond
+			// A guest's count of microseconds past what a Duration holds would wrap to a stall
+			// in the past: it saturates instead.
+			us[i] = time.Duration(min(n, math.MaxInt64/int64(time.Microsecond))) * time.Microsecond
 		}
 		return Stall{Resource: r, Threshold: us[0], Window: us[1], Total: us[2]}, nil
 	case "oom":

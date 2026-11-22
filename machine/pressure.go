@@ -95,7 +95,9 @@ type SlowCommand struct {
 }
 
 // GuestLost is the guest's sender gone: its connection ended, or said something that is not a
-// pressure line. The guest's vantage is blind until it dials again, which it does by itself.
+// pressure line, or sent lines faster than ErrGuestTooFast allows. The guest's vantage is blind
+// until it dials again, which it does by itself. Ends that come while one waits its answerWait
+// are one GuestLost, whose Err is the last of them.
 type GuestLost struct {
 	At  time.Time
 	Err error
@@ -109,6 +111,51 @@ func (Stall) pressure()               {}
 func (OOMKill) pressure()             {}
 func (SlowCommand) pressure()         {}
 func (GuestLost) pressure()           {}
+
+// ErrGuestTooFast is a GuestLost's Err when the guest sent more lines than lineBurst at
+// once or lineRate a second: a guest whose root writes what it likes to the port.
+var ErrGuestTooFast = fmt.Errorf("the guest sent more than %d pressure lines at once or %d a second", lineBurst, lineRate)
+
+// A guest is not trusted with the host's time: what it sends is bounded in size (pressure.MaxLine),
+// in count (one connection per CID), and in rate, by these. The sender writes a Stall at most once
+// a trigger's window, 1 s, for each of cpu, memory and io; an OOM line each time memory.events of a
+// top-level cgroup notifies a changed oom_kill, at most every 10 ms a cgroup and only in an OOM
+// storm; and a hello on each connection. It dials again 1 s after a connection ends and backs off
+// to 30 s while nobody listens (cmd/spin-machine-pressure). So:
+//
+//   - lineBurst and lineRate pace a watch's lines, ~5 times the 3 Stalls a second a guest sends
+//     outside an OOM storm. A guest over them is cut off: its next hello carries the kills it could
+//     not send, and its next Stall the stall, since both are totals, so a legitimate guest caught
+//     by an OOM storm loses a second, not a count.
+//   - acceptBurst and acceptRate pace a watch's connections, at the rate the sender dials when each
+//     connection ends at once. A connection over them is closed and the one held stays.
+const (
+	lineBurst   = 64
+	lineRate    = 16
+	acceptBurst = 4
+	acceptRate  = 1
+)
+
+// pace is a token bucket: burst events at once, then rate a second.
+type pace struct {
+	burst, rate float64
+	tokens      float64
+	last        time.Time
+}
+
+func (p *pace) allow(now time.Time) bool {
+	if p.last.IsZero() {
+		p.tokens = p.burst
+	} else {
+		p.tokens = min(p.burst, p.tokens+now.Sub(p.last).Seconds()*p.rate)
+	}
+	p.last = now
+	if p.tokens < 1 {
+		return false
+	}
+	p.tokens--
+	return true
+}
 
 const (
 	// slowCommand and slowFactor make a command slow. Idle, query-status answered in 74 µs, and
@@ -169,7 +216,11 @@ func (l *PressureListener) Close() error {
 // Watch is one machine's watch, for StartOptions.Pressure. notify is told every Pressure the
 // machine meets, from more than one goroutine, and must not block: the probe's readers wait for it.
 func (l *PressureListener) Watch(notify func(Pressure)) *PressureWatch {
-	return &PressureWatch{l: l, notify: notify}
+	return &PressureWatch{
+		l: l, notify: notify,
+		accepts: pace{burst: acceptBurst, rate: acceptRate},
+		lines:   pace{burst: lineBurst, rate: lineRate},
+	}
 }
 
 // PressureWatch is one machine's watch: its notify, and what it last heard of its guest. Start
@@ -178,16 +229,25 @@ type PressureWatch struct {
 	l      *PressureListener
 	notify func(Pressure)
 
-	// cid, conn and ended are the listener's, under its lock: the CID the machine is watched
-	// under, its guest's one connection, and a channel closed once QEMU has exited.
-	cid   uint32
-	conn  *os.File
-	ended chan struct{}
+	// cid, conn, ended, accepts and lost are the listener's, under its lock: the CID the machine
+	// is watched under, its guest's one connection, a channel closed once QEMU has exited, the
+	// pace of the guest's connections, and why the guest was last lost while its GuestLost waits.
+	cid     uint32
+	conn    *os.File
+	ended   chan struct{}
+	accepts pace
+	lost    error
 
 	mu sync.Mutex
-	// oom is the guest's oom_kill as last heard, and heard whether there is one yet.
+	// lines paces the guest's lines.
+	lines pace
+	// oom is the guest's oom_kill as last heard, and heard whether there is one yet. It never goes
+	// down while the watch lives: a guest's reboot ends QEMU (-no-reboot), and a restored guest
+	// continues its count.
 	oom   uint64
 	heard bool
+	// stalled is each resource's Total as the guest last said it, which never goes down either.
+	stalled [pressure.IO + 1]time.Duration
 	// baseline is each command's usual time on Start's monitor.
 	baseline map[string]time.Duration
 	// busy is whether the machine is loading or saving a state.
@@ -263,12 +323,12 @@ func (l *PressureListener) accept() {
 // take makes c the one connection of the machine watched under cid, ending the one before: a
 // guest dials again after a restore's reset, and a guest dialling again and again holds one
 // descriptor of the host, not one each. It returns the machine's watch, or nil for a CID nobody
-// watches or once the listener is closed.
+// watches, a connection over the watch's acceptRate, or once the listener is closed.
 func (l *PressureListener) take(cid uint32, c *os.File) *PressureWatch {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	w := l.byCID[cid]
-	if w == nil || l.closed {
+	if w == nil || l.closed || !w.accepts.allow(time.Now()) {
 		return nil
 	}
 	if w.conn != nil {
@@ -279,23 +339,35 @@ func (l *PressureListener) take(cid uint32, c *os.File) *PressureWatch {
 }
 
 // serve reads the guest's connection c until it ends, and tells its machine the guest is lost
-// unless the connection was replaced, the machine has exited, or the listener closed.
+// unless the connection was replaced, the machine has exited, or the listener closed. One end
+// waits at a time: an end while another waits gives it its error and returns, so a guest that
+// dials and drops again and again holds one goroutine and one timer of the host, not one each.
 func (l *PressureListener) serve(c *os.File, w *PressureWatch) {
 	err := w.read(c)
 	_ = c.Close()
 	l.mu.Lock()
 	current := w.conn == c && !l.closed
+	waiting := w.lost != nil
+	if current {
+		w.lost = err
+	}
 	l.mu.Unlock()
-	if !current {
+	if !current || waiting {
 		return
 	}
 	// QEMU's exit resets the connection a moment before its reaper sees the exit, and closes ended.
+	exited := false
 	select {
 	case <-w.ended:
-		return
+		exited = true
 	case <-time.After(answerWait):
 	}
-	w.notify(GuestLost{At: time.Now(), Err: err})
+	l.mu.Lock()
+	err, w.lost = w.lost, nil
+	l.mu.Unlock()
+	if !exited {
+		w.notify(GuestLost{At: time.Now(), Err: err})
+	}
 }
 
 // read takes the guest's lines off c until it ends, and says why it ended.
@@ -304,6 +376,9 @@ func (w *PressureWatch) read(c io.Reader) error {
 	first := true
 	for {
 		line, err := in.ReadSlice('\n')
+		if err == nil && !w.paced(time.Now()) {
+			return ErrGuestTooFast
+		}
 		if errors.Is(err, bufio.ErrBufferFull) {
 			return fmt.Errorf("the guest sent a line longer than %d bytes", pressure.MaxLine)
 		}
@@ -325,32 +400,49 @@ func (w *PressureWatch) read(c io.Reader) error {
 	}
 }
 
-// heardGuest turns a guest's line into what it tells the caller.
+func (w *PressureWatch) paced(now time.Time) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.lines.allow(now)
+}
+
+// heardGuest turns a guest's line into what it tells the caller. A total below the one last heard
+// is a guest's lie, and tells nothing: so the OOMKills a watch reports add up to at most the
+// largest count its guest sent, and never overflow a uint64, and a Total never goes backwards.
 func (w *PressureWatch) heardGuest(l pressure.Line, at time.Time) {
+	var told Pressure
+	w.mu.Lock()
 	switch l := l.(type) {
 	case pressure.Hello:
-		w.kills(l.OOMKills, at)
+		told = w.kills(l.OOMKills, at)
 	case pressure.OOM:
-		w.kills(l.Kills, at)
+		told = w.kills(l.Kills, at)
 	case pressure.Stall:
-		w.notify(Stall{At: at, Seen: Guest, Resource: l.Resource, Threshold: l.Threshold, Window: l.Window, Total: l.Total})
+		if l.Total >= w.stalled[l.Resource] {
+			w.stalled[l.Resource] = l.Total
+			told = Stall{At: at, Seen: Guest, Resource: l.Resource, Threshold: l.Threshold, Window: l.Window, Total: l.Total}
+		}
+	}
+	w.mu.Unlock()
+	if told != nil {
+		w.notify(told)
 	}
 }
 
-// kills reports the kills since the count last heard. The first count heard is the base: a machine
-// resumed from a checkpoint hears the kills its guest had before it, which were the machine's
-// before it to report.
-func (w *PressureWatch) kills(n uint64, at time.Time) {
-	w.mu.Lock()
-	news := uint64(0)
-	if w.heard && n > w.oom {
-		news = n - w.oom
+// kills is the kills since the count last heard, under w.mu, or nil. The first count heard is the
+// base: a machine resumed from a checkpoint hears the kills its guest had before it, which were
+// the machine's before it to report.
+func (w *PressureWatch) kills(n uint64, at time.Time) Pressure {
+	if !w.heard {
+		w.oom, w.heard = n, true
+		return nil
 	}
-	w.oom, w.heard = n, true
-	w.mu.Unlock()
-	if news > 0 {
-		w.notify(OOMKill{At: at, Kills: news})
+	if n <= w.oom {
+		return nil
 	}
+	news := n - w.oom
+	w.oom = n
+	return OOMKill{At: at, Kills: news}
 }
 
 // observe wraps the caller's Observer: every command is timed, and the migration's events say
