@@ -1,5 +1,5 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
-Date: Sat, 21 Nov 2026 19:30:00 -0300
+Date: Sun, 22 Nov 2026 12:00:00 -0300
 Subject: [PATCH] migration: x-defer-disk-flush, no flush to the host's disk
  while the VM is stopped for a switchover
 
@@ -30,12 +30,48 @@ until it runs.  A seal at pre-switchover (blockdev-snapshot flushes the
 node it puts under the overlay) and the activation in cont are deferred
 the same way.
 
+The stop itself decides, from its run state: do_vm_stop and
+vm_stop_force_state's stopped branch start the deferral after their
+drain when the state is finish-migrate and the capability holds.  The
+alternative, an argument threaded through migration_stop_vm, a second
+vm_stop_force_state and the stop's helpers, took about 80 more lines to
+say the same.  Postcopy's and CPR's stops are finish-migrate too, and
+migrate_defer_disk_flush() is false with postcopy-ram or a CPR mode:
+only precopy's completion was traced and measured, and CPR's stop can
+precede a host reboot (cpr-reboot), which loses what the page cache
+holds.  The accessor is in migration/misc.h, the header the
+rest of QEMU reads migration from.
+
 Assisted-by: LLM
 ---
-diff -ruN a/block/io.c b/block/io.c
+ block.c                            |  3 +++
+ block/io.c                         | 24 +++++++++++++++++++++++-
+ include/block/block-global-state.h |  1 +
+ include/migration/misc.h           |  1 +
+ migration/options.c                | 13 +++++++++++++
+ qapi/migration.json                | 13 +++++++++++--
+ system/runstate.c                  | 19 +++++++++++++++++++
+ 7 files changed, 71 insertions(+), 3 deletions(-)
+
+diff --git a/block.c b/block.c
+index 006c34134..22b09a3eb 100644
+--- a/block.c
++++ b/block.c
+@@ -5266,6 +5266,9 @@ void bdrv_close_all(void)
+     GLOBAL_STATE_CODE();
+     assert(job_next(NULL) == NULL);
+ 
++    /* What a stopped VM's deferred flushes left goes to the disk now */
++    bdrv_defer_flush_to_disk(false);
++
+     /* Drop references from requests still in flight, such as canceled block
+      * jobs whose AIO context has not been polled yet */
+     bdrv_drain_all();
+diff --git a/block/io.c b/block/io.c
+index 0f81b7e6b..dea789eb5 100644
 --- a/block/io.c
 +++ b/block/io.c
-@@ -2357,6 +2357,22 @@
+@@ -2357,6 +2357,22 @@ int coroutine_fn bdrv_co_pwrite_zeroes(BdrvChild *child, int64_t offset,
                             BDRV_REQ_ZERO_WRITE | flags);
  }
  
@@ -58,7 +94,7 @@ diff -ruN a/block/io.c b/block/io.c
  /*
   * Flush ALL BDSes regardless of if they are reachable via a BlkBackend or not.
   */
-@@ -3045,6 +3061,7 @@
+@@ -3045,6 +3061,7 @@ int coroutine_fn bdrv_co_flush(BlockDriverState *bs)
      BdrvChild *child;
      int current_gen;
      int ret = 0;
@@ -66,7 +102,7 @@ diff -ruN a/block/io.c b/block/io.c
      IO_CODE();
  
      assert_bdrv_graph_readable();
-@@ -3092,6 +3109,11 @@
+@@ -3092,6 +3109,11 @@ int coroutine_fn bdrv_co_flush(BlockDriverState *bs)
          goto flush_children;
      }
  
@@ -78,7 +114,7 @@ diff -ruN a/block/io.c b/block/io.c
      BLKDBG_CO_EVENT(primary_child, BLKDBG_FLUSH_TO_DISK);
      if (!bs->drv) {
          /* bs->drv->bdrv_co_flush() might have ejected the BDS
-@@ -3149,7 +3171,7 @@
+@@ -3149,7 +3171,7 @@ flush_children:
  
  out:
      /* Notify any pending flushes that we have completed */
@@ -87,23 +123,11 @@ diff -ruN a/block/io.c b/block/io.c
          bs->flushed_gen = current_gen;
      }
  
-diff -ruN a/block.c b/block.c
---- a/block.c
-+++ b/block.c
-@@ -5266,6 +5266,9 @@
-     GLOBAL_STATE_CODE();
-     assert(job_next(NULL) == NULL);
- 
-+    /* What a stopped VM's deferred flushes left goes to the disk now */
-+    bdrv_defer_flush_to_disk(false);
-+
-     /* Drop references from requests still in flight, such as canceled block
-      * jobs whose AIO context has not been polled yet */
-     bdrv_drain_all();
-diff -ruN a/include/block/block-global-state.h b/include/block/block-global-state.h
+diff --git a/include/block/block-global-state.h b/include/block/block-global-state.h
+index ed89999f0..48bca6649 100644
 --- a/include/block/block-global-state.h
 +++ b/include/block/block-global-state.h
-@@ -196,6 +196,7 @@
+@@ -196,6 +196,7 @@ void bdrv_activate_all(Error **errp);
  int GRAPH_UNLOCKED bdrv_inactivate_all(void);
  
  int bdrv_flush_all(void);
@@ -111,120 +135,55 @@ diff -ruN a/include/block/block-global-state.h b/include/block/block-global-stat
  void GRAPH_UNLOCKED bdrv_close_all(void);
  void GRAPH_UNLOCKED bdrv_drain_all_begin(void);
  void bdrv_drain_all_begin_nopoll(void);
-diff -ruN a/include/system/runstate.h b/include/system/runstate.h
---- a/include/system/runstate.h
-+++ b/include/system/runstate.h
-@@ -116,6 +116,7 @@
+diff --git a/include/migration/misc.h b/include/migration/misc.h
+index 86cc7eefd..b5130a269 100644
+--- a/include/migration/misc.h
++++ b/include/migration/misc.h
+@@ -167,5 +167,6 @@ bool multifd_join_device_state_save_threads(void);
+ void migration_request_switchover_ack_legacy(const char *requester);
  
- int vm_stop(RunState state);
- int vm_stop_force_state(RunState state);
-+int vm_stop_force_state_defer_flush(RunState state);
- int vm_shutdown(void);
- void vm_set_suspended(bool suspended);
- bool vm_get_suspended(void);
-diff -ruN a/migration/migration.c b/migration/migration.c
---- a/migration/migration.c
-+++ b/migration/migration.c
-@@ -289,7 +289,8 @@
-     return (a > b) - (a < b);
- }
+ bool migrate_local(void);
++bool migrate_defer_disk_flush(void);
  
--static int migration_stop_vm(MigrationState *s, RunState state)
-+static int migration_stop_vm(MigrationState *s, RunState state,
-+                             bool defer_flush)
- {
-     int ret;
- 
-@@ -298,7 +299,8 @@
-     s->vm_old_state = runstate_get();
-     global_state_store();
- 
--    ret = vm_stop_force_state(state);
-+    ret = defer_flush ? vm_stop_force_state_defer_flush(state)
-+                      : vm_stop_force_state(state);
- 
-     trace_vmstate_downtime_checkpoint("src-vm-stopped");
-     trace_migration_completion_vm_stop(ret);
-@@ -2663,7 +2665,7 @@
-     bql_lock();
-     trace_postcopy_start_set_run();
- 
--    ret = migration_stop_vm(ms, RUN_STATE_FINISH_MIGRATE);
-+    ret = migration_stop_vm(ms, RUN_STATE_FINISH_MIGRATE, false);
-     if (ret < 0) {
-         error_setg_errno(errp, -ret, "%s: Failed to stop the VM", __func__);
-         goto fail;
-@@ -2925,7 +2927,8 @@
-     bql_lock();
- 
-     if (!migrate_mode_is_cpr()) {
--        int r = migration_stop_vm(s, RUN_STATE_FINISH_MIGRATE);
-+        int r = migration_stop_vm(s, RUN_STATE_FINISH_MIGRATE,
-+                                  migrate_defer_disk_flush());
- 
-         if (r < 0) {
-             error_setg_errno(errp, -r, "Failed to stop the VM");
-@@ -3927,7 +3930,7 @@
- 
-     bql_lock();
- 
--    if (migration_stop_vm(s, RUN_STATE_PAUSED)) {
-+    if (migration_stop_vm(s, RUN_STATE_PAUSED, false)) {
-         error_setg(&local_err, "Failed to stop the VM");
-         goto fail_with_bql;
-     }
-@@ -4052,7 +4055,7 @@
-     }
- 
-     if (migrate_mode_is_cpr()) {
--        ret = migration_stop_vm(s, RUN_STATE_FINISH_MIGRATE);
-+        ret = migration_stop_vm(s, RUN_STATE_FINISH_MIGRATE, false);
-         if (ret < 0) {
-             error_setg(&local_err, "migration_stop_vm failed, error %d", -ret);
-             goto fail;
-diff -ruN a/migration/options.c b/migration/options.c
+ #endif
+diff --git a/migration/options.c b/migration/options.c
+index bd40394aa..5f2f597a4 100644
 --- a/migration/options.c
 +++ b/migration/options.c
-@@ -354,6 +354,13 @@
+@@ -354,6 +354,19 @@ bool migrate_events(void)
      return s->capabilities[MIGRATION_CAPABILITY_EVENTS];
  }
  
++/*
++ * Postcopy's and CPR's stops are finish-migrate too, and never defer: only
++ * precopy's completion was measured, and CPR's stop can precede a host
++ * reboot (cpr-reboot), which loses what the page cache holds.
++ */
 +bool migrate_defer_disk_flush(void)
 +{
 +    MigrationState *s = migrate_get_current();
 +
-+    return s->capabilities[MIGRATION_CAPABILITY_X_DEFER_DISK_FLUSH];
++    return s->capabilities[MIGRATION_CAPABILITY_X_DEFER_DISK_FLUSH] &&
++           !migrate_postcopy_ram() && !migrate_mode_is_cpr();
 +}
 +
  bool migrate_mapped_ram(void)
  {
      MigrationState *s = migrate_get_current();
-diff -ruN a/migration/options.h b/migration/options.h
---- a/migration/options.h
-+++ b/migration/options.h
-@@ -27,6 +27,7 @@
- 
- bool migrate_auto_converge(void);
- bool migrate_colo(void);
-+bool migrate_defer_disk_flush(void);
- bool migrate_dirty_bitmaps(void);
- bool migrate_events(void);
- bool migrate_mapped_ram(void);
-diff -ruN a/qapi/migration.json b/qapi/migration.json
+diff --git a/qapi/migration.json b/qapi/migration.json
+index 889a9b89c..592073828 100644
 --- a/qapi/migration.json
 +++ b/qapi/migration.json
-@@ -518,9 +518,19 @@
+@@ -518,9 +518,17 @@
  #     each RAM page.  Requires a migration URI that supports seeking,
  #     such as a file.  (since 9.0)
  #
-+# @x-defer-disk-flush: If enabled, from the switchover's stop until
-+#     the VM runs again or QEMU closes the disks, nothing forces the
-+#     disks' writes to the host's disk: they reach the host's page
-+#     cache, and the next flush after, the guest's or one made by
-+#     whoever uses the images, forces them.  Every flush the guest
-+#     made before the stop is done first.  For a migration whose
-+#     reader shares this host's page cache, such as a checkpoint to
-+#     a file on it.  (since 11.2)
++# @x-defer-disk-flush: If enabled, a precopy switchover's stop
++#     completes the guest's flushes, then leaves the disks' writes in
++#     the host's page cache until the VM runs again or QEMU closes the
++#     disks.  For a migration whose reader shares this host's page
++#     cache, such as a checkpoint to a file on it.  Ignored with
++#     @postcopy-ram or a CPR mode.  (since 11.2)
 +#
  # Features:
  #
@@ -234,7 +193,7 @@ diff -ruN a/qapi/migration.json b/qapi/migration.json
  #
  # Since: 1.2
  ##
-@@ -534,7 +544,8 @@
+@@ -534,7 +542,8 @@
             { 'name': 'x-ignore-shared', 'features': [ 'unstable' ] },
             'validate-uuid', 'background-snapshot',
             'zero-copy-send', 'postcopy-preempt', 'switchover-ack',
@@ -244,72 +203,28 @@ diff -ruN a/qapi/migration.json b/qapi/migration.json
  
  ##
  # @MigrationCapabilityStatus:
-diff -ruN a/system/runstate.c b/system/runstate.c
+diff --git a/system/runstate.c b/system/runstate.c
+index 56bfc5b07..c59fdb1ef 100644
 --- a/system/runstate.c
 +++ b/system/runstate.c
-@@ -425,7 +425,27 @@
-     return vm_was_suspended;
- }
- 
--static int do_vm_stop(RunState state, bool send_stop)
-+/*
-+ * Drains the disks and flushes them, the flush to the host's disk deferred
-+ * when defer_flush (bdrv_defer_flush_to_disk): set once the drain has
-+ * completed every request the guest made, so no flush of the guest's is
-+ * deferred.  The deferral ends when the VM runs again (vm_prepare_start)
-+ * or the disks are closed (bdrv_close_all).
-+ */
-+static int vm_stop_flush(bool defer_flush)
-+{
-+    int ret;
-+
-+    bdrv_drain_all();
-+    if (defer_flush) {
-+        bdrv_defer_flush_to_disk(true);
-+    }
-+    ret = bdrv_flush_all();
-+    trace_vm_stop_flush_all(ret);
-+    return ret;
-+}
-+
-+static int do_vm_stop(RunState state, bool send_stop, bool defer_flush)
- {
-     int ret = 0;
-     RunState oldstate = runstate_get();
-@@ -443,13 +463,11 @@
-         }
+@@ -444,6 +444,16 @@ static int do_vm_stop(RunState state, bool send_stop)
      }
  
--    bdrv_drain_all();
+     bdrv_drain_all();
++    /*
++     * A precopy switchover under x-defer-disk-flush defers every flush to
++     * the host's disk until the VM runs again (vm_prepare_start) or the
++     * disks are closed (bdrv_close_all).  It starts after the drain, which
++     * completed every request the guest made, so no flush of the guest's is
++     * deferred.
++     */
++    if (state == RUN_STATE_FINISH_MIGRATE && migrate_defer_disk_flush()) {
++        bdrv_defer_flush_to_disk(true);
++    }
      /*
       * Even if vm_state_notify() return failure,
       * it would be better to flush as before.
-      */
--    ret |= bdrv_flush_all();
--    trace_vm_stop_flush_all(ret);
-+    ret |= vm_stop_flush(defer_flush);
- 
-     return ret;
- }
-@@ -460,7 +478,7 @@
-  */
- int vm_shutdown(void)
- {
--    return do_vm_stop(RUN_STATE_SHUTDOWN, false);
-+    return do_vm_stop(RUN_STATE_SHUTDOWN, false, false);
- }
- 
- 
-@@ -477,7 +495,7 @@
-         return 0;
-     }
- 
--    return do_vm_stop(state, true);
-+    return do_vm_stop(state, true, false);
- }
- 
- /**
-@@ -517,6 +535,11 @@
+@@ -517,6 +527,11 @@ int vm_prepare_start(bool step_pending)
      /* We are sending this now, but the CPUs will be resumed shortly later */
      qapi_event_send_resume();
  
@@ -321,49 +236,14 @@ diff -ruN a/system/runstate.c b/system/runstate.c
      cpu_enable_ticks();
      runstate_set(state);
      vm_state_notify(1, state);
-@@ -544,25 +567,38 @@
-  * does a state transition even if the VM is already stopped,
-  * current state is forgotten forever
-  */
--int vm_stop_force_state(RunState state)
-+static int force_state(RunState state, bool defer_flush)
- {
-     if (runstate_is_live(runstate_get())) {
--        return vm_stop(state);
-+        if (!defer_flush || qemu_in_vcpu_thread()) {
-+            return vm_stop(state);
-+        }
-+        return do_vm_stop(state, true, true);
-     } else {
--        int ret;
+@@ -553,6 +568,10 @@ int vm_stop_force_state(RunState state)
          runstate_set(state);
  
--        bdrv_drain_all();
+         bdrv_drain_all();
++        /* As in do_vm_stop() */
++        if (state == RUN_STATE_FINISH_MIGRATE && migrate_defer_disk_flush()) {
++            bdrv_defer_flush_to_disk(true);
++        }
          /*
           * Make sure to return an error if the flush in a previous vm_stop()
           * failed.
-          */
--        ret = bdrv_flush_all();
--        trace_vm_stop_flush_all(ret);
--        return ret;
-+        return vm_stop_flush(defer_flush);
-     }
- }
- 
-+int vm_stop_force_state(RunState state)
-+{
-+    return force_state(state, false);
-+}
-+
-+/*
-+ * vm_stop_force_state(), every flush to the host's disk from its drain on
-+ * deferred until the VM runs again or the disks are closed.
-+ */
-+int vm_stop_force_state_defer_flush(RunState state)
-+{
-+    return force_state(state, true);
-+}
-+
- static ShutdownCause reset_requested;
- static ShutdownCause shutdown_requested;
- static int shutdown_exit_code = EXIT_SUCCESS;
