@@ -82,13 +82,13 @@ the user's runtime directory and manager. None of them waits for `sysinit.target
 - **No `/run/nologin` at boot.** Until `systemd-user-sessions` removes it late in the boot,
   `pam_nologin` refuses every user, and in the lane the first login arrives before that. Shutting
   down still writes it.
-- **Sessions of class `user-early-light`.** logind holds a session of class `user` until the
-  user's manager has started and the boot's `systemd-user-sessions` has run. A light, early
-  session has its scope and `XDG_RUNTIME_DIR` and waits for neither. Nobody lingers: no user's
-  manager starts in the boot. logind starts no manager for a light session, so
-  `user-runtime-dir@`'s `20-manager.conf` starts one beside every login. The login does not
-  wait for it, and a command that needs the user bus at once in the first login can arrive
-  before it.
+- **Sessions of class `user-early`, and root lingers.** logind holds a session of class `user`
+  until the user's manager has started and the boot's `systemd-user-sessions` has run. An early
+  session waits for the manager and not for the boot, so the first login's own
+  `systemctl --user` finds its manager. spin logs in as root, and root lingers, so root's
+  manager starts in the boot and is usually up when the first login asks for it. The manager
+  reads its sockets' environment from `/etc/environment.d/10-user-sockets.conf`, so its sockets
+  run no `systemctl --user set-environment` while a login waits.
 
 udev's coldplug replays only the devices something here uses (`10-coldplug.conf`), so the
 lane has the CPU. On the bench fleet the first login went 478 -> 402 ms with all of it (`task

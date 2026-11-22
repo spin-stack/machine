@@ -346,9 +346,13 @@ test -e "$MNT/usr/lib/systemd/system/multi-user.target.wants/systemd-logind.serv
 grep -qx 'After=sysinit.target' "$MNT/usr/lib/systemd/system/dbus.socket"
 sed -e '/^Wants=sysinit.target$/d' -e '/^After=sysinit.target$/d' "$MNT/usr/lib/systemd/system/dbus.socket" > "$MNT/etc/systemd/system/dbus.socket"
 ln -sf /dev/null "$MNT/etc/tmpfiles.d/systemd-nologin.conf"
-grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session" ||
-	sed -i 's/^\(session.*pam_systemd\.so\)\(.*\)$/\1\2 class=user-early-light/' "$MNT/etc/pam.d/common-session"
-grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
+sed -i 's/ class=user-early-light$//' "$MNT/etc/pam.d/common-session"
+grep -q 'pam_systemd.so.*class=user-early$' "$MNT/etc/pam.d/common-session" ||
+	sed -i 's/^\(session.*pam_systemd\.so\)\(.*\)$/\1\2 class=user-early/' "$MNT/etc/pam.d/common-session"
+grep -q 'pam_systemd.so.*class=user-early$' "$MNT/etc/pam.d/common-session"
+rm -f "$MNT/etc/systemd/system/user-runtime-dir@.service.d/20-manager.conf"
+mkdir -p "$MNT/var/lib/systemd/linger"
+touch "$MNT/var/lib/systemd/linger/root"
 `,
 	}
 	rootfs := filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs")
@@ -364,6 +368,14 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 			return Edit{}, fmt.Errorf("reading the lane's %s from this checkout: %w", d, err)
 		}
 		e.Files["/etc/systemd/system/"+d] = string(b)
+	}
+	for _, f := range []string{"environment.d/10-user-sockets.conf", "systemd/user/dbus.socket.d/10-env.conf",
+		"systemd/user/ssh-agent.socket.d/10-env.conf"} {
+		b, err := os.ReadFile(filepath.Join(rootfs, "etc", f))
+		if err != nil {
+			return Edit{}, fmt.Errorf("reading the lane's %s from this checkout: %w", f, err)
+		}
+		e.Files["/etc/"+f] = string(b)
 	}
 	return e, nil
 }
