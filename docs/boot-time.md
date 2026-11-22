@@ -201,6 +201,7 @@ them for boot time.
 | ssh.service without Ubuntu's `sshd -t` before it starts (`20-no-config-test.conf`); the check stays on reload | image drop-in | −3.2 [−7.2, −0.8], sshd accepting −2.4 [−6.4, −1.1], 60 boots a side | measured | lab 44977044826 |
 | logind, its Varlink socket, `user-runtime-dir@`, `user@` without default dependencies; `dbus.socket` without sysinit | image drop-ins, configure-system.sh | lane 478 → 402 (11-13) | lane | lab 43518915618 |
 | Sessions of class `user-early-light` | configure-system.sh | lane 472 vs 436 | lane, mechanism: a root session would start `user@0` | lab 43518044150 |
+| Every login's user manager started beside it, not waited for (`user-runtime-dir@`'s `20-manager.conf`, #462) | image drop-in | function: without it no login has a manager; adding it, first login +2.6 [−4.0, +8.7], restored +0.8 [−1.5, +4.5] | measured, 20 a side | labs 44987167474, 44987167549 |
 | Host keys made from the boot's first dispatch | spin-machine-sshd-keygen.service | lane 489 → 468 | lane | lab 43483372488 |
 | sshd without OpenSSH's userauth minimum time on a login: a request that authenticated, or a public key query answered with `PK_OK`, does not wait; a failure still does (#457) | image/openssh | restored −13.6 [−14.9, −9.8] evicted, −13.6 [−16.2, −11.4] cached; cold −9.4 [−15.8, −2.6], the second login −10.9 [−12.3, −9.0] | measured, 30 a side | labs 44983986606, 44983986575 |
 | An Ed25519 host key only, no ECDSA | spin-machine-sshd-keygen.service | −5.0 [−8.3, −1.8], sshd accepting −4.4 [−6.9, −1.9], 60 boots a side | measured | lab 44979726719 |
@@ -334,6 +335,7 @@ and a row measured in another shape than spin's has such a reason.
 | One sshd for every connection (vsock `Accept=no`, `sshd -D` early) | first login 382 vs 381; second 40 vs 48 | lane | lab 43524721490 | 11-13 |
 | A login without pam_systemd (a bound) | 380 vs 436, but no session and no XDG_RUNTIME_DIR | lane | lab 43518044150 | 11-13 |
 | logind's Varlink socket without default dependencies | accept to login 131 → 120, first login inside the noise; kept with the lane's other drop-ins | ladder | labs 44558035927, 44558053261 | 11-19 |
+| Sessions of class `user-early`, so the login waits for its user manager (#462) | first login +36.2 [+32.0, +45.7], accept to login +39.5; restored +0.5 [−3.0, +3.8], its state 4.7 MiB larger (inferred: the saved guest holds the manager). The manager starts beside the login instead | spin | lab 44987167474, 44987167549 | 11-22 |
 
 ### The restore and checkpoints
 

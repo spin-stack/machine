@@ -83,6 +83,8 @@ passwd --lock spin
 # lead on spin's login path (root, through a forwarder to ssh.service; `lab` option login=spin)
 # put the first login's accept-to-login at 40 against 70 ms, and the first login 294 against
 # 316, 6 boots of each (2026-11-20); the lane's login as spin did not move (283 against 281).
+# The linger had also been the only thing that started a manager for spin, and every login since
+# went without one until user-runtime-dir@'s 20-manager.conf started it beside each login (#462).
 # image/build.sh asserts there is no linger file.
 
 # The rest of the first SSH login's lane (the units' drop-ins say what it is and what it
@@ -108,7 +110,9 @@ ln -sf /dev/null /etc/tmpfiles.d/systemd-nologin.conf
 # (systemd v259.9, src/login/logind-session.c: session_job_pending, session_start_scope). So a
 # login of class user waited for user@1000, a whole systemd --user, and for the end of the
 # boot: 472 against 436 ms on the bench fleet (lab run 43518044150). A light session still has
-# its scope and XDG_RUNTIME_DIR, and logind starts no manager for it.
+# its scope and XDG_RUNTIME_DIR, and logind starts no manager for it: user-runtime-dir@'s
+# 20-manager.conf starts one beside the login, which does not wait for it (+36 ms when the login
+# waited, as class user-early does: lab 44987167474).
 sed -i 's/^\(session.*pam_systemd\.so\)\(.*\)$/\1\2 class=user-early-light/' /etc/pam.d/common-session
 grep -q '^session.*pam_systemd\.so.*class=user-early-light' /etc/pam.d/common-session
 
