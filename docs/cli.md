@@ -403,8 +403,10 @@ base), as each seal of a workspace's disk adds one.
 `bootchart` draws a tree made with `--edit bootchart`: systemd-bootchart's chart of every process
 from PID 1 to the first login, whose command stops the sampler, and `systemd-analyze plot`'s chart
 of every unit, from the same boot. It keeps them beside `result.json` as
-`TREE-REP.bootchart.svg`, the chart's samples as `TREE-REP.bootchart.json`, and
-`TREE-REP.plot.svg`, and records where the chart starts and ends on
+`TREE-REP.bootchart.svg`, the chart's samples as `TREE-REP.bootchart.json`,
+`TREE-REP.plot.svg`, the login's critical chains as `TREE-REP.chain.txt`, and the ordering among
+the units on them as `TREE-REP.order.dot` and, where graphviz is installed, `TREE-REP.order.svg`
+(lab.yml installs it). It records where the chart starts and ends on
 the kernel's clock, the samples it dropped and its size. Reading them is in
 [measuring.md](measuring.md#boot-charts).
 
