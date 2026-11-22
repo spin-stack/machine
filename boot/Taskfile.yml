@@ -29,6 +29,18 @@ tasks:
     cmds:
       - SPIN_RECORD_TEST=1 go test ./boot/ -run '^(TestTheRecordRefusesWhatQEMULoadsSilently|TestACheckpointIsWaitedOnByItsEvents|TestTheMachineSaysHowItEnded|TestACheckpointedMachineIsHeldThenContinued)$' -count=1 -v -timeout 5m
 
+  patches:
+    desc: >-
+      What a guest sees of each QEMU and qboot patch only a guest can see, at spin's shape: the
+      SCSI host scans the 16 targets max_target gives it (qemu/patches/0002), the firmware enabled
+      the MTRRs (qboot's mtrr.patch), and a guest restored from a checkpoint whose TSC is within
+      KVM's second of the new vCPU's keeps its clock, its timers due at the save firing at once
+      rather than ~650 ms late (qemu/patches/0005, #472) (patches_test.go). Needs a built release,
+      /dev/kvm and /dev/vhost-vsock.
+    deps: [':tools']
+    cmds:
+      - SPIN_PATCHES_TEST=1 go test ./boot/ -run '^(TestTheGuestSeesWhatEachPatchGivesIt|TestARestoredGuestKeepsItsClock)$' -count=1 -v -timeout 5m
+
   rollback:
     desc: >-
       What a snapshot keeps, at spin's shape booted to systemd and logged into over SSH through

@@ -178,7 +178,8 @@ func verifyCmd() *cobra.Command {
   openssh    the packages the image installs
   image      rootfs.qcow2, packages.txt and licenses.txt (image/build.sh asserts what is inside)
   args       the TCG QEMU accepts every interesting command line the machine package builds: each
-             is started, stopped before its first instruction, and asked to answer on QMP
+             is started, stopped before its first instruction, and asked to answer on QMP; and
+             each patch qemu/patches carries does what it is carried for (0005's is boot:patches')
 
 Every part when none is named, and args with them. args refuses rather than skipping when there is
 no QEMU to ask: spin-machine-dev fetch qemu (seconds) or build qemu (tens of minutes) puts one there.`,
@@ -221,7 +222,7 @@ func verifyArgs(c *cobra.Command, w workspace) error {
 	if _, err := os.Stat(tcg); err != nil {
 		return couldNot(fmt.Errorf("no %s to ask: spin-machine-dev fetch qemu puts the published one there, in seconds", tcg))
 	}
-	cmd := []string{"test", "./machine", "-run", "TestQEMUAcceptsEveryArgument|TestAChainOverDescriptors", "-count=1", "-v"}
+	cmd := []string{"test", "./machine", "-run", "TestQEMUAcceptsEveryArgument|TestAChainOverDescriptors|TestEachQEMUPatchDoesItsJob", "-count=1", "-v"}
 	return withEnv("SPIN_MACHINE_OUTPUT", w.out, func() error { return command(c.Context(), c, w.root, "go", cmd...) })
 }
 
