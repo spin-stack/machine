@@ -33,6 +33,7 @@ on:
           - transport
           - run-delay
           - usage
+          - chain
           - check:firmware
           - check:firmware-stages
           - check:waits
