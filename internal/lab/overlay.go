@@ -207,6 +207,8 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLoggingEdit, nil
 	case "carry-coldplug":
 		return carryColdplugEdit, nil
+	case "nosleep":
+		return nosleepEdit, nil
 	}
 	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-logging, carry-coldplug", name)
 }
