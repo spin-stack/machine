@@ -71,7 +71,8 @@ Each of these made a number say something it did not measure.
     login (lab 44809015139, fixed by #341);
   - a connection to port 22 that only asked whether sshd accepts, before each login. On spin's
     path the forwarder opened one to sshd, and sshd started a session for it beside the login:
-    4.1 ms on the restored login (lab 44978246896). `ssh-first` still asks, to time `accepts`.
+    4.1 ms on the restored login (lab 44978246896), and 4.3 ms of `ssh-first`'s accept to login
+    (lab 44987441326). `ssh-first` now logs in over the connection that timed `accepts` (#450).
 - **The instrument could not see the phase.**
   - The kernel's "Freeing" clock misses the bzImage's decompression. `boot:firmware-stages` now
     times it from kvm-clock: ~21 ms (lab 44787491631).
