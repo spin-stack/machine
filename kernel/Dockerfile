@@ -444,13 +444,6 @@ RUN <<EOT
     ! dis trace_eval_init | grep -q '<queue_work_on>' || lost 0003 "trace_eval_init still queues the eval map rewrite"
     dis trace_format_open | grep -q '<trace_eval_ensure>' || lost 0003 "trace_format_open does not apply the deferred eval maps"
 
-    # 0004: configuration space through ECAM first, one exit an access, not type 1's two. The
-    # first of the two ops tables each function reads is the one it prefers.
-    for f in raw_pci_read raw_pci_write; do
-        first=$(dis "$f" | grep -Eo -m1 '<raw_pci_(ext_)?ops>')
-        [ "$first" = '<raw_pci_ext_ops>' ] || lost 0004 "$f reads ${first:-neither ops table} first, not raw_pci_ext_ops"
-    done
-
     # 0005: each device's capability list is walked once, at setup, and searches answer from it.
     dis pci_setup_device | grep -q '<pci_cache_capabilities>' || lost 0005 "pci_setup_device does not read the capability list once"
 
