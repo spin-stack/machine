@@ -179,19 +179,38 @@ func dispatchArgs(repo, ref string, inputs map[string]string) []string {
 //
 // mutate-lane: TestTheLabTalksToGitHub
 func (g *GitHub) Wait(ctx context.Context, id int64) (Run, error) {
+	return waitFor(ctx, id, 30*time.Second, func() ([]byte, error) {
+		return g.gh("run", "view", strconv.FormatInt(id, 10), "-R", g.Repo, "--json", "databaseId,status,conclusion,url")
+	})
+}
+
+// notYetReadable is how many times waitFor takes GitHub's 404 for a run it has just dispatched as
+// not readable yet rather than gone: a minute at Wait's pace. The first read of a run dispatched
+// moments before answered 404 twice on 2026-11-22 (runs 45036503632 and 45037354657), and both
+// runs went on to finish.
+const notYetReadable = 2
+
+// waitFor reads run id through view every pause until it has completed. Any answer but a 404
+// fails at once, and so does a 404 past notYetReadable.
+func waitFor(ctx context.Context, id int64, pause time.Duration, view func() ([]byte, error)) (Run, error) {
+	missing := 0
 	for {
-		out, err := g.gh("run", "view", strconv.FormatInt(id, 10), "-R", g.Repo, "--json", "databaseId,status,conclusion,url")
-		if err != nil {
+		out, err := view()
+		if err != nil && (!strings.Contains(err.Error(), "HTTP 404") || missing == notYetReadable) {
 			return Run{}, err
 		}
-		var r Run
-		if err := json.Unmarshal(out, &r); err != nil {
-			return Run{}, fmt.Errorf("reading run %d: %w", id, err)
+		if err != nil {
+			missing++
+		} else {
+			var r Run
+			if err := json.Unmarshal(out, &r); err != nil {
+				return Run{}, fmt.Errorf("reading run %d: %w", id, err)
+			}
+			if r.Status == "completed" {
+				return r, nil
+			}
 		}
-		if r.Status == "completed" {
-			return r, nil
-		}
-		if err := sleep(ctx, 30*time.Second); err != nil {
+		if err := sleep(ctx, pause); err != nil {
 			return Run{}, err
 		}
 	}
@@ -232,7 +251,6 @@ func StepTail(log []byte, step string, n int) string {
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
 
-// mutate-lane: TestTheLabTalksToGitHub
 func sleep(ctx context.Context, d time.Duration) error {
 	select {
 	case <-ctx.Done():
