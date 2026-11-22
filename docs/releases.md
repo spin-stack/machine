@@ -20,8 +20,9 @@ First SSH login, ms p50/p95. Δ is the p50 against the release before it, booted
 | v20261121.01 | 464 / 486 | +1.1 [-1.7, +9.9] within noise | 110 / 116 | -2.2 [-4.7, +1.6] within noise | 442 / 461 | 83.7 / 90.8 |
 | v20261122.01 | 464 / 485 | +5.0 [-0.2, +9.3] within noise | 110 / 115 | +2.5 [-0.8, +5.0] within noise | 432 / 449 | 83.6 / 88.4 |
 | v20261122.02 | 411 / 425 | -57.4 [-65.4, -46.7] | 96.2 / 101 | -7.9 [-15.1, -4.0] | 383 / 395 | 80.1 / 92.7 |
+| v20261122.03 | 410 / 429 | +2.3 [-3.7, +9.6] within noise | 90.2 / 98.6 | +4.5 [-7.1, +9.4] within noise | 381 / 388 | 82.4 / 91 |
 
-v20261122.02 against the goal: cold +311 ms, restore -4 ms.
+v20261122.03 against the goal: cold +310 ms, restore -10 ms.
 
 ## Diagnostics
 
@@ -37,6 +38,23 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | v20261121.01 | 125 | 179 | 82.6 | 232 |
 | v20261122.01 | 122 | 179 | 82.2 | 232 |
 | v20261122.02 | 138 | 179 | 83.2 | 230 |
+| v20261122.03 | 139 | 179 | 82.4 | 230 |
+
+## Bounds
+
+Never candidates, measured with each release so that they stay bounds (docs/measuring.md). The no-systemd floor: the release's first SSH login by the lane, ms p50/p95, and the same release with no systemd before sshd, booted interleaved in the same run. Δ is the second's p50 less the first's and its [95% interval], read as a release's Δ is: the gap bounds what systemd costs.
+
+| release | first login by the lane | no systemd before sshd | Δ |
+|---|---|---|---|
+| v20261119.02 | - | - |  |
+| v20261120.01 | - | - |  |
+| v20261120.02 | - | - |  |
+| v20261120.03 | - | - |  |
+| v20261120.04 | - | - |  |
+| v20261121.01 | - | - |  |
+| v20261122.01 | - | - |  |
+| v20261122.02 | - | - |  |
+| v20261122.03 | 399 / 414 | 232 / 239 | -166.7 [-171.9, -159.3] |
 
 ## Where each was measured
 
@@ -50,3 +68,4 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | [v20261121.01](releases/v20261121.01.json) | 2026-11-21 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.04 | [44911249078](https://github.com/spin-stack/machine/actions/runs/44911249078) |
 | [v20261122.01](releases/v20261122.01.json) | 2026-11-22 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261121.01 | [44973276221](https://github.com/spin-stack/machine/actions/runs/44973276221) |
 | [v20261122.02](releases/v20261122.02.json) | 2026-11-22 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261122.01 | [44990321803](https://github.com/spin-stack/machine/actions/runs/44990321803) |
+| [v20261122.03](releases/v20261122.03.json) | 2026-11-22 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261122.02 | [45029297865](https://github.com/spin-stack/machine/actions/runs/45029297865) |
