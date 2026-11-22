@@ -367,10 +367,10 @@ of lab.yml's checks on the bench, on the first tree. A check keeps no result, so
 the last lines of its step from the job's log, and exits 1 when the run did not succeed.
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
-`firmware`, `record`, `rollback`, `checkpoint-pause`, `compat` (every release whose machine is this one, through `lab compat`),
+`firmware`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug`, `compat` (every release whose machine is this one, through `lab compat`),
 `hotadd`, `logind`, `lockdown` and `finish-migrate` (a checkpoint continued at once on two busy CPUs, which a qemu bump runs). Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
 `lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
-`firmware-stages`, `waits`, `record`, `rollback` and `checkpoint-pause`, the targets its `probe` input
+`firmware-stages`, `waits`, `record`, `rollback`, `checkpoint-pause` and `cpu-plug`, the targets its `probe` input
 lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its
