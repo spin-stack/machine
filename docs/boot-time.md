@@ -127,6 +127,17 @@ started in `Resume`, after the dial had waited ~19.5 ms for QEMU. Started before
 runs beside QEMU's start: `running` 62.7, login 101, 6 ms over the cached row ("What the machine
 carries").
 
+**About a third of the restored login is sshd sleeping.** On a laptop, a restored login of
+32 ms split into 4.6 ms to the server's banner, ~5 ms of key exchange, 14.5 ms from the signed
+`userauth` request to its success, and ~4.7 ms for the channel, `exec` and exit. ~12 ms of the
+14.5 are OpenSSH's minimum time for a userauth request (`auth2.c`, `ensure_minimum_time_since`):
+5 ms plus 0-4.2 ms after the key query, and again after the signed request that succeeds, because
+the flag it checks is set only after the sleep. sshd logs both at `LogLevel DEBUG3`. With every
+`nanosleep` in sshd returning at once, a bound and not a candidate, the restored login read −13.4
+[−15.2, −10.5] on the bench and the cold login −3.2 [−13.7, +2.7], within noise (lab
+44980029214). On a cold boot the vCPU still has boot work to run while sshd sleeps. ("Open
+experiments", #457.)
+
 ## What the machine carries
 
 This table lists every change the tree makes for boot time, with what it earns in spin's shape.
@@ -352,6 +363,7 @@ The rows are ranked by ceiling. A row stays here until it is decided, and then m
 | Experiment | Number | Phase, p50, ceiling | Decided by | State |
 |---|---|---|---|---|
 | A burst of restores: 8 at once read ~190-240 ms each under `defer`, against ~100 alone | restore, as a host sees it; spin restores concurrently with no host-wide limit | the burst's ~100-140 ms over one restore alone | `restore-together`, `together=1 8`, evicted, with the change against without it | open. The host's CPUs are 72-78% busy in the burst, and direct reclaim runs as the states fill the page cache (lab 44817486118). Next candidates: `vm.watermark_scale_factor`, and the CPU one restore costs |
+| sshd without OpenSSH's userauth minimum time for a request answered with `PK_OK` or that succeeds; a failure keeps it (#457) | restore; cold, where the vCPU hides it | the restored login's two sleeps, ~12 ms on a laptop. The bound, every `nanosleep` in sshd returning at once: restored −13.4 [−15.2, −10.5], cold −3.2 [−13.7, +2.7] (lab 44980029214) | `restore-first` and `ssh-first` with an image whose openssh carries the patch, against the release | open. Needs openssh rebuilt from Ubuntu's source with the patch, as image/systemd rebuilds systemd, and a lab flag to measure one |
 | spin's forwarder started without default dependencies, as the image starts ssh.service | cold | −51 more than the image's half alone (−68.5 against −17.4, lab 44807457606) | `prestart` with `--edit forwarder-early`, cold and both restore rows | blocked: restore p95 tails of 430-545 ms with it (lab 44808050222), unexplained. A proposal for spin's supervisor once explained |
 | A login without OpenSSH's exec per connection and PAM | both | a warm login, ~25-43 ms, is in both numbers | a bound first: `prestart` with the login replaced | lead (log.md, 11-20, "spin's login, spin's memory"). spin's path already runs one sshd, and PAM and pam_systemd are what spin's sessions are made of |
 | The budget's PID 1 to sshd: unit loading | cold | ~32 ms of loading 192 units, ~21 ms of CPU (11-19, image/systemd/experiments/pid1-marks.patch) | `ssh-first`, an arm per unit set reached at boot | open: it shrinks only with fewer units reached at boot |
