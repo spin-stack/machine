@@ -70,6 +70,45 @@ func RunLadder(ctx context.Context, trees []*Tree, reps int, scratch string, log
 	return l, nil
 }
 
+// Floor is the no-systemd floor's tree beside a release's, named for it: the release with no
+// systemd before sshd (the floor edit, booted with FloorAppend). It is a bound and never a
+// candidate (AGENTS.md, "What must not break"), measured with every release because a bound that
+// is not re-measured stops being one (docs/measuring.md, rule 8).
+const (
+	FloorSuffix = "-floor"
+	FloorAppend = "init=/usr/local/sbin/spin-floor"
+	floorProbe  = "floor"
+)
+
+// MeasureFloor measures the no-systemd floor beside release, interleaved: ssh-first over release
+// and floor, both logging in by the lane, which the floor's sshd serves. The result is the
+// ladder's "floor", so that it is never read as the ladder's ssh-first, which logs in by spin's
+// path. A release whose spin-machine cannot run it is in Cannot, as a ladder probe is.
+func (l *Ladder) MeasureFloor(ctx context.Context, release, floor *Tree, reps int, scratch string, log io.Writer) error {
+	p := Probes["ssh-first"]
+	opts, err := settle(p, Options{"login": "lane"})
+	if err != nil {
+		return err
+	}
+	for _, t := range []*Tree{release, floor} {
+		if err := CanRun(p, opts, t); err != nil {
+			if l.Cannot[floorProbe] == nil {
+				l.Cannot[floorProbe] = map[string]string{}
+			}
+			l.Cannot[floorProbe][release.Name()] = err.Error()
+			return nil
+		}
+	}
+	_, _ = fmt.Fprintf(log, "ladder: the no-systemd floor beside %s\n", release.Name())
+	r, err := Experiment{Probe: p, Trees: []*Tree{release, floor}, Reps: reps, Options: opts, Scratch: scratch, Log: log}.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("the ladder's floor: %w", err)
+	}
+	r.Probe = floorProbe
+	l.Results = append(l.Results, r)
+	return nil
+}
+
 // LadderReleases are the n newest of tags (newest first, as gh lists them) up to and including
 // newest - all of them when newest is empty - oldest first.
 func LadderReleases(tags []string, newest string, n int) ([]string, error) {
@@ -86,9 +125,10 @@ func LadderReleases(tags []string, newest string, n int) ([]string, error) {
 }
 
 // cell is what the ladder says of one release and one number: what a probe recorded, or why the
-// release could not run the probe.
+// release could not run the probe. suffix names a tree measured beside the release, when the
+// number is that tree's: the floor's.
 type cell struct {
-	probe, row, metric string
+	probe, row, metric, suffix string
 }
 
 func (l *Ladder) result(probe string) *Result {
@@ -100,6 +140,9 @@ func (l *Ladder) result(probe string) *Result {
 	return nil
 }
 
+// notMeasured is why a number is not there when nothing was asked to measure it.
+const notMeasured = "not measured"
+
 // value is the p50 and p95 of c for release, or why there is none.
 func (l *Ladder) value(release string, c cell) (p50, p95 float64, why string) {
 	if reason, ok := l.Cannot[c.probe][release]; ok {
@@ -108,13 +151,16 @@ func (l *Ladder) value(release string, c cell) (p50, p95 float64, why string) {
 	}
 	r := l.result(c.probe)
 	if r == nil {
-		why = "not measured"
+		why = notMeasured
 		return
 	}
-	vs := r.Values(release, c.row, c.metric)
+	vs := r.Values(release+c.suffix, c.row, c.metric)
 	p50, ok := Percentile(vs, .5)
 	if !ok {
-		why = fmt.Sprintf("lost all %d", r.Missed(release, c.row))
+		why = notMeasured
+		if n := r.Missed(release+c.suffix, c.row); n > 0 {
+			why = fmt.Sprintf("lost all %d", n)
+		}
 		return
 	}
 	p95, _ = Percentile(vs, .95)

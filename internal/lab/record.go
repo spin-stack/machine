@@ -31,6 +31,8 @@ const (
 	besideGoal
 	// diagnostic is not a target: what moves behind the goal's numbers.
 	diagnostic
+	// bound is never a candidate: what the goal's number would be with a part taken away.
+	bound
 )
 
 // number is one number a record keeps: its key in a record's JSON, its title where it is read,
@@ -44,14 +46,16 @@ type number struct {
 // numbers are a record's, in the order they are read. A key is in every record under
 // docs/releases: renaming one leaves the numbers recorded under the old one unread.
 var numbers = []number{
-	{"cold", "cold boot to first login", goalNumber, cell{"ssh-first", "boot", "first_login"}},
-	{"restore", "restore to first login", goalNumber, cell{"restore-first", "evicted", "login"}},
-	{"cold-ahead", "cold, QEMU started ahead", besideGoal, cell{"prestart", rowPrestarted, "login"}},
-	{"restore-ahead", "restore, QEMU started ahead", besideGoal, cell{"prestart", rowRestoredAhead, "login"}},
-	{"save-ms", "save ms", diagnostic, cell{"restore-first", "evicted", "save"}},
-	{"state-mib", "state MiB", diagnostic, cell{"restore-first", "evicted", "state"}},
-	{"kernel-ms", `kernel to "Freeing" ms`, diagnostic, cell{"initcalls", "boot", "freeing"}},
-	{"qemu-rss-mib", "QEMU RSS MiB", diagnostic, cell{"ssh-first", "boot", "qemu_rss"}},
+	{"cold", "cold boot to first login", goalNumber, cell{"ssh-first", "boot", "first_login", ""}},
+	{"restore", "restore to first login", goalNumber, cell{"restore-first", "evicted", "login", ""}},
+	{"cold-ahead", "cold, QEMU started ahead", besideGoal, cell{"prestart", rowPrestarted, "login", ""}},
+	{"restore-ahead", "restore, QEMU started ahead", besideGoal, cell{"prestart", rowRestoredAhead, "login", ""}},
+	{"save-ms", "save ms", diagnostic, cell{"restore-first", "evicted", "save", ""}},
+	{"state-mib", "state MiB", diagnostic, cell{"restore-first", "evicted", "state", ""}},
+	{"kernel-ms", `kernel to "Freeing" ms`, diagnostic, cell{"initcalls", "boot", "freeing", ""}},
+	{"qemu-rss-mib", "QEMU RSS MiB", diagnostic, cell{"ssh-first", "boot", "qemu_rss", ""}},
+	{"floor-lane", "first login by the lane", bound, cell{floorProbe, "boot", "first_login", ""}},
+	{"floor", "no systemd before sshd", bound, cell{floorProbe, "boot", "first_login", FloorSuffix}},
 }
 
 // Record is a release's numbers as docs/releases/RELEASE.json keeps them: what one run on one
@@ -106,6 +110,11 @@ func (l *Ladder) Records() []Record {
 		}
 		for _, n := range numbers {
 			p50, p95, why := l.value(rel, n.cell)
+			// A bound is measured beside the release a record is made for (MeasureFloor), not
+			// beside the one it is against, nor in lab ladder: unasked, it has nothing to say.
+			if why == notMeasured && n.kind == bound {
+				continue
+			}
 			if why != "" {
 				if r.Cannot == nil {
 					r.Cannot = map[string]string{}
@@ -128,7 +137,7 @@ func (l *Ladder) against(before Record, rel string) *Against {
 		if r == nil {
 			continue
 		}
-		if d, ok := DeltaP50(r.Values(before.Release, n.cell.row, n.cell.metric), r.Values(rel, n.cell.row, n.cell.metric)); ok {
+		if d, ok := DeltaP50(r.Values(before.Release+n.cell.suffix, n.cell.row, n.cell.metric), r.Values(rel+n.cell.suffix, n.cell.row, n.cell.metric)); ok {
 			a.Delta[n.key] = d
 		}
 	}
@@ -258,6 +267,11 @@ func tables(records []Record, kept string) []table {
 	}
 	diags := table{Title: "Diagnostics",
 		Before: "Not targets: what moves behind the goal's numbers (AGENTS.md, \"The goal\"). p50.", Head: []string{"release"}}
+	bounds := table{Title: "Bounds",
+		Before: "Never candidates, measured with each release so that they stay bounds (docs/measuring.md). The no-systemd " +
+			"floor: the release's first SSH login by the lane, ms p50/p95, and the same release with no systemd before sshd, " +
+			"booted interleaved in the same run. Their gap bounds what systemd costs.", Head: []string{"release"}}
+	measuredBounds := false
 	for _, n := range numbers {
 		switch n.kind {
 		case goalNumber:
@@ -266,25 +280,31 @@ func tables(records []Record, kept string) []table {
 			goal.Head = append(goal.Head, n.title)
 		case diagnostic:
 			diags.Head = append(diags.Head, n.title)
+		case bound:
+			bounds.Head = append(bounds.Head, n.title)
 		}
 	}
 	where := table{Title: "Where each was measured",
 		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run"}}
 	for _, r := range records {
-		g, d := []entry{{Text: r.Release}}, []entry{{Text: r.Release}}
+		g, d, bd := []entry{{Text: r.Release}}, []entry{{Text: r.Release}}, []entry{{Text: r.Release}}
 		for _, n := range numbers {
 			v, ok := r.Numbers[n.key]
-			if n.kind == diagnostic {
+			switch n.kind {
+			case diagnostic:
 				d = append(d, entry{Text: p50(v, ok)})
-				continue
-			}
-			g = append(g, entry{Text: pair(v, ok)})
-			if n.kind == goalNumber {
-				g = append(g, entry{Text: r.delta(n.key)})
+			case bound:
+				bd = append(bd, entry{Text: pair(v, ok)})
+				measuredBounds = measuredBounds || ok
+			case goalNumber:
+				g = append(g, entry{Text: pair(v, ok)}, entry{Text: r.delta(n.key)})
+			case besideGoal:
+				g = append(g, entry{Text: pair(v, ok)})
 			}
 		}
 		goal.Rows = append(goal.Rows, g)
 		diags.Rows = append(diags.Rows, d)
+		bounds.Rows = append(bounds.Rows, bd)
 		release := entry{Text: r.Release}
 		if kept != "" {
 			release.Link = kept + "/" + r.Release + ".json"
@@ -311,6 +331,11 @@ func tables(records []Record, kept string) []table {
 		if len(gaps) > 0 {
 			goal.After = newest.Release + " against the goal: " + strings.Join(gaps, ", ") + "."
 		}
+	}
+	// The records from before the bounds were measured have none, and a table of dashes says
+	// nothing.
+	if measuredBounds {
+		return []table{goal, diags, bounds, where}
 	}
 	return []table{goal, diags, where}
 }

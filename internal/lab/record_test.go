@@ -165,6 +165,33 @@ func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
 	}
 }
 
+// The bounds are a table of their own once a record has one, between the diagnostics and where each
+// was measured, a release from before them a dash; until then the page has no such table.
+func TestTheBoundsAreTabledOnceMeasured(t *testing.T) {
+	if got := Doc(docRecords(), "kept"); strings.Contains(got, "## Bounds") {
+		t.Errorf("a page with no bound measured tables them:\n%s", got)
+	}
+	records := docRecords()
+	records[1].Numbers["floor-lane"], records[1].Numbers["floor"] = Number{404, 410}, Number{250, 255}
+	got := Doc(records, "kept")
+	for _, want := range []string{
+		"## Diagnostics\n",
+		"## Bounds\n\nNever candidates",
+		"| release | first login by the lane | no systemd before sshd |\n|---|---|---|\n| v1 | - | - |\n| v2 | 404 / 410 | 250 / 255 |\n",
+		"## Where each was measured\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in:\n%s", want, got)
+		}
+	}
+	if d, b, w := strings.Index(got, "## Diagnostics"), strings.Index(got, "## Bounds"), strings.Index(got, "## Where"); d > b || b > w {
+		t.Errorf("the bounds are not between the diagnostics and where:\n%s", got)
+	}
+	if !strings.Contains(got, "| v2 | 151 | 140 | - | 290 |\n") {
+		t.Errorf("a bound is among the diagnostics:\n%s", got)
+	}
+}
+
 // Two records are side by side, the older first whichever is named first. When the newer was
 // measured against the older, the two are that run's numbers with the newer's Δ and its interval;
 // otherwise each is its own run's, with no Δ, why not, and how to measure the two together.

@@ -6,6 +6,7 @@ import (
 	"io"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -136,5 +137,69 @@ func TestALadderIsWrittenAndReadBack(t *testing.T) {
 	write(t, bad, []byte("{"))
 	if _, err := ReadLadder(bad); err == nil {
 		t.Error("a ladder that is not JSON")
+	}
+}
+
+// The no-systemd floor is ssh-first over the release and its floor, both by the lane, as a result
+// of its own; a release whose spin-machine cannot run it is why, and nothing boots.
+func TestALadderMeasuresTheFloorBesideARelease(t *testing.T) {
+	sshFirst := Probes["ssh-first"]
+	t.Cleanup(func() { Probes["ssh-first"] = sshFirst })
+	rec := &recorder{phases: 1, rows: []string{"boot"}}
+	Probes["ssh-first"] = rec
+	rel, floor := treeWith(t, map[string][]string{"boot": {"release"}}), treeWith(t, map[string][]string{"boot": {"release"}})
+	rel.Manifest.Name, floor.Manifest.Name = "v2", "v2"+FloorSuffix
+	l := &Ladder{Releases: []string{"v1", "v2"}, Cannot: map[string]map[string]string{}}
+	if err := l.MeasureFloor(t.Context(), rel, floor, 2, t.TempDir(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Results) != 1 || l.Results[0].Probe != "floor" || l.Results[0].Options["login"] != "lane" ||
+		len(l.Results[0].Values("v2", "boot", "a")) != 2 || len(l.Results[0].Values("v2-floor", "boot", "a")) != 2 {
+		t.Fatalf("results %+v", l.Results)
+	}
+	if len(rec.spins) != 4 || slices.Contains(rec.spins, true) {
+		t.Errorf("the floor logged in by spin's path, which its sshd does not serve: %v", rec.spins)
+	}
+	Probes["ssh-first"] = &recorder{phases: 1, rows: []string{"boot"}, fail: "v2-floor/boot/0/0"}
+	if err := l.MeasureFloor(t.Context(), rel, floor, 1, t.TempDir(), io.Discard); err == nil || !strings.Contains(err.Error(), "the ladder's floor") {
+		t.Errorf("a floor that fails: %v", err)
+	}
+	Probes["ssh-first"] = sshFirst
+	l = &Ladder{Releases: []string{"v2"}, Cannot: map[string]map[string]string{}}
+	if err := l.MeasureFloor(t.Context(), rel, floor, 1, t.TempDir(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Results) != 0 || !strings.Contains(l.Cannot["floor"]["v2"], "has no --") {
+		t.Errorf("a release that cannot: results %+v, cannot %v", l.Results, l.Cannot)
+	}
+}
+
+// The floor is the newest record's, beside its release by the lane: the release it is against has
+// none and says nothing of it, and no Δ is read of it. A floor whose boots were all lost says so.
+func TestTheFloorIsTheNewestRecordsBound(t *testing.T) {
+	l := testLadder()
+	fl := &Result{Probe: "floor", Reps: 2, Host: l.Results[0].Host, Started: l.Results[0].Started, Options: spins}
+	fl.Samples = append(samples("v2", "boot", map[string]float64{"first_login": 404}, 2),
+		samples("v2"+FloorSuffix, "boot", map[string]float64{"first_login": 250.04}, 2)...)
+	l.Results = append(l.Results, fl)
+	got := l.Records()
+	if n := got[1].Numbers; n["floor-lane"] != (Number{404, 404}) || n["floor"] != (Number{250, 250}) {
+		t.Errorf("v2's floor: %+v", n)
+	}
+	for _, k := range []string{"floor", "floor-lane"} {
+		if _, ok := got[0].Numbers[k]; ok {
+			t.Errorf("v1 has %s", k)
+		}
+		if why, ok := got[0].Cannot[k]; ok {
+			t.Errorf("v1 says why it has no %s: %s", k, why)
+		}
+		if d, ok := got[1].Against.Delta[k]; ok {
+			t.Errorf("a Δ of %s against v1: %v", k, d)
+		}
+	}
+	fl.Samples = append(samples("v2", "boot", map[string]float64{"first_login": 404}, 2),
+		Sample{Tree: "v2" + FloorSuffix, Row: "boot", Rep: 1, Missed: "never answered"})
+	if why := l.Records()[1].Cannot["floor"]; why != "lost all 1" {
+		t.Errorf("a floor that lost every boot: %q", why)
 	}
 }
