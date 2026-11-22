@@ -70,7 +70,7 @@ func RunLadder(ctx context.Context, trees []*Tree, reps int, scratch string, log
 	return l, nil
 }
 
-// Floor is the no-systemd floor's tree beside a release's, named for it: the release with no
+// FloorSuffix names the no-systemd floor's tree after the release it is made of: the release with no
 // systemd before sshd (the floor edit, booted with FloorAppend). It is a bound and never a
 // candidate (AGENTS.md, "What must not break"), measured with every release because a bound that
 // is not re-measured stops being one (docs/measuring.md, rule 8).
