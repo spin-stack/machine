@@ -78,11 +78,13 @@ CPU's and the disk's use, until the first login's command signals it. The chart'
 kernel's, from 0 at the kernel's start. `pid1` is where the sampling starts, 82 ms p50 on
 v20261122.03. `chart_end` is where the first login's command ran, 320 ms p50 on the same release
 (lab 45037354657, bench, spin's shape, 3 boots). The chart ends there, with the command itself as
-its last process. Each process is named by its command line, and each bar is drawn from its start to its exit or to
-the chart's end. Its colour is the CPU it used (blue) and the time it waited to run (yellow).
-"Top CPU consumers" sums each process's CPU time over the chart. A process seen in only one
-sample, or with under 1 ms of CPU, is filtered out. The CPU and IO graphs above the bars are the
-whole guest's. `systemd-analyze plot` is the same boot drawn
+its last process. Each process is named by what it became, its `comm` read again whenever it
+ran, and labelled with its unit, read from its cgroup v2 path. Each bar is drawn from its start to
+its exit or to the chart's end. Its colour is the CPU it used (blue) and the time it waited to run
+(yellow). "Top CPU consumers" sums each process's CPU time over the chart, and "Top CPU consumers
+by unit" sums it by unit. Every process that used CPU while the chart ran is drawn, however
+briefly. Only what did not run, idle kernel threads mostly, is left out. The CPU and IO graphs
+above the bars are the whole guest's. `systemd-analyze plot` is the same boot drawn
 by unit: when each unit started activating and when it was active. It is taken after the boot
 finishes, so it reaches past the login.
 
@@ -113,10 +115,8 @@ before it.
   it too.
 - It does not see before PID 1. QEMU, the firmware and the kernel's own time are before `pid1`.
   `initcalls` and `boot:firmware-stages` see them.
-- It does not see every process. One that lives under 5 ms is seen once at most and is filtered
-  out. The unit plot has each unit.
-- systemd-bootchart 235 reads cgroup v1, so it cannot label a process with its unit on this
-  machine. The unit plot is the way from a process to its unit.
+- It does not see every process. One that starts and exits between two samples, 5 ms apart, is
+  never seen. The unit plot has each unit.
 
 ## Avoid the pitfalls
 
