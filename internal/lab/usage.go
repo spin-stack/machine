@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -196,8 +195,8 @@ func mainCPU(pid int) time.Duration {
 	if err != nil {
 		return 0
 	}
-	ns, _ := strconv.ParseInt(strings.Fields(string(b))[0], 10, 64)
-	return time.Duration(ns)
+	ran, _, _ := parseSchedstat(string(b))
+	return ran
 }
 
 // contend pins every thread of QEMU's pid to the host's last CPU and starts two busy loops there,
