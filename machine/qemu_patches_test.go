@@ -89,8 +89,7 @@ func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 		// a save whose stop flushes it submits a flush (type 8, QEMU_AIO_FLUSH), and one under
 		// x-defer-disk-flush submits none. The first is what proves the second: the trace sees
 		// the flush that is said to be gone. Under cpr-reboot the stop flushes anyway, because the
-		// host reboot that follows it loses the page cache. Postcopy's exclusion is not asked:
-		// its return path needs a destination, and a save to a file has none.
+		// host reboot that follows it loses the page cache.
 		save := func(deferred, cpr bool) int {
 			log := filepath.Join(t.TempDir(), "trace")
 			m := held(t, Spec{BootCPUs: 1, Memory: Memory{BaseMB: 128}}, "-trace", "enable=luring_co_submit", "-D", log)

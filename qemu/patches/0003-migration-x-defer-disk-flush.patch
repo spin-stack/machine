@@ -35,12 +35,14 @@ vm_stop_force_state's stopped branch start the deferral after their
 drain when the state is finish-migrate and the capability holds.  The
 alternative, an argument threaded through migration_stop_vm, a second
 vm_stop_force_state and the stop's helpers, took about 80 more lines to
-say the same.  Postcopy's and CPR's stops are finish-migrate too, and
-migrate_defer_disk_flush() is false with postcopy-ram or a CPR mode:
-only precopy's completion was traced and measured, and CPR's stop can
-precede a host reboot (cpr-reboot), which loses what the page cache
-holds.  The accessor is in migration/misc.h, the header the
-rest of QEMU reads migration from.
+say the same.  CPR's stop is finish-migrate too, and
+migrate_defer_disk_flush() is false in a CPR mode: cpr-reboot's stop
+can precede a host reboot, which loses what the page cache holds.
+Postcopy's stop defers as precopy's does: whether a deferred flush is
+safe depends on whether the migration's reader shares this host's page
+cache, which is what the capability says, not on which phase stops the
+VM.  The accessor is in migration/misc.h, the header the rest of QEMU
+reads migration from.
 
 Assisted-by: LLM
 ---
@@ -48,10 +50,10 @@ Assisted-by: LLM
  block/io.c                         | 24 +++++++++++++++++++++++-
  include/block/block-global-state.h |  1 +
  include/migration/misc.h           |  1 +
- migration/options.c                | 13 +++++++++++++
- qapi/migration.json                | 13 +++++++++++--
+ migration/options.c                | 12 ++++++++++++
+ qapi/migration.json                | 12 ++++++++++--
  system/runstate.c                  | 19 +++++++++++++++++++
- 7 files changed, 71 insertions(+), 3 deletions(-)
+ 7 files changed, 69 insertions(+), 3 deletions(-)
 
 diff --git a/block.c b/block.c
 index 006c34134..22b09a3eb 100644
@@ -147,16 +149,15 @@ index 86cc7eefd..b5130a269 100644
  
  #endif
 diff --git a/migration/options.c b/migration/options.c
-index bd40394aa..5f2f597a4 100644
+index bd40394aa..c000832fe 100644
 --- a/migration/options.c
 +++ b/migration/options.c
-@@ -354,6 +354,19 @@ bool migrate_events(void)
+@@ -354,6 +354,18 @@ bool migrate_events(void)
      return s->capabilities[MIGRATION_CAPABILITY_EVENTS];
  }
  
 +/*
-+ * Postcopy's and CPR's stops are finish-migrate too, and never defer: only
-+ * precopy's completion was measured, and CPR's stop can precede a host
++ * CPR's stop is finish-migrate too, and never defers: it can precede a host
 + * reboot (cpr-reboot), which loses what the page cache holds.
 + */
 +bool migrate_defer_disk_flush(void)
@@ -164,26 +165,25 @@ index bd40394aa..5f2f597a4 100644
 +    MigrationState *s = migrate_get_current();
 +
 +    return s->capabilities[MIGRATION_CAPABILITY_X_DEFER_DISK_FLUSH] &&
-+           !migrate_postcopy_ram() && !migrate_mode_is_cpr();
++           !migrate_mode_is_cpr();
 +}
 +
  bool migrate_mapped_ram(void)
  {
      MigrationState *s = migrate_get_current();
 diff --git a/qapi/migration.json b/qapi/migration.json
-index 889a9b89c..592073828 100644
+index 889a9b89c..ba88c9cba 100644
 --- a/qapi/migration.json
 +++ b/qapi/migration.json
-@@ -518,9 +518,17 @@
+@@ -518,9 +518,16 @@
  #     each RAM page.  Requires a migration URI that supports seeking,
  #     such as a file.  (since 9.0)
  #
-+# @x-defer-disk-flush: If enabled, a precopy switchover's stop
-+#     completes the guest's flushes, then leaves the disks' writes in
-+#     the host's page cache until the VM runs again or QEMU closes the
-+#     disks.  For a migration whose reader shares this host's page
-+#     cache, such as a checkpoint to a file on it.  Ignored with
-+#     @postcopy-ram or a CPR mode.  (since 11.2)
++# @x-defer-disk-flush: If enabled, a switchover's stop completes the
++#     guest's flushes, then leaves the disks' writes in the host's page
++#     cache until the VM runs again or QEMU closes the disks.  For a
++#     migration whose reader shares this host's page cache, such as a
++#     checkpoint to a file on it.  Ignored in a CPR mode.  (since 11.2)
 +#
  # Features:
  #
@@ -193,7 +193,7 @@ index 889a9b89c..592073828 100644
  #
  # Since: 1.2
  ##
-@@ -534,7 +542,8 @@
+@@ -534,7 +541,8 @@
             { 'name': 'x-ignore-shared', 'features': [ 'unstable' ] },
             'validate-uuid', 'background-snapshot',
             'zero-copy-send', 'postcopy-preempt', 'switchover-ack',
