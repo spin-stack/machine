@@ -82,6 +82,12 @@ type Record struct {
 	// Bounds is the Δ p50 against the release of each bound measured beside it, booted interleaved
 	// with it in this record's run, and the Δ's 95% interval: read by the same rule as Against's.
 	Bounds map[string]Delta `json:"bounds,omitempty"`
+	// Bootchart and Plot are files beside the record that draw one boot of the release, drawn in
+	// the record's run: systemd-bootchart's chart of its processes and systemd-analyze plot's of its
+	// units (the bootchart probe). A chart is read beside another release's, never as a number
+	// (docs/measuring.md, "Boot charts").
+	Bootchart string `json:"bootchart,omitempty"`
+	Plot      string `json:"plot,omitempty"`
 }
 
 // Against is the release a record was measured interleaved with: that release's numbers from the
@@ -281,6 +287,18 @@ type table struct {
 const alone = " A release with no Δ was measured with no release before it in its run, and spin-machine-dev " +
 	"releases measure measures it again with the one before it."
 
+// keptFile is a cell naming file, a file beside the records, as text, linked to kept/file when kept
+// is not empty; blank when there is no file.
+func keptFile(text, file, kept string) entry {
+	switch {
+	case file == "":
+		return entry{}
+	case kept == "":
+		return entry{Text: text}
+	}
+	return entry{Text: text, Link: kept + "/" + file}
+}
+
 // tables are records' tables in the order they are read: the goal's numbers, each goal number's Δ
 // against the release measured with it and the newest's gap to the goal; the diagnostics; and
 // where, in what shape and with what each was measured, each release linked to its record at
@@ -316,7 +334,7 @@ func tables(records []Record, kept string) []table {
 		}
 	}
 	where := table{Title: "Where each was measured",
-		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run"}}
+		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run", "bootchart", "units"}}
 	for _, r := range records {
 		g, d, bd := []entry{{Text: r.Release}}, []entry{{Text: r.Release}}, []entry{{Text: r.Release}}
 		for _, n := range numbers {
@@ -355,8 +373,9 @@ func tables(records []Record, kept string) []table {
 		if r.Run != "" {
 			run = entry{Text: r.Run[strings.LastIndex(r.Run, "/")+1:], Link: r.Run}
 		}
+		chart, plot := keptFile("processes", r.Bootchart, kept), keptFile("units", r.Plot, kept)
 		where.Rows = append(where.Rows, []entry{release, {Text: r.Measured.Format(time.DateOnly)}, {Text: r.Host},
-			{Text: r.shape()}, {Text: itoa(r.Reps)}, against, run})
+			{Text: r.shape()}, {Text: itoa(r.Reps)}, against, run, chart, plot})
 	}
 	if len(records) > 0 {
 		newest := records[len(records)-1]

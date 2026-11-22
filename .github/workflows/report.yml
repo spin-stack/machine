@@ -6,7 +6,8 @@ name: Report
 # each to the first SSH login), both again into a QEMU started ahead, and save, state, kernel and
 # QEMU RSS as diagnostics, and the no-systemd floor beside the release, a bound (docs/measuring.md,
 # rule 8) - written to docs/releases/RELEASE.json with the release before it and
-# each Δ against it, and docs/releases.md written again from every record (spin-machine-dev
+# each Δ against it, one boot of the release drawn beside it (RELEASE-bootchart.svg and
+# RELEASE-plot.svg, docs/measuring.md, "Boot charts"), and docs/releases.md written again from every record (spin-machine-dev
 # releases, docs/cli.md). The records are proposed as a pull request as the release app, so the
 # checks on it run.
 #
@@ -88,13 +89,17 @@ jobs:
         run: spin-machine-dev releases measure $VERSIONS --reps 20
 
       # Every sample, which a record keeps only the p50 and p95 of: lab show DIR reads one release's.
-      # Only the ladders: a release's tarball, downloaded beside them, is 1.5 GB (run 44734233084).
+      # Only the ladders and each release's boot charts: a release's tarball, downloaded beside them,
+      # is 1.5 GB (run 44734233084).
       - name: Keep the ladders
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lab-${{ github.run_id }}
-          path: _output/lab/measured/*/ladder.json
+          path: |
+            _output/lab/measured/*/ladder.json
+            _output/lab/measured/*/bootchart.json
+            _output/lab/measured/*/*.svg
           retention-days: 90
           if-no-files-found: ignore
 

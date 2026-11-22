@@ -56,6 +56,68 @@ The decision itself is AGENTS.md's. A change goes in when it moves one of the tw
 interleaved against the release, without making the other worse. It also goes in when it is
 functional.
 
+## Boot charts
+
+A boot chart shows where a boot's time went: which processes ran, when, and what they waited
+for. It finds where to look, and a number then decides (rule 4). Each release has one in
+docs/releases (`RELEASE-bootchart.svg`, linked from docs/releases.md), and any tree gets one
+from the lab:
+
+```
+spin-machine-dev lab dispatch bootchart --reps 3 \
+  --tree 'release=--from release --spin-machine release --edit bootchart' \
+  --tree 'pr=--from release --spin-machine release --edit lane --edit bootchart'
+```
+
+The run's artifact keeps `TREE-REP.bootchart.svg` and `TREE-REP.plot.svg` beside `result.json`.
+`lab show RUN_ID` downloads them into `_output/lab/runs/RUN_ID/result/`. A browser draws them.
+
+**What it shows.** The `bootchart` edit makes systemd-bootchart PID 1. It forks a sampler and
+execs systemd. Every 5 ms (200 Hz) the sampler reads each process's CPU time and wait, and the
+CPU's and the disk's use, until the first login's command signals it. The chart's clock is the
+kernel's, from 0 at the kernel's start. `pid1` is where the sampling starts, 82 ms p50 on
+v20261122.03. `chart_end` is where the first login's command ran, 320 ms p50 on the same release
+(lab 45037354657, bench, spin's shape, 3 boots). The chart ends there, with the command itself as
+its last process. Each process is named by its command line, and each bar is drawn from its start to its exit or to
+the chart's end. Its colour is the CPU it used (blue) and the time it waited to run (yellow).
+"Top CPU consumers" sums each process's CPU time over the chart. A process seen in only one
+sample, or with under 1 ms of CPU, is filtered out. The CPU and IO graphs above the bars are the
+whole guest's. `systemd-analyze plot` is the same boot drawn
+by unit: when each unit started activating and when it was active. It is taken after the boot
+finishes, so it reaches past the login.
+
+**What it costs.** The sampler runs on the guest's one vCPU beside the boot it draws. With the
+edit, `ssh-first` read the first login +10.4 ms [+4.5, +16.8], sshd accepting +8.5
+[+4.6, +11.7], the console prompt +15.7 [+12.3, +19.7], and QEMU's RSS +4.0 MiB (lab 45036503632,
+bench, spin's shape, 20 a side, v20261122.03). The chart shows the sampler as `@sbin/init`, about
+12 ms of CPU. So a bar on a chart is longer than it is without the sampler. The probe's own
+`first_login` is the login that stops the chart, its command included: 428 ms p50 in lab
+45037354657, beside `ssh-first`'s 422 with the edit. Neither is a goal number.
+
+**How to compare two charts.** Compare charts from one run, and the probe boots its trees
+interleaved, as every probe does. Two charts taken apart are two machines (rule 3). Read three
+repetitions of each tree, because one boot's bar can be another's outlier. Then look for what
+moved:
+- a process that starts later, and the one it waited for, shown by the dotted line to its
+  parent;
+- a bar whose yellow grew, which waited for the vCPU behind something else;
+- "Top CPU consumers", a process's CPU time, which is less noisy than when it ran.
+
+A chart that shows something to cut becomes an experiment with a budget row (rule 1), measured by
+`ssh-first`. Release to release, docs/releases.md links each release's chart beside the one
+before it.
+
+**What it is not.**
+- It is not a goal number, nor a phase's cost. A bar is wall time with the sampler running, on a
+  vCPU that everything shares. "Blame, the critical chain and log gaps are not savings" holds for
+  it too.
+- It does not see before PID 1. QEMU, the firmware and the kernel's own time are before `pid1`.
+  `initcalls` and `boot:firmware-stages` see them.
+- It does not see every process. One that lives under 5 ms is seen once at most and is filtered
+  out. The unit plot has each unit.
+- systemd-bootchart 235 reads cgroup v1, so it cannot label a process with its unit on this
+  machine. The unit plot is the way from a process to its unit.
+
 ## Avoid the pitfalls
 
 Each of these made a number say something it did not measure.
