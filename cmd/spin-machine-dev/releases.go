@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -12,9 +13,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/spin-stack/machine/internal/build"
 	"github.com/spin-stack/machine/internal/lab"
 )
 
@@ -40,7 +43,7 @@ much as a release does. Two records from different runs are compared by measurin
 	}
 	c.PersistentFlags().StringVar(&dir, "dir", "docs/releases", "the records' directory; the page is DIR.md")
 	c.AddCommand(releasesRecord(&dir), releasesMeasure(), releasesMissing(&dir), releasesShow(&dir),
-		releasesCompare(&dir), releasesDoc(&dir), releasesSite(&dir), releasesPropose(&dir))
+		releasesCompare(&dir), releasesDoc(&dir), releasesSite(&dir), releasesSchema(), releasesPropose(&dir))
 	return c
 }
 
@@ -347,6 +350,55 @@ at https://spin-stack.github.io/spin-machine/ from every merge that changes a re
 	return c
 }
 
+// releasedSchemas is where each supported release's query-qmp-schema is kept, which
+// qmpdef.CheckSupported holds the module's definitions to.
+const releasedSchemas = "internal/qmpdef/testdata/released"
+
+// mutate-lane: TestReleasesSchemaRecordsEachReleasesQEMU
+func releasesSchema() *cobra.Command {
+	return &cobra.Command{
+		Use:   "schema TAG...",
+		Short: "Record each release's QEMU's query-qmp-schema in " + releasedSchemas + ", which go test holds the machine's QMP to",
+		Long: `Fetch each release, verified, into _output/lab/releases as the lab does (a release releases measure
+fetched is not fetched again), start its qemu-system-x86_64 with no machine and write its answer
+to query-qmp-schema to ` + releasedSchemas + `/TAG.json. go test holds every command, argument
+and capability the machine sends to each of them (qmpdef.CheckSupported) in seconds and with no
+VM, which compat proves on KVM by resuming each release's checkpoint. The production binary needs
+/dev/kvm to start. report.yml records the new release's after its numbers, and releases propose
+proposes both.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			root, err := repo()
+			if err != nil {
+				return err
+			}
+			dir := filepath.Join(root, releasedSchemas)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return couldNot(fmt.Errorf("making %s: %w", dir, err))
+			}
+			src := sources(root, c.ErrOrStderr())
+			for _, tag := range args {
+				share, err := src.Release(tag)
+				if err != nil {
+					return couldNot(err)
+				}
+				ctx, cancel := context.WithTimeout(c.Context(), time.Minute)
+				schema, err := build.QMPSchema(ctx, filepath.Join(share, "bin", "qemu-system-x86_64"))
+				cancel()
+				if err != nil {
+					return couldNot(fmt.Errorf("release %s: %w", tag, err))
+				}
+				path := filepath.Join(dir, tag+".json")
+				if err := os.WriteFile(path, append(schema, '\n'), 0o644); err != nil { //nolint:gosec // the repository's own fixture
+					return couldNot(fmt.Errorf("writing %s: %w", path, err))
+				}
+				say(c, "recorded %s", path)
+			}
+			return nil
+		},
+	}
+}
+
 // recorded are the releases whose records the checkout has added or changed, oldest first.
 func recorded(c *cobra.Command, root, dir string) ([]string, error) {
 	out, err := exec.CommandContext(c.Context(), "git", "-C", root, "status", "--porcelain", "--untracked-files=all", "--", dir).Output() //nolint:gosec // the records' directory
@@ -377,12 +429,12 @@ func proposalBranch(releases []string) string {
 func releasesPropose(dir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "propose",
-		Short: "Propose the records this checkout wrote, and the page, as a pull request against main",
+		Short: "Propose the records this checkout wrote, the page and the releases' schemas, as a pull request against main",
 		Long: `Commit what releases record wrote - each new or changed record in DIR, DIR.md and DIR.svg -
-on a branch named for those releases, push it and open a pull request against main. Nothing is
-proposed when nothing was recorded, nor when the branch is on origin already: a set proposed once,
-merged or closed, is not proposed again. report.yml runs it as the release app, so the checks on
-the pull request run.`,
+and what releases schema wrote in ` + releasedSchemas + `, on a branch named for those
+releases, push it and open a pull request against main. Nothing is proposed when nothing was
+recorded, nor when the branch is on origin already: a set proposed once, merged or closed, is not
+proposed again. report.yml runs it as the release app, so the checks on the pull request run.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			d, err := recordsDir(*dir)
@@ -427,7 +479,7 @@ the pull request run.`,
 			for _, step := range [][]string{
 				{"git", "fetch", "-q", "--depth=1", "origin", "main"},
 				{"git", "switch", "-q", "--merge", "-c", branch, "FETCH_HEAD"},
-				{"git", "add", "--", d, d + ".md", d + ".svg"},
+				{"git", "add", "--", d, d + ".md", d + ".svg", releasedSchemas},
 				{"git", "commit", "-q", "-m", title},
 				{"git", "push", "origin", branch},
 			} {
