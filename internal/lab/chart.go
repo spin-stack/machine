@@ -86,7 +86,6 @@ func Chart(records []Record) string {
 
 	fmt.Fprintf(&b, `<line class="goal" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5" stroke-dasharray="6 4"/>`+"\n",
 		plotLeft, y(Goal), plotRight, y(Goal), ink)
-	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="end">goal %.0f ms</text>`+"\n", plotRight, y(Goal)-6, Goal)
 
 	for s, n := range goals {
 		for _, run := range runs(records, n.key) {
@@ -94,7 +93,9 @@ func Chart(records []Record) string {
 		}
 	}
 
-	// The legend, along the top: a swatch of each line and its band, then the goal's.
+	// The legend, along the top: a swatch of each line and its band, then the goal's with its
+	// value. The value is not written on the goal's line: at its right end it sat on the newest
+	// release's points and their labels, the place a reader looks first.
 	lx := plotLeft
 	for s, n := range goals {
 		fmt.Fprintf(&b, `<rect x="%.1f" y="24" width="20" height="12" fill="%s" fill-opacity="0.25"/>`, lx, seriesColours[s])
@@ -103,7 +104,7 @@ func Chart(records []Record) string {
 		lx += 26 + 7*float64(len(n.title)) + 24
 	}
 	fmt.Fprintf(&b, `<line x1="%.1f" y1="30" x2="%.1f" y2="30" stroke="%s" stroke-width="1.5" stroke-dasharray="6 4"/>`, lx, lx+20, ink)
-	fmt.Fprintf(&b, `<text x="%.1f" y="34">goal</text>`+"\n", lx+26)
+	fmt.Fprintf(&b, `<text x="%.1f" y="34">goal %.0f ms</text>`+"\n", lx+26, Goal)
 	fmt.Fprintf(&b, `<text x="%.1f" y="56">First SSH login, ms: the line is the p50, the band up to the p95.</text>`+"\n", plotLeft)
 	b.WriteString("</svg>\n")
 	return b.String()

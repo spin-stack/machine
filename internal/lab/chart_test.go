@@ -72,11 +72,17 @@ func (d drawn) lines(number string) [][]string {
 	return out
 }
 
-// goal is whether the chart draws the goal as a dashed line, labelled.
+// goal is whether the chart draws the goal as a dashed line, with its value in the legend above
+// the plot: written on the line, it sat on the newest release's points and their labels.
 func (d drawn) goal() bool {
 	for _, l := range d.Lines {
-		if l.Class == "goal" && l.Dash != "" {
-			return slices.Contains(d.texts(), "goal 100 ms")
+		if l.Class != "goal" || l.Dash == "" {
+			continue
+		}
+		for _, x := range d.Texts {
+			if x.Text == "goal 100 ms" && x.Y < plotTop {
+				return true
+			}
 		}
 	}
 	return false
