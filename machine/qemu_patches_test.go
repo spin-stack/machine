@@ -86,7 +86,7 @@ func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 
 	t.Run("0003 defers the stop's flush to the host's disk", func(t *testing.T) {
 		// A disk written since its last flush, on io_uring, which QEMU traces each request to:
-		// a save whose stop flushes it submits a flush (type 4, QEMU_AIO_FLUSH), and one under
+		// a save whose stop flushes it submits a flush (type 8, QEMU_AIO_FLUSH), and one under
 		// x-defer-disk-flush submits none. The first is what proves the second: the trace sees
 		// the flush that is said to be gone.
 		save := func(deferred bool) int {
@@ -129,8 +129,8 @@ func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 			}
 			writes, flushes := 0, 0
 			for _, l := range strings.Split(string(b), "\n") {
-				writes += strings.Count(l, "luring_co_submit") - strings.Count(l, "type 4")
-				flushes += strings.Count(l, "type 4")
+				writes += strings.Count(l, "luring_co_submit") - strings.Count(l, "type 8")
+				flushes += strings.Count(l, "type 8")
 			}
 			t.Logf("x-defer-disk-flush %v: %d other requests and %d flushes submitted", deferred, writes, flushes)
 			if writes == 0 {
