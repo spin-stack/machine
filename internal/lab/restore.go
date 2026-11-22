@@ -84,6 +84,11 @@ func (restoreFirst) Metrics() []Metric {
 		{"listening", "ms", "the restoring QEMU's monitor accepting a connection: its chardevs made, its machine not yet"},
 		{"running", "ms", "`spin-machine restore` returned: the guest is running"},
 		{"login", "ms", "the restored guest's first login"},
+		{"loaded", "ms", "fast: the eager thread done, the migration completed"},
+		{"blocktime", "ms", "fast: postcopy-blocktime, all vCPUs blocked on faults, to completed"},
+		{"faults", "n", "fast: faults counted in postcopy-latency-dist, to completed"},
+		{"latency", "µs", "fast: postcopy-latency, the mean fault's"},
+		{"nonvcpu_latency", "µs", "fast: postcopy-non-vcpu-latency"},
 	}
 }
 
@@ -146,6 +151,11 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 		return err
 	}
 	m.RecordMs("login", login)
+	if fast {
+		if err := postcopyStats(m, qmp, t0); err != nil {
+			return err
+		}
+	}
 	m.Logf("restored: running %v, login %v", time.Duration(m.values["running"]*1e6).Round(time.Millisecond), login.Round(time.Millisecond))
 	return nil
 }
@@ -438,4 +448,39 @@ func settled(socket string, state machine.Status) error {
 	// What a pool's machine would have had: a moment idle after its start, not the instant.
 	time.Sleep(100 * time.Millisecond)
 	return nil
+}
+
+// postcopyStats waits for a fast load to complete and records QEMU's blocktime counters (#470).
+func postcopyStats(m *Measurement, sock string, t0 time.Time) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	q, err := machine.Dial(ctx, sock, qmp.Observer{})
+	if err != nil {
+		return Miss("dialing for postcopy stats: %v", err)
+	}
+	defer func() { _ = q.Close() }()
+	for {
+		info, err := q.PostcopyStats(ctx)
+		if err != nil {
+			return Miss("query-migrate: %v", err)
+		}
+		if info["status"] != "completed" {
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
+		m.RecordMs("loaded", time.Since(t0))
+		num := func(k string) float64 { f, _ := info[k].(float64); return f }
+		m.Record("blocktime", num("postcopy-blocktime"))
+		m.Record("latency", num("postcopy-latency")/1000)
+		m.Record("nonvcpu_latency", num("postcopy-non-vcpu-latency")/1000)
+		var n float64
+		dist, _ := info["postcopy-latency-dist"].([]any)
+		for i, d := range dist {
+			f, _ := d.(float64)
+			n += f
+			m.Detail(fmt.Sprintf("dist%02d", i), f)
+		}
+		m.Record("faults", n)
+		return nil
+	}
 }

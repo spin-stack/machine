@@ -164,6 +164,7 @@ const (
 	multifd               migrationCapability = "multifd"
 	events                migrationCapability = "events"
 	deferDiskFlush        migrationCapability = "x-defer-disk-flush"
+	postcopyBlocktime     migrationCapability = "postcopy-blocktime"
 )
 
 type capabilities struct {
@@ -194,7 +195,7 @@ const (
 )
 
 func init() {
-	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd, events)
+	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd, events, postcopyBlocktime)
 	// Asked for only when query-migrate-capabilities lists it (Checkpoint): a released QEMU may
 	// not have it.
 	qmpdef.Probed(deferDiskFlush)
@@ -520,6 +521,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	case saved.Format == FormatMappedRAM:
 		caps[mappedRAM] = true
 		caps[postcopyRAM] = load.Fast
+		caps[postcopyBlocktime] = load.Fast
 		caps[multifd] = channels > 1
 	case saved.Format == FormatStream && load.Fast:
 		return errors.New("resuming: a stream checkpoint has no page at a fixed offset to fetch when the guest touches it, and loads only in full")
@@ -723,4 +725,11 @@ func (m *QEMU) Loaded(ctx context.Context) error {
 	tell(m.then, StateLoaded{At: time.Now(), Bytes: m.data})
 	m.then = nil
 	return nil
+}
+
+var queryMigrateRaw = qmpdef.Define[qmp.None, map[string]any]("query-migrate")
+
+// PostcopyStats is query-migrate's answer, as QEMU gives it: an experiment's (#470).
+func (m *QEMU) PostcopyStats(ctx context.Context) (map[string]any, error) {
+	return qmp.Do(ctx, m.c, queryMigrateRaw, qmp.None{})
 }
