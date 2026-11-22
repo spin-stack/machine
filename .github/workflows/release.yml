@@ -184,11 +184,48 @@ jobs:
       record: true
     secrets: inherit
 
+  # How long a checkpoint of the release just published stops the guest, held under 50 ms
+  # (boot:checkpoint-pause): QEMU decides when migration stops the guest, and a QEMU that stops it
+  # early again reads ~200 ms against ~15 (docs/memory-and-disk.md, "How long the guest is
+  # stopped"). A bound and not compatibility, so not compat's: there it was half of every run's
+  # time (311 s of run 44974499826). On a bench host of its own, beside report's, with the
+  # release's tag checked out: its spin-machine and its test.
+  pause:
+    needs: release
+    if: github.ref == 'refs/heads/main'
+    runs-on: runs-on/fleet=bench/env=production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.version }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Load vhost_vsock
+        run: go tool task vsock
+
+      - name: A checkpoint stops the guest briefly
+        run: spin-machine-dev lab check checkpoint-pause --tree "release=--from release:$VERSION"
+
   # Where the release's time went, the jobs of compat and report included: the critical path on
   # the run's summary, and trace.html, every job and step on one time axis, as an artifact. Run
   # whatever the jobs above did, as a failed or slow release is the one worth reading.
   trace:
-    needs: [compat, release, report]
+    needs: [compat, release, pause, report]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

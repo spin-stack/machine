@@ -46,9 +46,12 @@
   note: >-
     qemu/Dockerfile. A new emulator of the same machine: the machine type (machine.Type)
     stays, and `spin-machine-dev bump qemu` prints what newer types change against it. After the
-    bump: `spin-machine-dev build qemu`, `spin-machine-dev verify qemu args`, then `task boot:record boot:compat boot:finish-migrate`, the last for a migration
-    that reorders migration_completion_end and migration_iteration_finish, or adds a run state
-    after completed, which only a busy host shows (#425). The build directories' cache mounts are keyed by the
+    bump: `spin-machine-dev build qemu`, `spin-machine-dev verify qemu args`, then `task boot:record boot:compat boot:checkpoint-pause boot:finish-migrate`
+    (or `spin-machine-dev lab dispatch check:TARGET` with the bump's parts.yml run, on the bench).
+    checkpoint-pause is for a QEMU that stops the guest early again (~200 ms against ~15, held
+    under 50), and finish-migrate for a migration that reorders migration_completion_end and
+    migration_iteration_finish, or adds a run state after completed, which only a busy host shows
+    (#425). The build directories' cache mounts are keyed by the
     version, so QEMU_CONFIG_REV does not move with it.
     A device renamed or dropped upstream fails `spin-machine-dev verify qemu` or `verify args`, and is fixed in
     qemu/devices.mak or the machine package, not by removing the check. So does a QMP command or
