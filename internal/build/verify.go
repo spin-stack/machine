@@ -141,13 +141,15 @@ func VerifyE2fsprogs(o Options) error {
 	return nil
 }
 
-// verifySystemd asserts the build left packages for the image to install.
-func verifySystemd(o Options) error {
-	debs, _ := filepath.Glob(filepath.Join(o.Out, "systemd", "*.deb"))
-	if len(debs) == 0 {
-		return errors.New("no systemd packages in " + filepath.Join(o.Out, "systemd"))
+// verifyDebs asserts that part's package build (makeDebs) left packages for the image to install.
+func verifyDebs(part string) func(Options) error {
+	return func(o Options) error {
+		debs, _ := filepath.Glob(filepath.Join(o.Out, part, "*.deb"))
+		if len(debs) == 0 {
+			return errors.New("no " + part + " packages in " + filepath.Join(o.Out, part))
+		}
+		return nil
 	}
-	return nil
 }
 
 // verifyImage asserts the image and what describes it are there; image/build.sh asserts what is

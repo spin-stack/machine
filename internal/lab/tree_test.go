@@ -263,8 +263,8 @@ func TestTheLaneEditIsThisCheckoutsLane(t *testing.T) {
 	if _, err := laneEdit(t.TempDir()); err == nil || !strings.Contains(err.Error(), "reading the lane's") {
 		t.Errorf("a checkout with no image: %v", err)
 	}
-	if s := systemdPackages("/x/debs").Setup; !strings.Contains(s, "debs=/x/debs") || !strings.Contains(s, "test \"$replaced\" -gt 0") {
-		t.Errorf("systemd's edit: %q", s)
+	if s := packagesEdit("/x/debs", "check-it").Setup; !strings.Contains(s, "debs=/x/debs") || !strings.Contains(s, "test \"$replaced\" -gt 0\ncheck-it\n") {
+		t.Errorf("a packages edit: %q", s)
 	}
 }
 
@@ -284,7 +284,7 @@ func TestEveryEditTheErrorNamesIsOne(t *testing.T) {
 }
 
 // --spin-machine here builds this checkout's: the tree's is a copy, named for its commit, and a
-// checkout that does not build, or a systemd that does not, is no tree.
+// checkout that does not build, or a systemd or an OpenSSH that does not, is no tree.
 func TestATreesSpinMachineCanBeThisCheckouts(t *testing.T) {
 	base := fakeRelease(t, "k")
 	tr, err := MakeTree(filepath.Join(t.TempDir(), "h"), TreeSpec{Name: "h", From: base, SpinMachine: "here"}, src(t))
@@ -324,6 +324,10 @@ func TestATreesSpinMachineCanBeThisCheckouts(t *testing.T) {
 	if _, err := MakeTree(filepath.Join(t.TempDir(), "y"), TreeSpec{Name: "y", From: fakeRelease(t, "k"), Systemd: "pid1-marks"}, nowhere); err == nil ||
 		!strings.Contains(err.Error(), "building systemd with the experiment pid1-marks") {
 		t.Errorf("a systemd that does not build: %v", err)
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "z"), TreeSpec{Name: "z", From: fakeRelease(t, "k"), OpenSSH: true}, nowhere); err == nil ||
+		!strings.Contains(err.Error(), "building this checkout's OpenSSH") {
+		t.Errorf("an OpenSSH that does not build: %v", err)
 	}
 }
 

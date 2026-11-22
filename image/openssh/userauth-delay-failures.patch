@@ -1,0 +1,45 @@
+Description: Delay a failed userauth request only, not one that succeeded
+ OpenSSH 7.8 (e9d910b, "Defend against user enumeration timing attacks")
+ makes every userauth request but "none" take at least 5 ms plus a per-user
+ 0-4.2 ms derived from a host secret, so that a failure for an invalid user
+ takes as long as one for a valid user. The commit and the release notes say
+ the floor is for "each failed authentication attempt", and the call sites
+ d43ba60 added for keyboard-interactive and GSSAPI delay only a request that
+ did not authenticate. The main path in input_userauth_request delays every
+ request, so a public key login pays the floor twice: after the query that
+ sshd has already answered with USERAUTH_PK_OK, and after the signed request
+ that succeeds.
+ .
+ Neither delay hides anything. PK_OK is sent before the delay, and its
+ arrival tells the client that its key is accepted for the user. A success
+ tells the client it succeeded. Every other request keeps the delay: one that
+ did not authenticate and is not a public key query answered with PK_OK
+ waits, whatever its method. That includes the keyboard-interactive and
+ GSSAPI requests that only start an exchange (and set postponed), whose
+ follow-up messages delay a failure on their own since d43ba60.
+ .
+ On a restored guest, whose one vCPU has nothing else to run, the two delays
+ were ~13 ms of a ~93 ms first login (spin-stack/machine#457).
+Author: spin-machine <noreply@spin-stack.invalid>
+Forwarded: not-yet
+Last-Update: 2026-11-22
+---
+--- a/auth2.c
++++ b/auth2.c
+@@ -360,7 +360,15 @@
+ 		debug2("input_userauth_request: try method %s", method);
+ 		authenticated =	m->userauth(ssh, method);
+ 	}
+-	if (!authctxt->authenticated && strcmp(method, "none") != 0)
++	/*
++	 * The minimum time makes a failure take as long for an invalid user
++	 * as for a valid one. A request that authenticated, or a public key
++	 * query already answered with PK_OK, has told the client its outcome,
++	 * so delaying it hides nothing and costs every login the delay twice.
++	 */
++	if (!authenticated &&
++	    !(authctxt->postponed && m == &method_pubkey) &&
++	    !authctxt->authenticated && strcmp(method, "none") != 0)
+ 		auth_failure_delay(authctxt, tstart);
+
+ 	userauth_finish(ssh, authenticated, method, NULL);

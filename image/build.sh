@@ -51,11 +51,14 @@ mkdir -p "$(dirname "$OUT")" "$SHARE" /work/out /cache
 cd /work
 
 echo "==> mkosi: assembling the userland"
-# The systemd this repository builds (image/systemd, `spin-machine-dev build systemd`), mounted at /debs: a
-# local repository apt prefers by version (+spin1) for everything the tree installs from it.
-compgen -G '/debs/systemd_*+spin[0-9]*_*.deb' > /dev/null ||
-    { echo "ERROR: /debs has no systemd package of ours - spin-machine-dev build systemd" >&2; exit 1; }
-mkosi --force --package-directory=/debs build
+# The systemd and the OpenSSH this repository builds (image/systemd and image/openssh, `spin-machine-dev
+# build systemd openssh`), mounted under /debs: local repositories apt prefers by version (+spin1)
+# for everything the tree installs from them.
+compgen -G '/debs/systemd/systemd_*+spin[0-9]*_*.deb' > /dev/null ||
+    { echo "ERROR: /debs/systemd has no systemd package of ours - spin-machine-dev build systemd" >&2; exit 1; }
+compgen -G '/debs/openssh/openssh-server_*+spin[0-9]*_*.deb' > /dev/null ||
+    { echo "ERROR: /debs/openssh has no openssh-server package of ours - spin-machine-dev build openssh" >&2; exit 1; }
+mkosi --force --package-directory=/debs/systemd --package-directory=/debs/openssh build
 tree=/work/out/rootfs
 test -d "$tree" || { echo "ERROR: mkosi produced no tree at $tree" >&2; exit 1; }
 
@@ -115,11 +118,14 @@ dpkg-query --admindir="$tree/var/lib/dpkg" -W -f='${Package} ${Version} ${Archit
     2>/dev/null | sort > "$SHARE/packages.txt"
 echo "==> $(wc -l < "$SHARE/packages.txt") packages recorded"
 
-# What came out of /debs: systemd is ours, and every package of ours is held
+# What came out of /debs: systemd and openssh-server are ours, and every package of ours is held
 # (mkosi.postinst.chroot), by dpkg's own status and not apt-mark's word. A tree that took the
-# archive's systemd boots, and pays again for everything image/systemd/Dockerfile says it built out.
+# archive's systemd boots, and pays again for everything image/systemd/Dockerfile says it built out;
+# one that took the archive's sshd logs in, and every login sleeps twice (image/openssh/Dockerfile).
 grep -qE '^systemd [^ ]+\+spin[0-9]+ ' "$SHARE/packages.txt" ||
     { echo "ERROR: the image's systemd is the archive's, not image/systemd's" >&2; exit 1; }
+grep -qE '^openssh-server [^ ]+\+spin[0-9]+ ' "$SHARE/packages.txt" ||
+    { echo "ERROR: the image's openssh-server is the archive's, not image/openssh's" >&2; exit 1; }
 while read -r pkg version _; do
     case "$version" in *+spin[0-9]*) ;; *) continue ;; esac
     want=$(dpkg-query --admindir="$tree/var/lib/dpkg" -W -f='${db:Status-Want}' "$pkg")
@@ -428,6 +434,14 @@ in_image /etc/systemd/system/systemd-logind-varlink.socket.d/10-seats.conf || {
 "$bin/debugfs" -R "cat /etc/ssh/sshd_config.d/10-spin-kex.conf" /work/base.raw 2>/dev/null |
         grep -qx 'KexAlgorithms mlkem768x25519-sha256' || {
     echo "ERROR: sshd does not offer mlkem768x25519-sha256 alone" >&2
+    exit 1; }
+# The sshd that runs userauth is image/openssh's, asked of the binary in the finished filesystem
+# and not of the package list: sshd-auth sends every client the version it was built as, and the
+# rebuilt one's ends in the +spinN its package was given.
+sshd_version=$(awk '$1 == "openssh-server" { v = $2; sub(/^[0-9]+:/, "", v); print v }' "$SHARE/packages.txt")
+sshd_says="OpenSSH_${sshd_version%%-*} Ubuntu-${sshd_version#*-}"
+"$bin/debugfs" -R "cat /usr/lib/openssh/sshd-auth" /work/base.raw 2>/dev/null | grep -aqF "$sshd_says" || {
+    echo "ERROR: the image's /usr/lib/openssh/sshd-auth does not say $sshd_says" >&2
     exit 1; }
 # And the keys are made from the boot's first dispatch, not by the first login's sshd@, which
 # would wait for them before its banner: 18 ms of the first login over vsock (the numbers are in

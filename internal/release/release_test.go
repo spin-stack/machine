@@ -53,7 +53,8 @@ func apkDB(only string) string {
 func tree(t *testing.T) (root, out string) {
 	t.Helper()
 	root, out = t.TempDir(), t.TempDir()
-	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/mtrr.patch", "qemu/qboot/pam.patch", "qemu/patches/0001-a.patch"} {
+	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/mtrr.patch", "qemu/qboot/pam.patch", "qemu/patches/0001-a.patch",
+		"image/openssh/a.patch"} {
 		put(t, filepath.Join(root, f), f, 0o644)
 	}
 	for _, b := range append(slices.Clone(build.QEMUBinaries), build.E2fsprogsBinaries...) {
@@ -123,15 +124,15 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755,
 		share + "bin/debugfs": 0o755, share + "qemu/qboot.bin": 0o644, share + "qemu/qboot-mtrr.patch": 0o644, share + "qemu/qboot-pam.patch": 0o644,
 		share + "qemu/qboot-COPYING": 0o644, share + "qemu/patches/0001-a.patch": 0o644, share + "kernel/patches/0001-k.patch": 0o644,
-		share + "kernel/bzImage": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
+		share + "openssh/a.patch": 0o644, share + "kernel/bzImage": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
 		share + "e2fsprogs/mke2fs.conf": 0o644, share + "packages.txt": 0o644}
 	for f, mode := range want {
 		if m, ok := got[f]; !ok || m != mode {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 31 {
-		t.Errorf("the tarball holds %d files, want 31: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 32 {
+		t.Errorf("the tarball holds %d files, want 32: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return
@@ -218,6 +219,7 @@ func TestAReleaseMissingAnythingIsRefused(t *testing.T) {
 		{"an option ROM", "out:qemu/linuxboot_dma.bin", "firmware linuxboot_dma.bin"},
 		{"every qboot patch", "root:qemu/qboot/*.patch", "qboot's patch"},
 		{"every kernel patch", "out:kernel/patches", "kernel patch"},
+		{"every OpenSSH patch", "root:image/openssh/*.patch", "OpenSSH patch"},
 		{"the base image", "out:image/rootfs.qcow2", "the base image"},
 		{"an apk database", "out:sbom/qemu.apk", "qemu.apk"},
 		{"the package list", "out:packages.txt", "package list"},
@@ -270,7 +272,7 @@ func TestSourcesNameEachPartsSourceByItsPin(t *testing.T) {
 	if !strings.HasPrefix(text, "spin-machine v20261119.07\n") {
 		t.Errorf("SOURCES begins %q", text[:40])
 	}
-	for _, name := range []string{"qemu", "kernel", "e2fsprogs", "systemd-source"} {
+	for _, name := range []string{"qemu", "kernel", "e2fsprogs", "systemd-source", "openssh-source"} {
 		e, _ := v.Get(name)
 		if !strings.Contains(text, e.URL()) || !strings.Contains(text, e.Pin) || !strings.Contains(text, e.Version) {
 			t.Errorf("SOURCES does not name %s's %s, %s and %s", name, e.Version, e.URL(), e.Pin)
@@ -283,7 +285,7 @@ func TestSourcesNameEachPartsSourceByItsPin(t *testing.T) {
 	if strings.Contains(text, "%!") {
 		t.Error("SOURCES has a verb with no value")
 	}
-	for _, missing := range []string{"qemu", "kernel", "e2fsprogs", "qboot", "systemd-source"} {
+	for _, missing := range []string{"qemu", "kernel", "e2fsprogs", "qboot", "systemd-source", "openssh-source"} {
 		w := *v
 		w.Entries = slices.DeleteFunc(slices.Clone(v.Entries), func(e versions.Entry) bool { return e.Name == missing })
 		if _, err := Sources("v", &w); err == nil {

@@ -42,6 +42,10 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	o, err := get("openssh-source")
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf(sourcesText,
 		version,
 		q.Version, q.URL(), q.Pin,
@@ -49,6 +53,7 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 		e.Version, e.URL(), e.Pin,
 		k.Version, k.URL(), k.Pin,
 		s.Version, s.Version, s.URL(), s.Pin,
+		o.Version, o.Version, o.URL(), o.Pin,
 	), nil
 }
 
@@ -115,6 +120,16 @@ systemd %s+spin1
   built by: image/systemd/Dockerfile: Debian's stage1 build profile, SELinux disabled and
             systemd-executor, udevd, systemctl and journalctl linked statically against
             libsystemd-shared, with a changelog entry for the +spin1 version
+
+OpenSSH 1:%s+spin1
+  packages: those in usr/share/spin-stack/packages.txt at 1:%s+spin1
+            (openssh-server, openssh-client, openssh-sftp-server)
+  source:   Ubuntu's source package: %s
+            and the tarballs it names beside it, with usr/share/spin-stack/openssh/*.patch
+            applied to it after Ubuntu's own (each says what it changes and why)
+  sha256:   %s (the .dsc, which holds the tarballs' checksums)
+  built by: image/openssh/Dockerfile: Ubuntu's build, with a changelog entry for the +spin1
+            version
 
 Written offer
   For three years from the date of this release, the copyright holders will provide, to

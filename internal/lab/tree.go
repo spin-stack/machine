@@ -173,12 +173,14 @@ type TreeSpec struct {
 	Edits []string
 	// Systemd is an image/systemd/experiments patch: systemd built with it, put into every overlay.
 	Systemd string
+	// OpenSSH is OpenSSH as this checkout builds it (image/openssh), put into every overlay.
+	OpenSSH bool
 }
 
 // Sources is where MakeTree finds what a spec names: this checkout, and the downloads.
 type Sources struct {
 	// Checkout is this repository's root: the spin-machine `here` builds, the image's lane
-	// files, the systemd experiments.
+	// files, the systemd experiments, image/openssh.
 	Checkout string
 	// Cache is where releases and runs are downloaded and unpacked, once.
 	Cache  string
@@ -257,6 +259,11 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 	}
 	if spec.Systemd != "" {
 		if err := src.addSystemd(&m, spec.Systemd, dir); err != nil {
+			return nil, err
+		}
+	}
+	if spec.OpenSSH {
+		if err := src.addOpenSSH(&m, dir); err != nil {
 			return nil, err
 		}
 	}
