@@ -51,9 +51,9 @@ Assisted-by: LLM
  include/block/block-global-state.h |  1 +
  include/migration/misc.h           |  1 +
  migration/options.c                | 12 ++++++++++++
- qapi/migration.json                | 12 ++++++++++--
+ qapi/migration.json                | 13 +++++++++++--
  system/runstate.c                  | 19 +++++++++++++++++++
- 7 files changed, 69 insertions(+), 3 deletions(-)
+ 7 files changed, 70 insertions(+), 3 deletions(-)
 
 diff --git a/block.c b/block.c
 index 006c34134..22b09a3eb 100644
@@ -172,18 +172,19 @@ index bd40394aa..c000832fe 100644
  {
      MigrationState *s = migrate_get_current();
 diff --git a/qapi/migration.json b/qapi/migration.json
-index 889a9b89c..ba88c9cba 100644
+index 889a9b89c..76e4a015d 100644
 --- a/qapi/migration.json
 +++ b/qapi/migration.json
-@@ -518,9 +518,16 @@
+@@ -518,9 +518,17 @@
  #     each RAM page.  Requires a migration URI that supports seeking,
  #     such as a file.  (since 9.0)
  #
-+# @x-defer-disk-flush: If enabled, a switchover's stop completes the
-+#     guest's flushes, then leaves the disks' writes in the host's page
-+#     cache until the VM runs again or QEMU closes the disks.  For a
-+#     migration whose reader shares this host's page cache, such as a
-+#     checkpoint to a file on it.  Ignored in a CPR mode.  (since 11.2)
++# @x-defer-disk-flush: If enabled, a switchover's stop completes
++#     the guest's flushes, then leaves the disks' writes in the
++#     host's page cache until the VM runs again or QEMU closes the
++#     disks.  For a migration whose reader shares this host's page
++#     cache, such as a checkpoint to a file on it.  Ignored in a CPR
++#     mode.  (since 11.2)
 +#
  # Features:
  #
@@ -193,7 +194,7 @@ index 889a9b89c..ba88c9cba 100644
  #
  # Since: 1.2
  ##
-@@ -534,7 +541,8 @@
+@@ -534,7 +542,8 @@
             { 'name': 'x-ignore-shared', 'features': [ 'unstable' ] },
             'validate-uuid', 'background-snapshot',
             'zero-copy-send', 'postcopy-preempt', 'switchover-ack',
