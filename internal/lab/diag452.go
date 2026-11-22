@@ -19,11 +19,20 @@ const traceInst = "/sys/kernel/tracing/instances/d452"
 
 func traceStart() {
 	script := `I=` + traceInst + `
-mkdir -p $I && echo 0 > $I/tracing_on && echo mono > $I/trace_clock && echo 32768 > $I/buffer_size_kb
+T=/sys/kernel/tracing
+grep -q synctsc $T/kprobe_events || echo 'p:d452/synctsc kvm_synchronize_tsc uptr=%si:x64 data=+0(%si):u64' >> $T/kprobe_events
+grep -q sync2 $T/kprobe_events || echo 'p:d452/sync2 __kvm_synchronize_tsc offset=%si:x64 tsc=%dx:u64 matched=%r8:u8 user=%r9:u8' >> $T/kprobe_events
+grep -q tscattr $T/kprobe_events || echo 'p:d452/tscattr kvm_vcpu_ioctl_device_attr' >> $T/kprobe_events
+mkdir -p $I && echo 0 > $I/tracing_on
+for e in d452/synctsc d452/sync2 d452/tscattr; do [ -d $I/events/$e ] && echo 1 > $I/events/$e/enable; done
+cat $T/kprobe_events >&2 && echo mono > $I/trace_clock && echo 32768 > $I/buffer_size_kb
 for e in vsock kvm/kvm_vcpu_wakeup kvm/kvm_msi_set_irq kvm/kvm_apic_accept_irq kvm/kvm_exit kvm/kvm_msr kvm/kvm_fast_mmio kvm/kvm_mmio kvm/kvm_pio kvm/kvm_userspace_exit kvm/kvm_set_irq kvm/kvm_ioapic_set_irq kvm/kvm_inj_virq kvm/kvm_apic_ipi kvm/kvm_pv_eoi; do [ -d $I/events/$e ] && echo 1 > $I/events/$e/enable; done
 echo > $I/trace; echo 1 > $I/tracing_on`
-	_ = exec.Command("sudo", "-n", "sh", "-c", script).Run()
+	out, err := exec.Command("sudo", "-n", "sh", "-c", script).CombinedOutput()
+	traceSetup = fmt.Sprintf("setup: %v %s", err, out)
 }
+
+var traceSetup string
 
 func monoNow() int64 {
 	var ts unix.Timespec
@@ -42,6 +51,7 @@ func traceStop(path string, from, to int64) string {
 	}
 	_ = os.WriteFile(path, out, 0o600)
 	var b strings.Builder
+	b.WriteString(traceSetup + "\n")
 	exits := map[string]int{}
 	n := 0
 	for line := range strings.Lines(string(out)) {
@@ -61,11 +71,15 @@ func traceStop(path string, from, to int64) string {
 			continue
 		}
 		ts := int64(sec * 1e9)
+		rel := float64(ts-from)/1e6 - 5
+		ev := strings.TrimSpace(line[i+2:])
+		if strings.HasPrefix(ev, "synctsc") || strings.HasPrefix(ev, "sync2") || strings.HasPrefix(ev, "tscattr") {
+			fmt.Fprintf(&b, "%+8.3f %s %s\n", rel, f[0], ev)
+			continue
+		}
 		if ts < from || ts > to {
 			continue
 		}
-		rel := float64(ts-from)/1e6 - 5
-		ev := strings.TrimSpace(line[i+2:])
 		if strings.HasPrefix(ev, "kvm_exit:") {
 			r := ev
 			if k := strings.Index(ev, "reason "); k >= 0 {

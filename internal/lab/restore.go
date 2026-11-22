@@ -114,6 +114,7 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 		m.RecordMs("read", d)
 	}
 	qmp := filepath.Join(m.Socks, "restored.qmp")
+	traceStart()
 	t0 := time.Now()
 	mc, err := m.Launch(nil, m.BootArgs(c.overlay, c.bootFlags(m, qmp, "--restore")...)...)
 	if err != nil {
@@ -135,7 +136,6 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 		}
 		args = append(args, "--fast")
 	}
-	traceStart()
 	dw := startDiag(mc.cmd.Process.Pid)
 	if err := m.SpinMachine(args...); err != nil {
 		dw.end()
