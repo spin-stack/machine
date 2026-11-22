@@ -143,7 +143,7 @@ tasks:
   workspace:
     desc: >-
       Check what a workspace expects of the image in a disposable guest: no failed unit, the journal,
-      the timers, dpkg and apt, the locale, sudo, /tmp, tracefs by hand, and docker running a
+      the timers, dpkg and apt, the locale, sudo, /tmp, tracefs, debugfs by hand, and docker running a
       container by its socket; and that what docs/image.md says the image gives up is still given
       up. Needs a built release; uses KVM when available, otherwise TCG.
     deps: [':tools']

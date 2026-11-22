@@ -32,8 +32,9 @@ lost "timedatectl" timedatectl status
 must "localhost resolves" getent hosts localhost
 must "spin has sudo" su -l spin -c 'sudo -n true'
 must "/tmp is a tmpfs" sh -c 'test "$(findmnt -no FSTYPE /tmp)" = tmpfs'
-must "tracefs mounts by hand" sh -c 'mount -t tracefs nodev /sys/kernel/tracing && test -e /sys/kernel/tracing/trace && umount /sys/kernel/tracing'
-lost "tracefs mounted at boot" mountpoint -q /sys/kernel/tracing
+must "tracefs is there" test -e /sys/kernel/tracing/trace
+lost "debugfs mounted at boot" mountpoint -q /sys/kernel/debug
+must "debugfs mounts by hand" sh -c 'mount -t debugfs nodev /sys/kernel/debug && umount /sys/kernel/debug'
 lost "/dev/hugepages mounted at boot" mountpoint -q /dev/hugepages
 
 # docker by its socket: the first command starts dockerd and containerd. No network, so the image
