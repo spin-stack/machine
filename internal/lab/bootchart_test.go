@@ -182,3 +182,47 @@ func TestBootchartNamesTheFilesItKept(t *testing.T) {
 		t.Errorf("Detail = %q", d)
 	}
 }
+
+// The first login is drawn on the plot where it ran: on v20261122.04's plot, whose first login ran
+// at 340 ms of the kernel's clock (release run 45041820698), at 2 px a millisecond from the
+// kernel's start, across every unit, inside the plot. A plot whose firmware took time of its own
+// starts the kernel later, and the login moves with it.
+func TestTheFirstLoginIsDrawnOnThePlotWhereItRan(t *testing.T) {
+	b, err := os.ReadFile("../../docs/releases/v20261122.04-plot.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plot, err := markLogin(string(b), 0.3404)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`<g transform="translate(20.000,100)">`,
+		`<line x1="680.800" y1="0" x2="680.800" y2="1280.000"`, `<text x="684.800" y="-20"`, `>first login 340 ms</text>`} {
+		if !strings.Contains(plot[len(b)-len("</svg>\n"):], want) {
+			t.Errorf("the mark after the plot's units has no %s", want)
+		}
+	}
+	if !strings.HasSuffix(plot, "</svg>\n") || !strings.HasPrefix(plot, string(b[:len(b)-len("</svg>\n")])) {
+		t.Errorf("the plot is not the same plot with the mark added before its end")
+	}
+
+	firmware := `<g transform="translate(20,100)">
+<rect class="box" x="0" y="0" width="900" height="40" />
+<line class="sec01" x1="200.000" y1="0" />
+<rect class="kernel" x="100.000" y="0.000" />
+</svg>`
+	plot, err = markLogin(firmware, 0.1)
+	if err != nil || !strings.Contains(plot, `<line x1="300.000" y1="0" x2="300.000" y2="40.000"`) {
+		t.Errorf("a plot whose kernel starts at 50 ms marked 100 ms of the kernel's clock as %q, %v", plot, err)
+	}
+	for part, without := range map[string]string{
+		"box":    strings.Replace(firmware, `class="box"`, `class="b"`, 1),
+		"kernel": strings.Replace(firmware, `class="kernel"`, `class="k"`, 1),
+		"tenth":  strings.Replace(firmware, `class="sec01"`, `class="s"`, 1),
+		"end":    strings.Replace(firmware, `</svg>`, ``, 1),
+	} {
+		if _, err := markLogin(without, 0.1); err == nil || !strings.Contains(err.Error(), "not a systemd-analyze plot") {
+			t.Errorf("a plot with no %s was marked: %v", part, err)
+		}
+	}
+}
