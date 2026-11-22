@@ -891,24 +891,30 @@ func TestResume(t *testing.T) {
 	}
 }
 
-// What a resume of a checkpoint of this machine refuses before reading a byte of the state.
+// What a resume of a checkpoint of this machine refuses before reading a byte of the state, and
+// which of those are the checkpoint's own (a *Refusal, which spin answers by trying the next host
+// and then booting the disk) rather than this try's.
 func TestResumeRefuses(t *testing.T) {
 	here := fakeTarget(t)
 	// A Target that says it reads a format QEMU's Resume does not: the caller's, trusted.
 	other := fakeTarget(t)
 	other.Formats = append(other.Formats, "firecracker-snapshot")
+	older := here
+	older.VMM = "qemu 1.0.0"
 	for _, tc := range []struct {
-		name   string
-		saved  Saved
-		here   Target
-		load   LoadOptions
-		status string
-		want   string
+		name    string
+		saved   Saved
+		here    Target
+		load    LoadOptions
+		status  string
+		want    string
+		refusal bool
 	}{
-		{"a stream checkpoint, by channels", Saved{Format: FormatStream, From: here}, here, LoadOptions{Channels: 2}, "inmigrate", "which one thread reads"},
-		{"a format QEMU does not read", Saved{Format: "firecracker-snapshot", From: here}, other, LoadOptions{}, "inmigrate", `format "firecracker-snapshot"`},
-		{"a machine held for a boot", Saved{Format: FormatMappedRAM, From: here}, here, LoadOptions{}, "prelaunch", "is prelaunch"},
-		{"a record it cannot read", Saved{Format: FormatMappedRAM, From: here, Added: json.RawMessage(`[`)}, here, LoadOptions{}, "inmigrate", "what the checkpoint says"},
+		{"a stream checkpoint, by channels", Saved{Format: FormatStream, From: here}, here, LoadOptions{Channels: 2}, "inmigrate", "which one thread reads", false},
+		{"a format QEMU does not read", Saved{Format: "firecracker-snapshot", From: here}, other, LoadOptions{}, "inmigrate", "format: checkpoint firecracker-snapshot", true},
+		{"a machine held for a boot", Saved{Format: FormatMappedRAM, From: here}, here, LoadOptions{}, "prelaunch", "is prelaunch", false},
+		{"a record it cannot read", Saved{Format: FormatMappedRAM, From: here, Added: json.RawMessage(`[`)}, here, LoadOptions{}, "inmigrate", "added: checkpoint unreadable", true},
+		{"a checkpoint from a newer QEMU", Saved{Format: FormatMappedRAM, From: here}, older, LoadOptions{}, "inmigrate", "vmm:", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: machineAnswers(tc.status, "root")}
@@ -916,6 +922,10 @@ func TestResumeRefuses(t *testing.T) {
 			err := m.Resume(ctx(t), image(t, "raw").File, tc.saved, tc.here, tc.load)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Resume = %v, want %q", err, tc.want)
+			}
+			var r *Refusal
+			if errors.As(err, &r) != tc.refusal {
+				t.Errorf("Resume = %v: a *Refusal %t, want %t", err, !tc.refusal, tc.refusal)
 			}
 			for _, c := range f.commands() {
 				if c == "migrate-incoming" {
@@ -934,6 +944,10 @@ func TestAFailedLoadFailsTheResume(t *testing.T) {
 		Disk{Serial: "root", Images: []Image{image(t, "qcow2")}})
 	if err == nil || !strings.Contains(err.Error(), "the load failed") {
 		t.Errorf("Resume = %v, want the load's failure", err)
+	}
+	var r *Refusal
+	if errors.As(err, &r) {
+		t.Errorf("Resume = %v, a *Refusal: QEMU's failed load does not say whether the state or the host failed it", err)
 	}
 	if slices.Contains(f.commands(), "query-migrate") {
 		t.Error("asked why of a QEMU that exits on a failed load")
@@ -1358,6 +1372,10 @@ func TestResumeFailsWhereTheDisksCannotBeTaken(t *testing.T) {
 		Disk{Serial: "root", Images: []Image{image(t, "qcow2")}})
 	if err == nil || !strings.Contains(err.Error(), `taking the machine's disks: blockdev-set-active: GenericError: Failed to get "write" lock`) {
 		t.Errorf("Resume = %v, want QEMU's refusal of the lock", err)
+	}
+	var r *Refusal
+	if errors.As(err, &r) {
+		t.Errorf("Resume = %v, a *Refusal: a lock another process holds is this host's", err)
 	}
 	if slices.Contains(f.commands(), "migrate-incoming") {
 		t.Error("the state was read")

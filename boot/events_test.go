@@ -5,6 +5,7 @@ package boot_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,6 +191,12 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		s, err, g := resume(t, short, saved, &timeline{})
 		if err == nil {
 			t.Fatalf("a truncated state resumed\n%s", g.said())
+		}
+		// MIGRATION carries the status alone, so the machine cannot tell this from a host whose
+		// read of the state failed, and keeps the memory (#516).
+		var r *machine.Refusal
+		if errors.As(err, &r) {
+			t.Errorf("Resume = %v, a *machine.Refusal: a failed load does not say the state failed it", err)
 		}
 		select {
 		case <-g.Exited():
