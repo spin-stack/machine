@@ -518,6 +518,17 @@ for f in systemd-udevd.service.d/20-startup.conf systemd-udev-trigger.service.d/
         echo "ERROR: ${f%%.d/*} runs at the normal weight while the boot runs ($f)" >&2
         exit 1; }
 done
+# ... and not before sysinit.target, which would hold basic.target for it (configure-system.sh).
+for u in systemd-udevd.service systemd-udev-trigger.service; do
+    unit=$("$bin/debugfs" -R "cat /etc/systemd/system/$u" /work/base.raw 2>/dev/null)
+    printf '%s\n' "$unit" | grep -q '^ExecStart=' || {
+        echo "ERROR: /etc/systemd/system/$u is missing or is not udev's unit" >&2
+        exit 1; }
+    if printf '%s\n' "$unit" | grep -qx 'Before=sysinit.target'; then
+        echo "ERROR: $u is ordered before sysinit.target; basic.target waits for udev" >&2
+        exit 1
+    fi
+done
 dbus=$("$bin/debugfs" -R "cat /etc/systemd/system/dbus.socket" /work/base.raw 2>/dev/null)
 printf '%s\n' "$dbus" | grep -q '^ListenStream=/run/dbus/system_bus_socket' || {
     echo "ERROR: /etc/systemd/system/dbus.socket is missing or is not the bus's socket" >&2
