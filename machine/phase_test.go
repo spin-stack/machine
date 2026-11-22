@@ -52,6 +52,8 @@ func saving() func(c call) string {
 			return ret(`[]`)
 		case "add-fd":
 			return ret(`{"fdset-id": 3}`)
+		case "query-migrate-capabilities":
+			return patchedCapabilities
 		case "migrate":
 			return migrationEvents("setup", "active") + ok
 		case "query-migrate":

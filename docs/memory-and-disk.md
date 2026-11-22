@@ -318,6 +318,13 @@ qcow2 caches to the page cache and stop there: the stop's, a seal's `blockdev-sn
 activation. The guest's next flush forces them. A caller that keeps the checkpoint's disk syncs it
 with the state, after `Continue`.
 
+`Checkpoint` asks for the capability only when `query-migrate-capabilities` lists it, one round trip
+before the migration starts, with the guest running. A machine an earlier release started runs a
+QEMU without the patch, v20261121.01's and every one before it, and that QEMU refuses a capability
+it does not know. A runner whose machine library is upgraded checkpoints that machine as before:
+the stop flushes to the host's disk, and on a busy disk the guest waits for it. `verify qemu` still
+holds the pinned QEMU to offering it, so a bump that loses the patch fails there.
+
 Measured on the bench (nested KVM, v20261121.01 with QEMU from parts run 44961949665, spin's shape
 plugged to 2 GiB, the busy-disk guest, 20 pairs interleaved on one guest in a random order within
 each pair, lab 44962720682, 2026-11-21):

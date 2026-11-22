@@ -404,7 +404,9 @@ the host's disk (`x-defer-disk-flush`, which `qemu/patches` adds): the stop's, a
 them. A caller that keeps the checkpoint's disk, such as the layer a seal put under a new overlay,
 syncs it with the state after `Continue`. On a bench whose disk four writers kept busy, the stop's
 fsync had held the guest 40 ms p50, and 18 without it (docs/memory-and-disk.md, "A busy host disk",
-#426).
+#426). A QEMU without the patch, which a machine started by v20261121.01 or an earlier release
+runs, does not list the capability in `query-migrate-capabilities`, and `Checkpoint` does not ask
+it for one: that machine's stop flushes to the host's disk, as every checkpoint did before.
 
 The 0.3-0.9 GiB the guest stopped with was QEMU's default `downtime-limit` of 300 ms at work: QEMU
 stops the guest once what is left fits in that limit at the rate it measures, ~4 GB/s into the page

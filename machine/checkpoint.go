@@ -135,12 +135,13 @@ const checkpointDowntime = 30
 var (
 	migrateOut = qmpdef.Define[migrateArgs, qmp.None]("migrate")
 	migrateIn  = qmpdef.Define[migrateArgs, qmp.None]("migrate-incoming")
-	// Unstable: it sends x-defer-disk-flush, the capability qemu/patches adds.
-	migrateSetCapabilities = qmpdef.Define[capabilities, qmp.None]("migrate-set-capabilities", qmpdef.Unstable)
-	migrateSetParameters   = qmpdef.Define[migrationParameters, qmp.None]("migrate-set-parameters")
-	migrateContinue        = qmpdef.Define[migrationState, qmp.None]("migrate-continue")
-	migrateCancel          = qmpdef.Define[qmp.None, qmp.None]("migrate_cancel")
-	queryMigrate           = qmpdef.Define[qmp.None, migrationInfo]("query-migrate")
+	// Unstable: they send or read x-defer-disk-flush, the capability qemu/patches adds.
+	migrateSetCapabilities   = qmpdef.Define[capabilities, qmp.None]("migrate-set-capabilities", qmpdef.Unstable)
+	queryMigrateCapabilities = qmpdef.Define[qmp.None, []capabilityState]("query-migrate-capabilities", qmpdef.Unstable)
+	migrateSetParameters     = qmpdef.Define[migrationParameters, qmp.None]("migrate-set-parameters")
+	migrateContinue          = qmpdef.Define[migrationState, qmp.None]("migrate-continue")
+	migrateCancel            = qmpdef.Define[qmp.None, qmp.None]("migrate_cancel")
+	queryMigrate             = qmpdef.Define[qmp.None, migrationInfo]("query-migrate")
 	// migrationEvent is sent at each change of a migration's state, either direction, once the
 	// events capability is on: every wait on a migration waits on it.
 	migrationEvent = qmpdef.DefineEvent[migrationNews]("MIGRATION")
@@ -304,6 +305,9 @@ func loadEnded(st migrationStatus) error {
 // activation write to the page cache, and the guest's next flush forces them. A caller that keeps
 // the checkpoint's disk syncs it with the state, after Continue. On a host whose disk other
 // writers keep busy, the stop's fdatasync of the overlay held the guest stopped for it (#426).
+// A QEMU without the patch, as v20261121.01 and every release before it ship, refuses the
+// capability: it is asked for only when query-migrate-capabilities lists it, and such a QEMU
+// checkpoints as it did before, the stop's flush on the host's disk.
 func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, seal func(context.Context) error) (Saved, Cost, error) {
 	var a added
 	var err error
@@ -318,7 +322,14 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: recording what was added: %w", err)
 	}
 	channels := save.channels()
-	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1, events: true, deferDiskFlush: true}
+	caps := map[migrationCapability]bool{mappedRAM: true, pauseBeforeSwitchover: true, postcopyRAM: false, multifd: channels > 1, events: true}
+	offered, err := qmp.Do(ctx, m.c, queryMigrateCapabilities, qmp.None{})
+	if err != nil {
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
+	}
+	if slices.ContainsFunc(offered, func(c capabilityState) bool { return c.Capability == deferDiskFlush }) {
+		caps[deferDiskFlush] = true
+	}
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
