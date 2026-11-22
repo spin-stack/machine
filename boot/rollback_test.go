@@ -478,6 +478,12 @@ func (w *rollbackGuest) dial(t *testing.T, within time.Duration) *xssh.Client {
 // sshOverVsock is a login as root on cid's port 22 with the one key exchange the image's sshd
 // accepts.
 func sshOverVsock(cid uint32, signer xssh.Signer) (*xssh.Client, error) {
+	return vsockLogin(cid, "root", xssh.PublicKeys(signer))
+}
+
+// vsockLogin is a login as user on cid's port 22, authenticated by auth, with the one key exchange
+// the image's sshd accepts.
+func vsockLogin(cid uint32, user string, auth xssh.AuthMethod) (*xssh.Client, error) {
 	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		return nil, fmt.Errorf("opening a vsock socket: %w", err)
@@ -494,8 +500,8 @@ func sshOverVsock(cid uint32, signer xssh.Signer) (*xssh.Client, error) {
 	conn := vsockFile{os.NewFile(uintptr(fd), "vsock")}
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	c, chans, reqs, err := xssh.NewClientConn(conn, "vsock", &xssh.ClientConfig{
-		User:            "root",
-		Auth:            []xssh.AuthMethod{xssh.PublicKeys(signer)},
+		User:            user,
+		Auth:            []xssh.AuthMethod{auth},
 		HostKeyCallback: xssh.InsecureIgnoreHostKey(), // a fresh VM's keys, made in its boot
 		Config:          xssh.Config{KeyExchanges: []string{xssh.KeyExchangeMLKEM768X25519}},
 	})
