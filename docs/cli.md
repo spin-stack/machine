@@ -161,8 +161,10 @@ spin-stack repository (`test`, `lint`, `mutate`, `coverage`), and CI's plumbing:
 `versions`, `bump`, `release`, `lint:workflows` and `consumers` are not written here: the
 Taskfile includes go-tools' own file of them (`GO_TOOLS_TASKS`, which only `go tool task` sets),
 so each means what it means in every repository. `lint` runs `lint:workflows`. `release` and
-`consumers` are listed and refuse: the include names no gate, because a release is release.yml's
-(Releasing, above), and nothing copies from this repository by a `consumers.toml`.
+`consumers` are listed and refuse: the include states `RELEASE: {elsewhere: release.yml}`,
+because a release is release.yml's (Releasing, above), and no value on a command line or in the
+environment makes the task cut one here. Nothing copies from this repository by a
+`consumers.toml`.
 
 ## Measuring
 

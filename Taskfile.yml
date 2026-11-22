@@ -24,11 +24,15 @@ output: prefixed
 
 includes:
   # versions, bump, release, lint:workflows and consumers, as every spin-stack repository has
-  # them: go-tools' own file, which go tool task names. No GATE_* vars, so release refuses: a
-  # release here is release.yml, which builds, signs and tags with spin-machine-dev release.
+  # them: go-tools' own file, which go tool task names. RELEASE says how this repository is
+  # released, and release refuses with it: release.yml builds, signs and tags with
+  # spin-machine-dev release, and the common task would publish a tag with no tarball.
   common:
     taskfile: '{{.GO_TOOLS_TASKS}}'
     flatten: true
+    vars:
+      RELEASE:
+        map: {elsewhere: release.yml}
   boot:
     taskfile: boot/Taskfile.yml
     dir: '{{.ROOT_DIR}}'
