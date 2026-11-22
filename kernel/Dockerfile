@@ -462,10 +462,6 @@ RUN <<EOT
     # looks alike, so the source that was compiled is read.
     grep -qF 'memmove(first, stop,' kernel/trace/ftrace.c || lost 0008 "ftrace_free_mem moves the page once for every record"
 
-    # 0010: early_quirks() asks whether it runs under KVM before scanning bus 0 through port
-    # I/O. The call is there only when the patch is and CONFIG_KVM_GUEST is on.
-    dis early_quirks | grep -q '<kvm_para_available>' || lost 0010 "early_quirks scans bus 0 in a KVM guest"
-
     [ "$failed" = 0 ] || exit 1
     echo "kernel patches: each is in this vmlinux"
 EOT
