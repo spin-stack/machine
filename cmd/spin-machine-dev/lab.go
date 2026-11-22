@@ -55,7 +55,7 @@ func treeFlags(fs *pflag.FlagSet, s *lab.TreeSpec) {
 	fs.StringVar(&s.Append, "append", "", "added to the kernel command line of every boot")
 	fs.StringArrayVar(&s.Boot, "boot", nil, "a spin-machine boot flag for every boot of the tree, e.g. --boot --cpu=Skylake-Server-v4")
 	fs.StringVar(&s.CPU, "cpu", "", "baseline: the newest named CPU model the host making the tree can run, chosen there (machine.QEMU.CPUModels, internal/lab)")
-	fs.StringArrayVar(&s.Edits, "edit", nil, "an edit of every boot's overlay, by name: lane (the first login's lane as this checkout builds it), pressure (the pressure probe's guest sender as this checkout builds it into the image), floor (no systemd before sshd: a bound, with --append init=/usr/local/sbin/spin-floor), nolinger (spin not lingering, as this checkout builds the image), forwarder-early (login=spin's forwarder, spin's supervisor, without systemd's default dependencies), carry-masks, carry-generators, carry-logging and carry-coldplug (optimize-systemd.sh's boot-time changes and the coldplug filter taken back, after lane)")
+	fs.StringArrayVar(&s.Edits, "edit", nil, "an edit of every boot's overlay, by name: lane (the first login's lane as this checkout builds it), pressure (the pressure probe's guest sender as this checkout builds it into the image), floor (no systemd before sshd: a bound, with --append init=/usr/local/sbin/spin-floor), nolinger (spin not lingering, as this checkout builds the image), forwarder-early (login=spin's forwarder, spin's supervisor, without systemd's default dependencies), carry-masks, carry-generators, carry-logging and carry-coldplug (optimize-systemd.sh's boot-time changes and the coldplug filter taken back, after lane), bootchart (systemd-bootchart as PID 1, which the bootchart probe draws)")
 	fs.StringVar(&s.Systemd, "systemd", "", "an image/systemd/experiments patch: systemd built with it here, in every overlay")
 	fs.BoolVar(&s.OpenSSH, "openssh", false, "OpenSSH as this checkout builds it (image/openssh), built here, in every overlay")
 }
@@ -254,7 +254,7 @@ several in one value. Exits 1 when a measurement was lost, 2 when the experiment
 			if err := os.MkdirAll(out, 0o755); err != nil {
 				return couldNot(fmt.Errorf("making %s: %w", out, err))
 			}
-			r, err := lab.Experiment{Probe: p, Trees: ts, Reps: reps, Options: o, Scratch: scratch, Log: c.ErrOrStderr()}.Run(c.Context())
+			r, err := lab.Experiment{Probe: p, Trees: ts, Reps: reps, Options: o, Scratch: scratch, Keep: out, Log: c.ErrOrStderr()}.Run(c.Context())
 			if err != nil {
 				return couldNot(err)
 			}

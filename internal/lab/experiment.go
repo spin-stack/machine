@@ -21,7 +21,10 @@ type Experiment struct {
 	Options Options
 	// Scratch is where overlays and states go: a disk, never a tmpfs that holds them in RAM.
 	Scratch string
-	Log     io.Writer
+	// Keep is where a probe keeps files a person reads beside the result, such as a chart of a
+	// boot: the result's own directory.
+	Keep string
+	Log  io.Writer
 }
 
 // Run measures every tree, interleaved - repetition after repetition, each tree and row in turn,
@@ -79,7 +82,7 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		m := &Measurement{Tree: t, Row: row, Rep: rep, Options: opts, Dir: dir, Socks: socks, Key: key,
+		m := &Measurement{Tree: t, Row: row, Rep: rep, Options: opts, Dir: dir, Socks: socks, Keep: e.Keep, Key: key,
 			values: map[string]float64{}, detail: map[string]float64{}, log: e.Log}
 		m.Cleanup(removeAll(dir))
 		m.Cleanup(removeAll(socks))

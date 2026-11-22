@@ -33,6 +33,7 @@ on:
           - transport
           - run-delay
           - usage
+          - bootchart
           - check:firmware
           - check:firmware-stages
           - check:waits
@@ -114,10 +115,11 @@ jobs:
       - name: Run the experiment
         run: go tool task lab:ci
 
+      # result.json, and what a probe kept beside it for a person to read: bootchart's charts.
       - name: Keep the result
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lab-${{ github.run_id }}
-          path: _output/lab/result/result.json
+          path: _output/lab/result/
           if-no-files-found: ignore

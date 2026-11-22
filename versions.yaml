@@ -205,6 +205,19 @@
     is deleted; `spin-machine-dev build image` (sshd-auth's version, the packages held), then `task
     boot:sshd-delay`.
 
+- name: systemd-bootchart
+  kind: download
+  source: https://launchpad.net/ubuntu/+archive/primary/+files/systemd-bootchart_{version}_amd64.deb
+  version: 235-2build1
+  pin: 166b304dce2076d9ee4fbc370dbec2edf9eeff81f1d2778cb826b3d3081529fc
+  track: page https://packages.ubuntu.com/resolute/amd64/systemd-bootchart/download
+  note: >-
+    internal/lab's bootchart edit: Ubuntu's systemd-bootchart as resolute publishes it, put into a
+    lab overlay and never into the base image. The tree that carries it boots with it as PID 1,
+    which samples the boot and execs systemd. After the bump: `spin-machine-dev lab dispatch
+    bootchart --tree 'release=--from release --edit bootchart' --reps 1` draws a chart that
+    reaches the first login (docs/measuring.md, "Boot charts").
+
 - name: mkosi
   kind: download
   source: https://github.com/systemd/mkosi/archive/refs/tags/v{version}.tar.gz

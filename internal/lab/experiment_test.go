@@ -594,7 +594,7 @@ func TestAStatesDataIsReadAndASocketWaitedFor(t *testing.T) {
 }
 
 func TestTheProbesAreTheGoalsAndTheKernels(t *testing.T) {
-	if got := ProbeNames(); !slices.Equal(got, []string{"density", "initcalls", "prestart", "restore-first", "restore-together", "run-delay", "ssh-first", "transport", "usage"}) {
+	if got := ProbeNames(); !slices.Equal(got, []string{"bootchart", "density", "initcalls", "prestart", "restore-first", "restore-together", "run-delay", "ssh-first", "transport", "usage"}) {
 		t.Errorf("probes %v", got)
 	}
 	for _, name := range ProbeNames() {
@@ -612,7 +612,7 @@ func TestTheProbesAreTheGoalsAndTheKernels(t *testing.T) {
 	if !slices.Equal(rf.Rows(Options{"fast": "true"}), []string{"evicted", "cached", "fast"}) || rf.Phases() != 2 {
 		t.Error("restore-first's rows")
 	}
-	if Probes["prestart"].Phases() != 2 || Probes["ssh-first"].Phases() != 1 || Probes["initcalls"].Phases() != 1 || Probes["transport"].Phases() != 2 || Probes["usage"].Phases() != 1 {
+	if Probes["prestart"].Phases() != 2 || Probes["ssh-first"].Phases() != 1 || Probes["initcalls"].Phases() != 1 || Probes["transport"].Phases() != 2 || Probes["usage"].Phases() != 1 || Probes["bootchart"].Phases() != 1 {
 		t.Error("phases")
 	}
 }
