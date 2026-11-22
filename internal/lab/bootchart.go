@@ -404,6 +404,18 @@ func (bootchart) Measure(_ context.Context, m *Measurement) error {
 	if err := keepDependencies(m, cid, m.Tree.Name(), m.Rep+1); err != nil {
 		return err
 	}
+	diag := fmt.Sprintf("%s-%d", m.Tree.Name(), m.Rep+1)
+	for name, command := range map[string]string{
+		".dmesg.txt":   "sudo -n dmesg 2>/dev/null || dmesg",
+		".journal.txt": "journalctl -b -o short-monotonic --no-pager",
+		".vda.txt":     "systemctl show dev-vda.device -p WantedBy,RequiredBy,BoundBy,RequisiteOf,PartOf,UpheldBy,TriggeredBy,Before,After,ActiveEnterTimestampMonotonic,InactiveExitTimestampMonotonic,Job; echo; systemctl list-dependencies --reverse --all --no-pager dev-vda.device; echo; systemctl show -p UserspaceTimestampMonotonic,UnitsLoadStartTimestampMonotonic,UnitsLoadFinishTimestampMonotonic,GeneratorsStartTimestampMonotonic,GeneratorsFinishTimestampMonotonic,KernelTimestampMonotonic; echo; systemd-analyze critical-chain --no-pager --fuzz=50ms spin-lab-forward.service; echo; systemd-analyze blame --no-pager | head -40; echo; systemctl list-units --all --no-pager | wc -l",
+	} {
+		if _, out, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, command); err != nil {
+			m.Logf("diag %s: %v", name, err)
+		} else if err := os.WriteFile(filepath.Join(m.Keep, diag+name), []byte(out), 0o644); err != nil { //nolint:gosec // diag
+			return err
+		}
+	}
 	m.RecordMs("first_login", login)
 	m.Record("pid1", start*1000)
 	m.Record("chart_end", end*1000)
