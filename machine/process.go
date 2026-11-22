@@ -29,8 +29,12 @@ type StartOptions struct {
 	// only the caller can open, such as a NIC's TapFD. Start opens the rest after them.
 	Files []*os.File
 
-	// Stdin, Stdout and Stderr are QEMU's. Stderr also goes to Exit, its last 4 KiB. A writer
-	// that stops taking what QEMU writes stops QEMU at its next write, and holds its exit.
+	// Stdin, Stdout and Stderr are QEMU's. A Stderr that is an *os.File is QEMU's descriptor 2
+	// itself, as exec.Cmd hands one: QEMU writes to it with no copy in the caller's process, so it
+	// keeps writing there when its caller has gone, as spin's runner does on a restart (a FIFO the
+	// next runner reads), and Exit.Stderr is empty. Any other Stderr is written through a pipe
+	// that the caller's process copies, and its last 4 KiB go to Exit: a writer that stops taking
+	// what QEMU writes then stops QEMU at its next write, and holds its exit.
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
@@ -66,12 +70,13 @@ type StartOptions struct {
 type Process struct {
 	*QEMU
 
-	cmd    *exec.Cmd
+	cmd *exec.Cmd
+	// stderr is QEMU's stderr's tail, or nil when StartOptions.Stderr was a file QEMU writes to.
 	stderr *tail
 	// console watches the console Start reads, when it reads one.
 	console *panicWatch
-	// sockets are the monitors' paths Start bound, removed once QEMU has exited.
-	sockets []string
+	// sockets are the monitors' sockets Start bound, removed once QEMU has exited.
+	sockets []boundSocket
 	// cgroup is the cgroup QEMU runs in, when it is not its caller's: what Usage reads.
 	cgroup string
 	// watch and host are the machine's probe, when StartOptions.Pressure set one: removed and
@@ -98,7 +103,8 @@ type Exit struct {
 	// Panic is the console's line saying the guest's kernel panicked, when Start read the
 	// console (StartOptions.Console) and it said one. A panic otherwise ends as GuestReset.
 	Panic string
-	// Stderr is the last 4 KiB QEMU wrote on its stderr.
+	// Stderr is the last 4 KiB QEMU wrote on its stderr, or empty when StartOptions.Stderr was a
+	// file, which holds all of it.
 	Stderr string
 }
 
@@ -185,7 +191,6 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 	}
 	p := &Process{
 		watch:    o.Pressure,
-		stderr:   &tail{w: o.Stderr},
 		sockets:  h.sockets,
 		attached: make(chan *QEMU, 1),
 		exited:   make(chan struct{}),
@@ -193,7 +198,11 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 	// #nosec G204 -- the binary and the command line of the caller's Spec
 	p.cmd = exec.Command(s.QEMU, args...)
 	p.cmd.ExtraFiles = append(slices.Clip(o.Files), h.files...)
-	p.cmd.Stdin, p.cmd.Stdout, p.cmd.Stderr = o.Stdin, o.Stdout, p.stderr
+	p.cmd.Stdin, p.cmd.Stdout, p.cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
+	if _, file := o.Stderr.(*os.File); !file {
+		p.stderr = &tail{w: o.Stderr}
+		p.cmd.Stderr = p.stderr
+	}
 	if o.Cmd != nil {
 		o.Cmd(p.cmd)
 	}
@@ -271,7 +280,10 @@ func (p *Process) wait(read <-chan struct{}) {
 	if read != nil {
 		<-read
 	}
-	p.exit = Exit{State: p.cmd.ProcessState, Stderr: p.stderr.String()}
+	p.exit = Exit{State: p.cmd.ProcessState}
+	if p.stderr != nil {
+		p.exit.Stderr = p.stderr.String()
+	}
 	if p.console != nil {
 		p.exit.Panic = p.console.panicked()
 	}
@@ -285,9 +297,7 @@ func (p *Process) wait(read <-chan struct{}) {
 			p.exit.End = &end
 		}
 	}
-	for _, s := range p.sockets {
-		_ = os.Remove(s)
-	}
+	removeSockets(p.sockets)
 	if p.host != nil {
 		p.host.close()
 	}
@@ -401,8 +411,33 @@ func (p *Process) ask(ctx context.Context, command func(context.Context) error, 
 type handover struct {
 	first int
 	files []*os.File
-	// sockets are the paths of the monitors bound for the caller.
-	sockets []string
+	// sockets are the monitors bound for the caller.
+	sockets []boundSocket
+}
+
+// boundSocket is a monitor's socket as Start bound it: its path, and the file that bind made
+// there, which another bind of the path replaces with a file of its own.
+type boundSocket struct {
+	path string
+	file fs.FileInfo
+}
+
+// removeSockets removes each socket that is still the one Start bound. A path bound again since,
+// by a Start of the next machine while this QEMU was reaped late (a QEMU in an I/O stall takes
+// SIGKILL when it wakes, minutes on), is that machine's monitor, and stays: removed, nothing
+// could reach the new QEMU by path (#507). The device and inode say which file is there, and the
+// modification time tells a new socket from the old one whose freed inode a filesystem such as
+// ext4 hands out again.
+func removeSockets(sockets []boundSocket) {
+	for _, s := range sockets {
+		st, err := os.Lstat(s.path)
+		if err != nil {
+			continue // nothing left there to remove
+		}
+		if os.SameFile(st, s.file) && st.ModTime().Equal(s.file.ModTime()) {
+			_ = os.Remove(s.path)
+		}
+	}
 }
 
 func (h *handover) add(f *os.File) int {
@@ -428,11 +463,7 @@ func (h *handover) close() {
 	h.files = nil
 }
 
-func (h *handover) removeSockets() {
-	for _, s := range h.sockets {
-		_ = os.Remove(s)
-	}
-}
+func (h *handover) removeSockets() { removeSockets(h.sockets) }
 
 // monitors binds each monitor s names by path, which QEMU is then handed as a descriptor, and adds
 // one of Start's own, already connected to: the returned connection.
@@ -451,7 +482,14 @@ func (h *handover) monitors(s *Spec) (*net.UnixConn, error) {
 			h.removeSockets()
 			return nil, err
 		}
-		h.sockets = append(h.sockets, m.Socket)
+		st, err := os.Lstat(m.Socket)
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(m.Socket)
+			h.removeSockets()
+			return nil, fmt.Errorf("reading the monitor's socket Start bound: %w", err)
+		}
+		h.sockets = append(h.sockets, boundSocket{path: m.Socket, file: st})
 		m.FD, m.Socket = h.add(f), ""
 	}
 	// In /tmp and not under TMPDIR, which can be longer than the 108 bytes a socket's path has.
