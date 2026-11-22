@@ -33,7 +33,9 @@ func (s Spec) cpuArg() string {
 	//
 	// at start-up, in whichever lane first names a model.
 	if derivedFromHost(cpu) {
-		cpu += ",migratable=on"
+		// Experiment (#TBD): CPUID leaf 2 with QEMU's cache descriptors instead of 0xFF, so glibc
+		// reads its cache sizes there and not by iterating leaf 4 at every process start.
+		cpu += ",migratable=on,x-consistent-cache=off"
 	} else {
 		// enforce=on, and without it naming a model does not mean what it says.
 		//
