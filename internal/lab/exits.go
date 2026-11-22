@@ -3,7 +3,6 @@
 package lab
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -236,19 +234,12 @@ type exitCost struct{ Count, Ns uint64 }
 // histogram are passed over.
 func parseExitHist(text string) map[uint32]exitCost {
 	out := map[uint32]exitCost{}
-	sc := bufio.NewScanner(strings.NewReader(text))
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) != 8 || f[0] != "{" || f[1] != "reason:" || f[4] != "hitcount:" || f[6] != "lat:" {
-			continue
+	for line := range strings.Lines(text) {
+		var r uint32
+		var c exitCost
+		if n, _ := fmt.Sscanf(line, "{ reason: %d } hitcount: %d lat: %d", &r, &c.Count, &c.Ns); n == 3 {
+			out[r] = c
 		}
-		r, err1 := strconv.ParseUint(f[2], 10, 32)
-		n, err2 := strconv.ParseUint(f[5], 10, 64)
-		ns, err3 := strconv.ParseUint(f[7], 10, 64)
-		if err1 != nil || err2 != nil || err3 != nil {
-			continue
-		}
-		out[uint32(r)] = exitCost{Count: n, Ns: ns}
 	}
 	return out
 }
@@ -338,7 +329,7 @@ func (exitsProbe) Detail(r *Result) string {
 	p50 := func(tree, key string) (float64, bool) {
 		var xs []float64
 		for _, s := range r.Samples {
-			if v, ok := s.Detail[key]; ok && s.Tree == tree && s.Missed == "" {
+			if v, ok := s.Detail[key]; ok && s.Tree == tree {
 				xs = append(xs, v)
 			}
 		}
@@ -365,7 +356,7 @@ func (exitsProbe) Detail(r *Result) string {
 		for _, t := range r.Trees {
 			n, ok := p50(t.Name, "exit\x00"+reason)
 			us, _ := p50(t.Name, "exit_us\x00"+reason)
-			if !ok || n == 0 {
+			if !ok {
 				fmt.Fprintf(&b, " %28s", "-")
 				continue
 			}
