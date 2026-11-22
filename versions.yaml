@@ -208,8 +208,8 @@
 - name: systemd-bootchart
   kind: download
   source: https://github.com/spin-stack/systemd-bootchart/archive/{version}.tar.gz
-  version: 78dc08c4ecac9e770d953a5f472aedb6f321e661
-  pin: d0c7c19f27966dd439eeb0ba31723f9b93365573103121d24ae4f12fa3e9f69c
+  version: 096d61a3b3749a1b13e0ec9cb0819eb7ddb2621b
+  pin: df0cd88c6e591d328b29d8fe99f9cf81fc8c7b99f0497db88f9b1c476a1bc16c
   track: commit https://github.com/spin-stack/systemd-bootchart.git main
   note: >-
     internal/lab's bootchart edit: spin-stack's fork of systemd-bootchart, compiled by
@@ -217,8 +217,7 @@
     names a process by what it became, labels it with its cgroup v2 unit, and keeps every process
     that ran; Ubuntu's 235 did none of it on this machine (spin-stack/machine#521). The tree that
     carries it boots with it as PID 1, which samples the boot and execs systemd. Pinned to a commit
-    of a pull request's branch while the fork's stack lands, so outdated names main's tip, not
-    the next commit of the stack: `spin-machine-dev bump systemd-bootchart <commit>` moves it. After
+    of the fork's main: `spin-machine-dev bump systemd-bootchart <commit>` moves it. After
     the bump: `spin-machine-dev lab dispatch bootchart --tree 'release=--from release --edit
     bootchart' --reps 1` draws a chart that reaches the first login, with no process named by a
     file descriptor and each labelled with its unit (docs/measuring.md, "Boot charts").
