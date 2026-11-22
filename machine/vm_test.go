@@ -401,7 +401,7 @@ func migrationEvents(statuses ...string) string {
 // migrations sends a MIGRATION for each status in turn, as QEMU does with the events capability
 // on: those up to pre-switchover before the answer to migrate or migrate-incoming, the rest before
 // the answer to migrate-continue. query-migrate answers the last status sent, and a failed one
-// with its reason.
+// with its reason. query-migrate-capabilities answers as the QEMU qemu/patches builds.
 func migrations(then func(c call) string, statuses ...string) func(c call) string {
 	sent := 0
 	upTo := func(stop string) string {
@@ -416,6 +416,8 @@ func migrations(then func(c call) string, statuses ...string) func(c call) strin
 	}
 	return func(c call) string {
 		switch c.Command {
+		case "query-migrate-capabilities":
+			return patchedCapabilities
 		case "migrate", "migrate-incoming":
 			return upTo("pre-switchover") + then(c)
 		case "migrate-continue":
@@ -488,7 +490,7 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 		t.Errorf("added %+v, want %+v", again, wantAdded)
 	}
 	want := []string{"query-hotpluggable-cpus", "qom-list", "qom-get",
-		"migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate",
+		"query-migrate-capabilities", "migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate",
 		"query-cpus-fast", "qom-list-get", "query-cpu-model-expansion", "query-accelerators", "qom-list-get", "qom-list-get", "x-query-ramblock",
 		"migrate-continue", "remove-fd", "query-migrate", "query-status"}
 	if got := f.commands(); !reflect.DeepEqual(got, want) {
@@ -517,6 +519,64 @@ func TestCheckpointSealsAtSwitchoverAndSaysItsFormat(t *testing.T) {
 	}
 	if got := f.sent("migrate-continue")[0]["state"]; got != "pre-switchover" {
 		t.Errorf("continued from %v", got)
+	}
+}
+
+// patchedCapabilities is query-migrate-capabilities' answer from the QEMU qemu/patches builds, and
+// releasedCapabilities from one without 0003, as v20261121.01 and every release before it ship.
+const (
+	patchedCapabilities  = `{"return": [{"capability": "mapped-ram", "state": false}, {"capability": "x-defer-disk-flush", "state": false}]}`
+	releasedCapabilities = `{"return": [{"capability": "mapped-ram", "state": false}]}`
+)
+
+// A QEMU that offers x-defer-disk-flush is asked for it. One without the patch that adds it, as a
+// machine an earlier release started runs beside an upgraded library, is not: it refuses a
+// capability it does not know, and checkpoints as it did before the patch.
+func TestACheckpointAsksForDeferDiskFlushOnlyWhereQEMUOffersIt(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		offered string
+		want    bool
+	}{
+		{"the patched QEMU", patchedCapabilities, true},
+		{"a released QEMU without it", releasedCapabilities, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saving := migrations(func(c call) string {
+				if r, ok := recordAnswers(c); ok {
+					return r
+				}
+				switch c.Command {
+				case "query-hotpluggable-cpus", "qom-list":
+					return ret(`[]`)
+				case "add-fd":
+					return ret(`{"fdset-id": 3}`)
+				}
+				return ok
+			}, "completed")
+			f := &fakeQEMU{}
+			f.answer = func(c call) string {
+				if c.Command == "query-migrate-capabilities" {
+					return tc.offered
+				}
+				if c.Command == "migrate-set-capabilities" && !tc.want && strings.Contains(fmt.Sprint(c.Args), "x-defer-disk-flush") {
+					return refused("Parameter 'capability' does not accept value 'x-defer-disk-flush'")
+				}
+				return saving(c)
+			}
+			if _, _, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			asked := false
+			for _, c := range f.sent("migrate-set-capabilities")[0]["capabilities"].([]any) {
+				if c := c.(map[string]any); c["capability"] == "x-defer-disk-flush" {
+					asked = c["state"].(bool)
+				}
+			}
+			if asked != tc.want {
+				t.Errorf("asked for x-defer-disk-flush: %t, want %t", asked, tc.want)
+			}
+		})
 	}
 }
 

@@ -26,7 +26,7 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 	// The migration's end, as QEMU sends it before its answer to migrate or migrate-incoming.
 	completed := `{"event": "MIGRATION", "data": {"status": "completed"}, "timestamp": {"seconds": 1, "microseconds": 2}}` + "\n" + ok
 
-	saving := newMonitor(t, slices.Concat([]string{ok, `{"return": []}`, `{"return": []}`, ok, ok, `{"return": {"fdset-id": 1}}`, completed},
+	saving := newMonitor(t, slices.Concat([]string{ok, `{"return": []}`, `{"return": []}`, `{"return": []}`, ok, ok, `{"return": {"fdset-id": 1}}`, completed},
 		readRecord, []string{ok, `{"return": {"status": "completed", "downtime": 12, "total-time": 345, "ram": {"transferred": 104857600}}}`, `{"return": {"status": "postmigrate"}}`, ok})...)
 	if err := save(saveFlags{qmp: saving.socket, to: state, channels: 4, timeout: time.Minute}); err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 			t.Errorf("save --channels 4 set %v", r.Arguments)
 		}
 	}
-	want := slices.Concat([]string{"qmp_capabilities", "query-hotpluggable-cpus", "qom-list", "migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate"},
+	want := slices.Concat([]string{"qmp_capabilities", "query-hotpluggable-cpus", "qom-list", "query-migrate-capabilities", "migrate-set-capabilities", "migrate-set-parameters", "add-fd", "migrate"},
 		readRecordAsked, []string{"remove-fd", "query-migrate", "query-status", "quit"})
 	if !slices.Equal(asked, want) {
 		t.Errorf("save asked %v, want %v", asked, want)
