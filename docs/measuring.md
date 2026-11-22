@@ -82,10 +82,15 @@ v20261122.03. `chart_end` is where the first login's command ran, 320 ms p50 on 
 its last process. Each process is named by what it became, its `comm` read again whenever it
 ran, and labelled with its unit, read from its cgroup v2 path. Each bar is drawn from its start to
 its exit or to the chart's end. Its colour is the CPU it used (blue) and the time it waited to run
-(yellow). "Top CPU consumers" sums each process's CPU time over the chart, and "Top CPU consumers
+(yellow), with an orange strip where it read or wrote, as the graph's title says. "Top CPU consumers" sums each process's CPU time over the chart, and "Top CPU consumers
 by unit" sums it by unit. Every process that used CPU while the chart ran is drawn, however
-briefly. Only what did not run, idle kernel threads mostly, is left out. The CPU and IO graphs
-above the bars are the whole guest's. `systemd-analyze plot` is the same boot drawn
+briefly. Only what did not run, idle kernel threads mostly, is left out. The graphs above the
+bars are the whole guest's. IO read and write are the kilobytes the kernel sent to its disks
+(/proc/vmstat's `pgpgin` and `pgpgout`), averaged over 250 ms and each scaled to its own peak, so
+a few kilobytes fill the write graph (#538). A boot that writes nothing after the chart starts
+draws an empty write graph. CPU pressure, under CPU utilization, is the share of each 5 ms in
+which some task waited for the vCPU. There is no graph of the summed wait: it counted two waiting
+tasks twice and sat at its ceiling on one vCPU (#534). `systemd-analyze plot` is the same boot drawn
 by unit: when each unit started activating and when it was active.
 
 **Reading the plot.** The plot is taken once the boot has finished, after the probe's three later
@@ -119,7 +124,7 @@ says how much CPU the sampler used. So a bar on a chart is longer than it is wit
 interleaved, as every probe does. Two charts taken apart are two machines (rule 3). Read three
 repetitions of each tree, because one boot's bar can be another's outlier. Then look for what
 moved:
-- a process that starts later, and the one it waited for, shown by the dotted line to its
+- a process that starts later, and the one it waited for, shown by the dashed line to its
   parent;
 - a bar whose yellow grew, which waited for the vCPU behind something else;
 - "Top CPU consumers", a process's CPU time, which is less noisy than when it ran.
