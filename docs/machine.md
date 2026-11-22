@@ -63,7 +63,7 @@ defer root.Close()                            // after Boot: QEMU holds its own 
 ```go
 m, err := machine.Start(ctx, spec, machine.StartOptions{
 	Files:  []*os.File{tap},    // descriptors 3, 4, … as the Spec numbers them: what only the caller opens
-	Stdout: w, Stderr: w,       // QEMU's output; Start keeps stderr's last 4 KiB besides
+	Stdout: w, Stderr: w,       // QEMU's output; a file is QEMU's own, any other writer keeps a 4 KiB tail
 	Console: console,           // optional: the guest's console through a pipe Start reads
 	Cmd: func(c *exec.Cmd) { c.SysProcAttr = …  }, // uid, chroot, namespaces, cgroup
 })
@@ -78,7 +78,10 @@ q, err := machine.Dial(ctx, socket, qmp.Observer{}) // a second monitor, or one 
   `/dev/kvm` under KVM, `/dev/vhost-vsock` for a vsock, `/dev/vhost-net` for each NIC and a
   `file:` console, and hands them over as descriptors, before `Cmd` runs. A QEMU run as another
   user, in a root with no `/dev`, starts the same machine. The TAPs and the disks stay the
-  caller's: they are its network and its storage.
+  caller's: they are its network and its storage. Once QEMU has exited, Start removes each
+  socket it bound that is still its own, the same inode made at the same time. A path bound again
+  meanwhile, by the next machine's Start while this QEMU was reaped late, is that machine's and
+  stays (#507).
 - **Readiness is the monitor's answer, with nothing polled.** Start binds a monitor of its own
   and connects to it before QEMU exists: the connection waits in the socket's backlog and QEMU
   accepts it as it starts. `qmp_capabilities` is answered by QEMU's main loop, which runs once
@@ -88,8 +91,13 @@ q, err := machine.Dial(ctx, socket, qmp.Observer{}) // a second monitor, or one 
   features`). One that never answers fails it after 30 s, or when ctx ends, and is killed.
 - **`Exit` says how it ended.** The exit status or the signal, the last `SHUTDOWN` QEMU sent
   on Start's monitor, the guest's panic line when Start read the console, and QEMU's stderr's
-  end. `Done` closes when the monitor ends, by QEMU's exit or by `Close`, and `Exited` only when
+  last 4 KiB. `Done` closes when the monitor ends, by QEMU's exit or by `Close`, and `Exited` only when
   the process has gone.
+- **A file as `Stderr` is QEMU's descriptor 2.** QEMU writes to it directly, so it goes on
+  writing there when its caller has gone, as an adopted QEMU does after spin's runner restarts,
+  and `Exit.Stderr` is empty: the file holds it all. Any other writer is fed through a pipe the
+  caller's process copies, which keeps `Exit.Stderr`, and a writer that stops reading stops QEMU
+  at its next write.
 - **`Stop` asks before it kills.** A running guest's power button, then up to 3 s for it to power
   off; QEMU's quit, then up to 1 s; then SIGKILL. A monitor that does not answer within 1 s is
   a QEMU loading a state, which answers no monitor until it is done, or a monitor closed: Stop

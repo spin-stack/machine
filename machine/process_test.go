@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -153,6 +154,7 @@ func (f *fake) serve(c net.Conn) {
 		case req.Execute == "system_powerdown" && f.mode == "obeys":
 			f.end(`{"event": "SHUTDOWN", "data": {"guest": true, "reason": "guest-shutdown"}}`, 0)
 		case req.Execute == "quit" && (f.mode == "obeys" || f.mode == "ignores-button"):
+			fmt.Fprintln(os.Stderr, "qemu-system-x86_64: terminating on signal from QMP")
 			f.end(`{"event": "SHUTDOWN", "data": {"guest": false, "reason": "host-qmp-quit"}}`, 0)
 		}
 	}
@@ -363,6 +365,87 @@ func TestStartBindsTheCallersMonitorsBeforeQEMURuns(t *testing.T) {
 	}
 	if _, err := os.Lstat(sock); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the monitor's socket is still there once QEMU has exited: %v", err)
+	}
+}
+
+// A socket bound at the monitor's path while QEMU was still to be reaped is the next machine's,
+// and stays once QEMU has gone (#507).
+func TestTheMonitorsSocketBoundAgainOutlivesTheQEMUBefore(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		// again makes the next machine's socket at path.
+		again func(t *testing.T, path string)
+	}{
+		{"at a new inode", func(t *testing.T, path string) {
+			// The next machine's Start replaces a socket left at its path, as listen does.
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			next, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = next.Close() })
+		}},
+		{"at the freed inode, as ext4 hands one out again", func(t *testing.T, path string) {
+			// A new socket at the old one's inode differs from it in when it was made.
+			when := time.Now().Add(time.Hour)
+			if err := os.Chtimes(path, when, when); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir, err := os.MkdirTemp("/tmp", "pt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+			sock := filepath.Join(dir, "q")
+			p, err := startFake(t, ctx(t), "obeys", Spec{Monitors: []Monitor{{Socket: sock}}}, StartOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.again(t, sock)
+			if e := p.Kill(); signalOf(e) != syscall.SIGKILL {
+				t.Fatalf("a killed QEMU ended %s", e)
+			}
+			if _, err := os.Lstat(sock); err != nil {
+				t.Errorf("the next machine's socket, once the QEMU before it was reaped: %v", err)
+			}
+		})
+	}
+}
+
+// A file as Stderr is QEMU's own: what QEMU writes reaches it with nothing copied in the caller's
+// process, so it still does once the caller has closed its copy, as a caller that restarted has.
+func TestAFileStderrIsQEMUsOwn(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	p, err := startFake(t, ctx(t), "obeys", Spec{}, StartOptions{Stderr: w})
+	_ = w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Quit(ctx(t)); err != nil {
+		t.Fatal(err)
+	}
+	e := p.Wait()
+	if e.State.ExitCode() != 0 {
+		t.Errorf("a quit QEMU ended %s", e)
+	}
+	said, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(said), "terminating on signal from QMP") {
+		t.Errorf("the caller's file got %q, want what QEMU wrote once the caller had closed its copy", said)
+	}
+	if e.Stderr != "" {
+		t.Errorf("Exit kept %q of a stderr that went to the caller's file", e.Stderr)
 	}
 }
 
