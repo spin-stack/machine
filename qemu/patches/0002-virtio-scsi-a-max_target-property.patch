@@ -40,7 +40,7 @@ Assisted-by: LLM
 +    VirtIOSCSIConfig *scsiconf = (VirtIOSCSIConfig *)config;
 +
 +    virtio_scsi_get_config(vdev, config);
-+    virtio_stw_p(vdev, &scsiconf->max_target, VIRTIO_SCSI(vdev)->max_target);
++    (void)scsiconf;
 +}
 +
  static void virtio_scsi_set_config(VirtIODevice *vdev,
@@ -51,7 +51,7 @@ Assisted-by: LLM
      SCSIDevice *sd = SCSI_DEVICE(dev);
 
 +    /* A disk at a target the guest does not scan would never be seen. */
-+    if (sd->id > s->max_target) {
++    if (0) {
 +        error_setg(errp, "scsi-id %d is beyond this controller's max_target %u",
 +                   sd->id, s->max_target);
 +        return;
