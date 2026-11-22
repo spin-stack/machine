@@ -315,6 +315,12 @@ func loading(ctx context.Context, x *qmp.Expected[migrationNews]) error {
 // 11.2.0-rc0 given half a state sent setup, active and failed, printed "Unknown ramblock" and
 // exited, and the query-migrate after the event found the connection reset
 // (TestACheckpointIsWaitedOnByItsEvents, 2026-11-21).
+//
+// It is not a *Refusal: nothing a loading QEMU says tells a state no QEMU can load from a host
+// that failed it. MIGRATION carries the status alone, and every failure of the load ends on one
+// label, process_incoming_migration_co's fail, whose reason goes only to stderr: a section QEMU
+// rejects, the file ending early and the host's read failing (qemu_fill_buffer makes both -EIO),
+// and userfaultfd refused to a fast load's postcopy setup (QEMU 11.2.0-rc0).
 func loadEnded(st migrationStatus) error {
 	if ended(st) {
 		return fmt.Errorf("the load %s; QEMU exits on a failed load and says why on its stderr", st)
@@ -548,6 +554,10 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 // postcopy-active, and Loaded says when the state is all read. The guest's faults are taken in
 // the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor does not see, so QEMU needs a
 // full userfaultfd (userfaults).
+//
+// A *Refusal in its error is the checkpoint itself: CanResume's, a format this QEMU does not
+// read, or a Saved.Added it cannot read. Every other error, a load that failed among them
+// (loadEnded), may be this host or this try, and is not typed.
 func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error {
 	if err := CanResume(saved, here); err != nil {
 		return fmt.Errorf("resuming: %w", err)
@@ -565,13 +575,14 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	case saved.Format == FormatStream:
 		caps[mappedRAM] = false
 	default:
-		return fmt.Errorf("resuming: a checkpoint in format %q, and this machine reads %s and %s", saved.Format, FormatMappedRAM, FormatStream)
+		// CanResume refused it already unless here says it reads a format this QEMU does not.
+		return fmt.Errorf("resuming: %w", &Refusal{[]Difference{{Part: "format", Checkpoint: saved.Format, Here: FormatMappedRAM + " " + FormatStream, Rule: Reads}}})
 	}
 	ReadAhead(state, saved)
 	var again added
 	if len(saved.Added) > 0 {
 		if err := json.Unmarshal(saved.Added, &again); err != nil {
-			return fmt.Errorf("resuming: reading what the checkpoint says was added: %w", err)
+			return fmt.Errorf("resuming: %w", &Refusal{[]Difference{{Part: "added", Checkpoint: "unreadable: " + err.Error(), Rule: Reads}}})
 		}
 	}
 	st, err := m.Status(ctx)

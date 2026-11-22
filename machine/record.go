@@ -128,7 +128,8 @@ const (
 	// AsNew is the VMM: the same program, at the checkpoint's version or newer. A refusal whose
 	// only rule is this one is a host that has not been updated yet, not a machine that changed.
 	AsNew Rule = "as new"
-	// Reads is the format: one the machine resumed into reads.
+	// Reads is the format, and what the checkpoint says was added again (Saved.Added): what the
+	// machine resumed into reads.
 	Reads Rule = "reads"
 )
 
@@ -149,7 +150,9 @@ func (d Difference) String() string {
 }
 
 // Refusal is why a checkpoint cannot resume into a machine: every difference found, so that
-// whoever fixes a host fixes it in one pass.
+// whoever fixes a host fixes it in one pass. It is the one error that says the checkpoint will
+// not resume into a machine like this one, so a retry here fails the same way; Resume returns
+// every other failure as a plain error (docs/machine.md, "What a failed resume says").
 type Refusal struct {
 	Differences []Difference `json:"differences"`
 }
