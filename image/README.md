@@ -85,7 +85,10 @@ the user's runtime directory and manager. None of them waits for `sysinit.target
 - **Sessions of class `user-early-light`.** logind holds a session of class `user` until the
   user's manager has started and the boot's `systemd-user-sessions` has run. A light, early
   session has its scope and `XDG_RUNTIME_DIR` and waits for neither. Nobody lingers: no user's
-  manager starts in the boot.
+  manager starts in the boot. logind starts no manager for a light session, so
+  `user-runtime-dir@`'s `20-manager.conf` starts one beside every login. The login does not
+  wait for it, and a command that needs the user bus at once in the first login can arrive
+  before it.
 
 udev's coldplug replays only the devices something here uses (`10-coldplug.conf`), so the
 lane has the CPU. On the bench fleet the first login went 478 -> 402 ms with all of it (`task

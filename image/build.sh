@@ -489,6 +489,12 @@ for f in sshd-vsock.socket.d/10-lane.conf sshd@.service.d/10-lane.conf systemd-l
         echo "ERROR: ${f%%.d/*} is not in the first login's lane ($f)" >&2
         exit 1; }
 done
+# Every login's user manager (20-manager.conf): a session of class user-early-light starts none,
+# and nobody lingers, so without it no login has one and systemctl --user fails (#462).
+"$bin/debugfs" -R "cat /etc/systemd/system/user-runtime-dir@.service.d/20-manager.conf" /work/base.raw 2>/dev/null |
+        grep -qx 'Wants=user@%i.service' || {
+    echo "ERROR: user-runtime-dir@ does not want user@; no login gets a user manager (20-manager.conf)" >&2
+    exit 1; }
 # spin's login path (ssh.socket, ssh.service, sshd-keygen.service) without default dependencies
 # must still be stopped at shutdown: DefaultDependencies=no took that away with the rest.
 for f in ssh.socket.d/10-lane.conf ssh.service.d/10-lane.conf sshd-keygen.service.d/10-lane.conf; do
