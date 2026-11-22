@@ -367,3 +367,26 @@ func TestADisksChainIsRefusedWhereItLeavesWhatItMayRead(t *testing.T) {
 		})
 	}
 }
+
+// A place given as "" or as a relative path admits nothing, even when the process runs where the
+// images are: it is resolved as written, and the path a header names is always absolute. A place
+// made absolute from the working directory would admit everything under it (#543).
+func TestAnEmptyOrRelativePlaceAdmitsNothing(t *testing.T) {
+	shared := t.TempDir()
+	base := filepath.Join(shared, "base.qcow2")
+	qcow2(t, base, 3, "", "")
+	if err := os.Mkdir(filepath.Join(shared, "images"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	top := filepath.Join(t.TempDir(), "top.qcow2")
+	qcow2(t, top, 3, base, "qcow2")
+	t.Chdir(shared)
+	for _, place := range []string{"", ".", "images/.."} {
+		if d, err := OpenDisk(DiskPath{Path: top, Format: "qcow2", Under: []string{place}}); err == nil {
+			_ = d.Close()
+			t.Errorf("a chain whose base is in the working directory opened under %q", place)
+		} else if !strings.Contains(err.Error(), "which is under none of") {
+			t.Errorf("under %q: %v", place, err)
+		}
+	}
+}
