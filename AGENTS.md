@@ -123,6 +123,14 @@ full method. These are its rules.
 - **Read before starting.** Read `docs/boot-time.md`'s "Measured and rejected" table and
   `docs/log.md`'s rework cycles. An idea already there needs a new reason, not a new run.
   `docs/memory-and-disk.md` says what the guest's memory and disk cost.
+- **Search outside the repository too.** Many people work on KVM, QEMU, the kernel and systemd,
+  and a boot-time idea has usually been tried, measured or refused somewhere: the projects'
+  mailing lists, issue trackers and commit history, conference talks (LPC, KVM Forum, All
+  Systems Go, FOSDEM), and the boot-time work of Clear Linux, Firecracker, Kata, Yocto and
+  others. Before an experiment's first run, look for its prior art and put what was found in
+  its budget entry: the link, the date, what they measured and in what shape, and why it
+  applies here or not. A patch upstream refused needs that reason answered before it is
+  carried. Nothing found is a finding too: say where you looked.
 
 ## Go
 
