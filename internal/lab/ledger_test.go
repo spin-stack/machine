@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -155,9 +156,28 @@ func TestARealBootsLedgerAddsUp(t *testing.T) {
 	if first := l.Windows[0].CPU; first[0].Owner != ownerKernel {
 		t.Errorf("the kernel's window: %+v", first)
 	}
+	// Every task's running time from PID 1's exec to the command's exit is in the windows from
+	// PID 1 on, and PID 1's own is systemd's, waiting on the disk at times.
 	owners := map[string]States{}
+	var running, busy float64
 	for _, s := range l.Owners {
 		owners[s.Owner] = s
+		running += s.Running
+	}
+	for _, w := range l.Windows[1:] {
+		for _, s := range w.CPU {
+			if s.Owner != ownerIdle {
+				busy += s.Ms
+			}
+		}
+	}
+	if !near(running, busy) || owners["init.scope"].Disk <= 0 {
+		t.Errorf("owners ran %v, the windows from PID 1 %v; PID 1's: %+v", running, busy, owners["init.scope"])
+	}
+	for _, s := range l.Windows[1].CPU {
+		if s.Owner == "init.scope" && s.Comms[0].Comm != "systemd" {
+			t.Errorf("PID 1 ran as %+v", s.Comms)
+		}
 	}
 	if _, ok := owners[ownerIdle]; ok || owners["user@0.service"].Running <= 0 || owners["init.scope"].Running <= 0 || l.unattributed() <= 0 {
 		t.Errorf("owners: %+v, unattributed %v", l.Owners, l.unattributed())
@@ -231,5 +251,54 @@ func TestTheLedgerProbeNamesWhatItKept(t *testing.T) {
 	d := ledgerProbe{}.Detail(&Result{Samples: []Sample{{Tree: "release", Rep: 1}, {Tree: "release", Rep: 2, Missed: "no ledger"}}})
 	if !strings.Contains(d, "release-1.ledger.txt, release-1.ledger.json, release-1.trace.txt, release-1.journal.txt\n") || strings.Contains(d, "release-2") {
 		t.Errorf("Detail:\n%s", d)
+	}
+}
+
+// A task's time off the CPUs is asleep until it is woken and runnable until it runs, in disk wait
+// when it left in D, and each CPU's switches are its own.
+func TestATasksWaitIsSplitByWhatItWaitedFor(t *testing.T) {
+	trace := `          <idle>-0       [000] d..2.     0.000500: sched_switch: prev_comm=swapper/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=work next_pid=10 next_prio=120
+            work-10      [000] d..2.     0.001000: sched_switch: prev_comm=work prev_pid=10 prev_prio=120 prev_state=S ==> next_comm=disk next_pid=11 next_prio=120
+            disk-11      [000] d..2.     0.002000: sched_switch: prev_comm=disk prev_pid=11 prev_prio=120 prev_state=D ==> next_comm=swapper/0 next_pid=0 next_prio=120
+          <idle>-0       [001] d..2.     0.002500: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=other next_pid=12 next_prio=120
+          <idle>-0       [000] d.h3.     0.003000: sched_wakeup: comm=work pid=10 prio=120 target_cpu=000
+          <idle>-0       [000] d..2.     0.004000: sched_switch: prev_comm=swapper/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=work next_pid=10 next_prio=120
+           other-12      [001] d..2.     0.005000: sched_switch: prev_comm=other prev_pid=12 prev_prio=120 prev_state=R ==> next_comm=swapper/1 next_pid=0 next_prio=120
+            work-10      [000] d..2.     0.006000: sched_switch: prev_comm=work prev_pid=10 prev_prio=120 prev_state=R+ ==> next_comm=disk next_pid=11 next_prio=120
+`
+	events, err := parseTrace(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := replay(events)
+	if b.breaks != 0 {
+		t.Errorf("%d breaks in a trace with none", b.breaks)
+	}
+	byPID := func(pid int, at float64) string { return strconv.Itoa(pid) }
+	states := map[string]States{}
+	for _, s := range b.statesIn(0, 6, byPID) {
+		states[s.Owner] = s
+	}
+	// work: ran 0.5-1, asleep 1-3, runnable 3-4, ran 4-6. disk: ran 1-2, in D 2-6. other ran 2.5-5 on CPU 1.
+	if w := states["10"]; !near(w.Sleeping, 2) || !near(w.Runnable, 1) || !near(w.Running, 2.5) {
+		t.Errorf("work: %+v", w)
+	}
+	if d := states["11"]; !near(d.Disk, 4) || !near(d.Running, 1) {
+		t.Errorf("disk: %+v", d)
+	}
+	if o := states["12"]; !near(o.Running, 2.5) {
+		t.Errorf("other: %+v", o)
+	}
+	cpu := map[string]float64{}
+	for _, s := range b.cpuIn(0, 6, byPID) {
+		cpu[s.Owner] = s.Ms
+		if s.Owner == "10" && s.Comms[0].Comm != "work" {
+			t.Errorf("work ran as %q", s.Comms[0].Comm)
+		}
+	}
+	// PID 0 is CPU 0's from the kernel's 0 to its first switch and from 2 to 4, and CPU 1's from 5,
+	// its first switch's time before that being the trace's to know.
+	if !near(cpu["10"], 2.5) || !near(cpu["11"], 1) || !near(cpu["12"], 2.5) || !near(cpu["0"], 0.5+2+1) {
+		t.Errorf("CPU by task: %v", cpu)
 	}
 }
