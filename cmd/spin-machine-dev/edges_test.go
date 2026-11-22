@@ -254,7 +254,7 @@ func TestAShellIsSystemdIn2GiBAndTwoCPUsByDefault(t *testing.T) {
 	if _, stderr, status := verb(t, "shell"); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
-	if got := read(t, filepath.Join(dir, "boot")); got != "boot --release "+out+" --memory 2048 --cpus 2 --init /sbin/init\n" {
+	if got := read(t, filepath.Join(dir, "boot")); got != "boot --release "+out+" --memory 2048 --cpus 2 --init /sbin/init --append systemd.set_credential=agetty.autologin:root\n" {
 		t.Errorf("spin-machine ran %q", got)
 	}
 }
