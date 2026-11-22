@@ -71,6 +71,7 @@ spin-machine-dev lab dispatch bootchart --reps 3 \
 
 The run's artifact keeps `TREE-REP.bootchart.svg` and `TREE-REP.plot.svg` beside `result.json`.
 `lab show RUN_ID` downloads them into `_output/lab/runs/RUN_ID/result/`. A browser draws them.
+`TREE-REP.bootchart.json` is the chart's samples, for a comparison a script makes.
 
 **What it shows.** The `bootchart` edit makes systemd-bootchart PID 1. It forks a sampler and
 execs systemd. Every 5 ms (200 Hz) the sampler reads each process's CPU time and wait, and the
