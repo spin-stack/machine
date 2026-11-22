@@ -313,6 +313,8 @@ and a row measured in another shape than spin's has such a reason.
 | Base memory in a shared file, left out of the checkpoint (`x-ignore-shared`) | state 0.3 MiB, save 15 ms, but neither goal number improves: cold 1089 ms on disk, 709-719 on tmpfs | ladder | labs 44663272360, 44664989139, #306 | 11-20 |
 | 16 multifd channels as the default | −10.1 alone, but +3.2 [+1.1, +5.8] against 8 when 4 restore at once | spin | lab 44792429636 | 11-20 |
 | `direct-io` (O_DIRECT) on the channels | within the noise evicted, +45 ms cached | laptop | log.md, 11-21 | 11-21 |
+| `direct-io` on the channels of a save, against dirty-page throttling in the stop | never converged beside a busy disk: each pass ~2.5 s, the save cancelled after 10 min | spin, plugged 2 GiB | lab 44973775066, docs/memory-and-disk.md | 11-22 |
+| `downtime-limit` 15 instead of 30 | the guest's stop −2.5 [−7.5, +3.0] short of memory beside a busy disk, −1.5 [−6.0, +2.8] with a writer | spin, plugged 2 GiB | lab 44975130836 | 11-22 |
 
 ### QMP and vsock
 

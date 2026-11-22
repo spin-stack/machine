@@ -47,8 +47,9 @@ tasks:
   checkpoint-pause:
     desc: >-
       How long a checkpoint stops the guest, at spin's shape plugged to 2 GiB: an idle guest with
-      1.5 GiB of tmpfs filled, and one rewriting 64 MiB of a 512 MiB set every ~100 ms, each saved
-      SPIN_PAUSE_SAVES times (default 10) and continued. Logs each save's pause (GuestStopped to
+      1.5 GiB of tmpfs filled, one rewriting 64 MiB of a 512 MiB set every ~100 ms, that one beside a
+      busy host disk, and beside it on a host whose memory is taken but 4 GiB (measured, not held, and skipped on a host with
+      swap, which no runner has), each saved SPIN_PAUSE_SAVES times (default 10) and continued. Logs each save's pause (GuestStopped to
       GuestRunning), QEMU's downtime, what was left at the stop and the save's total, and holds the
       median pause under 50 ms (pause_test.go). Needs a built release and /dev/kvm.
     deps: [':tools']

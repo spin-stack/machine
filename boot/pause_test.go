@@ -11,8 +11,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/spin-stack/machine/internal/lab"
 	"github.com/spin-stack/machine/internal/qmpdef"
@@ -55,7 +59,9 @@ type pause struct {
 // filled from /dev/urandom, idle, and with 1 GiB filled and a writer rewriting 64 MiB of a 512 MiB
 // tmpfs file every ~100 ms: the two guests that decided checkpointDowntime (#415). The third is
 // the writer beside a busy disk, its guest writing its own disk too: what made a stop wait on the
-// host's disk to flush the overlay (#426). Each saves
+// host's disk to flush the overlay (#426). The fourth is the third on a host short of memory, as a
+// runner of many workspaces can be: no swap, all but shortMemoryHeadroom of it taken
+// (shortOfMemory). Each saves
 // SPIN_PAUSE_SAVES times (default 10) into a file on the scratch disk, continued after each, and logs
 // each save's pause, QEMU's downtime, what was left at the stop and the save's total. The median
 // pause is held under pauseBound. A QEMU bump that changes when migration stops the guest shows
@@ -81,16 +87,23 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 		name, fill, writer string
 		// busy is a host writer on the state's file system throughout the saves (busyDisk).
 		busy bool
+		// short is the host short of memory throughout the saves (shortOfMemory).
+		short bool
 	}{
-		{"idle", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1536", "", false},
-		{"writing", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer, false},
+		{"idle", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1536", "", false, false},
+		{"writing", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer, false, false},
 		// Its guest also writes 1 MiB of its own disk every ~100 ms past its page cache and
 		// without a sync, so a stop always has the guest's writes still to flush: with
 		// conv=fsync instead, the guest had flushed them itself and the stop found nothing to.
 		{"writing beside a busy disk", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer +
-			" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 oflag=direct conv=notrunc 2>/dev/null; sleep 0.1; done) &", true},
+			" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 oflag=direct conv=notrunc 2>/dev/null; sleep 0.1; done) &", true, false},
+		{"writing beside a busy disk short of memory", "dd if=/dev/urandom of=/mnt/fill bs=1M count=1024", writer +
+			" (while :; do dd if=/dev/urandom of=/written bs=64k count=16 oflag=direct conv=notrunc 2>/dev/null; sleep 0.1; done) &", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.short {
+				withoutSwap(t)
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 			s, mac := r.next(t, "/bin/sh")
@@ -126,6 +139,9 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 			if tc.busy {
 				busyDisk(t)
 			}
+			if tc.short {
+				shortOfMemory(t)
+			}
 			var pauses []pause
 			for range saves {
 				p := checkpointOnce(ctx, t, g, q)
@@ -140,7 +156,10 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 				tc.name, saves, ms(held), ms(p50(pauses, func(p pause) time.Duration { return p.stopped })),
 				p50(pauses, func(p pause) time.Duration { return p.cost.Paused }),
 				p50(pauses, func(p pause) int64 { return p.left })>>20, p50(pauses, func(p pause) time.Duration { return p.cost.Total }))
-			if held >= pauseBound {
+			// The host short of memory is measured, not held: compat's kvm host, 118 GiB of it taken,
+			// stopped that guest 56 ms p50 against 25 on the 32 GiB bench, waiting on the kernel's
+			// dirty-page throttling, which nothing tried shortened (compat 44976542939, #444).
+			if held >= pauseBound && !tc.short {
 				t.Errorf("a checkpoint stopped the %s guest for %.2f ms p50, want under %v", tc.name, ms(held), pauseBound)
 			}
 		})
@@ -255,4 +274,62 @@ func busyDisk(t *testing.T) {
 			}
 		}
 	})
+}
+
+// shortMemoryHeadroom is what shortOfMemory leaves of the host's available memory: what the
+// kernel then reclaims from, the page cache that the state, the overlay and the busy disk's
+// writers go through, and QEMU's own file pages. With 1 GiB, the busy disk's dirty pages left the
+// bench nothing to reclaim in time and the kernel killed the test (lab 44971162018, 2026-11-22).
+const shortMemoryHeadroom = 4 << 30
+
+// shortOfMemory takes the host's available memory but shortMemoryHeadroom until the test ends,
+// anonymous and touched, as other workspaces' guests hold a runner's. spin's runners have no
+// swap, and each machine's group has memory.swap.max 0 (spin-stack/spin's
+// internal/vm/host/cgroup), so it is reclaimed from the page cache, never swapped, as on the
+// bench, which has no swap either.
+func shortOfMemory(t *testing.T) {
+	t.Helper()
+	size := memAvailable(t) - shortMemoryHeadroom
+	if size <= 0 {
+		t.Fatalf("the host has under %d MiB available to take", shortMemoryHeadroom>>20)
+	}
+	b, err := unix.Mmap(-1, 0, int(size), unix.PROT_READ|unix.PROT_WRITE, unix.MAP_PRIVATE|unix.MAP_ANONYMOUS|unix.MAP_POPULATE)
+	if err != nil {
+		t.Fatalf("taking %d MiB of the host's memory: %v", size>>20, err)
+	}
+	t.Cleanup(func() { _ = unix.Munmap(b) })
+	t.Logf("took %d MiB of the host's memory, %d MiB left available", size>>20, memAvailable(t)>>20)
+}
+
+// withoutSwap skips a test on a host with swap: memory taken there pushes its other processes into
+// swap, and the stop measured is that host's, which no runner is (#437).
+func withoutSwap(t *testing.T) {
+	t.Helper()
+	swaps, err := os.ReadFile("/proc/swaps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Split(strings.TrimSpace(string(swaps)), "\n"); len(lines) > 1 {
+		t.Skipf("this host swaps to %s, and a runner has no swap", strings.Fields(lines[1])[0])
+	}
+}
+
+// memAvailable is the kernel's estimate of what the host can still give without swapping.
+func memAvailable(t *testing.T) int64 {
+	t.Helper()
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "MemAvailable:"); ok {
+			kb, err := strconv.ParseInt(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "kB")), 10, 64)
+			if err != nil {
+				t.Fatalf("reading MemAvailable %q: %v", v, err)
+			}
+			return kb << 10
+		}
+	}
+	t.Fatal("/proc/meminfo says no MemAvailable")
+	return 0
 }

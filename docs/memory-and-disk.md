@@ -342,10 +342,54 @@ without, and no flush was submitted between `completed` and `running` in either 
 alone did not move restore-first, which a checkpoint's stop is not on: login −0.1 ms [−2.3, +2.4]
 from an evicted state and −3.2 [−4.7, −0.5] from a cached one (lab 44963610565).
 
-The laptop's slowest saves had two more waits that the bench did not show. One was 1.6-1.9 s
-between `finish-migrate` and the stop's flush with nothing to flush, which is the drain or the
-vCPUs' pause. The other was 0.7-1.6 s writing the last RAM after `pre-switchover`. That laptop's swap
-was full, so both may be QEMU's memory read back from swap (#437).
+#### A host short of memory
+
+The laptop's slowest saves had two more waits that the bench did not show: 1.6-1.9 s between
+`finish-migrate` and the stop's flush, with nothing to flush, and 0.7-1.6 s writing the last RAM
+after `pre-switchover`. Its swap was full, so they looked like QEMU's memory read back from swap
+(#437). They were not. Traced again (laptop, v20261121.01 with the patched QEMU, the busy-disk
+guest, the state on ext4 on NVMe, swap 8 of 8 GiB used, 2026-11-22), QEMU had no page in swap
+(`VmSwap` 0) and the host swapped in 167 pages in 11 minutes. What the stop waited on was the disk,
+which was 60-80% full in `/proc/pressure/io`:
+
+- The drain waited for the guest's writes still in flight, whose io_uring workers slept in
+  `jbd2_log_wait_commit` and `rq_qos_wait`, and for the vCPU and the migration thread, which slept
+  in `folio_wait_bit_common` after major faults. Those faults were QEMU's own file pages: its
+  binary, evicted by the host's reclaim (1.9 M file refaults in the run) and read back from the
+  disk the state, the overlay, the swap and the busy writers all shared.
+- The last RAM waited in the same `folio_wait_bit_common`, on the migration thread.
+- Twice, 1.5 s and 10 s passed from `completed` to `running` with QEMU idle: the caller's own
+  process waited on that disk before it sent `cont`.
+
+A runner is not that laptop. It has no swap: spin installs a swap file only on the control plane,
+and the control plane and a runner are separate machines (spin-stack/spin's
+`internal/installation/install`). Each machine's group has `memory.swap.max` 0. QEMU's binary is
+on the root volume and the workspaces' files on the instance store. The bench has that layout, and
+under its memory taken but 4 GiB, with no swap and the busy disk, the host reclaimed 26 M pages in
+16 saves and QEMU took no major fault. The guest stopped 26 ms p50 and 44 ms at the slowest, against
+18.5 ms beside the busy disk alone (lab 44971787197 and 44971162018, 2026-11-22).
+
+What a stop under pressure did wait on, in its two slowest saves of 40, was the kernel's dirty-page
+throttling (`balance_dirty_pages`). Once a host is short of memory its dirty limit, a share of what
+it can still give, is smaller, and the busy disk's writers keep it full:
+
+- 120 ms in the drain, for a guest write that an io_uring worker had into the overlay's page cache.
+- 173 ms of the last RAM, for one multifd channel's write into the state, while the other seven
+  waited for the same file's `i_rwsem`.
+
+(bench, lab 44972838681, `bpftrace` on `sched_switch` with kernel stacks.) `boot:checkpoint-pause`
+measures that host as its fourth guest and does not hold it: on compat's kvm host, 118 GiB taken, it
+stopped 56 ms p50 (compat 44976542939, #444).
+
+Neither change that would keep the stop off the page cache is in place:
+
+- `direct-io` on the state's channels never converged beside the busy disk. At the writer's
+  640 MiB/s of dirtied memory each pass took ~2.5 s and left ~520 MiB, and the first save was
+  cancelled after 10 minutes, where the page cache's save took ~4 s (lab 44973775066).
+- `downtime-limit` at 15 ms instead of 30 left less RAM for the stop (11 MiB p50 against 30) but did
+  not shorten it: −2.5 ms [−7.5, +3.0] short of memory, −1.5 [−6.0, +2.8] with the writer, −0.2
+  [−0.5, +0.3] idle (25 pairs each, interleaved, lab 44975130836). A first run of 20 pairs had read
+  −6.0 [−11.9, −1.1].
 
 ## Turned down
 
