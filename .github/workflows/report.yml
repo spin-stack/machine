@@ -4,7 +4,8 @@ name: Report
 # the release before it on one bench host, each with the spin-machine of the commit it was made
 # from, in the shape spin boots a workspace in - the two goal numbers (a cold boot and a restore,
 # each to the first SSH login), both again into a QEMU started ahead, and save, state, kernel and
-# QEMU RSS as diagnostics - written to docs/releases/RELEASE.json with the release before it and
+# QEMU RSS as diagnostics, and the no-systemd floor beside the release, a bound (docs/measuring.md,
+# rule 8) - written to docs/releases/RELEASE.json with the release before it and
 # each Δ against it, and docs/releases.md written again from every record (spin-machine-dev
 # releases, docs/cli.md). The records are proposed as a pull request as the release app, so the
 # checks on it run.

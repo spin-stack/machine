@@ -28,8 +28,8 @@ func releasesCommand() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "releases",
 		Short: "Each release's measured numbers, kept in docs/releases: record, measure, compare, docs/releases.md and the site",
-		Long: `A release's record is docs/releases/RELEASE.json: the goal's two numbers, the prestarted ones and
-the diagnostics, p50/p95, from one run on the bench fleet that booted it interleaved with the
+		Long: `A release's record is docs/releases/RELEASE.json: the goal's two numbers, the prestarted ones,
+the diagnostics and the no-systemd floor, a bound, p50/p95, from one run on the bench fleet that booted it interleaved with the
 release before it, in the shape spin boots a workspace in, with where and when, and that release's
 numbers from the same run with the Δ of each and its 95% interval. docs/releases.md and
 docs/releases.svg, the chart it shows, are written from the records, never by hand: the goal's
@@ -147,6 +147,7 @@ func releasesMeasure() *cobra.Command {
 release is when it is published - and keep the ladder.json, every sample, in
 _output/lab/measured/TAG: releases record writes TAG's record from it, with the release before it
 and the Δ of each number against it, and the page. The oldest published release is measured alone.
+TAG is also measured beside its no-systemd floor, a bound re-measured with every release.
 Each release boots with the spin-machine of the commit it was made from; one whose spin-machine
 cannot run a probe is a dash that says why. Measuring and recording are two verbs because they are
 two commits in report.yml: a release is measured at its own tag, and recorded by main's code, which
@@ -186,6 +187,14 @@ fleet: report.yml runs this there. Exits 1 when a measurement was lost (the ladd
 				}
 				l, err := lab.RunLadder(c.Context(), ts, reps, scratch, c.ErrOrStderr())
 				if err != nil {
+					return couldNot(err)
+				}
+				floor, err := trees(root, nil, []string{tag + lab.FloorSuffix + "=--from release:" + tag +
+					" --spin-machine release --edit floor --append " + lab.FloorAppend}, c.ErrOrStderr())
+				if err != nil {
+					return couldNot(err)
+				}
+				if err := l.MeasureFloor(c.Context(), ts[len(ts)-1], floor[0], reps, scratch, c.ErrOrStderr()); err != nil {
 					return couldNot(err)
 				}
 				if err := writeLadder(c.OutOrStdout(), l, filepath.Join(root, "_output", "lab", "measured", tag)); exitCode(err) == 1 {

@@ -49,7 +49,7 @@ same change.
 | `task lint test coverage mutate`, the schema checks among the tests, `verify args` | `ci.yml` | every pull request and push to main |
 | QEMU, the kernel and the image, built and verified | `parts.yml` | a change that reaches the part |
 | a checkpoint of each release resumes, `boot:record`, `boot:cpu-plug`, `boot:lockdown` | `compat.yml`, KVM fleet | a change that reaches the machine, and every release before it is built |
-| the goal's two numbers | `report.yml`, bench | every release, once published |
+| the goal's two numbers, and the no-systemd floor beside them | `report.yml`, bench | every release, once published |
 | `boot:checkpoint-pause`, the pause a checkpoint stops the guest for | `release.yml`'s `pause`, bench | every release, once published, and a QEMU bump (versions.yaml) |
 | `boot:finish-migrate` | by hand, on a busy host | a QEMU bump (versions.yaml) |
 
@@ -112,7 +112,8 @@ measured on). The job boots it interleaved with the release before it, in the sh
 workspace in, twenty boots of each (`spin-machine-dev releases measure`, docs/cli.md). It measures
 the two goal numbers, a cold boot and a restore, each to the first SSH login, and both again into a
 QEMU started ahead. Save, state, the kernel's time and QEMU's resident memory are beside them as
-diagnostics.
+diagnostics. The release is booted again beside its no-systemd floor, both logging in by the lane:
+a bound, re-measured with every release so that it stays one (docs/measuring.md, rule 8).
 
 The job keeps the release's record, `docs/releases/RELEASE.json`: each number's p50 and p95, the
 host, the shape, the date, the run whose artifact holds every sample (90 days), and the release

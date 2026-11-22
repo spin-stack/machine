@@ -404,4 +404,7 @@ func TestReleasesMeasureLaddersEachWithTheOneBefore(t *testing.T) {
 	} else if _, ok := a.Delta["cold"]; !ok {
 		t.Errorf("no Δ of the cold boot against %s: %+v", a.Release, a.Delta)
 	}
+	if n := records[0].Numbers; n["floor"].P50 == 0 || n["floor-lane"].P50 == 0 {
+		t.Errorf("no no-systemd floor beside %s: %+v, cannot %+v", tag, n, records[0].Cannot)
+	}
 }
