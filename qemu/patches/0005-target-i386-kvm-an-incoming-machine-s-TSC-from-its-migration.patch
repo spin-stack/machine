@@ -1,0 +1,66 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Sun, 22 Nov 2026 02:00:00 -0300
+Subject: [PATCH] target/i386/kvm: an incoming machine's TSC is written only
+ from its migration
+
+A machine made with -incoming writes each vCPU's TSC twice before the
+migration loads: zero after the vCPU is made, then one at the machine's
+reset (x86_cpu_reset_hold writes one instead of the TSC it read back, so
+that KVM does not take the write for a hot-plugged vCPU's zero).  KVM
+counts any TSC written by userspace as one userspace has set
+(kvm->arch.user_set_tsc), and from then on takes a TSC written within a
+second of what it expects as an attempt to keep the vCPUs in sync, and
+keeps the offset it has.  The TSC the migration then writes is taken
+that way whenever the saved guest had run for less than a second more
+than this machine's vCPU has existed: the vCPU keeps counting from its
+creation, and the guest's TSC goes back by its uptime at the save.
+
+KVM's commit bf328e22e472 ("KVM: x86: Don't sync user-written TSC
+against startup values", 6.7) is for exactly this restore, a guest that
+has run for less than a second, and these writes undo it.  What it costs
+a guest is its TSC-deadline timer.  The deadline comes back as saved and
+is met only when the new count reaches it, the saved guest's uptime
+after the vCPU's creation.  A guest whose tick was running at the save
+had that deadline a tick ahead, and its hrtimers, all later than the
+deadline it believes armed, are not programmed again: it sleeps until
+the new count reaches the old deadline.  Traced in spin-machine (a
+checkpoint taken 0.43 s into a boot, restored on nested KVM, kprobes on
+kvm_synchronize_tsc), the TSC writes were 0, 1 and the saved
+1324628232, the last matched to the first's offset; the guest answered
+its first packets, then halted 281-450 ms with no timer interrupt and
+no TSC-deadline write, and woke 530 ms after QEMU's exec however long
+the load had taken.  That was 30% of restores, the ones whose guest was
+saved with its tick running.
+
+While a machine waits for an incoming migration, its TSC is written only
+from migrated state: the full state put after the load, whose TSC is
+never zero.  The first TSC KVM then gets from userspace is the
+migration's, taken as given, and the vCPUs after it are kept in sync
+with it.  A machine started any other way, and a reset once a machine
+runs, write the TSC as before.
+
+Assisted-by: LLM
+---
+diff -ruN a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+--- a/target/i386/kvm/kvm.c
++++ b/target/i386/kvm/kvm.c
+@@ -4250,7 +4250,18 @@
+      * for normal writeback. Limit them to reset or full state updates.
+      */
+     if (level >= KVM_PUT_RESET_STATE) {
+-        kvm_msr_entry_add(cpu, MSR_IA32_TSC, env->tsc);
++        /*
++         * A machine waiting for an incoming migration has its TSC from
++         * the migration alone.  KVM takes the TSC userspace writes as
++         * given only if it is the first: written before the load, the
++         * creation's zero or the reset's one makes KVM take a migrated
++         * TSC within a second of it as an attempt to stay in sync, and
++         * keep the vCPU's TSC counting from its creation.
++         */
++        if (!runstate_check(RUN_STATE_INMIGRATE) ||
++            (level == KVM_PUT_FULL_STATE && env->tsc)) {
++            kvm_msr_entry_add(cpu, MSR_IA32_TSC, env->tsc);
++        }
+         if (env->features[FEAT_KVM] & (CPUID_KVM_CLOCK | CPUID_KVM_CLOCK2)) {
+             kvm_msr_entry_add(cpu, MSR_KVM_SYSTEM_TIME, env->system_time_msr);
+             kvm_msr_entry_add(cpu, MSR_KVM_WALL_CLOCK, env->wall_clock_msr);

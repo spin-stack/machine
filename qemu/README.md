@@ -5,9 +5,11 @@ source (tens of minutes). `spin-machine-dev fetch qemu` unpacks the published bu
 version (seconds). `devices.mak` is the device allowlist, and `patches/` holds the changes this
 tree makes to QEMU's source: 0001 builds the memory map once for device creation, 0002 gives
 virtio-scsi a `max_target` property, and 0003 adds the migration capability `x-defer-disk-flush`,
-which keeps a checkpoint's stop off the host's disk. `docs/boot-time.md`, "What the machine
-carries", says what 0001 and 0002 earn, and `docs/memory-and-disk.md`, "A busy host disk", what 0003
-does.
+which keeps a checkpoint's stop off the host's disk. 0005 has a machine made for an incoming
+migration write its TSC only from the migration, so that KVM takes the checkpoint's TSC as given
+(#452).
+`docs/boot-time.md`, "What the machine carries", says what 0001 and 0002 earn, and
+`docs/memory-and-disk.md`, "A busy host disk", what 0003 does.
 
 A dynamically linked QEMU is not one artefact. It is an artefact plus the libraries it was
 compiled against. Extracted onto a host with different ones it dies at start-up
