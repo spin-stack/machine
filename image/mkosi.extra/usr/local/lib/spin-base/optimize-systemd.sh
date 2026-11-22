@@ -76,6 +76,13 @@ for gen in "${DISABLE_GENERATORS[@]}"; do
     log "Disabled generator: $gen"
 done
 
+# Root's manager starts in the boot (root lingers) and the first login waits for it, so what it
+# runs is on the login's clock. The XDG autostart generator reads .desktop files for graphical
+# sessions, which a workspace has none of: first login -3.8 [-6.2, -0.7], 100 a side (bench,
+# spin's shape, against v20261122.06, lab 45070150688, #527).
+mkdir -p /etc/systemd/user-generators
+ln -sf /dev/null /etc/systemd/user-generators/systemd-xdg-autostart-generator
+
 log "Masking unnecessary tmpfiles rules..."
 mkdir -p /etc/tmpfiles.d
 
