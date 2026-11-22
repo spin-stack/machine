@@ -52,13 +52,16 @@ ConditionPathExists=/usr/bin/ssh-keygen
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Ed25519 and ECDSA only, each skipped when it already exists, so a VM whose provisioner
-# placed its own keys keeps them. Not -A: it also makes an RSA key, and RSA was the whole
-# cost of this unit — 309 ms of systemd-analyze blame in a guest, measured 2026-09-24, and on
-# the host 141 ms for RSA against 6 ms for ECDSA and 5 ms for Ed25519. sshd skips a default
-# host key that is not there without a word, so nothing is configured to leave RSA out, and
-# every client since OpenSSH 6.5 (2014) takes Ed25519.
-ExecStart=/bin/sh -c 'for t in ed25519 ecdsa; do f=/etc/ssh/ssh_host_$${t}_key; [ -e "$$f" ] || /usr/bin/ssh-keygen -q -t "$$t" -N "" -f "$$f" || exit 1; done'
+# Ed25519 only, skipped when it already exists, so a VM whose provisioner placed its own key
+# keeps it. Not -A: it also makes an RSA key, and RSA was the whole cost of this unit - 309 ms of
+# systemd-analyze blame in a guest, measured 2026-09-24, and on the host 141 ms for RSA against
+# 6 ms for ECDSA and 5 ms for Ed25519. sshd skips a default host key that is not there without a
+# word, so nothing is configured to leave the others out, and every client since OpenSSH 6.5
+# (2014) takes Ed25519. The ECDSA key went too: its ssh-keygen ran on the one vCPU before
+# ssh.service, and without it the cold first login is -5.0 [-8.3, -1.8] ms p50, sshd accepting
+# -4.4 [-6.9, -1.9] (bench fleet, spin's shape and login, 60 boots each interleaved, lab
+# 44979726719, 2026-11-22). A client that accepts only ECDSA host keys no longer gets in.
+ExecStart=/bin/sh -c 'f=/etc/ssh/ssh_host_ed25519_key; [ -e "$$f" ] || exec /usr/bin/ssh-keygen -q -t ed25519 -N "" -f "$$f"'
 
 [Install]
 WantedBy=sysinit.target
