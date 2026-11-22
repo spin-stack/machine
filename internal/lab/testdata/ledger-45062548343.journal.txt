@@ -1,0 +1,9 @@
+[    0.264765] localhost sshd-session[94]: Connection from 127.0.0.1 port 55922 on 127.0.0.1 port 22 rdomain ""
+[    0.274494] localhost sshd-session[94]: debug1: SSH2_MSG_KEXINIT sent [preauth]
+[    0.275079] localhost (systemd)[97]: pam_unix(systemd-user:session): session opened for user root(uid=0) by root(uid=0)
+[    0.276618] localhost systemd-logind[68]: New session '1' of user 'root' with class 'manager-early' and type 'unspecified'.
+[    0.282980] localhost sshd-session[94]: debug1: SSH2_MSG_NEWKEYS received [preauth]
+[    0.297091] localhost sshd-session[94]: Accepted publickey for root from 127.0.0.1 port 55922 ssh2: ED25519 SHA256:wCV4Th4B8L47l+cUjtkMfmtuuArowSOFfsR6fT5euwE
+[    0.297214] localhost sshd-session[94]: pam_unix(sshd:session): session opened for user root(uid=0) by root(uid=0)
+[    0.299931] localhost systemd-logind[68]: New session '2' of user 'root' with class 'user-early' and type 'tty'.
+[    0.310142] localhost sshd-session[110]: Starting session: command for root from 127.0.0.1 port 55922 id 0

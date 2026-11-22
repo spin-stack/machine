@@ -449,6 +449,7 @@ var Probes = map[string]Probe{
 	"bootchart":        bootchart{},
 	"density":          density{},
 	"initcalls":        initcalls{},
+	"ledger":           ledgerProbe{},
 	"prestart":         prestart{},
 	"restore-first":    restoreFirst{},
 	"restore-together": restoreTogether{},

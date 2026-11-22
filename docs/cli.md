@@ -213,6 +213,9 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--edit bootchart`: systemd-bootchart as PID 1, spin-stack's fork at the commit versions.yaml
   pins, compiled here in a container, which samples the boot and execs systemd. The `bootchart` probe draws only a tree that carries
   it (measuring.md, "Boot charts").
+- `--edit ledger`: sshd at LogLevel DEBUG1 and the `ledger` probe's two scripts. Its tree also
+  boots a kernel that can be traced and the scheduler's tracepoints from the kernel's start,
+  `--kernel run:N --append '<lab.LedgerAppend>'` (measuring.md, "The ledger").
 - `--edit carry-journal`, `carry-docker`, `carry-lane-logind` and `carry-keygen`: one of the
   image's deviations from Ubuntu taken back to what Ubuntu ships (docs/image.md, "Measured in this
   review"). Each goes after `--edit lane`.
@@ -404,6 +407,13 @@ of every unit, from the same boot. It keeps them beside `result.json` as
 `TREE-REP.plot.svg`, and records where the chart starts and ends on
 the kernel's clock, the samples it dropped and its size. Reading them is in
 [measuring.md](measuring.md#boot-charts).
+
+`ledger` accounts for a tree made with `--edit ledger`: from the moment before QEMU is exec'd
+to the first login, the kernel's start on the host's clock and, from a scheduler trace, each
+window of the kernel's clock by whose tasks ran and the idle. It keeps `TREE-REP.ledger.txt`,
+`TREE-REP.ledger.json`, the trace as `TREE-REP.trace.txt` and the journal as
+`TREE-REP.journal.txt` beside `result.json`. Reading them is in
+[measuring.md](measuring.md#the-ledger).
 
 `lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to

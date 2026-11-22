@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	xssh "golang.org/x/crypto/ssh"
@@ -197,12 +198,7 @@ func (k *Key) run(cid uint32, kex, command string, wrap func(net.Conn) net.Conn)
 // mutate-lane: TestEveryProbeMeasuresATree
 func (k *Key) session(conn net.Conn, cid uint32, kex, command string) (string, error) {
 	defer func() { _ = conn.Close() }()
-	c, chans, reqs, err := xssh.NewClientConn(conn, "vsock", &xssh.ClientConfig{
-		User:            k.User(),
-		Auth:            []xssh.AuthMethod{xssh.PublicKeys(k.Signer)},
-		HostKeyCallback: xssh.InsecureIgnoreHostKey(), // a fresh VM's keys, made in its boot
-		Config:          xssh.Config{KeyExchanges: []string{kex}},
-	})
+	c, chans, reqs, err := xssh.NewClientConn(conn, "vsock", k.config(kex))
 	if err != nil {
 		return "", fmt.Errorf("ssh to vsock %d:22: %w", cid, err)
 	}
@@ -215,9 +211,19 @@ func (k *Key) session(conn net.Conn, cid uint32, kex, command string) (string, e
 	defer func() { _ = s.Close() }()
 	out, err := s.Output(command)
 	if err != nil {
-		return "", fmt.Errorf("running %q on vsock %d:22: %w", command, cid, err)
+		return "", fmt.Errorf("running %q on vsock %d:22: %w: %s", command, cid, err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
+}
+
+// config is the client's configuration for a login as k.User, offering only the key exchange kex.
+func (k *Key) config(kex string) *xssh.ClientConfig {
+	return &xssh.ClientConfig{
+		User:            k.User(),
+		Auth:            []xssh.AuthMethod{xssh.PublicKeys(k.Signer)},
+		HostKeyCallback: xssh.InsecureIgnoreHostKey(), // a fresh VM's keys, made in its boot
+		Config:          xssh.Config{KeyExchanges: []string{kex}},
+	}
 }
 
 // LoggedIn logs in on mc's cid until a login is done, and returns how long after t0 that was. A
