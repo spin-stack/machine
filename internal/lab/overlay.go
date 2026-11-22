@@ -207,6 +207,31 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLoggingEdit, nil
 	case "carry-coldplug":
 		return carryColdplugEdit, nil
+	case "no-sshd-test":
+		return Edit{
+			Files: map[string]string{"/etc/systemd/system/ssh.service.d/20-no-test.conf": "[Service]\nExecStartPre=\n"},
+			Setup: `grep -qx 'ExecStartPre=/usr/sbin/sshd -t' "$MNT/usr/lib/systemd/system/ssh.service"`,
+		}, nil
+	case "no-udev-creds":
+		return Edit{
+			Mask:  []string{"systemd-udev-load-credentials.service"},
+			Setup: `test -e "$MNT/usr/lib/systemd/system/systemd-udev-load-credentials.service"`,
+		}, nil
+	case "user-sessions-stop-only":
+		return Edit{
+			Files: map[string]string{"/etc/systemd/system/systemd-user-sessions.service.d/20-stop-only.conf": "[Service]\nExecStart=\n"},
+			Setup: `grep -qx 'Type=oneshot' "$MNT/usr/lib/systemd/system/systemd-user-sessions.service"
+grep -q '^ExecStop=' "$MNT/usr/lib/systemd/system/systemd-user-sessions.service"`,
+		}, nil
+	case "no-socket-generator":
+		return Edit{
+			Links: map[string]string{"/etc/systemd/system-generators/sshd-socket-generator": "/dev/null"},
+			Setup: `test -x "$MNT/usr/lib/systemd/system-generators/sshd-socket-generator"`,
+		}, nil
+	case "no-memory-accounting":
+		return Edit{
+			Files: map[string]string{"/etc/systemd/system.conf.d/20-accounting.conf": "[Manager]\nDefaultMemoryAccounting=no\n"},
+		}, nil
 	}
 	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-logging, carry-coldplug", name)
 }
