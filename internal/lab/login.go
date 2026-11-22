@@ -168,6 +168,10 @@ func (k *Key) run(cid uint32, kex, command string, wrap func(net.Conn) net.Conn)
 	if err != nil {
 		return 0, "", fmt.Errorf("opening a vsock socket: %w", err)
 	}
+	// As VsockAccepts': LoggedIn connects before the machine is there, and a connect waits two
+	// seconds by default for a context id that does not exist yet.
+	tv := unix.NsecToTimeval((50 * time.Millisecond).Nanoseconds())
+	_ = unix.SetsockoptTimeval(fd, unix.AF_VSOCK, unix.SO_VM_SOCKETS_CONNECT_TIMEOUT, &tv)
 	if err := unix.Connect(fd, &unix.SockaddrVM{CID: cid, Port: 22}); err != nil {
 		_ = unix.Close(fd)
 		return 0, "", fmt.Errorf("connecting to vsock %d:22: %w", cid, err)
@@ -206,21 +210,18 @@ func (k *Key) run(cid uint32, kex, command string, wrap func(net.Conn) net.Conn)
 	return time.Since(t0), string(out), nil
 }
 
-// LoggedIn waits for sshd to accept on mc's cid, then logs in, and returns how long after t0 the
-// login was done. A machine that never accepts, or accepts and is never logged into, is a Miss; one
-// that exits first says why at once (Machine.Exited), not when the wait runs out.
+// LoggedIn logs in on mc's cid until a login is done, and returns how long after t0 that was. A
+// machine never logged into is a Miss; one that exits first says why at once (Machine.Exited), not
+// when the wait runs out.
+//
+// It does not ask whether something accepts first, as VsockAccepts would. On spin's path that
+// connection reaches the forwarder, which opens one to sshd, and sshd starts a session for it on
+// the guest's one vCPU beside the login measured. spin makes no such connection: its runner opens
+// the user's, once. Without it, the restored login read −3.6 ms [−7.3, −1.7] (bench, spin's shape,
+// 30 a side, lab 44977850524).
 // mutate-lane: TestEveryProbeMeasuresATree
 func (k *Key) LoggedIn(mc *Machine, cid uint32, t0 time.Time) (time.Duration, error) {
 	deadline := t0.Add(60 * time.Second)
-	for !VsockAccepts(cid, 22) {
-		if err := mc.Exited(); err != nil {
-			return 0, err
-		}
-		if time.Now().After(deadline) {
-			return 0, Miss("sshd never accepted on vsock")
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
 	var last error
 	for time.Now().Before(deadline) {
 		if _, last = k.Login(cid, xssh.KeyExchangeMLKEM768X25519); last == nil {
@@ -229,9 +230,9 @@ func (k *Key) LoggedIn(mc *Machine, cid uint32, t0 time.Time) (time.Duration, er
 		if err := mc.Exited(); err != nil {
 			return 0, err
 		}
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
-	return 0, Miss("sshd accepted but was never logged into: %v", last)
+	return 0, Miss("never logged into on vsock: %v", last)
 }
 
 // vsockConn is a connected vsock socket as the net.Conn x/crypto/ssh takes: net.FileConn knows no
