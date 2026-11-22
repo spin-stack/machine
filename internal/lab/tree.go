@@ -162,7 +162,8 @@ type TreeSpec struct {
 	// commit the From tree's machine.env names, which is the machine that release defined: spin
 	// builds the machine package of the release it pins, and a release ships no spin-machine
 	// binary. Left out, it is the From tree's own when it has one (_output after a build) and this
-	// checkout's otherwise. The manifest says whose.
+	// checkout's otherwise. "commit:SHA" is the one built from that commit of this repository. The
+	// manifest says whose.
 	SpinMachine string
 	Append      string
 	Boot        []string
@@ -237,7 +238,15 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 		}
 		m.Parts["spin-machine"] = Part{Source: source}
 	default:
-		return nil, fmt.Errorf("--spin-machine is here, release, or left out, not %q", spec.SpinMachine)
+		commit, ok := strings.CutPrefix(spec.SpinMachine, "commit:")
+		if !ok {
+			return nil, fmt.Errorf("--spin-machine is here, release, commit:SHA, or left out, not %q", spec.SpinMachine)
+		}
+		source, err := src.commitSpinMachine(commit, filepath.Join(dir, partFiles["spin-machine"]))
+		if err != nil {
+			return nil, err
+		}
+		m.Parts["spin-machine"] = Part{Source: source}
 	}
 	for _, name := range spec.Edits {
 		e, err := namedEdit(name, src.Checkout, dir)
