@@ -15,6 +15,12 @@ import (
 	"github.com/spin-stack/machine/internal/build"
 )
 
+// consoleAutologin logs the serial console in as root, for shell's boot only. systemd ≥256's
+// serial-getty@ imports agetty.* credentials and util-linux ≥2.40's agetty reads agetty.autologin,
+// which runs login -f, so root's locked password is never asked for (boot:shell checks it). The
+// image could carry the same as a drop-in, and then every workspace's console would log in as root.
+const consoleAutologin = "systemd.set_credential=agetty.autologin:root"
+
 func shellCmd() *cobra.Command {
 	var init string
 	var memory, cpus int
@@ -25,6 +31,10 @@ func shellCmd() *cobra.Command {
 because that is what the image is - a bare shell answers a different question, and systemd-analyze in
 it says "System has not been booted with systemd as init system". --init /bin/bash is there for when
 systemd is the thing that is broken.
+
+The image has no autologin and root has no password, so this boot alone hands the serial getty the
+credential agetty.autologin=root on the kernel's command line, which serial-getty@ imports: the base
+image a workspace boots stays without a console that logs anyone in.
 
 Booted through _output/bin/spin-machine, whose command line is the machine package's: a slot map or
 a kernel argument that stopped working stops working here first. With no --disk the base boots
@@ -52,7 +62,8 @@ slower. Leave with 'poweroff -f', or Ctrl-A then X.`,
 			say(c, "  writes go to a throwaway overlay; the base is read-only and checked after")
 			say(c, "  leave with: 'poweroff -f', or Ctrl-A then X")
 			boot := exec.CommandContext(c.Context(), filepath.Join(w.out, "bin", "spin-machine"), "boot", //nolint:gosec // this build's spin-machine
-				"--release", w.out, "--memory", fmt.Sprint(memory), "--cpus", fmt.Sprint(cpus), "--init", init)
+				"--release", w.out, "--memory", fmt.Sprint(memory), "--cpus", fmt.Sprint(cpus), "--init", init,
+				"--append", consoleAutologin)
 			boot.Stdin, boot.Stdout, boot.Stderr = os.Stdin, os.Stdout, os.Stderr
 			_ = boot.Run() // the guest's own exit is the session ending, however it ended
 			after, err := build.FileSHA256(base)

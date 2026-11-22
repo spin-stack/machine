@@ -967,7 +967,7 @@ func TestShellBootsTheBaseAndChecksItAfter(t *testing.T) {
 	if _, stderr, status := verb(t, "shell", "--init", "/bin/sh", "--memory", "512", "--cpus", "1"); status != 0 || !strings.Contains(stderr, "rootfs.qcow2 unchanged") {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
-	if got := read(t, log); got != "boot --release "+out+" --memory 512 --cpus 1 --init /bin/sh\n" {
+	if got := read(t, log); got != "boot --release "+out+" --memory 512 --cpus 1 --init /bin/sh --append systemd.set_credential=agetty.autologin:root\n" {
 		t.Errorf("spin-machine ran %q", got)
 	}
 	put(t, filepath.Join(out, "bin/spin-machine"), "#!/bin/sh\necho written >> "+filepath.Join(out, "image/rootfs.qcow2")+"\n", 0o755)

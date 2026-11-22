@@ -190,6 +190,15 @@ tasks:
     cmds:
       - SPIN_SSHD_DELAY_TEST=1 go test ./boot/ -run '^TestSSHDDelaysOnlyAFailure$' -count=1 -v -timeout 5m
 
+  shell:
+    desc: >-
+      spin-machine-dev shell over the release reaches a root prompt with systemd as PID 1, and the
+      base image is unchanged after (shell_test.go). The image has no autologin, so the prompt is
+      shell's own credential at work. Needs a built release and /dev/kvm.
+    deps: [':tools']
+    cmds:
+      - SPIN_SHELL_TEST=1 go test ./boot/ -run '^TestShellIsRootUnderSystemd$' -count=1 -v -timeout 5m
+
   lockdown:
     desc: >-
       Check the guest kernel runs lockdown at confidentiality and the BPF LSM, has no

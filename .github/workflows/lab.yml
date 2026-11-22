@@ -44,6 +44,7 @@ on:
           - check:checkpoint-pause
           - check:cpu-plug
           - check:sshd-delay
+          - check:shell
           - check:logind
           - check:workspace
       trees:

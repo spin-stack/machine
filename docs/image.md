@@ -546,7 +546,8 @@ explains it.
   `install-dev-tools.sh` ran first: a user who must sudo for every container runs everything as
   root). Both root and spin are locked: a password in a filesystem every VM boots read-only would be
   the same credential on every machine. The way in is a certificate placed by whoever provisions
-  the VM.
+  the VM. `spin-machine-dev shell` logs its console in as root with an `agetty.autologin`
+  credential on its own kernel command line (`boot:shell`), and the image carries no autologin.
 - **The user CA.** `TrustedUserCAKeys /etc/ssh/spin_user_ca.pub` names a file that arrives later:
   at build time there is no host to ask, and spin's supervisor writes it from the registration
   response. sshd re-reads it per authentication, so a workspace on a host with no CA has no file and
