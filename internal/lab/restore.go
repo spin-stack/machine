@@ -144,6 +144,10 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 		return err
 	}
 	m.RecordMs("login", login)
+	if login > 200*time.Millisecond {
+		_, out, _ := m.Key.Run(c.cid, "mlkem768x25519-sha256", "cat /proc/uptime; systemctl list-jobs --no-pager; journalctl -b -o short-monotonic --no-pager | tail -70; ps -eo pid,stat,etime,time,comm --sort=-time | head -15")
+		m.Logf("login %v DIAG:\n%s", login, out)
+	}
 	m.Logf("restored: running %v, login %v", time.Duration(m.values["running"]*1e6).Round(time.Millisecond), login.Round(time.Millisecond))
 	return nil
 }
