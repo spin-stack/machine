@@ -1,0 +1,96 @@
+v20261122.07-ledger, boot 1: from the moment before QEMU is exec'd to the first login, ms
+
+   start      end       ms  window, on the kernel's clock
+              0.0     95.0  before the kernel's clock: QEMU, the firmware, the kernel's decompression (±0.13)
+     0.0     86.8     86.8  the kernel, to PID 1's exec of init
+                      74.7  kernel (swapper/0 74.6, init 0.1)
+                      10.0  kernel threads (kworker/0:1 8.7, kworker/u65:0 0.2, kdevtmpfs 0.2)
+                       2.0  idle
+    86.8    252.7    165.9  PID 1, to the login's sshd-session
+                      52.9  init.scope (systemd 51.0, init 1.9)
+                      18.4  idle
+                      17.9  systemd-journald.service (systemd-journal 10.7, (systemd-journ) 5.4, 9 1.7)
+                      16.6  unattributed (9 3.1, sshd-socket-gen 1.9, systemd-ssh-gen 1.6)
+                      13.7  systemd-logind.service ((systemd-login) 10.2, systemd-logind 2.4, 9 1.0)
+                       9.1  dbus-broker.service (dbus-broker-lau 3.9, dbus-broker 2.1, (dbus-broker-l) 2.1)
+                       6.2  spin-machine-sshd-keygen.service (ssh-keygen 3.5, 9 1.0, sh 0.9)
+                       5.9  systemd-tmpfiles-setup.service (systemd-tmpfile 4.3, 9 0.9, (systemd-tmpfi) 0.7)
+                       5.0  ssh.service (sshd 3.2, 9 1.0, (sshd) 0.5)
+                       4.3  kernel threads (kworker/0:1H 1.6, kworker/0:2 0.9, kworker/0:1 0.9)
+                       4.0  systemd-sysctl.service (systemd-sysctl 2.3, 9 1.0, (systemd-sysct) 0.6)
+                       3.9  spin-lab-forward.service (socat 2.5, (socat) 1.1, 9 0.3)
+                       3.0  systemd-udev-load-credentials.service (udevadm 1.4, (udevadm) 1.3, 9 0.3)
+                       3.0  systemd-user-sessions.service (systemd-user-se 1.5, 9 0.8, (systemd-user-) 0.6)
+                       2.0  systemd-udevd.service (9 1.7, (systemd-udevd) 0.3, systemd 0.1)
+   252.7    270.7     18.1  sshd-session, to sshd-auth
+                       4.1  ssh.service (sshd-session 3.9, sshd-auth 0.1, sshd 0.0)
+                       3.9  user-runtime-dir@0.service (systemd-user-ru 2.4, 9 1.0, (systemd-user-) 0.4)
+                       3.0  init.scope
+                       2.3  user@0.service ((systemd) 1.2, 9 1.0, systemd 0.1)
+                       1.3  dbus-broker.service
+                       1.1  unattributed (udevadm 0.9, (udevadm) 0.1, (sd-close) 0.1)
+                       1.0  systemd-logind.service
+                       0.7  systemd-udevd.service
+                       0.5  systemd-journald.service
+                       0.3  2 others under 0.5 ms each
+   270.7    297.4     26.6  the key exchange and authentication, in sshd-auth
+                      11.4  ssh.service (sshd-auth 6.2, sshd-session 4.3, unix_chkpwd 0.9)
+                       9.2  user@0.service (systemd 4.7, (systemd) 1.5, 30-systemd-envi 1.3)
+                       1.9  systemd-udevd.service
+                       1.8  systemd-journald.service (systemd-journal 1.1, journal-offline 0.7)
+                       1.0  unattributed
+                       1.5  5 others under 0.5 ms each
+   297.4    311.1     13.7  authenticated: PAM's session, logind, the user's manager
+                       3.7  user@0.service
+                       1.7  init.scope
+                       1.6  unattributed (udevadm 1.5, (sd-close) 0.1)
+                       1.5  ssh.service (sshd-session 1.4, sshd-auth 0.1, sshd 0.0)
+                       1.4  systemd-udevd.service
+                       1.2  systemd-udev-trigger.service (9 1.1, (udevadm) 0.1, systemd 0.1)
+                       0.8  systemd-journald.service
+                       0.7  systemd-logind.service
+                       0.9  3 others under 0.5 ms each
+   311.1    312.9      1.9  the session's process, to the user's shell
+                       0.7  systemd-udev-trigger.service ((udevadm) 0.4, udevadm 0.4)
+                       0.7  ssh.service (sshd-session 0.4, bash 0.3)
+                       0.4  6 others under 0.5 ms each
+   312.9    319.0      6.1  the shell, to the login's command
+                       2.8  systemd-udevd.service
+                       1.5  ssh.service (bash 1.4, true 0.1)
+                       0.9  systemd-udev-trigger.service
+                       0.8  6 others under 0.5 ms each
+   319.0    319.7      0.7  the login's command, to its exit
+                       0.6  ssh.service
+                       0.0  1 others under 0.5 ms each
+   319.7               1.2  after the command's exit, until the host had its answer
+
+95.0 before the kernel's clock + 319.7 to the command's exit + 1.2 residue = 415.8, the first login the host measured
+
+owners from PID 1's exec (86.8) to the command's exit, summed over their tasks, ms
+  running  runnable      disk  sleeping  owner
+     58.5      27.1      42.8     104.6  init.scope
+     24.8      45.6       7.1     169.8  ssh.service
+     21.3      58.1       1.6      86.1  systemd-journald.service
+     20.3     184.9       3.6      14.1  unattributed
+     15.9      36.3       0.8      88.3  systemd-logind.service
+     15.2      17.2       9.4      63.8  user@0.service
+     11.0      30.0       2.1     142.9  dbus-broker.service
+      8.9     127.9       0.0       0.0  systemd-udevd.service
+      6.2      22.5       1.8       0.0  spin-machine-sshd-keygen.service
+      5.9       9.7       2.4       0.0  systemd-tmpfiles-setup.service
+      5.4     257.0       2.0   11148.7  kernel threads
+      4.5      10.6       1.1     136.8  spin-lab-forward.service
+      4.0      16.3       1.3       0.0  systemd-sysctl.service
+      3.9       2.9       0.3       0.1  user-runtime-dir@0.service
+      3.0      12.6       1.3       0.0  systemd-udev-load-credentials.service
+      3.0       7.0       0.4       0.0  systemd-user-sessions.service
+      2.9       7.7       0.0       0.0  systemd-udev-trigger.service
+
+the login in the journal, at journald's receipt of each line
+   269.4  connection: sshd-session[94]: Connection from 127.0.0.1 port 51866 on 127.0.0.1 port 22 rdomain ""
+   278.0  key exchange offered: sshd-session[94]: debug1: SSH2_MSG_KEXINIT sent [preauth]
+   285.3  keys in use: sshd-session[94]: debug1: SSH2_MSG_NEWKEYS received [preauth]
+   297.7  authenticated: sshd-session[94]: Accepted publickey for root from 127.0.0.1 port 51866 ssh2: ED25519 SHA256:EGCVtlCUbXhGj1veRv0t6+uB983ld7Gi+2vxC1P+Wy4
+   297.9  PAM session opened: sshd-session[94]: pam_unix(sshd:session): session opened for user root(uid=0) by root(uid=0)
+   300.1  logind's session: systemd-logind[68]: New session '2' of user 'root' with class 'user-early' and type 'tty'.
+   310.9  the command started: sshd-session[108]: Starting session: command for root from 127.0.0.1 port 51866 id 0
