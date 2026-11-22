@@ -480,6 +480,12 @@ for f in ssh.socket.d/10-lane.conf ssh.service.d/10-lane.conf sshd-keygen.servic
         echo "ERROR: ${f%%.d/*} has no default dependencies and is not stopped at shutdown ($f)" >&2
         exit 1; }
 done
+# ssh.service without Ubuntu's `sshd -t` before it starts (20-no-config-test.conf): one exec less
+# on the one vCPU before the first login. An empty ExecStartPre= is what resets the list.
+"$bin/debugfs" -R "cat /etc/systemd/system/ssh.service.d/20-no-config-test.conf" /work/base.raw 2>/dev/null |
+        grep -qx 'ExecStartPre=' || {
+    echo "ERROR: ssh.service still runs sshd -t before it starts (ssh.service.d/20-no-config-test.conf)" >&2
+    exit 1; }
 # logind and the bus without a private /tmp, which would order them after
 # systemd-tmpfiles-setup.service and the filesystems (30-privatetmp.conf).
 for f in systemd-logind.service.d/30-privatetmp.conf dbus-broker.service.d/30-privatetmp.conf; do

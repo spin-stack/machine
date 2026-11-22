@@ -356,7 +356,7 @@ grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
 		"systemd-logind.service.d/10-lane.conf", "systemd-logind-varlink.socket.d/20-lane.conf",
 		"user-runtime-dir@.service.d/10-lane.conf",
 		"user@.service.d/10-lane.conf", "systemd-udev-trigger.service.d/10-coldplug.conf",
-		"ssh.socket.d/10-lane.conf", "ssh.service.d/10-lane.conf", "sshd-keygen.service.d/10-lane.conf",
+		"ssh.socket.d/10-lane.conf", "ssh.service.d/10-lane.conf", "ssh.service.d/20-no-config-test.conf", "sshd-keygen.service.d/10-lane.conf",
 		"systemd-logind.service.d/30-privatetmp.conf", "dbus-broker.service.d/30-privatetmp.conf",
 		"systemd-udevd.service.d/20-startup.conf", "systemd-udev-trigger.service.d/20-startup.conf"} {
 		b, err := os.ReadFile(filepath.Join(rootfs, "etc", "systemd", "system", d))
