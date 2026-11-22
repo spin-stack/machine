@@ -186,8 +186,9 @@ func (bootchart) Metrics() []Metric {
 }
 
 // sampler prints the pid of systemd-bootchart's sampler while it runs, as root, found by its
-// executable: its name is init, the /sbin/init the kernel ran and the sampler forked from before
-// PID 1 exec'd systemd, and a lookup by systemd-bootchart's name found nothing (lab 45035203425).
+// executable, the one thing every version names alike: Ubuntu's 235 left it named init, the
+// /sbin/init the kernel ran, and a lookup by systemd-bootchart's name found nothing (lab
+// 45035203425); the fork names it bootchart.
 // test -ef and no readlink: a fork for each of the guest's ~200 processes kept the stop command on its
 // one vCPU for ~140 ms, and the probe's first login read 569 ms p50 against 426 without (labs
 // 45036494125, 45036914740).

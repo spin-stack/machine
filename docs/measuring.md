@@ -92,8 +92,8 @@ finishes, so it reaches past the login.
 **What it costs.** The sampler runs on the guest's one vCPU beside the boot it draws. With the
 edit, `ssh-first` read the first login +10.4 ms [+4.5, +16.8], sshd accepting +8.5
 [+4.6, +11.7], the console prompt +15.7 [+12.3, +19.7], and QEMU's RSS +4.0 MiB (lab 45036503632,
-bench, spin's shape, 20 a side, v20261122.03). The chart shows the sampler as `@sbin/init`, about
-12 ms of CPU. So a bar on a chart is longer than it is without the sampler. The probe's own
+bench, spin's shape, 20 a side, v20261122.03). The chart names the sampler `bootchart`, and its header
+says how much CPU the sampler used. So a bar on a chart is longer than it is without the sampler. The probe's own
 `first_login` is the login that stops the chart, its command included: 428 ms p50 in lab
 45037354657, beside `ssh-first`'s 422 with the edit. Neither is a goal number.
 
