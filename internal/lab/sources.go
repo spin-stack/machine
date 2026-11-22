@@ -214,13 +214,36 @@ func (s Sources) releaseSpinMachine(base, to string) (string, error) {
 	if commit == "" {
 		return "", fmt.Errorf("%s names no source_commit to build its spin-machine from", filepath.Join(base, "machine.env"))
 	}
+	if err := s.buildAt(commit, env["version"]+"'s spin-machine", to); err != nil {
+		return "", err
+	}
+	return "built from " + commit + ", " + env["version"] + "'s", nil
+}
+
+// commitSpinMachine builds, at to, the spin-machine of one commit of this repository, fetched as
+// a release's is. Two trees with two commits' spin-machines boot interleaved in one run, which is
+// how a change since a release is found commit by commit (#438). GitHub refuses a fetch by an
+// abbreviated name, so the commit is named whole.
+func (s Sources) commitSpinMachine(commit, to string) (string, error) {
+	if len(commit) != 40 || strings.Trim(commit, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("--spin-machine commit:%s: a commit is named by its 40 hexadecimal digits", commit)
+	}
+	if err := s.buildAt(commit, "the spin-machine of "+commit, to); err != nil {
+		return "", err
+	}
+	return "built from " + commit, nil
+}
+
+// buildAt builds cmd/spin-machine at commit, fetched alone from this checkout's origin, to to.
+// what names it in an error.
+func (s Sources) buildAt(commit, what, to string) error {
 	origin, err := exec.Command("git", "-C", s.Checkout, "remote", "get-url", "origin").Output()
 	if err != nil {
-		return "", fmt.Errorf("finding %s's origin, to fetch %s's spin-machine from: %w", s.Checkout, env["version"], err)
+		return fmt.Errorf("finding %s's origin, to fetch %s from: %w", s.Checkout, what, err)
 	}
 	tree, err := os.MkdirTemp(filepath.Dir(to), ".source")
 	if err != nil {
-		return "", fmt.Errorf("making a directory to build %s's spin-machine in: %w", env["version"], err)
+		return fmt.Errorf("making a directory to build %s in: %w", what, err)
 	}
 	defer func() { _ = os.RemoveAll(tree) }()
 	for _, args := range [][]string{
@@ -229,18 +252,18 @@ func (s Sources) releaseSpinMachine(base, to string) (string, error) {
 		{"-c", "advice.detachedHead=false", "checkout", "-q", commit},
 	} {
 		if out, err := exec.Command("git", append([]string{"-C", tree}, args...)...).CombinedOutput(); err != nil {
-			return "", fmt.Errorf("checking out %s's spin-machine at %s: %w: %s", env["version"], commit, err, out)
+			return fmt.Errorf("checking out %s at %s: %w: %s", what, commit, err, out)
 		}
 	}
 	if err := os.Remove(to); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("removing %s: %w", to, err)
+		return fmt.Errorf("removing %s: %w", to, err)
 	}
 	cmd := exec.Command("go", "build", "-o", to, "./cmd/spin-machine")
 	cmd.Dir, cmd.Env = tree, append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("building %s's spin-machine at %s: %w: %s", env["version"], commit, err, out)
+		return fmt.Errorf("building %s at %s: %w: %s", what, commit, err, out)
 	}
-	return "built from " + commit + ", " + env["version"] + "'s", nil
+	return nil
 }
 
 // readEnv reads a KEY=VALUE file such as machine.env.

@@ -173,7 +173,7 @@ func TestATreeRefusesWhatIsNotWhole(t *testing.T) {
 		{"a run id that is not one", TreeSpec{Kernel: "run:12x"}, "is a number"},
 		{"a missing kernel", TreeSpec{Kernel: "/nonexistent"}, "opening kernel"},
 		{"a QEMU directory without one", TreeSpec{QEMU: t.TempDir()}, "qemu-system-x86_64"},
-		{"a spin-machine from nowhere", TreeSpec{SpinMachine: "elsewhere"}, "is here, release, or left out"},
+		{"a spin-machine from nowhere", TreeSpec{SpinMachine: "elsewhere"}, "is here, release, commit:SHA, or left out"},
 		{"an edit with no name", TreeSpec{Edits: []string{"nope"}}, "no edit named"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -411,6 +411,10 @@ func TestATreesSpinMachineCanBeItsReleases(t *testing.T) {
 	if _, err := MakeTree(filepath.Join(t.TempDir(), "r"), TreeSpec{Name: "r", From: fakeRelease(t, "k"), SpinMachine: "release"}, src(t)); err == nil ||
 		!strings.Contains(err.Error(), "machine.env") {
 		t.Errorf("a release with no machine.env: %v", err)
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "c"), TreeSpec{Name: "c", From: fakeRelease(t, "k"), SpinMachine: "commit:abc"}, src(t)); err == nil ||
+		!strings.Contains(err.Error(), "40 hexadecimal digits") {
+		t.Errorf("a commit named short: %v", err)
 	}
 }
 

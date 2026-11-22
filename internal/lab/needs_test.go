@@ -188,6 +188,22 @@ func TestAReleasesSpinMachineIsFetchedByItsCommit(t *testing.T) {
 	if _, err := build(missing); err == nil || !strings.Contains(err.Error(), "checking out v1's spin-machine at "+missing) {
 		t.Errorf("a commit origin does not have: %v", err)
 	}
+
+	// --spin-machine commit:SHA builds any commit the same way, and names it whole.
+	if source, err := s.commitSpinMachine(renamed, to); err != nil || source != "built from "+renamed {
+		t.Fatalf("commitSpinMachine(renamed) = %q, %v", source, err)
+	}
+	if out, err := exec.Command(to).Output(); err != nil || string(out) != "renamed" {
+		t.Errorf("the renamed commit's spin-machine says %q, %v", out, err)
+	}
+	if _, err := s.commitSpinMachine(missing, to); err == nil || !strings.Contains(err.Error(), "checking out the spin-machine of "+missing) {
+		t.Errorf("a commit origin does not have: %v", err)
+	}
+	for _, short := range []string{renamed[:12], renamed + "0", strings.ToUpper(renamed), "g" + renamed[1:]} {
+		if _, err := s.commitSpinMachine(short, to); err == nil || !strings.Contains(err.Error(), "40 hexadecimal digits") {
+			t.Errorf("commitSpinMachine(%s) = %v", short, err)
+		}
+	}
 	s.Checkout = t.TempDir()
 	if _, err := build(old); err == nil || !strings.Contains(err.Error(), "finding "+s.Checkout+"'s origin") {
 		t.Errorf("a checkout with no origin: %v", err)
