@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	xssh "golang.org/x/crypto/ssh"
 	"golang.org/x/sys/unix"
 
 	"github.com/spin-stack/machine/machine"
@@ -55,7 +56,7 @@ func (restoreFirst) Options() []Option {
 }
 
 func (restoreFirst) Rows(o Options) []string {
-	rows := []string{"evicted", "cached"}
+	rows := []string{"evicted", "direct"}
 	if o.Bool("fast") {
 		rows = append(rows, "fast")
 	}
@@ -94,7 +95,7 @@ func (restoreFirst) Measure(_ context.Context, m *Measurement) error {
 	if m.Phase == 0 {
 		return coldSave(m, channels...)
 	}
-	return restore(m, way == "cached", way == "fast", channels...)
+	return restore(m, false, way == "direct", channels...)
 }
 
 // restore resumes m's saved state - evicted from the page cache, or read back into it first when
@@ -129,18 +130,24 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 	// whole start costs a restore is prestart's restored row against its restored-into-prestarted.
 	m.RecordMs("listening", time.Since(t0))
 	args := c.restoreArgs(m, qmp, channels...)
-	if fast {
-		if err := userfaultfd(); err != nil {
-			return err
-		}
-		args = append(args, "--fast")
-	}
 	if err := m.SpinMachine(args...); err != nil {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
-	login, err := m.Key.LoggedIn(mc, c.cid, t0)
-	if err != nil {
+	var login time.Duration
+	if fast { // the experiment's "direct": no VsockAccepts connection before the login
+		deadline := t0.Add(60 * time.Second)
+		for {
+			if _, err = m.Key.Login(c.cid, xssh.KeyExchangeMLKEM768X25519); err == nil {
+				login = time.Since(t0)
+				break
+			}
+			if time.Now().After(deadline) {
+				return Miss("never logged into: %v", err)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	} else if login, err = m.Key.LoggedIn(mc, c.cid, t0); err != nil {
 		return err
 	}
 	m.RecordMs("login", login)
