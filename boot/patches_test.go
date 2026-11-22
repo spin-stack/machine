@@ -4,14 +4,19 @@ package boot_test
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/spin-stack/machine/internal/qmpdef"
 	"github.com/spin-stack/machine/machine"
+	"github.com/spin-stack/machine/qmp"
 )
 
 // What the guest of spin's shape sees of each patch the machine carries in QEMU and qboot that
@@ -147,5 +152,130 @@ func TestARestoredGuestKeepsItsClock(t *testing.T) {
 	if longest > restoredGap {
 		t.Errorf("the restored guest went %v without a line, want under %v: its TSC went back and its timers waited (qemu/patches/0005, #452)\n%s",
 			longest, restoredGap, tail([]byte(dst.said()), 1000))
+	}
+}
+
+// queryStats is QEMU's statistics, which KVM keeps for each vCPU and QEMU reads for any client,
+// with no root and no debugfs (QEMU's StatsFilter, target vcpu).
+var queryStats = qmpdef.Define[statsFilter, []statsResult]("query-stats")
+
+type statsFilter struct {
+	Target    string         `json:"target"`
+	Providers []statsRequest `json:"providers"`
+}
+
+type statsRequest struct {
+	Provider string   `json:"provider"`
+	Names    []string `json:"names"`
+}
+
+// statsResult is one vCPU's. A Value is a counter for every name asked for here; QEMU's
+// StatsValue is also a list, for a histogram, which none of them is.
+type statsResult struct {
+	Stats []struct {
+		Name  string `json:"name"`
+		Value uint64 `json:"value"`
+	} `json:"stats"`
+}
+
+// exits is a machine's VM exits, summed over its vCPUs.
+type exits struct{ io, mmio uint64 }
+
+// readExits is what KVM counted for every vCPU of the machine whose monitor is at sock.
+func readExits(ctx context.Context, sock string) (exits, error) {
+	c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		return exits{}, fmt.Errorf("dialing the monitor at %s: %w", sock, err)
+	}
+	q, err := qmp.New(ctx, qmp.Unix(c), qmp.Observer{})
+	if err != nil {
+		return exits{}, fmt.Errorf("talking to %s: %w", sock, err)
+	}
+	defer func() { _ = q.Close() }()
+	res, err := qmp.Do(ctx, q, queryStats, statsFilter{Target: "vcpu",
+		Providers: []statsRequest{{Provider: "kvm", Names: []string{"io_exits", "mmio_exits"}}}})
+	if err != nil {
+		return exits{}, fmt.Errorf("asking QEMU for KVM's vCPU exit counts: %w", err)
+	}
+	var e exits
+	vcpus := 0
+	for _, r := range res {
+		for _, s := range r.Stats {
+			switch s.Name {
+			case "io_exits":
+				e.io += s.Value
+				vcpus++
+			case "mmio_exits":
+				e.mmio += s.Value
+			}
+		}
+	}
+	if vcpus == 0 {
+		return exits{}, fmt.Errorf("QEMU reported no vCPU's io_exits (%d results): a machine not under KVM, or a KVM without binary statistics", len(res))
+	}
+	return e, nil
+}
+
+// A cold boot of spin's shape reaches userspace with no more port I/O exits than kernel/patches
+// 0004 and 0010 leave it. Both cut port I/O that the guest cannot count and the vmlinux check
+// (kernel/Dockerfile) cannot see working: 0004 sends PCI configuration through ECAM, one MMIO
+// exit an access instead of type 1's two port exits (0xcf8, then 0xcfc), but only once the kernel
+// has set raw_pci_ext_ops from the ACPI MCFG table; 0010 skips early_quirks()' type 1 scan of bus
+// 0, but only when the guest sees KVM's CPUID leaf. A kernel bump that set MMCONFIG up after PCI
+// enumeration, or a machine that lost MCFG, would leave both compiled in and earning nothing. KVM
+// counts the exits for each vCPU, and QEMU's query-stats reads them.
+//
+// The guest is /bin/sh, given one line on the console, which is in the count: the serial port,
+// the PIT, the ACPI PM timer and the i8042 probe make port I/O exits too. On the bench, 20 boots
+// of each kernel at spin's shape (2026-11-22, v20261122.02's machine) read io_exits:
+//
+//	v20261122.02's kernel     955-974, median 958   (mmio_exits 2142)   lab 45017602084
+//	without 0010             1075-1097, median 1094  (mmio_exits 2142)   lab 45018204750
+//	without 0004             3477-3499, median 3496  (mmio_exits  881)   lab 45018204645
+//
+// Each kernel's boots spread over ~25 (the release read 974, 974 and 980 in three more, lab
+// 45018410483), so 0010's +120 is clear of the noise as well as 0004's +2,520: 1,261 configuration
+// accesses moving from MMIO to type 1, two port exits each, which mmio_exits confirms.
+// maxPortExits sits about halfway between the release's highest boot and the lowest without 0010.
+// Without either patch the check failed, at medians of 3,481 and 1,097 (labs 45018410313,
+// 45018410890). A machine change that moves the
+// baseline (a device added, a console line more) moves it by tens: read the boots this logs
+// against the table above and set the budget again, here, with the new runs.
+//
+//	SPIN_PATCHES_TEST=1   it starts machines (task boot:patches)
+//	REPS=N                boots counted (default 3); their median is held to the budget
+func TestPCIConfigurationCostsNoPortExits(t *testing.T) {
+	if os.Getenv("SPIN_PATCHES_TEST") == "" {
+		t.Skip("set SPIN_PATCHES_TEST=1: this starts machines")
+	}
+	const maxPortExits = 1025
+	// newRecorder skips without /dev/kvm: under TCG there is no KVM to count exits.
+	r := newRecorder(t, 4000000)
+	boots := envInt(t, "REPS", 3)
+	var io []uint64
+	for i := range boots {
+		s, mac := r.next(t, "/bin/sh")
+		sock := filepath.Join(r.dir, fmt.Sprintf("stats%d.sock", i))
+		s.Monitors = []machine.Monitor{{Socket: sock}}
+		g := startGuest(t, s, mac, nil)
+		g.boot(t, r.overlay(t, t.TempDir()), r.base())
+		g.type_(t, "echo UP-$((1+1))")
+		g.await(t, regexp.MustCompile(`UP-2\b`), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		e, err := readExits(ctx, sock)
+		cancel()
+		g.Kill()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("boot %d: io_exits %d, mmio_exits %d", i+1, e.io, e.mmio)
+		io = append(io, e.io)
+	}
+	slices.Sort(io)
+	median := io[len(io)/2]
+	t.Logf("io_exits over %d boots: min %d, median %d, max %d", boots, io[0], median, io[len(io)-1])
+	if median > maxPortExits {
+		t.Errorf("a cold boot to userspace made %d port I/O exits (median of %d), want at most %d: PCI configuration went through type 1 (kernel/patches/0004, about +2,500) or early_quirks() scanned bus 0 (0010, about +120)",
+			median, boots, maxPortExits)
 	}
 }

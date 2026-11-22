@@ -35,11 +35,14 @@ tasks:
       SCSI host refuses a scan past the 16 targets max_target gives it (qemu/patches/0002), the firmware enabled
       the MTRRs (qboot's mtrr.patch), and a guest restored from a checkpoint whose TSC is within
       KVM's second of the new vCPU's keeps its clock, its timers due at the save firing at once
-      rather than ~650 ms late (qemu/patches/0005, #472) (patches_test.go). Needs a built release,
-      /dev/kvm and /dev/vhost-vsock.
+      rather than ~650 ms late (qemu/patches/0005, #472); and what the host sees of the kernel
+      patches only the running machine can make earn: a cold boot to userspace stays under its
+      port I/O exit budget, KVM's io_exits read through query-stats (kernel/patches/0004 and
+      0010, #486) (patches_test.go). REPS= boots counted for the exits (default 3). Needs a built
+      release, /dev/kvm and /dev/vhost-vsock.
     deps: [':tools']
     cmds:
-      - SPIN_PATCHES_TEST=1 go test ./boot/ -run '^(TestTheGuestSeesWhatEachPatchGivesIt|TestARestoredGuestKeepsItsClock)$' -count=1 -v -timeout 5m
+      - SPIN_PATCHES_TEST=1 go test ./boot/ -run '^(TestTheGuestSeesWhatEachPatchGivesIt|TestARestoredGuestKeepsItsClock|TestPCIConfigurationCostsNoPortExits)$' -count=1 -v -timeout 10m
 
   rollback:
     desc: >-

@@ -110,7 +110,10 @@
     this entry and nothing else: refresh.yml proposes it every day, and parts.yml builds it on
     the pull request. The build fails a kernel that lost the effect of one of kernel/patches,
     naming it (kernel/README.md, "Changing it"): read that patch again against the new source;
-    compat.yml boots the kernel (boot:lockdown). Before merging, boot it: `spin-machine-dev build kernel`, then `task boot:ssh-first`. A new series
+    compat.yml boots the kernel (boot:lockdown), and boot:patches holds its cold boot under a
+    port I/O exit budget, which fails when 0004 or 0010 builds in but earns nothing on the
+    running machine (MMCONFIG set up after PCI enumeration, early_quirks() scanning bus 0).
+    Before merging, boot it: `spin-machine-dev build kernel`, then `task boot:ssh-first`. A new series
     renames the configuration in the same commit, then `spin-machine-dev build kernel`, `task
     boot:ssh-first`. The series is a person's choice, the same as spin-ami's host kernel.
 
