@@ -135,15 +135,34 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 		}
 		args = append(args, "--fast")
 	}
+	dw := startDiag(mc.cmd.Process.Pid)
 	if err := m.SpinMachine(args...); err != nil {
+		dw.end()
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
-	login, err := m.Key.LoggedIn(mc, c.cid, t0)
-	if err != nil {
-		return err
+	running := time.Now()
+	var attempts []string
+	var login time.Duration
+	for {
+		a0 := time.Now()
+		_, err := m.Key.Login(c.cid, "mlkem768x25519-sha256")
+		if err == nil {
+			login = time.Since(t0)
+			attempts = append(attempts, fmt.Sprintf("+%dms ok in %dms", a0.Sub(running).Milliseconds(), time.Since(a0).Milliseconds()))
+			break
+		}
+		attempts = append(attempts, fmt.Sprintf("+%dms %v (%dms)", a0.Sub(running).Milliseconds(), err, time.Since(a0).Milliseconds()))
+		if time.Since(t0) > 60*time.Second {
+			dw.end()
+			return Miss("never logged in: %v", err)
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
+	samples := dw.end()
 	m.RecordMs("login", login)
+	_, out, _ := m.Key.Run(c.cid, "mlkem768x25519-sha256", "cat /proc/uptime; head -1 /proc/stat; grep -E '^(ctxt|intr|softirq)' /proc/stat | cut -c1-60; systemctl list-jobs --no-pager; journalctl -b -o short-monotonic --no-pager | tail -40; awk '{print $14+$15, $14, $15, $22, $2}' /proc/[0-9]*/stat 2>/dev/null | sort -rn | head -25")
+	m.Logf("DIAG login %v slow=%v attempts=%d\n%s\n%s\nGUEST:\n%s", login.Round(time.Millisecond), login > 200*time.Millisecond, len(attempts), strings.Join(attempts, "\n"), diagReport(samples, running), out)
 	m.Logf("restored: running %v, login %v", time.Duration(m.values["running"]*1e6).Round(time.Millisecond), login.Round(time.Millisecond))
 	return nil
 }
