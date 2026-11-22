@@ -313,14 +313,15 @@ The kinds, each read from what came out, not from the scripts:
 |---|---|
 | `masked` | A link to `/dev/null` under `/etc` that no package owns: a unit, a generator or a tmpfiles rule turned off. |
 | `added` | A file under `/etc`'s configuration directories, `/usr/lib/systemd`, `/usr/libexec` or `/usr/local` that no package owns and no maintainer script recorded. |
-| `modified` | A conffile whose MD5 is not the one dpkg recorded, a file a package makes from a template that is not the template (`/etc/nsswitch.conf`, `/etc/ssh/sshd_config`), or the session class added to `/etc/pam.d/common-session`. |
+| `modified` | A conffile whose MD5 is not the one dpkg recorded, a file a package makes from a template that is not the template (`/etc/ssh/sshd_config`; `deviations.py` compares `/etc/nsswitch.conf` too, which the image leaves as libc-bin makes it), or the session class added to `/etc/pam.d/common-session`. |
 | `deleted` | A conffile, or a directory of a package's files, that the image does not have. |
 | `unwanted` | An enable link `deb-systemd-helper` recorded for a package that the image removed. |
 | `linger` | A user whose manager logind starts at boot. |
 
-On 2026-11-22 the list had 120 lines. A file a maintainer script makes on every Ubuntu (the
-accounts, `ld.so.cache`, systemd's own three enables) is not a deviation and the script says which
-it skips. A unit Ubuntu itself ships disabled or masked, such as `systemd-gpt-auto-generator`, is
+On 2026-11-22 the list had 120 lines, and 118 once `nsswitch.conf` and the manager's timeouts
+went back to Ubuntu's ("Measured in this review"). A file a maintainer script makes on every
+Ubuntu (the accounts, `ld.so.cache`, systemd's own three enables) is not a deviation and the
+script says which it skips. A unit Ubuntu itself ships disabled or masked, such as `systemd-gpt-auto-generator`, is
 not one either. One blind spot follows: a path a package lists that the image makes itself is not
 seen. `/etc/systemd/system-generators/systemd-gpt-auto-generator` is in `systemd.list`, but the
 installed package leaves no link there: an image built without the image's own link had none, and
@@ -355,7 +356,7 @@ security reason, not boot time), *unmeasured*. A Δ is the Δp50 of taking the c
 | `systemd-firstboot.service` masked | identity | Every boot is a first boot (empty machine-id), so it would run every boot. Identity comes from whoever runs the VM. | function | No first-boot prompt for locale, time zone or root password. |
 | `systemd-machine-id-commit.service` masked | identity | It writes the transient machine ID to disk, which would make a VM's ID survive into its overlay's next boot. | function | Nothing. |
 | `systemd-random-seed.service` masked | identity, removed | A saved seed in the base would be shared. virtio-rng seeds the kernel's RNG, and a restored guest reseeds through vmgenid. | function; one of group C-masks | Nothing. |
-| `spin-machine-sshd-keygen.service`, `sysinit.target.wants/spin-machine-sshd-keygen.service`, `ssh.service.wants/spin-machine-sshd-keygen.service`, `sshd@.service.d/keygen.conf` | added, reordered | Host keys are identity, so the image ships none. Ubuntu's `sshd-keygen.service` carries `ConditionFirstBoot=yes`, which never holds in time here, so without this unit `ssh.service` fails. It makes an Ed25519 key only, from the boot's first dispatch (`DefaultDependencies=no`), so the key is made beside the rest of the boot and not inside the first login. Every sshd, including the per-connection `sshd@` for vsock, waits for it. | Ed25519 only: measured, −5.0 [−8.3, −1.8] (lab 44979726719). From the first dispatch: lane 489 → 468 (lab 43483372488); in spin's shape: see "Measured in this review". | No ECDSA or RSA host key. A client that accepts only those cannot connect. |
+| `spin-machine-sshd-keygen.service`, `sysinit.target.wants/spin-machine-sshd-keygen.service`, `ssh.service.wants/spin-machine-sshd-keygen.service`, `sshd@.service.d/keygen.conf` | added, reordered | Host keys are identity, so the image ships none. Ubuntu's `sshd-keygen.service` carries `ConditionFirstBoot=yes`, which never holds in time here, so without this unit `ssh.service` fails. It makes an Ed25519 key only, from the boot's first dispatch (`DefaultDependencies=no`), so the key is made beside the rest of the boot and not inside the first login. Every sshd, including the per-connection `sshd@` for vsock, waits for it. | Ed25519 only: measured, −5.0 [−8.3, −1.8] (lab 44979726719). From the first dispatch: lane 489 → 468 (lab 43483372488); in spin's shape, taken back: −0.8 [−10.5, +3.5], not a gain (lab 45034963004; kept pending #515). | No ECDSA or RSA host key. A client that accepts only those cannot connect. |
 
 ## Packages
 
@@ -372,7 +373,7 @@ has 217 packages against 293.
 | `sudo`, not `sudo-rs` | configuration | Named in the list; `sudo-rs` is the minimal image's default. | unmeasured, no recorded reason | Nothing known. |
 | `dbus-broker`, not `dbus-daemon` | configuration | The broker is what Ubuntu's systemd prefers; it is smaller and starts faster. | unmeasured | Nothing known: the bus and its activation are the same. |
 | `bubblewrap`, `socat`, `ripgrep` | added | What Codex's and Claude Code's sandboxes need to run a command: bwrap, socat as the proxy, rg to find the files to protect (#221). | function | Nothing. |
-| The docker-ce packages, from Docker's apt repository | added | Docker and containerd in a workspace. | function | Their versions are what Docker's repository serves on the day of the build: not pinned in `versions.yaml`, and Docker's signing key is fetched without a hash (issue opened by this review). |
+| The docker-ce packages, from Docker's apt repository | added | Docker and containerd in a workspace. | function | Their versions are what Docker's repository serves on the day of the build: not pinned in `versions.yaml`, and Docker's signing key is fetched without a hash (#511). |
 | Task, git-lfs, BuildKit in `/usr/local/bin` (`/usr/local/bin/task`, `/usr/local/bin/git-lfs`, `/usr/local/bin/buildctl`, `/usr/local/bin/buildkitd`, `/usr/local/bin/buildkit-runc`, `/usr/local/bin/buildkit-cni-bridge`, `/usr/local/bin/buildkit-cni-firewall`, `/usr/local/bin/buildkit-cni-host-local`, `/usr/local/bin/buildkit-cni-loopback`) | added | Tools a workspace expects, at versions pinned by SHA-256 in `versions.yaml`. | function | Nothing; `apt` does not know them, so `apt upgrade` leaves them. |
 | `/usr/libexec/spin-machine-pressure` | added | The pressure probe's guest half (docs/machine.md, "Pressure"). | see `spin-machine-pressure.timer` | Nothing. |
 | Not installed, compared with the minimal cloud image | removed | A workspace boots in a VM spin provides: no cloud-init, netplan, snapd, apport, unattended-upgrades, ubuntu-pro-client, kbd and console-setup, microcode (the host's), lxd agents, or time daemon (chrony; time is the host's). | function | See the next table. |
@@ -390,7 +391,7 @@ checked in a booted release by `task boot:workspace`:
 | `systemd-resolved` | Name resolution is `files dns` from a `resolv.conf` the guest is handed; no `resolvectl`, and it cannot be installed (see systemd above). |
 
 Restoring any of these is a decision with no boot cost to measure (a package's files are not on
-the boot path unless it enables a unit), left open in the issue this review opened.
+the boot path unless it enables a unit), left open in #512.
 
 ## Files removed
 
@@ -420,7 +421,7 @@ was not separated. Each is also something this machine has no use for, which the
 | `systemd-hibernate-clear.service` | removed | No hibernation in a VM. | Nothing. |
 | `systemd-pstore.service` | removed | No pstore backend: no EFI, and `efi_pstore` is not built. | Nothing. |
 | `systemd-random-seed.service` | identity | Under "Identity". | Nothing. |
-| `sys-kernel-debug.mount`, `sys-kernel-tracing.mount` | removed | Not mounted at boot. | debugfs and tracefs are not mounted. `mount -t tracefs nodev /sys/kernel/tracing` works, and `boot:workspace` checks it. |
+| `sys-kernel-debug.mount`, `sys-kernel-tracing.mount` | removed | Not mounted at boot. | debugfs and tracefs are not mounted. debugfs mounts by hand (`mount -t debugfs nodev /sys/kernel/debug`). tracefs cannot be used: the kernel runs `lockdown=confidentiality`, which keeps every file out of it, so `/sys/kernel/tracing` has no `trace` whether or not the unit is masked or tracefs is mounted. `boot:workspace` checks both (lab 45036254377). |
 | `systemd-tmpfiles-setup-dev.service`, `systemd-tmpfiles-setup-dev-early.service` | removed | They create static device nodes for modules not yet loaded. With no modules, devtmpfs and udev already made every node. | Nothing. |
 | `dev-hugepages.mount` | removed | No huge pages are configured. | No `/dev/hugepages`; a program that wants it mounts hugetlbfs by hand. |
 | `dev-mqueue.mount` | removed | The kernel has POSIX message queues and the syscalls work without the mount. | No `/dev/mqueue` to list queues in. |
@@ -430,7 +431,7 @@ The masks of the units of `ConditionNeedsUpdate` are load-bearing, not removed w
 
 | Deviation | Category | Why | Evidence | A workspace gives up |
 |---|---|---|---|---|
-| `ldconfig.service`, `systemd-sysusers.service`, `systemd-hwdb-update.service`, `systemd-journal-catalog-update.service`, `systemd-update-done.service` | removed | They run when `/etc` is newer than `/etc/.updated`, which the image does not have, so unmasked they rebuild `hwdb.bin`, the linker cache and the catalog in every boot. The build already ran `ldconfig`, `systemd-sysusers` and `systemd-hwdb update` (the package scripts do). | laptop, 2 boots: +260 ms and QEMU's RSS +90 MiB unmasked (docs/boot-time.md) | A package installed in a workspace that drops a hwdb file or a sysusers.d file has it applied by its own maintainer script, as on Ubuntu; at the next boot nothing reapplies it. Writing `/etc/.updated` at build time would let the units stay and skip themselves (issue opened by this review). |
+| `ldconfig.service`, `systemd-sysusers.service`, `systemd-hwdb-update.service`, `systemd-journal-catalog-update.service`, `systemd-update-done.service` | removed | They run when `/etc` is newer than `/etc/.updated`, which the image does not have, so unmasked they rebuild `hwdb.bin`, the linker cache and the catalog in every boot. The build already ran `ldconfig`, `systemd-sysusers` and `systemd-hwdb update` (the package scripts do). | laptop, 2 boots: +260 ms and QEMU's RSS +90 MiB unmasked (docs/boot-time.md) | A package installed in a workspace that drops a hwdb file or a sysusers.d file has it applied by its own maintainer script, as on Ubuntu; at the next boot nothing reapplies it. Writing `/etc/.updated` at build time would let the units stay and skip themselves (#513). |
 
 The distribution's background maintenance timers:
 
@@ -470,7 +471,7 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 | `systemd-udevd.service.d/20-startup.conf`, `systemd-udev-trigger.service.d/20-startup.conf` | reordered | udev and its coldplug at `StartupCPUWeight=1` while the boot runs, so the login started beside them gets the one vCPU first. | the same | The console prompt 51 ms later (the serial getty waits for `dev-ttyS0.device`, which the coldplug announces). |
 | `systemd-udevd.service`, `systemd-udev-trigger.service` (copies without `Before=sysinit.target`) | reordered, deferred | A drop-in cannot remove an ordering, so the image carries the units without that line. udevd at the lowest weight then no longer holds `sysinit.target`, `basic.target` and spin's supervisor. udevd becomes ready after the first login (at ~342 ms on the guest's clock, against the login's ~290). | measured: cold −48.6 [−51.7, −42.6], restored −2.0 [−8.0, +4.7] (labs 44987412171, 44987412210) | Deferred: udev's coldplug finishes after the first login. A device that only udev's rules prepare (permissions, symlinks under `/dev/disk/by-*`) appears a few tens of ms after the first login, not before it. A checkpoint taken with udev still at work needs QEMU's patch 0005 (#452). |
 | `systemd-udev-trigger.service.d/10-coldplug.conf` | removed | The coldplug replays only the subsystems something here uses: block, net, virtio, misc, input (logind's power button), rtc, ptp, cpu (a core attached before systemd starts), and ttyS0. | group C-coldplug: cold +14.9 [+8.2, +19.8] (lab 44818953987) | Devices of other subsystems present at boot get no udev add event: no rules run for them until a later event. A USB or PCI device passed through at boot is not set up by udev. |
-| `systemd-logind.service.d/10-lane.conf`, `systemd-logind-varlink.socket.d/20-lane.conf`, `user-runtime-dir@.service.d/10-lane.conf`, `user@.service.d/10-lane.conf`, `dbus.socket` (a copy without `After=sysinit.target`) | reordered | A login waits for logind, its runtime directory and its manager; none of them need what `sysinit.target` and `basic.target` gather. | lane, two vCPUs: 478 → 402 with the rows above (lab 43518915618); in spin's shape: see "Measured in this review" | Nothing known: logind, the bus and the managers run the same units, earlier. |
+| `systemd-logind.service.d/10-lane.conf`, `systemd-logind-varlink.socket.d/20-lane.conf`, `user-runtime-dir@.service.d/10-lane.conf`, `user@.service.d/10-lane.conf`, `dbus.socket` (a copy without `After=sysinit.target`) | reordered | A login waits for logind, its runtime directory and its manager; none of them need what `sysinit.target` and `basic.target` gather. | measured: +16.5 [+9.8, +20.4] cold, +11.0 [+6.2, +18.8] prestarted, restored in noise (lab 45034963004); lane, two vCPUs: 478 → 402 with the rows above (lab 43518915618) | Nothing known: logind, the bus and the managers run the same units, earlier. |
 | `systemd-logind-varlink.socket.d/10-seats.conf` | configuration | Makes `/run/systemd/seats` before logind is reached. Without it, a login that arrives before logind has run gets no session, `XDG_RUNTIME_DIR` unset, and no error (2026-09-12). | function; `boot:logind` | Nothing. |
 | `sshd-vsock.socket.d/10-lane.conf`, `sshd@.service.d/10-lane.conf` | reordered | The image's own vsock login, `login=lane` in the probes. spin's path does not use it. | lane | Nothing. |
 | `ssh.service.d/20-no-config-test.conf` | removed | Ubuntu's ssh.service runs `sshd -t` before it starts. The check stays on reload. | measured: −3.2 [−7.2, −0.8], 60 a side (lab 44977044826) | A broken `sshd_config` fails at start rather than in a pre-check; the error is sshd's own. |
@@ -492,14 +493,12 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 
 | Deviation | Category | Why | Evidence | A workspace gives up |
 |---|---|---|---|---|
-| `docker.socket`, `containerd.socket`, `sockets.target.wants/containerd.socket`; `multi-user.target.wants/docker.service` and `multi-user.target.wants/containerd.service` removed | deferred | dockerd and containerd start at the first connection to their socket, not at boot. | see "Measured in this review" | The first `docker` command waits for dockerd and containerd to start (seconds on one vCPU). The image's `docker.socket` is mode 0666, group root, where Docker's is 0660, group docker: any local user reaches the daemon (issue opened by this review). |
+| `docker.socket`, `containerd.socket`, `sockets.target.wants/containerd.socket`; `multi-user.target.wants/docker.service` and `multi-user.target.wants/containerd.service` removed | deferred | dockerd and containerd start at the first connection to their socket, not at boot: when a workspace first runs `docker` (or anything that dials `/run/docker.sock` or containerd's socket), never before, and never if it does not. A checkpoint taken before that holds neither daemon. | measured: +13.9 [+11.4, +18.2] cold, +55.7 [+12.0, +73.9] restored, +40.7 [+33.5, +59.0] restored into prestarted (lab 45034963004) | Deferred: the first `docker` command waits for dockerd and containerd to start, 0.47 s from the command to `docker info` answering on two vCPUs (`boot:workspace`, lab 45036254377; one vCPU not timed). Later commands do not wait. The image's `docker.socket` is mode 0666, group root, where Docker's is 0660, group docker: any local user reaches the daemon (#509). |
 | `/etc/docker/daemon.json` | configuration | Container logs rotate at 10 MB, 3 files, so a long-running container does not fill the overlay; default address pools of /24s. | function | Nothing. |
-| `/etc/containerd/config.toml` | configuration | Replaces containerd.io's file, which disables the CRI plugin, with one that enables it (runc, systemd cgroups, a pause image from registry.k8s.io). | unmeasured, no recorded reason (issue opened by this review) | Nothing missing; containerd loads a plugin docker does not use. |
+| `/etc/containerd/config.toml` | configuration | Replaces containerd.io's file, which disables the CRI plugin, with one that enables it (runc, systemd cgroups, a pause image from registry.k8s.io). | unmeasured, no recorded reason (#510) | Nothing missing; containerd loads a plugin docker does not use. |
 | `/etc/apt/sources.list.d/docker.sources`, `/etc/apt/keyrings/docker.asc` | added | Docker's repository, so `apt upgrade` updates docker in a workspace. | function | Nothing. |
 | `/etc/apt/sources.list.d/resolute.sources` | added | mkosi writes the archive's sources: the release, `-updates` and `-security`, with `deb-src`. Ubuntu's installer writes `ubuntu.sources` with the same pockets. | function | Nothing. |
-| `/etc/systemd/system.conf.d/fast-boot.conf` | configuration | Units time out at 15 s to start and 10 s to stop, not 90 s, and the watchdogs are off. | see "Measured in this review" | A service of a workspace that takes longer than 15 s to start is killed and fails, unless it sets its own `TimeoutStartSec=`. |
-| `/etc/systemd/journald.conf.d/volatile.conf` | configuration | The journal lives in `/run` (RAM), capped at 4 MB, uncompressed, not forwarded to the console or syslog. | see "Measured in this review" | The journal does not survive a reboot of the workspace, and 4 MB holds little: a busy workspace's journal rotates in minutes. |
-| `/etc/nsswitch.conf` | configuration | Ubuntu's file without `db` before `files` for protocols, services, ethers and rpc, and without `netgroup: nis`. `libnss-db` is not installed, so the `db` entries only fail to load. | see "Measured in this review" | Nothing. |
+| `/etc/systemd/journald.conf.d/volatile.conf` | configuration | The journal lives in `/run` (RAM), capped at 4 MB, uncompressed, not forwarded to the console or syslog. | measured, with the flush's mask: +6.1 [+2.3, +15.8] cold, +6.5 [+3.1, +13.1] prestarted, restored in noise (lab 45034963004) | The journal does not survive a reboot of the workspace, and 4 MB holds little: a busy workspace's journal rotates in minutes (#514). |
 | `default.target` | configuration | `multi-user.target`, set explicitly. | function | Nothing: there is no display manager. |
 | `/etc/systemd/network/99-default.link.d/traditional-naming.conf` | configuration | Interfaces keep the kernel's names (`eth0`), which is what `net.ifnames=0` on the command line also asks for. | function | Nothing. |
 | `/etc/locale.conf`, `/etc/default/locale` | configuration | `LANG=en_US.UTF-8`, and that locale generated at build time. | function; `boot:workspace` checks it sets without a warning | Other locales must be generated with `locale-gen`. |
@@ -785,21 +784,59 @@ nothing to give back is cheap.
 
 ## What a workspace keeps
 
-`task boot:workspace` boots a release and checks what a workspace expects: no unit failed, the
-journal takes a line, `fstrim.timer` and `systemd-tmpfiles-clean.timer` wait, dpkg and apt are
-whole, `en_US.UTF-8` sets without a warning, localhost resolves, spin has sudo, `/tmp` is a tmpfs,
-tracefs mounts by hand, and docker answers on its socket and runs a container. It also asserts what
-the rows above say is given up (no persistent journal, no apt lists before `apt update`, no time
-zones, no `timedatectl`, tracefs and `/dev/hugepages` not mounted at boot), so a row that stops
-being true fails the check rather than going stale. `boot:logind` checks sessions, user services
-and logout.
+`task boot:workspace` boots a release and checks what a workspace expects. On v20261122.03 (lab
+45036254377, 2026-11-22, two vCPUs, 1 GiB) every one held: no unit failed and the system reached
+`running`; the journal takes a line; `fstrim.timer` and `systemd-tmpfiles-clean.timer` wait; dpkg's
+database is whole and `apt-get check` passes; `en_US.UTF-8` sets without a warning; localhost
+resolves; spin has sudo; `/tmp` is a tmpfs; debugfs mounts by hand; docker answers on its socket and
+runs a container. `boot:logind` checks sessions, user services and logout. The release workflow runs
+both on the release's own image (`release.yml`, the bench job), so a release that loses one fails
+there.
+
+## What a workspace gives up
+
+The same check asserts what the rows above say is given up, so a row that stops being true fails
+it rather than going stale. On v20261122.03 (lab 45036254377):
+
+| Given up | What a workspace sees | Row |
+|---|---|---|
+| A journal kept across a reboot | The journal is `/run/log/journal/…/system.journal`, in RAM, 4 MB. | `volatile.conf` (#514) |
+| Unattended apt | No `apt-daily.timer` or `apt-daily-upgrade.timer`. | the timers |
+| apt's package lists | `apt install` says "Unable to locate package" until `apt update` has run once. | `/var/lib/apt/lists/` |
+| Time zones | No tzdata: the clock reads UTC and `TZ` is ignored. | `tzdata` (#512) |
+| `timedatectl` | It fails: timedated is masked. | `systemd-timedated.service` |
+| tracefs | `/sys/kernel/tracing` is empty: `lockdown=confidentiality` keeps tracefs's files out, mounted or not. | `sys-kernel-tracing.mount` |
+| debugfs and `/dev/hugepages` at boot | Neither is mounted. debugfs mounts by hand; hugetlbfs is mounted by whoever wants it. | `sys-kernel-debug.mount`, `dev-hugepages.mount` |
+| Some tools | No `python3`, `lsb_release`, `mkfs.ext4`, `man` or `xxd`. | the packages table (#512) |
+| A daemon ready at login | The first `docker` command waits 0.47 s for dockerd and containerd (two vCPUs). | `docker.socket` (deferred) |
+
+Issues this review opened, each a decision still to make: the docker socket's mode (#509),
+containerd's CRI plugin (#510), Docker's packages unpinned (#511), the packages a workspace gets
+(#512), `/etc/.updated` instead of five masks (#513), the journal's size and persistence (#514),
+and the host keys from the first dispatch (#515).
 
 ## Measured in this review
 
-Six deviations had no measurement of their own in spin's shape on spin's login: the journal's
-settings, docker and containerd by socket, the manager's timeouts, `nsswitch.conf`, the lane's
-logind, bus and user units, and the host keys from the first dispatch. Each is taken back to what
-Ubuntu ships by a `lab` edit (`carry-journal`, `carry-docker`, `carry-timeouts`, `carry-nsswitch`,
-`carry-lane-logind`, `carry-keygen`), one arm each, interleaved against the release in one
-`prestart` run (lab 45034963004), and kept or reverted by AGENTS.md's acceptance rule. Until that
-run is read, these rows say *unmeasured*.
+Six deviations had no measurement of their own in spin's shape on spin's login. Each was taken
+back to what Ubuntu ships by a `lab` edit, one arm each, interleaved against the release in one
+`prestart` run: lab 45034963004, 2026-11-22, the bench fleet (c8id.4xlarge, nested), spin's shape
+(1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login), 20 boots a
+side, against v20261122.03 with `--edit lane`. A Δ is what taking the change back costs, so
+positive means the change earns it. The rule is AGENTS.md's: a gain only when the interval excludes
+0.
+
+| Deviation | Edit | Cold first login | Restored | Decision |
+|---|---|---|---|---|
+| `nsswitch.conf` without the `db` entries | `carry-nsswitch` | +0.8 [−8.4, +5.2] | in noise | reverted: Ubuntu's file |
+| The volatile journal, its flush masked | `carry-journal` | +6.1 [+2.3, +15.8] (prestarted +6.5 [+3.1, +13.1]) | in noise | kept |
+| docker and containerd by socket | `carry-docker` | +13.9 [+11.4, +18.2] | +55.7 [+12.0, +73.9]; into prestarted +40.7 [+33.5, +59.0] | kept, deferred |
+| The manager's timeouts and watchdogs (`fast-boot.conf`) | `carry-timeouts` | +0.3 [−5.2, +3.3] | in noise | reverted: systemd's defaults |
+| logind, its socket, the user units and the bus without default dependencies | `carry-lane-logind` | +16.5 [+9.8, +20.4] (prestarted +11.0 [+6.2, +18.8]) | in noise | kept, now measured in spin's shape |
+| Host keys from the boot's first dispatch | `carry-keygen` | −0.8 [−10.5, +3.5] | in noise | not a gain; kept pending #515 |
+
+Reverted means gone from the image: what earns nothing is a difference to explain for nothing. A
+workspace now gets Ubuntu's `nsswitch.conf` and systemd's 90 s start and stop timeouts, so a
+service that takes longer than 15 s to start is no longer killed. docker's row is deferred: a
+checkpoint taken before the first `docker` command holds neither daemon, which is the likely
+reason the restore gains more than the cold boot (inferred: the run did not separate it). The edits for the four kept rows stay, so a release can measure
+them again; the two reverted ones were deleted with what they took back.

@@ -202,15 +202,17 @@ them for boot time.
 | ssh.service without Ubuntu's `sshd -t` before it starts (`20-no-config-test.conf`); the check stays on reload | image drop-in | −3.2 [−7.2, −0.8], sshd accepting −2.4 [−6.4, −1.1], 60 boots a side | measured | lab 44977044826 |
 | udevd and its coldplug not before sysinit.target (copies of the units without that line), so basic.target does not wait for udevd's start at the lowest weight | configure-system.sh | cold −48.6 [−51.7, −42.6], restored −2.0 [−8.0, +4.7] p95 114 against 114, cached p95 126 against 128, with QEMU 0005, 30 a side; prestart cold −44.7 [−53.4, −39.4], restored into prestarted −1.3 [−4.1, +3.6] p95 98.8 against 101. Without 0005 the restored p95 is 539-548 | measured | labs 44987412171, 44987412210 |
 | QEMU 0005: a machine made for an incoming migration writes its TSC only from the migration, so KVM takes the checkpoint's TSC as given | qemu/patches | correctness: without it a guest saved with its tick running sleeps until its old TSC deadline, ~450 ms (#452). Alone it moves neither number: cold −3.0 [−5.8, +0.1], restored −1.9 [−7.6, +2.0] | measured | lab 44987412171 |
-| logind, its Varlink socket, `user-runtime-dir@`, `user@` without default dependencies; `dbus.socket` without sysinit | image drop-ins, configure-system.sh | lane 478 → 402 (11-13) | lane | lab 43518915618 |
+| logind, its Varlink socket, `user-runtime-dir@`, `user@` without default dependencies; `dbus.socket` without sysinit | image drop-ins, configure-system.sh | cold +16.5 [+9.8, +20.4], prestarted +11.0 [+6.2, +18.8], restored in noise; lane 478 → 402 (11-13) | measured | lab 45034963004, lab 43518915618 |
 | Sessions of class `user-early-light` | configure-system.sh | lane 472 vs 436 | lane, mechanism: a root session would start `user@0` | lab 43518044150 |
 | Sessions of class `user-early` and root lingering, so a login waits for its user manager and root's starts in the boot (#467) | configure-system.sh | correctness: the first login's own `systemctl --user` failed 10 of 10 on v20261122.03 and passed 10 of 10 with it (lab 45032247920). First login +4.7 [−0.2, +12.2] at 40 a side, sshd accepting +5.6 [+1.1, +10.1]; restored −10.8 [−15.9, −6.6] evicted, −12.3 [−15.1, −5.5] cached. The lane's login as spin, whose manager does not linger, +29.7 [+22.8, +42.1] | measured | labs 45031644179, 45031644114, 45031687433 |
 | The user manager's sockets' environment from `environment.d/10-user-sockets.conf`, not two `systemctl --user set-environment` | image | with the row above: first login +19.6 [+15.9, +25.6] without it (lab 45031644179); with class `user-early` alone, −17.1 [−27.0, −10.7] (lab 45030778365) | measured | labs 45031644179, 45030778365 |
-| Host keys made from the boot's first dispatch | spin-machine-sshd-keygen.service | lane 489 → 468 | lane | lab 43483372488 |
+| Host keys made from the boot's first dispatch | spin-machine-sshd-keygen.service | cold −0.8 [−10.5, +3.5], restored in noise: not a gain in spin's shape, kept pending #515; lane 489 → 468 | measured | lab 45034963004, lab 43483372488 |
 | sshd without OpenSSH's userauth minimum time on a login: a request that authenticated, or a public key query answered with `PK_OK`, does not wait; a failure still does (#457) | image/openssh | restored −13.6 [−14.9, −9.8] evicted, −13.6 [−16.2, −11.4] cached; cold −9.4 [−15.8, −2.6], the second login −10.9 [−12.3, −9.0] | measured, 30 a side | labs 44983986606, 44983986575 |
 | An Ed25519 host key only, no ECDSA | spin-machine-sshd-keygen.service | −5.0 [−8.3, −1.8], sshd accepting −4.4 [−6.9, −1.9], 60 boots a side | measured | lab 44979726719 |
 | MOTD and `pam_motd` off; `mlkem768x25519-sha256` alone | configure-system.sh | −12 on the first login; 104 → 40 a login against sntrup761 | ladder, mechanism: a root login runs the same PAM and kex | #240, lab 43479854381 |
-| timedated, firstboot, machine-id-commit masked; volatile journald; the timeouts; docker and containerd by socket; `nsswitch` | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity | - | - |
+| journald volatile, 4 MB, its flush masked | optimize-systemd.sh | cold +6.1 [+2.3, +15.8], prestarted +6.5 [+3.1, +13.1], restored in noise | measured | lab 45034963004 |
+| docker and containerd started by their sockets, not at boot (deferred: the first `docker` command waits for them, docs/image.md) | optimize-systemd.sh | cold +13.9 [+11.4, +18.2], restored +55.7 [+12.0, +73.9], into prestarted +40.7 [+33.5, +59.0] | measured | lab 45034963004 |
+| timedated, firstboot, machine-id-commit masked | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity | - | - |
 | `10-seats.conf`, the getty's TERM, `/tmp`'s size | image drop-ins | function | - | - |
 | The pressure probe's sender, started by a timer 10 s after the boot, at the lowest priority | spin-machine-pressure.timer and .service | function (docs/machine.md, "Pressure"); adding it: first login −0.5 [−3.6, +2.9], restored +1.8 [−2.0, +5.2] evicted and +0.9 [−2.5, +3.4] cached at 40 boots, the sender not yet started when the state was saved. After multi-user.target instead, beside the first login, sshd accepting to login +2.6 to +3.3 in three runs | measured | labs 44926664003, 44926917170; 44921602512, 44924252325, 44924755505 |
 
@@ -250,7 +252,7 @@ v20261120.04 as published (lab 44818953987). The base read 453/464 cold, 124/144
 | E | `rcu_expedited`, `driver_async_probe` | `--append 'driver_async_probe= rcupdate.rcu_expedited=0'` | −1.4 [−4.9, +3.1] | +1.4 | +1.7 |
 | F | qboot, for SeaBIOS | `--boot --bios=bios-256k.bin` | +68.5 [+62.7, +71.7] | −1.9 | +7.4 |
 
-A1, A2, C-logging and E were deleted (#345, #356, #354, #352). The rest earn what the cold column
+A1, A2, C-logging and E were deleted (#345, #356, #354, #352); `--edit carry-logging` went with `fast-boot.conf`, the last file it edited (2026-11-22). The rest earn what the cold column
 says. On one vCPU, every unit, generator and exit before the login is on the login's path. The
 `carry-*` edits stay in `internal/lab`, so the ablation can run again when the shape, the kernel or
 systemd moves. An edit checks what it undoes, so an edit whose item was deleted fails on later
@@ -335,6 +337,8 @@ and a row measured in another shape than spin's has such a reason.
 | Mask `sshd-socket-generator`, again on spin's path | +0.8 [−4.0, +4.7] at 60 boots | spin | the same | 11-22 |
 | `DefaultMemoryAccounting=no`, for cheaper unit cgroups | +4.1 [+0.8, +7.1] at 60 boots, worse; sshd accepting +6.2 [+2.2, +8.0]. The cause is not measured | spin | the same | 11-22 |
 | `pam_selinux` (twice) and `pam_mail` out of sshd's PAM stack: SELinux is off and there is no mail | −1.9 [−4.9, +2.8] at 60 boots | spin | lab 44979726719 | 11-22 |
+| `nsswitch.conf` without the `db` entries libnss-db would serve (kept since 09, never measured); reverted to Ubuntu's | taking it back +0.8 [−8.4, +5.2] cold, restored in noise | spin | lab 45034963004 | 11-22 |
+| The manager's timeouts at 15 s and 10 s, the watchdogs off (`fast-boot.conf`); reverted to systemd's defaults | taking it back +0.3 [−5.2, +3.3] cold, restored in noise | spin | lab 45034963004 | 11-22 |
 
 ### The login
 
