@@ -29,7 +29,7 @@ func releasesCommand() *cobra.Command {
 		Use:   "releases",
 		Short: "Each release's measured numbers, kept in docs/releases: record, measure, compare, docs/releases.md and the site",
 		Long: `A release's record is docs/releases/RELEASE.json: the goal's two numbers, the prestarted ones,
-the diagnostics and the no-systemd floor, a bound, p50/p95, from one run on the bench fleet that booted it interleaved with the
+the diagnostics and the no-systemd floor, a bound with its Δ, p50/p95, from one run on the bench fleet that booted it interleaved with the
 release before it, in the shape spin boots a workspace in, with where and when, and that release's
 numbers from the same run with the Δ of each and its 95% interval. docs/releases.md and
 docs/releases.svg, the chart it shows, are written from the records, never by hand: the goal's

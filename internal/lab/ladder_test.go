@@ -174,8 +174,9 @@ func TestALadderMeasuresTheFloorBesideARelease(t *testing.T) {
 	}
 }
 
-// The floor is the newest record's, beside its release by the lane: the release it is against has
-// none and says nothing of it, and no Δ is read of it. A floor whose boots were all lost says so.
+// The floor is the newest record's, beside its release by the lane, with its Δ against the lane's
+// login: the release it is against has none and says nothing of it, and no Δ against that release
+// is read of it. A floor whose boots were all lost says so, and has no Δ.
 func TestTheFloorIsTheNewestRecordsBound(t *testing.T) {
 	l := testLadder()
 	fl := &Result{Probe: "floor", Reps: 2, Host: l.Results[0].Host, Started: l.Results[0].Started, Options: spins}
@@ -185,6 +186,12 @@ func TestTheFloorIsTheNewestRecordsBound(t *testing.T) {
 	got := l.Records()
 	if n := got[1].Numbers; n["floor-lane"] != (Number{404, 404}) || n["floor"] != (Number{250, 250}) {
 		t.Errorf("v2's floor: %+v", n)
+	}
+	if b := got[1].Bounds; !reflect.DeepEqual(b, map[string]Delta{"floor": {P50: -154, Lo: -154, Hi: -154}}) {
+		t.Errorf("v2's floor against its lane login: %+v", b)
+	}
+	if got[0].Bounds != nil {
+		t.Errorf("v1 has bounds: %+v", got[0].Bounds)
 	}
 	for _, k := range []string{"floor", "floor-lane"} {
 		if _, ok := got[0].Numbers[k]; ok {
@@ -199,7 +206,7 @@ func TestTheFloorIsTheNewestRecordsBound(t *testing.T) {
 	}
 	fl.Samples = append(samples("v2", "boot", map[string]float64{"first_login": 404}, 2),
 		Sample{Tree: "v2" + FloorSuffix, Row: "boot", Rep: 1, Missed: "never answered"})
-	if why := l.Records()[1].Cannot["floor"]; why != "lost all 1" {
-		t.Errorf("a floor that lost every boot: %q", why)
+	if r := l.Records()[1]; r.Cannot["floor"] != "lost all 1" || r.Bounds != nil {
+		t.Errorf("a floor that lost every boot: %q, %+v", r.Cannot["floor"], r.Bounds)
 	}
 }

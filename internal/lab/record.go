@@ -43,6 +43,10 @@ type number struct {
 	cell       cell
 }
 
+// beside is whether n is a bound measured on a tree beside the release (its cell's suffix), which
+// has a Δ against the release itself in the same probe and run: what the part it takes away costs.
+func (n number) beside() bool { return n.kind == bound && n.cell.suffix != "" }
+
 // numbers are a record's, in the order they are read. A key is in every record under
 // docs/releases: renaming one leaves the numbers recorded under the old one unread.
 var numbers = []number{
@@ -75,6 +79,9 @@ type Record struct {
 	// Against is the release before it, booted interleaved with it in the same run: the only
 	// numbers its Δ is read against. A release measured alone has none.
 	Against *Against `json:"against,omitempty"`
+	// Bounds is the Δ p50 against the release of each bound measured beside it, booted interleaved
+	// with it in this record's run, and the Δ's 95% interval: read by the same rule as Against's.
+	Bounds map[string]Delta `json:"bounds,omitempty"`
 }
 
 // Against is the release a record was measured interleaved with: that release's numbers from the
@@ -124,6 +131,7 @@ func (l *Ladder) Records() []Record {
 			}
 			r.Numbers[n.key] = Number{P50: tenth(p50), P95: tenth(p95)}
 		}
+		r.Bounds = l.bounds(rel)
 		out = append(out, r)
 	}
 	return out
@@ -142,6 +150,25 @@ func (l *Ladder) against(before Record, rel string) *Against {
 		}
 	}
 	return a
+}
+
+// bounds are the Δs against rel of the bounds measured beside it, none when there were none.
+func (l *Ladder) bounds(rel string) map[string]Delta {
+	var out map[string]Delta
+	for _, n := range numbers {
+		r := l.result(n.cell.probe)
+		if !n.beside() || r == nil {
+			continue
+		}
+		c := n.cell
+		if d, ok := DeltaP50(r.Values(rel, c.row, c.metric), r.Values(rel+c.suffix, c.row, c.metric)); ok {
+			if out == nil {
+				out = map[string]Delta{}
+			}
+			out[n.key] = d
+		}
+	}
+	return out
 }
 
 // tenth is v to a tenth: what a record keeps of a number whose noise between runs is whole ms, so
@@ -270,7 +297,8 @@ func tables(records []Record, kept string) []table {
 	bounds := table{Title: "Bounds",
 		Before: "Never candidates, measured with each release so that they stay bounds (docs/measuring.md). The no-systemd " +
 			"floor: the release's first SSH login by the lane, ms p50/p95, and the same release with no systemd before sshd, " +
-			"booted interleaved in the same run. Their gap bounds what systemd costs.", Head: []string{"release"}}
+			"booted interleaved in the same run. Δ is the second's p50 less the first's and its [95% interval], read as a " +
+			"release's Δ is: the gap bounds what systemd costs.", Head: []string{"release"}}
 	measuredBounds := false
 	for _, n := range numbers {
 		switch n.kind {
@@ -282,6 +310,9 @@ func tables(records []Record, kept string) []table {
 			diags.Head = append(diags.Head, n.title)
 		case bound:
 			bounds.Head = append(bounds.Head, n.title)
+			if n.beside() {
+				bounds.Head = append(bounds.Head, "Δ")
+			}
 		}
 	}
 	where := table{Title: "Where each was measured",
@@ -295,6 +326,13 @@ func tables(records []Record, kept string) []table {
 				d = append(d, entry{Text: p50(v, ok)})
 			case bound:
 				bd = append(bd, entry{Text: pair(v, ok)})
+				if n.beside() {
+					gap := entry{}
+					if d, ok := r.Bounds[n.key]; ok {
+						gap.Text = d.String()
+					}
+					bd = append(bd, gap)
+				}
 				measuredBounds = measuredBounds || ok
 			case goalNumber:
 				g = append(g, entry{Text: pair(v, ok)}, entry{Text: r.delta(n.key)})

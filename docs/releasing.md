@@ -113,7 +113,8 @@ workspace in, twenty boots of each (`spin-machine-dev releases measure`, docs/cl
 the two goal numbers, a cold boot and a restore, each to the first SSH login, and both again into a
 QEMU started ahead. Save, state, the kernel's time and QEMU's resident memory are beside them as
 diagnostics. The release is booted again beside its no-systemd floor, both logging in by the lane:
-a bound, re-measured with every release so that it stays one (docs/measuring.md, rule 8).
+a bound, re-measured with every release so that it stays one (docs/measuring.md, rule 8). The
+record keeps the floor's Δp50 against the release, with its 95% interval.
 
 The job keeps the release's record, `docs/releases/RELEASE.json`: each number's p50 and p95, the
 host, the shape, the date, the run whose artifact holds every sample (90 days), and the release
