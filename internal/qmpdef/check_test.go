@@ -5,6 +5,7 @@ package qmpdef
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -356,5 +357,140 @@ func TestAnAlternateKeepsWhatWasFoundBeforeIt(t *testing.T) {
 func TestCheckRefusesWhatIsNotASchema(t *testing.T) {
 	if err := Check(json.RawMessage(`{"QMP": {}}`)); err == nil {
 		t.Error("Check read a greeting as a schema")
+	}
+}
+
+// without is schema with no member and no enum value named any of names: a QEMU without the
+// patches that add them, as a release before them ships.
+func without(t *testing.T, schema json.RawMessage, names ...string) json.RawMessage {
+	t.Helper()
+	var entries []map[string]any
+	if err := json.Unmarshal(schema, &entries); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		members, ok := e["members"].([]any)
+		if !ok {
+			continue
+		}
+		kept := []any{}
+		for _, m := range members {
+			// An alternate's members are named by type alone.
+			if name, _ := m.(map[string]any)["name"].(string); !slices.Contains(names, name) {
+				kept = append(kept, m)
+			}
+		}
+		e["members"] = kept
+	}
+	b, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+type (
+	capabilityName string
+	setCapability  struct {
+		Capabilities []struct {
+			Capability capabilityName `json:"capability"`
+			State      bool           `json:"state"`
+		} `json:"capabilities"`
+	}
+	flatStats struct {
+		Flat bool `json:"x-flat,omitempty" qmpdef:"probed"`
+	}
+)
+
+// defineProbes defines what the machine asks QEMU for before it sends: x-defer-disk-flush, a
+// probed capability, and x-flat, a probed member. Both are unstable in the pinned QEMU, and in a
+// release without them nothing the definitions send is.
+func defineProbes() {
+	Define[setCapability, struct{}]("migrate-set-capabilities", Unstable)
+	Define[flatStats, []struct{}]("query-blockstats", Unstable)
+	Enum[capabilityName]("events")
+	Probed[capabilityName]("x-defer-disk-flush")
+}
+
+// A release whose QEMU lacks what the module asks for before it sends is one the module drives,
+// though Check, which holds the pinned QEMU, refuses it.
+func TestCheckSupportedPassesAReleaseWithoutWhatIsAskedFirst(t *testing.T) {
+	isolated(t)
+	defineProbes()
+	old := without(t, recorded(t), "x-flat", "x-defer-disk-flush")
+	if err := CheckSupported(map[string]json.RawMessage{"v1": old, "v2": recorded(t)}); err != nil {
+		t.Errorf("CheckSupported of a release without the probed:\n%v", err)
+	}
+	err := Check(old)
+	for _, want := range []string{
+		`migrate-set-capabilities arguments.capabilities[].capability: QEMU's enum has no "x-defer-disk-flush"`,
+		`query-blockstats arguments: QEMU has no member "x-flat"`,
+		"migrate-set-capabilities is defined Unstable, and QEMU marks nothing it sends or reads unstable",
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Check of the pinned QEMU without the probed = %v, want %q", err, want)
+		}
+	}
+}
+
+// What the module sends every time is held to every release, and each disagreement names the
+// release it is with.
+func TestCheckSupportedNamesTheReleaseOfEachDisagreement(t *testing.T) {
+	type flat struct {
+		Flat bool `json:"x-flat,omitempty"`
+	}
+	isolated(t)
+	Define[flat, []struct{}]("query-blockstats", Unstable)
+	Define[setCapability, struct{}]("migrate-set-capabilities", Unstable)
+	Enum[capabilityName]("x-defer-disk-flush")
+	err := CheckSupported(map[string]json.RawMessage{
+		"v1": without(t, recorded(t), "x-flat", "x-defer-disk-flush"),
+		"v2": without(t, recorded(t), "x-flat"),
+		"v3": recorded(t),
+		"v4": json.RawMessage(`{"QMP": {}}`),
+	})
+	want := strings.Join([]string{
+		`v1: migrate-set-capabilities arguments.capabilities[].capability: QEMU's enum has no "x-defer-disk-flush", which Enum qmpdef.capabilityName says it has`,
+		`v1: query-blockstats arguments: QEMU has no member "x-flat"`,
+		`v2: query-blockstats arguments: QEMU has no member "x-flat"`,
+		`v4: reading query-qmp-schema's answer: json: cannot unmarshal object into Go value of type []qmpdef.entry`,
+	}, "\n")
+	if err == nil || err.Error() != want {
+		t.Errorf("CheckSupported said:\n%v\nwant:\n%s", err, want)
+	}
+}
+
+// A probed value or member every supported release has needs no ask: the window aged out of the
+// last release without it, and the ask and its fallback go.
+func TestCheckSupportedRefusesAnAskEveryReleaseAnswers(t *testing.T) {
+	isolated(t)
+	defineProbes()
+	err := CheckSupported(map[string]json.RawMessage{"v1": recorded(t), "v2": recorded(t)})
+	want := strings.Join([]string{
+		`qmpdef.capabilityName "x-defer-disk-flush" is probed, and every supported release's QEMU has it: the ask and its fallback can go`,
+		`query-blockstats arguments.x-flat is probed, and every supported release's QEMU has it: the ask and its fallback can go`,
+	}, "\n")
+	if err == nil || err.Error() != want {
+		t.Errorf("CheckSupported said:\n%v\nwant:\n%s", err, want)
+	}
+}
+
+// No release to hold the definitions to is not a pass.
+func TestCheckSupportedNeedsARelease(t *testing.T) {
+	if err := CheckSupported(nil); err == nil {
+		t.Error("CheckSupported of no release passed")
+	}
+}
+
+// A probed member sent every time is sent without asking, and Check says so.
+func TestAProbedMemberIsNotSentEveryTime(t *testing.T) {
+	type alwaysFlat struct {
+		Flat bool `json:"x-flat" qmpdef:"probed"`
+	}
+	isolated(t)
+	Define[alwaysFlat, []struct{}]("query-blockstats", Unstable)
+	want := `query-blockstats arguments.x-flat is probed, and a qmpdef.alwaysFlat sends it every time: a probed member is omitempty or omitzero`
+	if err := Check(recorded(t)); err == nil || err.Error() != want {
+		t.Errorf("Check = %v, want %q", err, want)
 	}
 }
