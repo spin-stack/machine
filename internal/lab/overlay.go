@@ -234,6 +234,13 @@ grep -q '^ExecStop=' "$MNT/usr/lib/systemd/system/systemd-user-sessions.service"
 	sed '/^Before=sysinit.target$/d' "$MNT/usr/lib/systemd/system/$u" > "$MNT/etc/systemd/system/$u"
 	! grep -q 'Before=sysinit.target' "$MNT/etc/systemd/system/$u"
 done`}, nil
+	case "udev-normal-weight":
+		return Edit{
+			Files: map[string]string{
+				"/etc/systemd/system/systemd-udevd.service.d/30-weight.conf":        "[Service]\nStartupCPUWeight=\n",
+				"/etc/systemd/system/systemd-udev-trigger.service.d/30-weight.conf": "[Service]\nStartupCPUWeight=\n",
+			},
+		}, nil
 	case "getty-weight":
 		return Edit{
 			Files: map[string]string{"/etc/systemd/system/serial-getty@.service.d/20-startup.conf": "[Service]\nStartupCPUWeight=1\n"},
