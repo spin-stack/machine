@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	xssh "golang.org/x/crypto/ssh"
 	"golang.org/x/sys/unix"
 
 	"github.com/spin-stack/machine/machine"
@@ -51,7 +52,8 @@ func (restoreFirst) About() string {
 }
 
 func (restoreFirst) Options() []Option {
-	return append(shape, Option{"fast", "false", "also restore each tree with the fast snapshot load (--fast)"}, channelsOption)
+	return append(shape, Option{"fast", "false", "also restore each tree with the fast snapshot load (--fast)"}, channelsOption,
+		Option{"touched", "0", "MiB the guest writes into a tmpfs after its login and before its save, as root (login=spin): memory its checkpoint carries, as a workspace's that has run a while does"})
 }
 
 func (restoreFirst) Rows(o Options) []string {
@@ -265,6 +267,9 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 	if err := plugged(); err != nil {
 		return nil, err
 	}
+	if err := touch(m, c.cid); err != nil {
+		return nil, err
+	}
 	t0 = time.Now()
 	if err := m.SpinMachine(append([]string{"save", "--qmp", qmp, "--to", c.state}, channels...)...); err != nil {
 		return nil, err
@@ -284,6 +289,21 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 	}
 	c.stateMiB = float64(st.Sys().(*syscall.Stat_t).Blocks*512) / (1 << 20)
 	return c, nil
+}
+
+// touch writes the touched option's MiB into a tmpfs in the guest on cid, which its checkpoint then
+// carries. The bytes are not zeros: a save writes no page of zeros, and a load reads none.
+func touch(m *Measurement, cid uint32) error {
+	mib := m.Options.Int("touched")
+	if mib == 0 {
+		return nil
+	}
+	fill := fmt.Sprintf("mkdir -p /run/touched && mount -t tmpfs -o size=%dm touched /run/touched && "+
+		"head -c %dM /dev/zero | tr '\\0' '\\377' > /run/touched/data", mib, mib)
+	if _, _, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, fill); err != nil {
+		return Miss("the guest did not write %d MiB: %v", mib, err)
+	}
+	return nil
 }
 
 // userfaultfd makes sure an unprivileged QEMU can have one, which the fast load serves the guest's
