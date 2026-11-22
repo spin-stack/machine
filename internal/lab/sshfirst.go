@@ -33,7 +33,7 @@ func (sshFirst) About() string {
 	return "ms from the moment before QEMU is exec'd to sshd accepting on vsock, and to `true` run over SSH, as spin or, on spin's login, root"
 }
 func (sshFirst) Options() []Option     { return shape }
-func (sshFirst) Rows(Options) []string { return []string{"boot"} }
+func (sshFirst) Rows(Options) []string { return []string{"boot", "old"} }
 func (sshFirst) Phases() int           { return 1 }
 
 func (sshFirst) Needs(o Options) []Need {
@@ -103,7 +103,14 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	// The first login runs over the connection accepted. A login on a new one, after the accepted
 	// one closed, had sshd start a session for that one on the guest's one vCPU beside the login
 	// timed, which spin, opening the user's connection once, never makes it do (#450).
-	why := m.Key.LoginOn(first, cid, xssh.KeyExchangeMLKEM768X25519)
+	var why error
+	if m.Row == "old" {
+		// main's probe: the accepted connection closed, the login on a new one.
+		_ = first.Close()
+		_, why = m.Key.Login(cid, xssh.KeyExchangeMLKEM768X25519)
+	} else {
+		why = m.Key.LoginOn(first, cid, xssh.KeyExchangeMLKEM768X25519)
+	}
 	if why != nil {
 		m.Logf("the login on the connection accepted failed, logging in again: %v", why)
 	}
