@@ -181,8 +181,6 @@ func TestAMachineRunsInARootOfItsFilesWithinItsOverhead(t *testing.T) {
 		s.enter(now)
 		switch now {
 		case "shape":
-			// Plugged before the checkpoint and not after it: vCPUs plugged right after a
-			// checkpoint's Continue never reached the guest in 2 of 5 runs (#433).
 			if err := p.SetCPUs(ctx, spec.MaxCPUs); err != nil {
 				t.Fatal(err)
 			}

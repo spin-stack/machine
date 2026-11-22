@@ -1,5 +1,5 @@
 # The checks of a booted machine - whether its firmware runs it, a checkpoint of the release before
-# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, lockdown, logind, a core hot-added - and
+# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, a workspace grows after one, lockdown, logind, a core hot-added - and
 # the probes still Go tests: firmware-stages and waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
 # unless its SPIN_* switch is set, which is what these targets do. Each boots the release tree
 # OUTPUT_DIR names; `spin-machine-dev lab check TARGET --tree NAME=SPEC` runs one on any tree, on the
@@ -141,9 +141,9 @@ tasks:
     desc: >-
       What a machine's QEMU uses beyond its guest, and the files it opens by name: spin's shape
       started as nobody in a root holding only machine.Spec.Files and /dev/null, in a cgroup of its
-      own, checkpointed, then taken to its ceiling (every vCPU, all its memory, four disks, one of
-      64 GiB) while the guest fills its memory and reads, writes and trims every disk, and
-      checkpointed again. QEMU's cgroup may hold no more than Spec.Overhead and each Disk.Overhead
+      own, taken to its ceiling (every vCPU, all its memory, four disks, one of 64 GiB),
+      checkpointed and continued while the guest fills its memory and reads, writes and trims every
+      disk, and checkpointed again. QEMU's cgroup may hold no more than Spec.Overhead and each Disk.Overhead
       beyond the guest's RAM, nor more tasks (overhead_lane_test.go). Runs as root through sudo,
       for the root, the TAP and the cgroup. Needs a built release, /dev/kvm, /dev/vhost-vsock,
       /dev/vhost-net, sudo, ~9 GiB of free memory and as much disk under TMPDIR.
@@ -158,6 +158,17 @@ tasks:
     deps: [':tools']
     cmds:
       - SPIN_LOCKDOWN_TEST=1 go test ./boot/ -run '^TestTheGuestKernelIsLockedDown$' -count=1 -v -timeout 5m
+
+  cpu-plug:
+    desc: >-
+      A workspace checkpointed with memory and continued still grows: spin's shape booted to
+      systemd at 2048 MiB, logged into over SSH, checkpointed, continued, then given every vCPU,
+      8192 MiB and four disks at once, has all of them within 20 s of the plug, in
+      SPIN_CPUPLUG_RUNS guests (default 10) (cpuplug_test.go, #433). Needs a built release, /dev/kvm
+      and /dev/vhost-vsock.
+    deps: [':tools']
+    cmds:
+      - SPIN_CPUPLUG_TEST=1 go test ./boot/ -run '^TestAWorkspaceCheckpointedAndContinuedGrows$' -count=1 -v -timeout 10m
 
   hotadd:
     desc: >-

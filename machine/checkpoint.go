@@ -298,6 +298,11 @@ func loadEnded(st migrationStatus) error {
 // keeps the guest stopped while the disk writes, 275 ms p50 at 1.6 GiB, and syncing every 100 ms
 // while QEMU writes only shortens that to 167; syncing after Continue took 2-3 ms, the kernel
 // having written the rest during the save (laptop, ext4, 2026-11-21, docs/memory-and-disk.md).
+// On a busy disk that sync, or the state's first close, which ext4 makes write back a file QEMU
+// truncated, takes as long as the disk needs: up to 75 s on a laptop with its disk busy and its
+// swap full. The machine runs meanwhile, and a plug sent then reaches the guest at once. A caller
+// that holds the machine's next command behind the close holds the workspace's growth with it,
+// as a test did in #433.
 //
 // Nor does it sync the disks. QEMU drains them at the stop, so every flush the guest asked for is
 // on the disk, and then defers its own flushes to the host's disk until the guest runs again

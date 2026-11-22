@@ -4,8 +4,9 @@ name: Compat
 # machine's record still refuses what QEMU loads silently and accepts the machine's own checkpoint
 # (boot:compat, boot:record): after every change on main to what a resumed guest is loaded into -
 # the machine's definition, QEMU, the kernel, the firmware and their pins - and before every
-# release. And whether that kernel, booted, is locked down (boot:lockdown), and how long that QEMU
-# stops a guest to checkpoint it (boot:checkpoint-pause).
+# release. And whether that kernel, booted, is locked down (boot:lockdown), how long that QEMU
+# stops a guest to checkpoint it (boot:checkpoint-pause), and whether a guest checkpointed and
+# continued still grows (boot:cpu-plug).
 #
 # On the KVM fleet (spin-stack/ci), because it boots: the newest release is unpacked as the machine
 # before, and the machine here is that tree with this change's QEMU, firmware and kernel built over
@@ -115,6 +116,11 @@ jobs:
       # ~200 ms against ~15 (docs/memory-and-disk.md, "How long the guest is stopped").
       - name: A checkpoint stops the guest briefly
         run: go tool task boot:checkpoint-pause
+
+      # A QEMU or a kernel that lost a hotplug after a migration would leave a workspace
+      # checkpointed with memory at the size it was (#433).
+      - name: A workspace checkpointed and continued still grows
+        run: go tool task boot:cpu-plug
 
       # Every release until one whose machine is not this one, not only the one before: a host may
       # skip releases, and its checkpoints still resume.
