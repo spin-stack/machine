@@ -34,10 +34,11 @@ func TestTheGuestSeesWhatEachPatchGivesIt(t *testing.T) {
 	}{
 		{
 			// The controller tells the guest the 16 targets the machine gives disks at (max_target
-			// 15), and the guest scans 16. Without the patch's config, 256.
-			"qemu/patches/0002 (virtio-scsi max_target)", "the SCSI host's max_id is 16",
-			"MAXID", `cat /sys/class/scsi_host/host*/max_id`,
-			func(a string) bool { return a == "16" },
+			// 15), and the guest's SCSI host refuses a scan of a target past them
+			// (scsi_scan_host_selected). Without the patch's config it takes 255.
+			"qemu/patches/0002 (virtio-scsi max_target)", "a scan of target 15 taken and of 16 refused",
+			"SCAN", `h=$(ls -d /sys/class/scsi_host/host*); echo 0 15 0 > $h/scan && printf 15taken; { echo 0 16 0 > $h/scan; } 2>/dev/null || printf 16refused`,
+			func(a string) bool { return a == "15taken16refused" },
 		},
 		{
 			// Linux makes the MTRRs' state its own only when the firmware enabled them: stock qboot
@@ -48,7 +49,7 @@ func TestTheGuestSeesWhatEachPatchGivesIt(t *testing.T) {
 			func(a string) bool { n, err := strconv.Atoi(a); return err == nil && n > 0 },
 		},
 	} {
-		g.type_(t, "echo "+c.name+"-$("+c.ask+" 2>&1 | tr -d '\\n')-END")
+		g.type_(t, "echo "+c.name+"-$({ "+c.ask+"; } 2>&1 | tr -d '\\n')-END")
 		re := regexp.MustCompile(c.name + `-([^$\r\n]*)-END`)
 		g.await(t, re, 30*time.Second)
 		answer := re.FindStringSubmatch(g.said())[1]

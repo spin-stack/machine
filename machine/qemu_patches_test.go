@@ -102,7 +102,7 @@ func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 					t.Fatalf("adding %s: %v", n.NodeName, err)
 				}
 			}
-			said, err := qmp.Do(ctx, m.c, humanMonitorCommand, hmpCommand{Line: `qemu-io -d written "write 0 4k"`})
+			said, err := qmp.Do(ctx, m.c, humanMonitorCommand, hmpCommand{Line: `qemu-io written "write 0 4k"`})
 			if err != nil || !strings.Contains(said, "wrote") {
 				t.Fatalf("writing the disk: %q, %v", said, err)
 			}
