@@ -48,15 +48,25 @@ func TestEveryProbeMeasuresATree(t *testing.T) {
 		}
 		trees = append(trees, ot)
 	}
+	// bootchart draws only a tree that carries its edit.
+	charted, err := MakeTree(filepath.Join(t.TempDir(), "charted"), TreeSpec{Name: "charted", From: from, SpinMachine: "here", Edits: []string{"lane", bootchartName}},
+		Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), Log: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range ProbeNames() {
 		t.Run(name, func(t *testing.T) {
 			p := Probes[name]
+			trees, keep := trees, t.TempDir()
+			if name == bootchartName {
+				trees = []*Tree{charted}
+			}
 			o := Options{}
 			// The fast load where QEMU's user may have userfaultfd; elsewhere the probe says how.
 			if b, _ := os.ReadFile("/proc/sys/vm/unprivileged_userfaultfd"); name == "restore-first" && string(b) == "1\n" {
 				o["fast"] = "true"
 			}
-			r, err := Experiment{Probe: p, Trees: trees, Reps: 1, Options: o, Scratch: t.TempDir(), Log: io.Discard}.Run(t.Context())
+			r, err := Experiment{Probe: p, Trees: trees, Reps: 1, Options: o, Scratch: t.TempDir(), Keep: keep, Log: io.Discard}.Run(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -69,6 +79,11 @@ func TestEveryProbeMeasuresATree(t *testing.T) {
 				}
 				if len(s.Values) == 0 {
 					t.Errorf("%s: recorded nothing", s.Row)
+				}
+			}
+			if name == bootchartName {
+				if b, err := os.ReadFile(filepath.Join(keep, "charted-1.bootchart.svg")); err != nil || !strings.Contains(string(b), "This file is a bootchart SVG file") {
+					t.Errorf("no chart kept: %v", err)
 				}
 			}
 			t.Log(r.Table())

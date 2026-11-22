@@ -197,6 +197,9 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--edit carry-masks`, `carry-generators`, `carry-logging` and `carry-coldplug`: what
   optimize-systemd.sh and the coldplug filter do for boot time alone, taken back
   (docs/boot-time.md, "What the machine carries"). Each goes after `--edit lane`.
+- `--edit bootchart`: systemd-bootchart as PID 1, Ubuntu's package at its pin in versions.yaml,
+  which samples the boot and execs systemd. The `bootchart` probe draws only a tree that carries
+  it (measuring.md, "Boot charts").
 - `--systemd PATCH`: systemd built here with a patch from image/systemd/experiments, in every
   overlay.
 - `--openssh`: OpenSSH as this checkout builds it (image/openssh), built here, in every overlay.
@@ -376,6 +379,13 @@ across each. It then pins QEMU's threads to one host CPU beside two busy loops a
 again. `depth` puts that many images in the root disk's chain (default 1, the overlay over the
 base), as each seal of a workspace's disk adds one.
 
+`bootchart` draws a tree made with `--edit bootchart`: systemd-bootchart's chart of every process
+from PID 1 to the first login, whose command stops the sampler, and `systemd-analyze plot`'s chart
+of every unit, from the same boot. It keeps them beside `result.json` as
+`TREE-REP.bootchart.svg` and `TREE-REP.plot.svg`, and records where the chart starts and ends on
+the kernel's clock, the samples it dropped and its size. Reading them is in
+[measuring.md](measuring.md#boot-charts).
+
 `lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
 compare. Use `--host bench` (nested, the default) unless the question is nested against metal. `--ref` names the branch whose lab.yml and probes run (default
@@ -393,4 +403,5 @@ lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its
 `trees` input names (`NAME=SPEC; NAME=SPEC`), runs the probe, puts the table on the run's summary,
-and keeps `result.json` as the artifact `lab-RUN_ID`, which `lab show RUN_ID` reads.
+and keeps `result.json`, with what the probe kept beside it, as the artifact `lab-RUN_ID`, which
+`lab show RUN_ID` reads.

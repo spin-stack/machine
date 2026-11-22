@@ -178,6 +178,8 @@ type Measurement struct {
 	Dir string
 	// Socks is the measurement's own directory for Unix sockets, short enough for sun_path.
 	Socks string
+	// Keep is the experiment's Keep: where a probe puts what it fetched for a person to read.
+	Keep string
 	// Key logs into every machine the experiment boots.
 	Key *Key
 	// Target is the file holding the tree's machine record, which a probe's restores are handed
@@ -444,6 +446,7 @@ func (m *Measurement) SpinMachine(args ...string) error {
 
 // Probes are the probes there are, by name.
 var Probes = map[string]Probe{
+	"bootchart":        bootchart{},
 	"density":          density{},
 	"initcalls":        initcalls{},
 	"prestart":         prestart{},
