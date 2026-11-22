@@ -11,9 +11,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// prefetch reads a mapped-ram state's data into the page cache and leaves its holes alone: a hole
-// read ahead is a page of zeros the cache holds for nothing, and a state is mostly holes.
-func TestPrefetchReadsTheDataAndNotTheHoles(t *testing.T) {
+// ReadAhead reads a mapped-ram state's data into the page cache and leaves its holes alone: a hole
+// read ahead is a page of zeros the cache holds for nothing, and a state is mostly holes. For a
+// fast load, which reads a page when the guest touches it, it reads nothing.
+func TestReadAheadReadsTheDataAndNotTheHoles(t *testing.T) {
 	dir := t.TempDir()
 	var fs unix.Statfs_t
 	if err := unix.Statfs(dir, &fs); err != nil {
@@ -46,7 +47,12 @@ func TestPrefetchReadsTheDataAndNotTheHoles(t *testing.T) {
 	if cached(t, f, 0, mib) == mib {
 		t.Skip("this filesystem keeps the state in the cache after DONTNEED")
 	}
-	prefetch(f)
+	ReadAhead(f, Saved{Format: FormatMappedRAM}, LoadOptions{Fast: true})
+	time.Sleep(100 * time.Millisecond)
+	if n := cached(t, f, 0, mib); n != 0 {
+		t.Errorf("a fast load's state was read ahead: %d bytes cached", n)
+	}
+	ReadAhead(f, Saved{Format: FormatMappedRAM}, LoadOptions{})
 	deadline := time.Now().Add(10 * time.Second)
 	for cached(t, f, 0, mib)+cached(t, f, 8*mib, mib) < 2*mib {
 		if time.Now().After(deadline) {
