@@ -234,6 +234,15 @@ grep -q '^ExecStop=' "$MNT/usr/lib/systemd/system/systemd-user-sessions.service"
 	sed '/^Before=sysinit.target$/d' "$MNT/usr/lib/systemd/system/$u" > "$MNT/etc/systemd/system/$u"
 	! grep -q 'Before=sysinit.target' "$MNT/etc/systemd/system/$u"
 done`}, nil
+	case "keygen-ed25519":
+		return Edit{
+			Files: map[string]string{"/etc/systemd/system/spin-machine-sshd-keygen.service.d/20-ed25519.conf": "[Service]\nExecStart=\nExecStart=/bin/sh -c 'f=/etc/ssh/ssh_host_ed25519_key; [ -e \"$$f\" ] || exec /usr/bin/ssh-keygen -q -t ed25519 -N \"\" -f \"$$f\"'\n"},
+		}, nil
+	case "pam-noop":
+		return Edit{Setup: `f="$MNT/etc/pam.d/sshd"
+grep -q pam_selinux.so "$f" && grep -q pam_mail.so "$f"
+sed -i -e '/pam_selinux.so/d' -e '/pam_mail.so/d' "$f"
+! grep -q 'pam_selinux.so\|pam_mail.so' "$f"`}, nil
 	case "udev-normal-weight":
 		return Edit{
 			Files: map[string]string{
