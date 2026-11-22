@@ -54,6 +54,250 @@ image has; logind wanted by `multi-user.target` and not masked; root lingers and
 each drop-in below that carries a measured gain still says what it says; the timers masked and
 fstrim hourly; no `pam_motd`. Each check names the row of this document it protects.
 
+### The toolchain
+
+- **Why mkosi and not a container image build.** What is wanted is one filesystem, not a stack of
+  tar layers. The image is a read-only qcow2 base with a fresh qcow2 overlay per VM
+  (`qemu-img create -f qcow2 -F qcow2 -b rootfs.qcow2 overlay.qcow2`), so copy-on-write happens in
+  the block layer where QEMU does it, not in a union filesystem inside the guest. A build that
+  produces the filesystem directly skips the round trip through layers.
+- **Why mkosi does not run under BuildKit.** mkosi unshares a user and mount namespace and BuildKit
+  forbids it (`mkosi was forbidden to unshare namespaces`, `PermissionError` on `unshare(2)`,
+  2026-09-07). `RUN --security=insecure` needs a `buildkitd` started with an entitlement flag, so
+  `spin-machine-dev build image` would fail on any machine whose builder was made the ordinary way.
+  So `image/Dockerfile` pins the tools, `build.sh` is the build, and `spin-machine-dev build image`
+  runs it in a container with `--cap-add SYS_ADMIN` and seccomp and AppArmor unconfined
+  (`internal/build/build.go`), not `--privileged`.
+- **Why an Ubuntu 26.04 container, not Debian.** The image is Ubuntu 26.04, and mkosi's keyring and
+  apt come from the same distribution. Debian's mkosi can build Ubuntu with `ubuntu-keyring` added
+  by hand; the same distribution removes the question.
+- **What the container installs.** `apt` and `dpkg` to assemble the tree, `ubuntu-keyring` for the
+  archive (gpgv arrives with apt), `curl` to fetch mkosi, `qemu-utils` to wrap the qcow2,
+  `apt-utils` for `apt-ftparchive`, with which mkosi makes the rebuilt packages a local repository
+  (`--package-directory`; without it mkosi stops at "apt-ftparchive not found"), `python3` (mkosi,
+  and `deviations.py`), `xz-utils` and `zstd`.
+- **No e2fsprogs in the container.** The filesystem is made and read by the static e2fsprogs this
+  repository builds (`e2fsprogs/`), from the same `_output` the image is written into. What an ext4
+  is made with (its features, block and inode sizes) is what mke2fs's version and `mke2fs.conf`
+  default to, and a distribution's copy is whatever it shipped that day: 1.47.0 made `orphan_file`
+  a default. Left installed, a build missing the pinned tools would quietly use the container's;
+  `build.sh` stops instead.
+- **qemu-img is the container's, not this repository's.** The image build would otherwise depend on
+  the QEMU build, tens of minutes of compiling to write one qcow2 header. The format is not
+  version-sensitive in the direction that matters: an image written by Ubuntu's qemu-img is read by
+  ours.
+- **mkosi from its release tarball, by SHA-256, not Ubuntu's `mkosi` package.** Which version
+  assembles the tree decides what ends up in it, and the base image is hashed into `machine.env`,
+  so "apt gave us a newer mkosi" would be a change to the release nobody wrote down (resolute
+  carries 26-3). mkosi is pure Python and runs from its source tree (`bin/mkosi` puts the checkout on
+  `PYTHONPATH`), so nothing goes into the system Python, and apt's 30-package closure (systemd-boot,
+  tpm2-tools, pesign, cryptsetup, for outputs this build does not make) stays out. The checksum is
+  checked on every build, not only after a download, because the cache mount outlives the build that
+  filled it, and the build asks the installed binary its version. `mkosi.conf`'s `MinimumVersion=`
+  is the same version, not a floor with room above it; `gates/pins_test.go` holds the two together.
+- **What the scripts download, by content.** `install-dev-tools.sh` runs inside mkosi's tree,
+  which sees only what `mkosi.conf`'s `Environment=` passes, so each pin is an `ENV` of the
+  container. Task is pinned for every platform in `versions.yaml`; the guest's is linux/amd64's.
+  GitHub sheds anonymous release downloads under load (a 504 failed the build on 2026-11-09 and
+  passed when run again), so downloads retry; the SHA-256 still decides the bytes. `mkosi.postinst.chroot`
+  sets `PATH` itself, because mkosi's omits `/usr/local/bin`, where the tools are installed and then
+  run to check them (`task: command not found`, exit 127).
+- **mkosi's settings.** `Incremental=yes` and a cache directory keep the package cache between
+  builds (the install is ~1.5 GB and the archive is the slow part). `Format=directory` because mkosi
+  has no "one filesystem, no partition table" output, and a bootable disk with an ESP and a GPT is
+  what nothing here would read: there is no bootloader or UEFI, and QEMU hands the bzImage to the
+  BIOS through fw_cfg. `CleanPackageMetadata=no` keeps dpkg's database (~25 MB), because a workload
+  runs apt. `WithDocs=no` excludes `/usr/share/doc/*` and keeps `/usr/share/doc/*/copyright`.
+- **How the image is reached is the consumer's business.** This repository's boots use
+  `root=/dev/vda init=/sbin/init` with no initrd, which the kernel serves because virtio-blk and
+  ext4 are built in and the filesystem is partitionless. A consumer that brings an initrd enters the
+  image from there. Nothing here depends on an OCI runtime's bundle semantics.
+
+### The rebuilt packages
+
+**systemd** (`image/systemd/Dockerfile`) is Ubuntu's source package of the version the image would
+otherwise install, by its `.dsc` (`versions.yaml`'s `systemd-source`), so its patches and security
+fixes are Ubuntu's. What changes is the build:
+
+- `stage1`, Debian's reduced build profile, maintained in `debian/rules` and `debian/control`: no
+  audit, cryptsetup, coredump, AppArmor, OpenSSL, TPM2, p11-kit, FIDO2, PCRE2, homed, userdb,
+  importd, curl, sysupdate, boot loader or ukify, and no BPF framework. The BPF framework is where
+  the time was: PID 1's setup before the generators went from 25.8 to 5.6 ms (boot:waits), with the
+  verifier loading socket-bind at every boot and restrict-fs failing to load under lockdown (#261).
+  So no unit can use `RestrictFileSystems=`, `SocketBind*=` or `RestrictNetworkInterfaces=`; none
+  does, and spin's guard loads its own programs. None of the packages the image installs is left out
+  by the profile.
+- SELinux off as well: the guest kernel's LSMs are lockdown, capability and bpf.
+- `pcre2` back on, which stage1 turns off: without it `journalctl --grep` says "compiled without
+  pattern matching support". journalctl dlopens libpcre2 only when asked to grep, so a boot never
+  loads it.
+- `systemd-executor` (exec'd for every unit PID 1 starts), udevd and its helpers, systemctl and
+  journalctl link libsystemd-shared in statically. PID 1, journald and logind have no such option.
+
+Measured on the bench fleet, 20 boots of each interleaved, the first SSH login: stage1 −47, −38
+and −47 ms against the archive's systemd (labs 44531842773, 44537549305, 44538877783); static over
+stage1 −10 and −1, within noise, accept-to-login −7 in both. A checkpoint restored to the first
+login: unchanged, ~50 ms of guest time either way (44533227886). Not taken: `-Db_lto=true`
+(Ubuntu's flags already have `-flto=auto`; the packages came out the same to a few hundred bytes).
+
+The build fetches the source from the archive's deb-src, which apt checks against the signed
+Sources index, then the `.dsc` against the pin; `dpkg-source` checks the tarballs against the
+checksums in the `.dsc`, so the pin holds the whole source. The archive keeps only the version
+resolute publishes now, so the build fails at the download the day Ubuntu moves systemd, which is
+when the pin moves with it (`refresh.yml` proposes it). Launchpad keeps every upload but answered
+502 to a whole build (2026-11-19). `acl` is installed because the journal's install step runs
+`setfacl`. The extra meson options go last (`CONFFLAGS_UPSTREAM`, which `debian/rules` hands last
+and never sets), and `meson-took.py` asks the configured build whether it took each, so a misspelt
+option fails the build. A patch from `image/systemd/experiments` is applied only for a lab build
+(`spin-machine-dev lab tree --systemd PATCH`), never the image's. The build then checks what came
+out: every package at the new version, libsystemd-shared without SELinux, AppArmor, audit or
+libcrypto, an executor that loads no libsystemd, and a journalctl that greps.
+
+**OpenSSH** (`image/openssh/Dockerfile`) is Ubuntu's source package of the version the image would
+otherwise install (`openssh-source`, without its epoch, as the `.dsc`'s name has it), built as
+Ubuntu builds it, with the patches beside the Dockerfile applied after Ubuntu's, in name order and
+with `--fuzz=0` (a hunk landing elsewhere in a moved `auth2.c` is a different change).
+`userauth-delay-failures.patch` keeps OpenSSH's userauth minimum time (5 ms plus 0-4.2 ms a user)
+for a request that fails, and skips it for one that authenticated or for a public key query it
+answered with `PK_OK`, which had told the client its outcome already (#457). Bench, spin's shape,
+30 a side against v20261122.01: restored login −13.6 [−14.9, −9.8], cold −9.4 [−15.8, −2.6] (labs
+44983986606, 44983986575, 2026-11-22). No udebs and no `ssh-askpass-gnome` (it would pull GTK
+into the build), and `nocheck`, because the regression suite starts sshds on the build host's
+ports. The source moves as systemd's does (`spin-machine-dev refresh openssh`). The build checks
+that `sshd-auth`, the process that runs userauth, says it is this build in the version it sends
+every client.
+
+Both are versioned `+spin1`, so apt prefers them over the archive's, a reader of `packages.txt` can
+tell them apart, and `mkosi.postinst.chroot` holds them. `build.sh` reads the held state from dpkg's
+own status, not apt-mark's word. An image that took the archive's systemd boots and pays again for
+everything built out; one that took the archive's sshd logs in and every login sleeps twice.
+
+### The filesystem
+
+`build.sh` turns the tree into a partitionless ext4 wrapped in a read-only qcow2.
+
+- **ext4 and not something denser.** The guest kernel has `EXT4_FS` and `OVERLAY_FS` and explicitly
+  not `XFS_FS`, `BTRFS_FS`, `SQUASHFS` or `EROFS_FS` (`kernel/config-7.3-x86_64`). Another
+  filesystem starts with a kernel config change.
+- **`SOURCE_DATE_EPOCH=0`** normalises timestamps, so the build's wall clock is not in every file.
+  It is not a claim that the image is bit-reproducible: the userland comes from a live archive and
+  the filesystem is sized from what came out, so two builds days apart differ. What a release
+  contains is the checksum in `machine.env`.
+- **`licenses.txt` and `packages.txt` beside the image, at the root of the tree.** That is where a
+  release carries them: one each for the whole machine. `packages.txt` is the only record of what
+  the image is made of without booting it (the tree is thrown away, the qcow2 is opaque, dpkg's
+  database is inside), and it is what a release's `SOURCES` points at for the userland: an Ubuntu
+  source package is fetched by name and version. The licence texts go beside the image, not in it:
+  the notices must accompany a copy, a release is what is copied, and a few hundred licence texts
+  in every VM are bytes nobody reads.
+- **Sized to what the tree needs, plus 128 MiB.** Free space in the base is free space in every
+  overlay built on it: a disk larger than the image, with the filesystem grown to fill it, has the
+  space it was given plus whatever the image carried (317 MiB, 2026-09-14). Two passes, because ext4's
+  own overhead (inode tables, directories) scales with the filesystem's size: the first is generous
+  and only measured, the second is made at what the first used plus the margin. `resize2fs -M` cannot
+  shrink it instead: it estimates its minimum from the inode tables laid out for the larger size,
+  which on this image was the size it already had. The margin is for a machine booted from the image
+  with nothing grown (`spin-machine-dev shell`, the probes), whose boot writes land in the image's free
+  space. The size is rounded up to a whole MiB, and given in KiB with its unit spelled: a bare number
+  is KiB only until `-b` is on the command line, after which mke2fs reads it as blocks, and
+  v20260914.01 shipped a 4.08 GiB filesystem instead of a 974 MiB one that way (the build now compares
+  the size made with the size asked).
+- **`-b 4096`**, stated: mke2fs picks a "small" profile under 512 MiB, and upstream's `mke2fs.conf`,
+  which this build uses, gives it 1024-byte blocks where Debian's and Ubuntu's give 4096. A tree that
+  shrank under 512 MiB would quietly get the other (measured on a 64 MiB filesystem, 2026-09-14).
+- **`-m 0`**: no blocks reserved for root. The reservation is a proportion, so a filesystem grown
+  from the image keeps 5% of the larger size: 0.55 GiB of an 11 GiB disk (2026-09-14) that a user who
+  is not root cannot write to.
+- **`mkfs.ext4 -d`** writes the tree in directly: no loop device and no mount, no privilege beyond
+  what mkosi needed.
+- **`-U clear`**: a null UUID, for a deterministic build. Nothing mounts by UUID; the guest finds
+  disks by virtio-blk serial.
+- **A 64 MiB journal.** The base file is never written, but the ext4 in it is, in every overlay,
+  mounted read-write and grown. A copy of an overlay taken while the guest writes, or the overlay of
+  a machine that died, is a filesystem interrupted mid-update, and without a journal nothing repairs
+  its metadata: built without one, a copy taken seconds after a grow did not mount ("structure needs
+  cleaning", 2026-09-14). Each overlay replays and writes its own journal, so the image stays clean,
+  and the build asserts it is clean: a journal needing recovery could not be replayed from a
+  read-only drive. 64 MiB is stated rather than derived, because mke2fs sizes a journal from the
+  filesystem (16 MiB for this image, and a different number in each sizing pass); 64 MiB is what it
+  gives the 3, 4 and 11 GiB disks a VM is grown to (16 GiB gets 128), and a grow does not resize a
+  journal. It costs the image almost nothing because mke2fs does not zero it: an empty 974 MiB
+  filesystem converts to 1540 KiB of qcow2 with it and 1220 without, and an overlay at most 64 MiB
+  once the guest has cycled through it (2026-09-14).
+- **No `orphan_file`**, which `mke2fs.conf` turns on since 1.47.0. Every mount, read-only included,
+  loads the orphan file one block at a time (`ext4_init_orphan_info`, `fs/ext4/orphan.c` in 7.3):
+  about 73 sequential single-block reads, each a virtio round trip, inside the root mount the boot
+  waits for. The feature buys scale for unlinking many open files at once from many CPUs; a
+  workspace is not that. Crash correctness is the same: an inode unlinked while open is in the
+  classic orphan list and the journal.
+- **`lazy_itable_init=0`**: the inode tables are zeroed here and every group is marked
+  `ITABLE_ZEROED`. Without it (`mke2fs -d` left every group unmarked) the first read-write mount of
+  each overlay ran ext4lazyinit to zero every inode table in the first second of the boot: 16.06 MiB
+  of zero clusters in the overlay after one boot, none with the tables zeroed here (`--init /bin/sh`,
+  laptop, 2026-11-19). Zeros cost the image nothing, since qemu-img allocates no cluster for them.
+- **qcow2, uncompressed, mode 0444, written beside the target and renamed over it.** Every VM reads
+  the base on every boot, and a compressed cluster is decompressed on each read. `qemu-img convert`
+  straight to the target opens the existing base for writing; a running VM's image lock makes that
+  fail (`Failed to get "write" lock`), which is the right refusal for the wrong reason: a base is
+  never edited, because writing into it invalidates every overlay, silently. A rename replaces the
+  directory entry and leaves the old inode, so a running VM keeps the image it booted from.
+
+### What build.sh checks, and why
+
+The checks read the finished filesystem, not the build: a tree that failed to copy in makes a
+perfectly valid empty ext4, and the failure would be a VM that boots and finds nothing to run.
+
+- **debugfs's output is read, never its exit status.** `debugfs -R` exits 0 whether or not the
+  request succeeded, printing "File not found by ext2_lookup" to stderr. A check written the obvious
+  way passes for every path, which is how the script once reported a missing `/bin/sh` as fine and a
+  deleted `/etc/hostname` as baked in (2026-09-07). A successful stat starts with "Inode:". Binaries
+  are dumped to a file and not piped: `grep -q` stops at the match, and under `pipefail` debugfs's
+  SIGPIPE failed a binary that matched.
+- **The filesystem is made as asked.** mke2fs never says how it read a size, `-m` or `-J`; each is
+  only visible on the filesystem. The two choices against `mke2fs.conf`'s defaults (`orphan_file`,
+  zeroed inode tables) are read back, because an e2fsprogs bump that ignored one would build a
+  filesystem that boots, only slower. The zeroed groups are counted against the header's group
+  count, so output dumpe2fs did not print fails rather than passes.
+- **`/sbin/init`, `/bin/sh` and the tools.** `/sbin/init` is what the image is; `/bin/sh` is what
+  `spin-machine boot --init /bin/sh` runs. `hwclock` comes from `util-linux-extra` (Ubuntu split it
+  from util-linux, and `hwclock` as a package name fails with `E: Unable to locate package` after the
+  whole install); it is asked of the image because the package that provides it has moved once.
+- **The directories the guest mounts over** (`/etc /tmp /proc /sys /dev /run`) exist and are empty;
+  a mount over a missing directory fails.
+- **Identity.** Each identity file is asserted absent, and `/etc/machine-id` present and empty.
+  openssh-server's postinst generates host keys at install time, so they are removed and asserted
+  gone. mkosi writes a machine-id of its own after `RemoveFiles` runs, which is how a build that
+  looked clean shipped one (2026-09-07), so `build.sh` empties it after mkosi.
+- **udev is not masked.** It was masked for six months to save boot time it does not cost: 15 boots
+  of each with `task boot:bench` on 2026-09-10, and with its four units masked fifteen of fifteen
+  never reached a login, waiting out the ten-second `dev-ttyS0.device` timeout. What udev is on for,
+  other than the getty, is an added CPU: without `40-spin-hotadd.rules` its event reaches no one.
+- **Memory.** `lru-gen.conf` (nothing fails without it; the machine stops answering under memory
+  pressure, weeks later) and `/tmp`'s cap, its other half.
+- **The getty's TERM.** Both drop-ins, since they only work together.
+- **Masks.** A masked unit comes back when a package upgrade replaces the link, so the masks with a
+  measured reason are asserted. Every mask must shadow a file the image has: a mask of something no
+  package installed is dead code that reads as a decision, and `optimize-systemd.sh` carried 16
+  (avahi, cups, multipathd, the tpm2 units of a systemd without TPM2) until 2026-11-21. An instance's
+  mask is checked against its template.
+- **Never masked: `tmp.mount` and `systemd-tmpfiles-setup.service`.** `/tmp` is where services and
+  users leave what one boot needs, and on the disk it outlives the boot in every copy of the disk.
+  `tmp.mount` makes it a tmpfs; tmpfiles-setup removes and recreates what does not carry over.
+- **logind's want is the package's**, in `/usr`; an override would be a `/dev/null` link at the
+  `/etc` path, which is how logind was taken out of the boot before (2026-09-12).
+- **The lane, the login and the services**, each row below that has a measured gain, read back:
+  each piece alone gains little and leaves the login waiting on the next, so a missing one costs the
+  login without failing anything. The lane's units without default dependencies must still stop at
+  shutdown. The ML-KEM drop-in is read back because without it OpenSSH's own list, with three
+  classical exchanges, still logs in. The keygen unit needs both its link and
+  `DefaultDependencies=no`, or it waits for the `sysinit.target` that wants it.
+- **The timers** are asserted separately from the unit masks, because a package upgrade re-running
+  a unit's `[Install]` brings them back, and what they cost is an apt lock under a workload's own
+  install. fstrim must be enabled and hourly.
+- **No `pam_motd`** in any stack the distribution enables it in, so whatever an upgrade restores into
+  `/etc/update-motd.d` (`50-motd-news` reaches the network) never runs. Each file is first checked to
+  be a PAM stack: debugfs prints nothing for a missing file, and nothing has no `pam_motd` line.
+
 ## The inventory
 
 `image/deviations.txt` is every way the image differs from what its packages installed, one
@@ -77,8 +321,9 @@ The kinds, each read from what came out, not from the scripts:
 On 2026-11-22 the list had 120 lines. A file a maintainer script makes on every Ubuntu (the
 accounts, `ld.so.cache`, systemd's own three enables) is not a deviation and the script says which
 it skips. A unit Ubuntu itself ships disabled or masked, such as `systemd-gpt-auto-generator`, is
-not one either: the image's `optimize-systemd.sh` linked it again, and the inventory does not count
-a change that changes nothing.
+not one either. `optimize-systemd.sh` linked it again, and also re-made Ubuntu's own
+`sockets.target.wants/ssh.socket` and removed an `ssh.service` enable nothing makes; the inventory
+showed the three change nothing, and they were deleted (2026-11-22).
 
 ## Categories
 
@@ -195,6 +440,8 @@ The distribution's background maintenance timers:
 ## Generators and tmpfiles rules turned off
 
 Group C-generators, taken back together: cold first login +16.7 [+11.6, +23.3] (lab 44818953987).
+The group counted 8 generators: the seven below and `systemd-gpt-auto-generator`, which Ubuntu's
+systemd package masks itself (the link is in `systemd.list`), so it is not the image's.
 
 | Deviation | Category | Why | A workspace gives up |
 |---|---|---|---|
@@ -256,6 +503,282 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 | `lru-gen.conf` | configuration | MGLRU's `min_ttl_ms=1000`, so the kernel's OOM killer acts before a guest thrashes. | measured, memory (`47aa681`; docs/log.md, 09-28) | Nothing. |
 | `/etc/udev/rules.d/40-spin-hotadd.rules` | added | A hot-plugged CPU comes online. Without it, a core attached to a running workspace stays offline. | function; `boot:hotadd`, `boot:cpu-plug` | Nothing. |
 | `spin-machine-pressure.service`, `spin-machine-pressure.timer`, `timers.target.wants/spin-machine-pressure.timer` | added, deferred | The pressure probe's sender, started by a timer 10 s after the boot, at idle priority. | measured: adding it moved neither number (labs 44926664003, 44926917170) | Deferred: the host gets no pressure reports for the first 10 s (#401). |
+
+## Details of the deviations
+
+The tables above say what each deviation is. These notes keep what the scripts and drop-ins used to
+say about how each was found and measured. A script or drop-in points to the subsection that
+explains it.
+
+### The package list
+
+- **libpam-systemd** is named, not left to arrive. It came in with docker's `dbus-user-session`,
+  asking for a logind, when the scripts run apt in the chroot, where the rebuilt systemd's local
+  repository is not, and the archive's `libpam-systemd` wants the archive's systemd exactly. Without
+  it nothing registers a login with logind.
+- **libpcre2-8-0** is named for the same reason: journalctl dlopens it for `--grep`.
+- **GNU coreutils**: mkosi installs the essential set, uutils' included, before the list, so the
+  list swaps them with apt's trailing `-` (remove). `rust-coreutils` is named too, since the
+  essential set installed it as asked for and autoremove would leave it.
+- **bubblewrap, socat, ripgrep**: Codex's Linux sandbox and Claude Code's sandbox-runtime are both
+  bwrap plus seccomp, neither uses Landlock (#221, checked in their source 2026-11-12). Codex
+  carries its own bwrap; sandbox-runtime refuses to start without bwrap and socat on `PATH`, socat
+  being its network proxy. It finds the `.git/hooks` and editor configs below the working directory
+  to mount read-only with rg: without rg the scan fails, logs at debug level, and the command runs
+  without those denies.
+- **file**, because scripts branch on what it says, and a `command not found` there reads as the
+  archive being wrong. **patch** beside diffutils: only `diff` arrived with what brings it.
+  **unzip**, because a release asset downloaded with curl is usually a `.zip`; there is no zip.
+- **locales**, because the cache pre-warm calls `locale-gen` and `iconvconfig`.
+- **RemoveFiles** removes the identity files and the caches. `/etc/resolv.conf` is the sharpest: the
+  guest bind-mounts one in and refuses to mount over a file that is not there, so a stale one baked
+  in would be the one every container reads. `/etc/machine-id` is handled in `build.sh` instead,
+  because it must exist and be empty.
+- **Docker's packages** come from Docker's apt repository, added by `install-dev-tools.sh`;
+  `buildkit-qemu-*` emulators are removed from BuildKit's tarball.
+
+### Users and sessions
+
+- **The workspace user.** `spin`, uid 1000, in `sudo` and `docker` (the docker group exists because
+  `install-dev-tools.sh` ran first: a user who must sudo for every container runs everything as
+  root). Both root and spin are locked: a password in a filesystem every VM boots read-only would be
+  the same credential on every machine. The way in is a certificate placed by whoever provisions
+  the VM.
+- **The user CA.** `TrustedUserCAKeys /etc/ssh/spin_user_ca.pub` names a file that arrives later:
+  at build time there is no host to ask, and spin's supervisor writes it from the registration
+  response. sshd re-reads it per authentication, so a workspace on a host with no CA has no file and
+  accepts no certificates. At every launch spin's handoff writes a drop-in read before this one
+  (`00-spin-owner.conf`): no `authorized_keys`, no password, and the principal a certificate may log
+  in as asked of the supervisor, which answers only for a key the owner's signed word lists. Without
+  this line nothing logs in at all. The script asserts `sshd_config` includes `sshd_config.d`,
+  because the failure is silent: sshd starts, key logins work, and certificates are dead.
+- **One key exchange.** sshd takes the first value it reads for a keyword, and spin's handoff writes
+  drop-ins named `00-*` read before `10-spin-kex.conf`: none of them may set `KexAlgorithms`. A login
+  with `mlkem768x25519-sha256` took 40 ms and with curve25519 39 on the bench fleet; sntrup761x25519,
+  what OpenSSH 8.5-9.8 picks, took 104, its key generation alone ~39 ms of the client's (lab
+  43479854381, 2026-11-13). docs/machine.md says which clients that leaves out.
+- **root lingers, spin does not.** spin logs in as root, and a login waits for its manager, so
+  root's starts in the boot. Started inside the login, the manager cost the first login +44.4
+  [+37.7, +52.3] (lab 45030778365); started in the boot, with the sockets' environment read once,
+  the first login moved +4.7 [−0.2, +12.2], sshd accepting +5.6 [+1.1, +10.1], and the restored login
+  −10.8 [−15.9, −6.6] (bench, spin's shape and login, against v20261122.03, 40 and 20 a side, labs
+  45031644179, 45031644114, 2026-11-22). spin lingered from 2026-11-12 to 2026-11-20, when sessions
+  did not wait for a manager and its `user@1000` was a `systemd --user` in every boot for a user
+  nobody logged in as (the first login 294 against 316 ms without it, 6 boots each). A login as spin,
+  as the lane's is, waits for its own manager: +29.7 [+22.8, +42.1] (lab 45031687433).
+- **Sessions of class user-early.** logind answers a session request once its scope, the runtime
+  directory and, for a class that wants one, the user's manager are started, and orders the scope
+  after `systemd-user-sessions.service` unless the class is early (systemd v259.9,
+  `src/login/logind-session.c`: `session_job_pending`, `session_start_scope`). A login of class user
+  waited for the end of the boot: 472 against 436 ms (lab 43518044150). From 2026-11-13 sessions were
+  `user-early-light`, which wait for no manager, and the first login's own `systemctl --user` failed
+  when it came before the manager (#467). From 2026-11-20 to 11-22 a drop-in
+  (`user-runtime-dir@.service.d/20-manager.conf`) started every login's manager beside its session
+  (#462); class user-early replaced it.
+- **The sockets' environment.** dbus.socket and ssh-agent.socket each ran `systemctl --user
+  set-environment` when they started, ~15 ms of a login's ~48 on the one vCPU while it waits for its
+  manager. Their `10-env.conf` drop-ins empty those `ExecStartPost=`/`ExecStopPre=`, and
+  `/etc/environment.d/10-user-sockets.conf` sets the same two variables once: −17.1 [−27.0, −10.7]
+  against class user-early alone (lab 45030778365).
+- **logind's seats directory** (`10-seats.conf`). pam_systemd decides whether to register a session
+  by `access("/run/systemd/seats/")`, a test for "is this a system with logind", not "is logind up".
+  On a false answer it logs "Skipping logind registration as logind is not running" and returns
+  success: the login lands with no `XDG_RUNTIME_DIR`, no session and no user manager, and nothing
+  reports an error. logind creates the directory itself, so the test is false exactly while logind
+  has never run. Making it in the Varlink socket's `ExecStartPre=` makes the test true before
+  logind runs, and the socket's `Service=systemd-logind.service` then starts logind for the login,
+  on every login path (console getty and su too). `ExecStartPre` and not `RuntimeDirectory=`: a unit
+  with no `Exec*` line never applies its execution context, so `RuntimeDirectory=` alone creates
+  nothing, and then benchmarks better, measuring logins with no session. Found when logind was
+  deferred to the first login (2026-09-12, `task boot:bench`, 25 boots each: 248/275 against 272/294
+  with logind wanted by multi-user.target; the fork is 4 ms of it; masking logind would be 7 ms
+  better again and leave every login without a session). logind is in the boot again, but a login
+  can still arrive before it starts.
+- **logind in the boot.** It stays in the boot transaction, as the package wants it, so the first
+  login does not start it. Taking it out was worth 24 ms to a console prompt (2026-09-12) and moved
+  logind, dbus-broker and the user manager into the first login: with logind in the boot the first
+  SSH login over vsock came 60 ms sooner, 510/525 against 570/626 ms p50/p95, sshd accepting no later
+  (321 against 324), 10 boots each on the bench fleet (lab 43308825692, 2026-11-12).
+- **No /run/nologin at boot.** In the lane the first login's sshd ran first and was refused: "Access
+  denied for user spin by PAM account configuration [preauth]". Shutting down still writes it,
+  through `systemd-user-sessions.service`'s ExecStop.
+- **sudo without a password**, because there is none. The boundary is the VM, but a workload that
+  expects not to be root by default gets what it expects.
+- **The MOTD.** The image's own replacement, a line saying how long the boot took, ran
+  `systemd-analyze` inside every login; a boot time belongs to `task boot:ssh-first` and the
+  release's report (removed 2026-11-12). `pam_motd` goes from every stack that has it, not only
+  ssh's: with it enabled, whatever an upgrade restores into `/etc/update-motd.d` runs at the next
+  login, and `build.sh` asserts the lines are off rather than that the directory is empty.
+- **The getty's TERM.** agetty is invoked as `- ${TERM}` and the unit sets none, so it takes PID 1's
+  `dumb` (set on the command line to stop systemd waiting 334 ms twice for a serial port to answer a
+  terminfo query, `machine/cmdline.go`): no colours, no clear, no cursor addressing. Before
+  `TERM=dumb`, the kernel exec'd `/sbin/init` at 59 ms and systemd's first log line came at 852,
+  two 334 ms timeouts (a terminfo query and a terminal reset) to a serial port with a file behind it;
+  with it, 855 ms became 163-207 for the whole boot (`b5f361f`). `linux` and
+  `vt220` are what systemd picks for a virtual console and a serial line when nothing says otherwise.
+
+### The host keys
+
+`spin-machine-sshd-keygen.service` replaces Ubuntu's `sshd-keygen.service`, whose
+`ConditionFirstBoot=yes` has not fired by the time ssh.service asks sshd to validate its
+configuration, so sshd found no keys, exited 1, and systemd gave up after five tries ("Start request
+repeated too quickly"). Every boot here is a first boot, so keys live exactly as long as the VM.
+
+- **From the boot's first dispatch.** Wanted by `sysinit.target`, `DefaultDependencies=no`, and not
+  ordered before sysinit (nothing there waits for host keys, and ordering it there would hold the
+  vsock socket behind the generation). Started by the first sshd instead, the generation sat inside
+  the first login: from the boot, accept to first login 177 → 155 ms and the first login 486 → 468,
+  20 boots each on the bench fleet (lab 43463472762, 2026-11-13). The vsock socket listens from the
+  first dispatch too, and a connection that arrives first waits for the keys.
+- **Not pulled in by ssh.socket.** Hanging it off the socket put it inside `sockets.target`, and with
+  default dependencies systemd broke the cycle by dropping an edge at random ("basic.target: Found
+  ordering cycle: sockets.target/start after ssh.socket/start after
+  spin-machine-sshd-keygen.service/start after basic.target/start").
+- **sshd@ waits too** (`sshd@.service.d/keygen.conf`). systemd-ssh-generator listens on AF_VSOCK port
+  22 when the machine has a vsock device, and on `/run/ssh-unix-local/socket` always, each starting
+  `sshd@.service` per connection. With the keygen wanted by ssh.service alone, until something had
+  connected over TCP there were no keys and the per-connection sshd dropped every connection: over
+  vsock the image could not be logged into at all (2026-11-12). A drop-in on the template, because
+  `Before=sshd@.service` in the keygen unit orders against no instance.
+- **Ed25519 only**, skipped when it exists, so a VM whose provisioner placed its own key keeps it.
+  Not `ssh-keygen -A`: it also makes RSA, which was the whole cost of the unit (309 ms of
+  `systemd-analyze blame` in a guest, 2026-09-24; on the host RSA 141 ms against 6 for ECDSA and 5
+  for Ed25519). sshd skips a default host key that is not there, and every client since OpenSSH 6.5
+  (2014) takes Ed25519. ECDSA went too: −5.0 [−8.3, −1.8] ms, sshd accepting −4.4 [−6.9, −1.9] (60
+  boots each, lab 44979726719, 2026-11-22).
+- **Ubuntu's sshd-keygen without default dependencies** (`sshd-keygen.service.d/10-lane.conf`). Its
+  condition never holds here, but a job waits for its ordering before its condition is checked: with
+  its default dependencies it held ssh.service until basic.target (laptop, v20261120.03,
+  2026-11-21).
+
+### The lane
+
+- **The image's vsock lane** (`sshd-vsock.socket.d/10-lane.conf`, `sshd@.service.d/10-lane.conf`,
+  logind's, the runtime directory's and the manager's `10-lane.conf`, the dbus.socket copy). Without
+  default dependencies none waits for `sysinit.target` (journald, udev) or `basic.target`. Together
+  with no `/run/nologin` at boot and sessions of an early class, the first login over vsock came
+  478 → 402 ms on the bench fleet (lab 43518915618, 2026-11-13). Each part alone gained little: the
+  socket early accepted 60 ms sooner and the login then waited for logind and the manager. `dbus.socket`
+  orders itself after `sysinit.target` in its own `[Unit]`, which a drop-in cannot take back, so the
+  image has a copy without `Wants=sysinit.target` and `After=sysinit.target`.
+- **logind's Varlink socket** kept `After=sysinit.target` while the service did not: logind was ready
+  ~230 ms into the boot, behind udevd (lab 44557605832), and pam_systemd waited ~32 ms from PAM's
+  session open to logind's new session against 1 ms for a second login (lab 44557162195). Without
+  them, 20 boots each (labs 44558035927, 44558053261, 2026-11-19): that hop 24.5/41.8 → 15.8/22.7 ms,
+  accept to login 131/137 → 120/128, the first login 332/355 → 328/337: logind starting sooner takes
+  the CPU sshd was starting on. Ordering logind after `modprobe@drm` cost nothing either way.
+- **spin's path** (`ssh.socket`, `ssh.service`, `sshd-keygen.service`, each `10-lane.conf`). spin's
+  supervisor forwards vsock port 22 to 127.0.0.1:22. ssh.service's own `After=` names
+  `network.target`, `nss-user-lookup.target` and `auditd.service`, which nothing in this boot starts.
+  With logind and the bus without a private `/tmp` and udev at the lowest weight, the cold first
+  login came −59.4 [−65.9, −56.2] ms, sshd accepting 56 ms sooner (lab 44805051310, 20 boots each,
+  2026-11-21, the probe's forwarder ordered as early). The order alone was −10.8 [−16.3, −5.2]: the
+  login then ran beside udev's coldplug on the one vCPU, which the weight lets it pass.
+- **No private /tmp for logind and the bus.** `PrivateTmp=` orders a unit after
+  `systemd-tmpfiles-setup.service`, which waits for `local-fs.target`, and `DefaultDependencies=no`
+  does not take that back: without it logind started ~50 ms sooner (laptop, 2026-11-21). logind,
+  under `ProtectSystem=strict`, sees the machine's `/tmp` read-only; the broker, root under
+  `ProtectSystem=full`, can read and write it. Neither keeps anything in `/tmp`.
+- **ssh.service without `sshd -t`.** `sshd -D` parses the same configuration and refuses to start on
+  an error, and `Restart=on-failure` with `RestartPreventExitStatus=255` treats both the same. The
+  check stays on reload (`ExecReload=`), which spin's supervisor runs when it installs the user CA: a
+  bad configuration then leaves the running sshd alone rather than sending it a SIGHUP it would die
+  on. An empty `ExecStartPre=` is what resets the list.
+
+### udev
+
+- **udev is on.** Masked from 2026-09 for six months, it saved nothing (826 against 829 ms) and cost
+  a login: `serial-getty@ttyS0` carries `BindsTo=dev-ttyS0.device`, a `.device` unit exists only
+  if udev announced it, and a drop-in clearing `BindsTo` did not bring the login back. A hot-plugged
+  CPU never produced an add event either.
+- **The coldplug filter** (`10-coldplug.conf`). The trigger replays an add for each of ~170 devices
+  at boot (ACPI's 39, sixteen memory blocks, bdi, mem, pci, platform). Filtered, the lane's login came
+  436 → 402 ms on two vCPUs (lab 43518915618, 2026-11-13). It keeps block and net; virtio; misc (vsock,
+  fuse, tun); input (the power button's `power-switch` tag, which logind's shutdown on
+  `system_powerdown` needs); the clock devices; the serial console; and cpu, because a core a consumer
+  attached while its own init was PID 1 is onlined by this replay reaching `40-spin-hotadd.rules` and
+  by nothing else (`task boot:hotadd`). Compared device by device with the full replay, what differs
+  is the group of `/dev/ptmx` and `/dev/tty` (mode 666 either way), dialout on ttyS1-3 and kmem on
+  `/dev/port`. A device that arrives later is udev's as ever: hotplug is a new event.
+- **The lowest weight while the boot runs** (`20-startup.conf`). `StartupCPUWeight=` holds only until
+  the boot's jobs are done; a device plugged later is handled at the normal weight. Alone it did
+  nothing on spin's path, where the login waited for basic.target, which waited for udev (#329); with
+  the login early it is most of the −59.4 ms. It costs the console prompt +51 ms and the second login
+  +6.1 ms (udev's deferred work runs after the first login), same run (lab 44805051310).
+- **Not before sysinit.target.** At the lowest weight udevd's start came after every early unit, and
+  `sysinit.target`, `basic.target` and spin's supervisor waited for it. Without the order: cold first
+  login −48.6 [−51.7, −42.6], restored −2.0 [−8.0, +4.7], p95 114 against 114 (30 a side, lab
+  44987412171, 2026-11-22); basic.target 286 → 242 ms on the guest's clock, udevd ready after the
+  login (lab 44977226981). A checkpoint saved with udev at work has the guest's tick running, and
+  QEMU's patch 0005 keeps its restore from sleeping ~450 ms; without it the restored p95 is 539
+  (#452).
+- **The hot-add rule** (`40-spin-hotadd.rules`). Ubuntu's `40-vm-hotadd.rules` does nothing here: it
+  checks the DMI vendor for Hyper-V or Xen and jumps past itself otherwise, and this machine reports
+  QEMU. The rule is ungated, since a hypervisor test is the mistake being fixed: a CPU added and left
+  offline is a core somebody paid for. Without it the host would have to reach into the guest to
+  online each core, a second mechanism that stops being reachable when the guest's init hands over.
+  Memory has no rule: the kernel onlines each block (`memhp_default_state=online`,
+  `machine/cmdline.go`), and a rule would read the block offline, write after the kernel has, and log
+  `EINVAL` for every block.
+
+### Units, generators and the manager
+
+- **The masks' measurement.** The generator group includes `systemd-factory-reset-generator`, which
+  cannot do anything on a machine systemd logs as not booted in EFI mode: with a tpm2 generator that
+  was there too, worth 1.0 ms of the 26 ms systemd spends loading units and building the initial
+  transaction (2026-09-26, the unitload probe, `ad05544`, asking `systemd --test`; the same number from
+  a debug-logged boot is 212 ms, the difference being the logging). `systemd-gpt-auto-generator` is
+  masked by Ubuntu's own systemd package (the link is in `systemd.list`), not by the image.
+- **The manager's logging.** `LogLevel=err`, `LogTarget=journal`, `ShowStatus=no`,
+  `StatusUnitFormat=name` and `kernel.printk = 3 3 3 3` were set and taken out together: +2.4 [−2.3,
+  +7.8] at 20 boots and −1.8 [−7.7, +3.2] at 40 (labs 44818953987, 44822157367, 2026-11-21). The
+  console stays quiet through the command line's `quiet loglevel=3`.
+- **Masked, not merely disabled**, for the timers: a link to `/dev/null` survives a package upgrade
+  putting the unit's `[Install]` link back.
+- **The cache pre-warm.** `optimize-systemd.sh` runs `ldconfig`, `locale-gen en_US.UTF-8`,
+  `update-locale`, `iconvconfig` and `fc-cache` at build time, then deletes documentation, man pages,
+  apt's lists and any journal.
+- **docker and containerd by socket.** The two services' enable links are removed and the two sockets
+  enabled; the links dangle until `rootfs/` is copied.
+
+### Memory
+
+- **MGLRU's `min_ttl_ms=1000`** (`lru-gen.conf`). When the pages used in the last second cannot all
+  be kept, the kernel calls the OOM killer instead of evicting and re-reading them. Without it a guest
+  whose memory fills slowly evicts its programs' code and faults it back in, page cache still counts
+  as reclaimable, and the OOM killer never comes: the VM is up and answers nothing. Measured
+  2026-09-28 with the memory-policy probe (`337c08d`), 1 GiB, 2 vCPUs, memory taken at ~80 MB/s while a
+  session re-read its libraries, 3 boots: the worst SSH login 611-1785 ms without and 105-106 ms with,
+  the process killed after 11.2 s instead of 13.8. 1000 ms is the kernel documentation's suggestion;
+  `kernel/Dockerfile` asserts `CONFIG_LRU_GEN`.
+- **`/tmp` at a quarter of memory**, not systemd's half. A tmpfs belongs to no process, so the OOM
+  killer cannot take it back and kills whatever it finds instead, which `min_ttl_ms` makes it do
+  sooner: with tmpfs holding all but 16 MiB of a 1 GiB guest it killed the console's getty and the
+  session that filled it (2026-09-28). `Options=` replaces the whole list, so it is the shipped unit's
+  with the size changed; `%%` is a literal `%` in a unit file.
+
+### The pressure sender
+
+The guest's half of the pressure probe: PSI triggers on CPU, memory and IO, and OOM kills, written
+to the host over vsock as they happen (docs/machine.md, "Pressure"). At the lowest priority (`Nice=19`,
+idle CPU and IO classes), since it reports on a guest whose CPU may be what is short. As root,
+because a trigger with a window under 2 s is root's alone. Out of the OOM killer's way
+(`OOMScoreAdjust=-900`), which otherwise took it in the OOM it was reporting (`task boot:pressure`,
+2026-11-21); it holds a few MiB. Started 10 s after the boot: ordered after `multi-user.target` alone
+it started beside the first login, 2.6-3.3 ms more between sshd accepting and the login in three runs
+([+1.1, +4.7] at 20 boots, [+2.1, +4.9] and [+1.5, +4.2] at 40; labs 44921602512, 44924252325,
+44924755505), the last with `Type=idle`, which did not move it. On a restore it is already running
+with its triggers armed and dials the host again by itself.
+
+### Timers
+
+All five of the distribution's timers carry `Persistent=true`: a VM resumed from a checkpoint that
+sat for a week catches up at the moment it is handed a workload. `motd-news.timer`'s `ExecStart` is
+`/etc/update-motd.d/50-motd-news`, deleted with the MOTD, so it could only fail 203/EXEC twice a day
+and stay in `systemctl --failed`. `fstrim.timer` is kept because the drives are opened
+`discard=unmap`, so a guest's TRIM reaches the overlay and returns blocks to the host, and made hourly
+because ext4 only trims block groups that freed something since their last trim, so a run with
+nothing to give back is cheap.
 
 ## What a workspace keeps
 

@@ -1,66 +1,15 @@
-# SSH host keys, generated on this machine rather than shipped with the image.
-#
-# The image carries none, deliberately: a host key is identity, and an image many VMs boot
-# read-only must not hand the same one to all of them — every VM would present the same
-# fingerprint, and any of them could impersonate the rest.
-#
-# This is not sshd-keygen.service, which the distribution ships and which does not run here.
-# That unit carries ConditionFirstBoot=yes, and by the time ssh.service asks sshd to
-# validate its configuration the condition has not fired, so sshd finds no keys, exits 1,
-# and systemd retries five times before giving up:
-#
-#   ssh.service: Start request repeated too quickly.
-#
-# The condition is dropped because for this machine every boot IS a first boot: the root
-# filesystem is a fresh qcow2 overlay over a shared read-only base, so keys generated here
-# live exactly as long as the VM does.
-
+# docs/image.md, "The host keys"
 [Unit]
 Description=Generate SSH host keys for this VM
-# Started from the boot's first dispatch, beside journald and udev - wanted by sysinit.target,
-# without default dependencies - and not by the first sshd that needs the keys. The first login
-# over vsock is accepted by a per-connection sshd@.service, which waits for this unit (its
-# drop-in, sshd@.service.d/keygen.conf) before it sends its banner, so a keygen started by that
-# connection put the key generation inside the login. Started from the boot, it runs while the
-# boot does: accept to first login went from 177 to 155 ms p50, and the first login from 486 to
-# 468, 20 boots of each interleaved on the bench fleet (task boot:ssh-first, lab run 43463472762,
-# 2026-11-13). sshd-vsock.socket then listened after sysinit.target. Since the lane
-# (sshd-vsock.socket.d/10-lane.conf, lab 43518915618) it listens from the first dispatch too, and
-# a connection that arrives before the keys waits for them through sshd@.service.d/keygen.conf.
-#
-# Wanted by sysinit.target but not ordered before it: nothing in sysinit waits for host keys,
-# and ordering it there would hold the vsock socket behind the key generation instead.
-# DefaultDependencies=no takes away the After=sysinit.target and basic.target a service gets by
-# default, which would make it wait for the target that wants it. The writes go to /etc/ssh on
-# the root filesystem, which the kernel mounts read-write before PID 1 starts.
 DefaultDependencies=no
 Conflicts=shutdown.target
 Before=shutdown.target
-# Ordered before the daemons, and NOT pulled in by ssh.socket: hanging it off the socket put it
-# inside sockets.target, and with default dependencies systemd broke the loop that made by
-# dropping an edge at random:
-#
-#   basic.target: Found ordering cycle: sockets.target/start after ssh.socket/start
-#   after spin-machine-sshd-keygen.service/start after basic.target/start
-#
-# The per-connection sshd@.service that systemd-ssh-generator's vsock and AF_UNIX sockets start
-# waits for it through a drop-in of its own (sshd@.service.d/keygen.conf), which stays: it is
-# what makes a connection that arrives first wait rather than find no keys.
 Before=ssh.service sshd.service
 ConditionPathExists=/usr/bin/ssh-keygen
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Ed25519 only, skipped when it already exists, so a VM whose provisioner placed its own key
-# keeps it. Not -A: it also makes an RSA key, and RSA was the whole cost of this unit - 309 ms of
-# systemd-analyze blame in a guest, measured 2026-09-24, and on the host 141 ms for RSA against
-# 6 ms for ECDSA and 5 ms for Ed25519. sshd skips a default host key that is not there without a
-# word, so nothing is configured to leave the others out, and every client since OpenSSH 6.5
-# (2014) takes Ed25519. The ECDSA key went too: its ssh-keygen ran on the one vCPU before
-# ssh.service, and without it the cold first login is -5.0 [-8.3, -1.8] ms p50, sshd accepting
-# -4.4 [-6.9, -1.9] (bench fleet, spin's shape and login, 60 boots each interleaved, lab
-# 44979726719, 2026-11-22). A client that accepts only ECDSA host keys no longer gets in.
 ExecStart=/bin/sh -c 'f=/etc/ssh/ssh_host_ed25519_key; [ -e "$$f" ] || exec /usr/bin/ssh-keygen -q -t ed25519 -N "" -f "$$f"'
 
 [Install]

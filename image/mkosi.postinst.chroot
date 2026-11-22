@@ -1,28 +1,15 @@
 #!/usr/bin/env bash
-# Runs inside the image tree, after the packages and mkosi.extra are in place: the three
-# scripts, then the configuration files. That order is load-bearing and not stylistic — see
-# the copy below.
+# docs/image.md, "How the image is assembled"
 set -euo pipefail
 
-# mkosi runs scripts with a PATH of its own choosing, and it does not include
-# /usr/local/bin. The scripts install Task, git-lfs and buildctl there and then run each to
-# check it — `task: command not found`, exit 127, with the binary sitting where it was just
-# installed.
+# docs/image.md, "The toolchain"
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 lib=/usr/local/lib/spin-base
 
 "$lib/install-dev-tools.sh"
 "$lib/configure-system.sh"
-# The licence notices, collected here and not in image/build.sh, because the next line
-# deletes them: optimize-systemd.sh ends with `rm -rf /usr/share/doc/*`, which is right for
-# an image nobody reads documentation in and wrong for one that is redistributed. GPL
-# section 1 and every permissive licence in here require the copyright notices and licence
-# text to stay with a copy.
-#
-# The image still ships none of them — build.sh moves this file out and deletes it, so the
-# notices travel with the release rather than inside every VM that boots. Written under
-# /var/lib because $lib is removed at the end of this script.
+# docs/image.md, "How the image is assembled"
 {
     echo "Licences of the software in this image."
     echo "One entry per package, from its own /usr/share/doc/<pkg>/copyright."
@@ -34,22 +21,12 @@ lib=/usr/local/lib/spin-base
     done
 } > /var/lib/spin-machine-licenses.txt
 
-# A package this repository built (+spinN, image/systemd) is held, so an `apt upgrade` in a workspace cannot replace it with the archive's build of the same
-# source - which would bring back what was built out, the BPF framework among it - nor half of
-# it: libsystemd-shared and systemd come from one build or the boot fails. build.sh checks it.
+# docs/image.md, "The rebuilt packages"
 dpkg-query -W -f='${Package} ${Version}\n' | awk '$2 ~ /\+spin[0-9]+$/ {print $1}' | xargs -r apt-mark hold
 
 "$lib/optimize-systemd.sh"
 
-# The configuration files, copied *after* the scripts and not delivered by ExtraTrees
-# directly, because install-dev-tools.sh installs containerd.io and one of these files is
-# that package's conffile. Present beforehand, it is a file dpkg does not know about, so
-# `apt install` stops at a conffile prompt with no tty and the whole build fails at
-# `end of file on stdin at conffile prompt` (measured 2026-09-07).
-#
-# The symlinks optimize-systemd.sh makes into sockets.target.wants point at two of these
-# files and are dangling until this runs.
+# docs/image.md, "How the image is assembled"
 cp -a "$lib/rootfs/." /
 
-# Build inputs, not something a workload should find at runtime.
 rm -rf "$lib"
