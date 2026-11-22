@@ -5,12 +5,91 @@ package lab
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
+
+const traceInst = "/sys/kernel/tracing/instances/d452"
+
+func traceStart() {
+	script := `I=` + traceInst + `
+mkdir -p $I && echo 0 > $I/tracing_on && echo mono > $I/trace_clock && echo 32768 > $I/buffer_size_kb
+for e in vsock kvm/kvm_vcpu_wakeup kvm/kvm_msi_set_irq kvm/kvm_apic_accept_irq kvm/kvm_exit kvm/kvm_msr kvm/kvm_fast_mmio kvm/kvm_mmio kvm/kvm_pio kvm/kvm_userspace_exit kvm/kvm_set_irq kvm/kvm_ioapic_set_irq kvm/kvm_inj_virq kvm/kvm_apic_ipi kvm/kvm_pv_eoi; do [ -d $I/events/$e ] && echo 1 > $I/events/$e/enable; done
+echo > $I/trace; echo 1 > $I/tracing_on`
+	_ = exec.Command("sudo", "-n", "sh", "-c", script).Run()
+}
+
+func monoNow() int64 {
+	var ts unix.Timespec
+	_ = unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
+	return ts.Nano()
+}
+
+func monoAt(t time.Time) int64 { return monoNow() - time.Since(t).Nanoseconds() }
+
+// traceStop ends the trace, keeps it in path and returns its lines between from and to (ns,
+// CLOCK_MONOTONIC), kvm_exit lines counted by reason instead of listed.
+func traceStop(path string, from, to int64) string {
+	out, err := exec.Command("sudo", "-n", "sh", "-c", `I=`+traceInst+`; echo 0 > $I/tracing_on; cat $I/trace; echo > $I/trace`).Output()
+	if err != nil {
+		return fmt.Sprintf("trace: %v", err)
+	}
+	_ = os.WriteFile(path, out, 0o600)
+	var b strings.Builder
+	exits := map[string]int{}
+	n := 0
+	for line := range strings.Lines(string(out)) {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		i := strings.Index(line, ": ")
+		if i < 0 {
+			continue
+		}
+		f := strings.Fields(line[:i])
+		if len(f) == 0 {
+			continue
+		}
+		sec, err := strconv.ParseFloat(f[len(f)-1], 64)
+		if err != nil {
+			continue
+		}
+		ts := int64(sec * 1e9)
+		if ts < from || ts > to {
+			continue
+		}
+		rel := float64(ts-from)/1e6 - 5
+		ev := strings.TrimSpace(line[i+2:])
+		if strings.HasPrefix(ev, "kvm_exit:") {
+			r := ev
+			if k := strings.Index(ev, "reason "); k >= 0 {
+				r = strings.Fields(ev[k+7:])[0]
+			}
+			exits[fmt.Sprintf("%4d %s", int(rel)/10*10, r)]++
+			continue
+		}
+		if n < 400 {
+			fmt.Fprintf(&b, "%+8.3f %s %s\n", rel, f[0], ev)
+		}
+		n++
+	}
+	fmt.Fprintf(&b, "(%d events listed of %d)\nkvm_exit by 10ms bucket and reason:\n", min(n, 400), n)
+	keys := make([]string, 0, len(exits))
+	for k := range exits {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(&b, "  %s x%d\n", k, exits[k])
+	}
+	return b.String()
+}
 
 // experiment for #452: what QEMU's threads did between `running` and the login.
 
