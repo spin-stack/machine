@@ -173,11 +173,13 @@ func TestTheBoundsAreTabledOnceMeasured(t *testing.T) {
 	}
 	records := docRecords()
 	records[1].Numbers["floor-lane"], records[1].Numbers["floor"] = Number{404, 410}, Number{250, 255}
+	records[1].Bounds = map[string]Delta{"floor": {P50: -154, Lo: -160.5, Hi: -150.2}}
 	got := Doc(records, "kept")
 	for _, want := range []string{
 		"## Diagnostics\n",
 		"## Bounds\n\nNever candidates",
-		"| release | first login by the lane | no systemd before sshd |\n|---|---|---|\n| v1 | - | - |\n| v2 | 404 / 410 | 250 / 255 |\n",
+		"| release | first login by the lane | no systemd before sshd | Δ |\n|---|---|---|---|\n| v1 | - | - |  |\n" +
+			"| v2 | 404 / 410 | 250 / 255 | -154.0 [-160.5, -150.2] |\n",
 		"## Where each was measured\n",
 	} {
 		if !strings.Contains(got, want) {
@@ -189,6 +191,30 @@ func TestTheBoundsAreTabledOnceMeasured(t *testing.T) {
 	}
 	if !strings.Contains(got, "| v2 | 151 | 140 | - | 290 |\n") {
 		t.Errorf("a bound is among the diagnostics:\n%s", got)
+	}
+}
+
+// The floor's Δ is drawn from the boots themselves: testdata/floor-45018301368.json is the floor's
+// samples from report.yml run 45018301368 (v20261122.02, 20 boots each, bench fleet), and its
+// record keeps the Δ through its JSON to the page.
+func TestAFloorsRecordKeepsItsDeltaFromItsBoots(t *testing.T) {
+	l, err := ReadLadder(filepath.Join("testdata", "floor-45018301368.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "v20261122.02.json")
+	if err := WriteRecord(path, l.Records()[1]); err != nil {
+		t.Fatal(err)
+	}
+	r, err := ReadRecord(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Delta{P50: -166.3, Lo: -174.7, Hi: -160.3}); r.Bounds["floor"] != want {
+		t.Errorf("the floor against the lane's login: %+v, not %+v", r.Bounds, want)
+	}
+	if got := Tables([]Record{r}); !strings.Contains(got, "| v20261122.02 | 407 / 420 | 240 / 246 | -166.3 [-174.7, -160.3] |\n") {
+		t.Errorf("the floor's row:\n%s", got)
 	}
 }
 

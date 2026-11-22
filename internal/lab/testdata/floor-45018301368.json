@@ -1,0 +1,363 @@
+{
+  "releases": [
+    "v20261122.01",
+    "v20261122.02"
+  ],
+  "results": [
+    {
+      "probe": "floor",
+      "about": "ms from the moment before QEMU is exec'd to sshd accepting on vsock, and to `true` run over SSH, as spin or, on spin's login, root",
+      "options": {
+        "cpus": "1",
+        "flags": "",
+        "hotplug-disks": "16",
+        "login": "lane",
+        "max-cpus": "16",
+        "max-memory": "8192",
+        "memory": "128",
+        "plugged": "2048"
+      },
+      "reps": 20,
+      "rows": [
+        "boot"
+      ],
+      "metrics": [
+        {
+          "name": "first_login",
+          "unit": "ms",
+          "about": "`true` run as spin over SSH, mlkem768x25519"
+        }
+      ],
+      "host": {
+        "instance": "c8id.4xlarge",
+        "nested": true,
+        "cpu": "Intel(R) Xeon(R) 6975P-C",
+        "cpus": 16
+      },
+      "started": "2026-11-22T11:46:29.918245286Z",
+      "finished": "2026-11-22T11:46:58.470544182Z",
+      "samples": [
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 1,
+          "values": {
+            "first_login": 398.881229
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 1,
+          "values": {
+            "first_login": 235.03074
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 2,
+          "values": {
+            "first_login": 415.25401
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 2,
+          "values": {
+            "first_login": 240.341659
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 3,
+          "values": {
+            "first_login": 402.249677
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 3,
+          "values": {
+            "first_login": 235.767463
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 4,
+          "values": {
+            "first_login": 402.527646
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 4,
+          "values": {
+            "first_login": 239.313497
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 5,
+          "values": {
+            "first_login": 426.767714
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 5,
+          "values": {
+            "first_login": 241.033513
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 6,
+          "values": {
+            "first_login": 395.632867
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 6,
+          "values": {
+            "first_login": 246.978314
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 7,
+          "values": {
+            "first_login": 420.227616
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 7,
+          "values": {
+            "first_login": 235.332966
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 8,
+          "values": {
+            "first_login": 415.593808
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 8,
+          "values": {
+            "first_login": 245.473821
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 9,
+          "values": {
+            "first_login": 410.83069
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 9,
+          "values": {
+            "first_login": 245.206305
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 10,
+          "values": {
+            "first_login": 395.415535
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 10,
+          "values": {
+            "first_login": 245.447066
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 11,
+          "values": {
+            "first_login": 416.035359
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 11,
+          "values": {
+            "first_login": 245.520159
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 12,
+          "values": {
+            "first_login": 417.23204
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 12,
+          "values": {
+            "first_login": 240.516449
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 13,
+          "values": {
+            "first_login": 398.412891
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 13,
+          "values": {
+            "first_login": 242.95514
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 14,
+          "values": {
+            "first_login": 404.110073
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 14,
+          "values": {
+            "first_login": 234.368503
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 15,
+          "values": {
+            "first_login": 396.108373
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 15,
+          "values": {
+            "first_login": 240.524012
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 16,
+          "values": {
+            "first_login": 406.808947
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 16,
+          "values": {
+            "first_login": 239.334206
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 17,
+          "values": {
+            "first_login": 419.634049
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 17,
+          "values": {
+            "first_login": 240.853536
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 18,
+          "values": {
+            "first_login": 413.879298
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 18,
+          "values": {
+            "first_login": 242.48237
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 19,
+          "values": {
+            "first_login": 407.436828
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 19,
+          "values": {
+            "first_login": 234.914868
+          }
+        },
+        {
+          "tree": "v20261122.02",
+          "row": "boot",
+          "rep": 20,
+          "values": {
+            "first_login": 402.834173
+          }
+        },
+        {
+          "tree": "v20261122.02-floor",
+          "row": "boot",
+          "rep": 20,
+          "values": {
+            "first_login": 241.966639
+          }
+        }
+      ]
+    }
+  ]
+}

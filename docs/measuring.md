@@ -47,7 +47,8 @@ stand, where their time goes, and what was kept, rejected and is open are in
    by the same amount.
 8. **Measure the bounds each release.** A bound that is not re-measured stops being one. The
    no-systemd floor bounds what systemd costs. `releases measure` measures it beside every
-   release, and report.yml keeps it in the release's record (docs/releases.md, "Bounds").
+   release, and report.yml keeps it in the release's record (docs/releases.md, "Bounds"), with
+   the floor's Δp50 against the release and its interval, read by rule 4 as any Δ is.
 9. **A laptop finds leads.** It does not decide anything. Its noise has read 61 against 105 ms
    minutes apart (`de9b7db`), and it is not nested.
 
