@@ -144,12 +144,14 @@ func TestAResumeTellsItsPhases(t *testing.T) {
 		statuses []string
 		after    string // the run state once loaded
 		want     []string
+		fast     bool
 	}{
-		{"in full", LoadOptions{}, []string{"active", "RESUME", "completed"}, "running", []string{"LoadStarted", "StateLoaded", "GuestRunning"}},
-		{"in full, saved stopped", LoadOptions{}, []string{"active", "completed"}, "paused", []string{"LoadStarted", "StateLoaded", "GuestRunning"}},
-		{"fast", LoadOptions{Fast: true}, []string{"active", "postcopy-active", "RESUME"}, "running", []string{"LoadStarted", "GuestRunning", "StateLoaded"}},
+		{"in full", LoadOptions{}, []string{"active", "RESUME", "completed"}, "running", []string{"LoadStarted", "StateLoaded", "GuestRunning"}, false},
+		{"in full, saved stopped", LoadOptions{}, []string{"active", "completed"}, "paused", []string{"LoadStarted", "StateLoaded", "GuestRunning"}, false},
+		{"fast", LoadOptions{}, []string{"active", "postcopy-active", "RESUME"}, "running", []string{"LoadStarted", "GuestRunning", "StateLoaded"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			loadingFast(t, tc.fast)
 			f := &fakeQEMU{}
 			places := machineAnswers("inmigrate", "root")
 			f.answer = migrations(func(c call) string {
@@ -169,7 +171,7 @@ func TestAResumeTellsItsPhases(t *testing.T) {
 				Disk{Serial: "root", Images: []Image{image(t, "qcow2")}}); err != nil {
 				t.Fatal(err)
 			}
-			if tc.load.Fast {
+			if tc.fast {
 				f.send(migrationEvents("completed"))
 				for range 2 {
 					if err := m.Loaded(ctx(t)); err != nil {
@@ -203,9 +205,10 @@ func TestAFastResumeTellsTheGuestRunningWhenQEMURunsIt(t *testing.T) {
 	m := f.attach(t)
 	p := &phases{}
 	state, root := image(t, "raw").File, Disk{Serial: "root", Images: []Image{image(t, "qcow2")}}
+	loadingFast(t, true)
 	done := make(chan error, 1)
 	go func() {
-		done <- m.Resume(ctx(t), state, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{Fast: true, Phases: p.tell}, root)
+		done <- m.Resume(ctx(t), state, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{Phases: p.tell}, root)
 	}()
 	for !slices.Contains(f.commands(), "migrate-incoming") {
 		time.Sleep(time.Millisecond)

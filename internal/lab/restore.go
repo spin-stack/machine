@@ -41,9 +41,8 @@ import (
 // filled the cache with pages of zeros, and made the cached row slower than the evicted one in
 // every ladder cell.
 //
-// The fast row is QEMU 11.2's fast snapshot load (mapped-ram and postcopy-ram), where the guest
-// runs once the device state is in; it needs userfaultfd for QEMU's user, and was slower to the
-// first login on the bench fleet, 293 ms against 152 (lab 44585840498).
+// The machine loads a state over machine.fastAbove fast where the host grants QEMU a userfaultfd,
+// which a bench runner does (userfaultfd), so touched over it measures the fast load.
 type restoreFirst struct{}
 
 func (restoreFirst) Name() string { return "restore-first" }
@@ -52,16 +51,12 @@ func (restoreFirst) About() string {
 }
 
 func (restoreFirst) Options() []Option {
-	return append(shape, Option{"fast", "false", "also restore each tree with the fast snapshot load (--fast)"}, channelsOption,
+	return append(shape, channelsOption,
 		Option{"touched", "0", "MiB the guest writes into a tmpfs after its login and before its save, as root (login=spin): memory its checkpoint carries, as a workspace's that has run a while does"})
 }
 
 func (restoreFirst) Rows(o Options) []string {
-	rows := []string{"evicted", "cached"}
-	if o.Bool("fast") {
-		rows = append(rows, "fast")
-	}
-	return withChannels(o, rows...)
+	return withChannels(o, "evicted", "cached")
 }
 
 func (restoreFirst) Phases() int { return 2 }
@@ -69,9 +64,6 @@ func (restoreFirst) Phases() int { return 2 }
 func (restoreFirst) Needs(o Options) []Need {
 	needs := append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "qmp"}, Need{"boot", "restore"},
 		Need{"save", "to"}, Need{"restore", "disk"})
-	if o.Bool("fast") {
-		needs = append(needs, Need{"restore", "fast"})
-	}
 	return append(append(needs, channelsNeeds(o)...), plugNeeds(o)...)
 }
 
@@ -96,15 +88,18 @@ func (restoreFirst) Measure(_ context.Context, m *Measurement) error {
 	if m.Phase == 0 {
 		return coldSave(m, channels...)
 	}
-	return restore(m, way == "cached", way == "fast", channels...)
+	return restore(m, way == "cached", channels...)
 }
 
 // restore resumes m's saved state - evicted from the page cache, or read back into it first when
 // cached - into a QEMU exec'd for it, and logs in. channels are restore's --channels, when the
 // row names them.
 // mutate-lane: TestEveryProbeMeasuresATree
-func restore(m *Measurement, cached, fast bool, channels ...string) error {
+func restore(m *Measurement, cached bool, channels ...string) error {
 	c := m.State.(*checkpoint)
+	if err := userfaultfd(); err != nil {
+		return err
+	}
 	if err := evict(c.state); err != nil {
 		return err
 	}
@@ -130,14 +125,7 @@ func restore(m *Measurement, cached, fast bool, channels ...string) error {
 	// own start, after QEMU's instead of beside it, in the login this probe measures. What QEMU's
 	// whole start costs a restore is prestart's restored row against its restored-into-prestarted.
 	m.RecordMs("listening", time.Since(t0))
-	args := c.restoreArgs(m, qmp, channels...)
-	if fast {
-		if err := userfaultfd(); err != nil {
-			return err
-		}
-		args = append(args, "--fast")
-	}
-	if err := m.SpinMachine(args...); err != nil {
+	if err := m.SpinMachine(c.restoreArgs(m, qmp, channels...)...); err != nil {
 		return err
 	}
 	m.RecordMs("running", time.Since(t0))
@@ -293,6 +281,7 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 
 // touch writes the touched option's MiB into a tmpfs in the guest on cid, which its checkpoint then
 // carries. The bytes are not zeros: a save writes no page of zeros, and a load reads none.
+// mutate-lane: TestEveryProbeMeasuresATree
 func touch(m *Measurement, cid uint32) error {
 	mib := m.Options.Int("touched")
 	if mib == 0 {
@@ -306,16 +295,17 @@ func touch(m *Measurement, cid uint32) error {
 	return nil
 }
 
-// userfaultfd makes sure an unprivileged QEMU can have one, which the fast load serves the guest's
-// faults with. On a bench runner, a throwaway host, it is turned on; anywhere else it is asked for.
+// userfaultfd gives an unprivileged QEMU one on a bench runner, a throwaway host, as a spin host
+// whose operator grants /dev/userfaultfd does: a state over machine.fastAbove then loads fast.
+// Anywhere else the host is left as it is, and loads every state as it allows.
 // mutate-lane: TestEveryProbeMeasuresATree
 func userfaultfd() error {
 	const knob = "/proc/sys/vm/unprivileged_userfaultfd"
-	if b, err := os.ReadFile(knob); err == nil && strings.TrimSpace(string(b)) == "1" {
+	if os.Getenv("GITHUB_ACTIONS") != "true" {
 		return nil
 	}
-	if os.Getenv("GITHUB_ACTIONS") != "true" {
-		return fmt.Errorf("the fast load needs userfaultfd for QEMU's user: sudo sysctl -w vm.unprivileged_userfaultfd=1")
+	if b, err := os.ReadFile(knob); err == nil && strings.TrimSpace(string(b)) == "1" {
+		return nil
 	}
 	return run("sudo", "sysctl", "-q", "-w", "vm.unprivileged_userfaultfd=1")
 }

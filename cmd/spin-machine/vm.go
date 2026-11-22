@@ -289,7 +289,6 @@ type restoreFlags struct {
 	qmp      string
 	from     string
 	target   string
-	fast     bool
 	channels int
 	release  string
 	disks    diskFlags
@@ -300,8 +299,7 @@ func (o *restoreFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "QMP socket of a VM started with boot --restore (required)")
 	fs.StringVar(&o.from, "from", "", "the state save wrote (required)")
 	fs.StringVar(&o.target, "target", "", "this machine's record, as spin-machine target prints it, trusted as given (default: asked of the machine before the load)")
-	fs.BoolVar(&o.fast, "fast", false, "run the guest once its devices are in and read its memory as it touches it")
-	fs.IntVar(&o.channels, "channels", 0, fmt.Sprintf("how many threads read the guest's memory (QEMU's multifd); any number reads a state saved with any, and none given is %d, machine.DefaultChannels, or one for --fast or a stream state", machine.DefaultChannels))
+	fs.IntVar(&o.channels, "channels", 0, fmt.Sprintf("how many threads read the guest's memory (QEMU's multifd); any number reads a state saved with any, and none given is %d, machine.DefaultChannels, or one for a fast load or a stream state", machine.DefaultChannels))
 	fs.StringVar(&o.release, "release", "_output", "the release tree: its base image, under a throwaway overlay, is the disk when --disk is not given")
 	o.disks.register(fs)
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "how long the load may take")
@@ -342,9 +340,9 @@ func restore(o restoreFlags) error {
 	}
 	defer func() { _ = f.Close() }()
 	var told timeline
-	load := machine.LoadOptions{Fast: o.fast, Channels: o.channels, Phases: told.tell}
+	load := machine.LoadOptions{Channels: o.channels, Phases: told.tell}
 	// Before the dial, which waits for QEMU to have made its machine.
-	machine.ReadAhead(f, saved, load)
+	machine.ReadAhead(f, saved)
 	m, err := dial(o.qmp, 5*time.Second)
 	if err != nil {
 		return err

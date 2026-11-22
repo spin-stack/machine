@@ -65,7 +65,7 @@ func (prestart) Measure(_ context.Context, m *Measurement) error {
 	case m.Phase == 0 && (way == rowRestored || way == rowRestoredAhead):
 		return coldSave(m, channels...)
 	case m.Phase == 1 && way == rowRestored:
-		return restore(m, false, false, channels...)
+		return restore(m, false, channels...)
 	case m.Phase == 1 && way == rowRestoredAhead:
 		return restoreAhead(m, channels...)
 	case m.Phase == 0:

@@ -27,7 +27,9 @@ import (
 // the guest (RESUME) before it reports completed, and a fast load passes postcopy-device to
 // postcopy-active and runs the guest after it, where Resume returns (bench, QEMU 11.2.0-rc0,
 // lab 44898418357, 2026-11-21). A resume tells GuestRunning with QEMU's run state running (#465).
-// A load of a truncated state ends the destination's QEMU.
+// A load of a truncated state ends the destination's QEMU. The machine loads fast a state of more
+// than 1.5 GiB of data, so the guest has 2 GiB of base memory and fills 1.6 GiB of it for a
+// second checkpoint, which the fast load reads.
 //
 //	SPIN_RECORD_TEST=1   it starts machines (task boot:record)
 func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
@@ -40,7 +42,14 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	s, mac := r.next(t, "/bin/sh")
+	// next is a machine held for the checkpoints, all of one record: 2 GiB of base memory, which
+	// the guest fills without plugging any.
+	next := func(t *testing.T) (machine.Spec, string) {
+		s, mac := r.next(t, "/bin/sh")
+		s.Memory.BaseMB = 2048
+		return s, mac
+	}
+	s, mac := next(t)
 	saving := &stream{}
 	a := startGuest(t, s, mac, saving.event)
 	a.boot(t, overlay, r.base())
@@ -62,15 +71,29 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkpointing: %v\n%s", err, a.said())
 	}
-	a.Kill()
 	t.Logf("saving: %s", saving)
 	saving.inOrder(t, "MIGRATION setup", "MIGRATION active", "MIGRATION pre-switchover", "MIGRATION device", "MIGRATION completed")
+	if err := a.Continue(ctx); err != nil {
+		t.Fatalf("continuing: %v\n%s", err, a.said())
+	}
+	a.type_(t, `mount -t tmpfs -o size=1700m fill /mnt && head -c 1600M /dev/zero | tr '\0' '\377' > /mnt/f && echo FILLED-$((1+1))`)
+	a.await(t, regexp.MustCompile(`FILLED-2\b`), 2*time.Minute)
+	large := filepath.Join(dir, "large")
+	if f, err = os.Create(large); err != nil {
+		t.Fatal(err)
+	}
+	savedLarge, _, err := a.Checkpoint(ctx, f, machine.SaveOptions{}, func(context.Context) error { return nil })
+	_ = f.Close()
+	if err != nil {
+		t.Fatalf("checkpointing the filled guest: %v\n%s", err, a.said())
+	}
+	a.Kill()
 
 	// resume loads state into a fresh machine held for one, and returns its stream, its error and
 	// the guest.
-	resume := func(t *testing.T, state string, load machine.LoadOptions, told *timeline) (*stream, error, *guest) {
+	resume := func(t *testing.T, state string, saved machine.Saved, told *timeline) (*stream, error, *guest) {
 		t.Helper()
-		spec, mac := r.next(t, "/bin/sh")
+		spec, mac := next(t)
 		spec.Restore = true
 		s := &stream{}
 		g := startGuest(t, spec, mac, s.event)
@@ -84,16 +107,16 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = f.Close() }()
-		load.Phases = func(p machine.Phase) {
+		load := machine.LoadOptions{Phases: func(p machine.Phase) {
 			if _, ok := p.(machine.GuestRunning); ok {
 				if st, err := g.Status(ctx); err != nil || st != machine.Running {
 					t.Errorf("told GuestRunning with the machine %s (%v)", st, err)
 				}
 			}
 			told.tell(p)
-		}
+		}}
 		err = g.Resume(ctx, f, saved, here, load, root)
-		if err == nil && load.Fast {
+		if err == nil {
 			err = g.Loaded(ctx)
 		}
 		return s, err, g
@@ -101,7 +124,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 
 	t.Run("in full", func(t *testing.T) {
 		told := &timeline{}
-		s, err, g := resume(t, state, machine.LoadOptions{}, told)
+		s, err, g := resume(t, state, saved, told)
 		if err != nil {
 			t.Fatalf("resuming: %v\n%s", err, g.said())
 		}
@@ -118,7 +141,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 			t.Skip("QEMU cannot open a userfaultfd here: /dev/userfaultfd is not readable and writable, and vm.unprivileged_userfaultfd is 0")
 		}
 		told := &timeline{}
-		s, err, g := resume(t, state, machine.LoadOptions{Fast: true}, told)
+		s, err, g := resume(t, large, savedLarge, told)
 		if err != nil {
 			t.Fatalf("resuming: %v\n%s", err, g.said())
 		}
@@ -134,11 +157,11 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 	// an image's lock it leaves the guest stopped and says so only on its stderr: the load
 	// completed, no RESUME came, and the guest never ran (#459).
 	t.Run("a disk another machine holds", func(t *testing.T) {
-		_, err, g := resume(t, state, machine.LoadOptions{}, &timeline{})
+		_, err, g := resume(t, state, saved, &timeline{})
 		if err != nil {
 			t.Fatalf("resuming: %v\n%s", err, g.said())
 		}
-		s, err, h := resume(t, state, machine.LoadOptions{}, &timeline{})
+		s, err, h := resume(t, state, saved, &timeline{})
 		if err == nil {
 			st, _ := h.Status(ctx)
 			t.Fatalf("a resume onto a disk a running machine holds returned, the machine %s\nloading: %s\n%s", st, s, h.said())
@@ -164,7 +187,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		if err := os.Truncate(short, st.Size()/2); err != nil {
 			t.Fatal(err)
 		}
-		s, err, g := resume(t, short, machine.LoadOptions{}, &timeline{})
+		s, err, g := resume(t, short, saved, &timeline{})
 		if err == nil {
 			t.Fatalf("a truncated state resumed\n%s", g.said())
 		}

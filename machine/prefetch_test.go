@@ -4,6 +4,7 @@ package machine
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 	"unsafe"
@@ -13,7 +14,7 @@ import (
 
 // ReadAhead reads a mapped-ram state's data into the page cache and leaves its holes alone: a hole
 // read ahead is a page of zeros the cache holds for nothing, and a state is mostly holes. For a
-// fast load, which reads a page when the guest touches it, it reads nothing.
+// fast load it reads nothing.
 func TestReadAheadReadsTheDataAndNotTheHoles(t *testing.T) {
 	dir := t.TempDir()
 	var fs unix.Statfs_t
@@ -48,12 +49,14 @@ func TestReadAheadReadsTheDataAndNotTheHoles(t *testing.T) {
 	if cached(t, f, 0, mib) == mib {
 		t.Skip("this filesystem keeps the state in the cache after DONTNEED")
 	}
-	ReadAhead(f, Saved{Format: FormatMappedRAM}, LoadOptions{Fast: true})
+	loadingFast(t, true)
+	ReadAhead(f, Saved{Format: FormatMappedRAM})
 	time.Sleep(100 * time.Millisecond)
 	if n := cached(t, f, 0, mib); n != 0 {
 		t.Errorf("a fast load's state was read ahead: %d bytes cached", n)
 	}
-	ReadAhead(f, Saved{Format: FormatMappedRAM}, LoadOptions{})
+	loadingFast(t, false)
+	ReadAhead(f, Saved{Format: FormatMappedRAM})
 	deadline := time.Now().Add(10 * time.Second)
 	for cached(t, f, 0, mib)+cached(t, f, short, mib)+cached(t, f, 8*mib, mib) < 3*mib {
 		if time.Now().After(deadline) {
@@ -86,8 +89,8 @@ func cached(t *testing.T, f *os.File, off, n int64) int64 {
 	return in
 }
 
-// A resume reads ahead only a full load of a mapped-ram state: a fast load fetches a page when the
-// guest touches it, which reading every page ahead would undo, and a stream is read in order once.
+// A resume reads ahead only a full load of a mapped-ram state: a stream is read in order once,
+// and a fast load's guest faults pages in faster than a read in the file's order reaches them.
 func TestOnlyAFullLoadOfAMappedRAMStateIsReadAhead(t *testing.T) {
 	for _, c := range []struct {
 		format string
@@ -98,8 +101,93 @@ func TestOnlyAFullLoadOfAMappedRAMStateIsReadAhead(t *testing.T) {
 		{FormatMappedRAM, true, false},
 		{FormatStream, false, false},
 	} {
-		if got := prefetches(Saved{Format: c.format}, LoadOptions{Fast: c.fast}); got != c.want {
+		loadingFast(t, c.fast)
+		if got := prefetches(nil, Saved{Format: c.format}); got != c.want {
 			t.Errorf("%s, fast %v: reads ahead %v", c.format, c.fast, got)
 		}
 	}
+}
+
+// A mapped-ram state loads fast only when its data is over fastAbove and the host grants QEMU a
+// userfaultfd; a stream state, which has no page at a fixed offset, never does.
+func TestALargeStateLoadsFastWhereTheHostAllowsIt(t *testing.T) {
+	for _, c := range []struct {
+		format  string
+		data    int64
+		granted bool
+		want    bool
+	}{
+		{FormatMappedRAM, fastAbove + 1, true, true},
+		{FormatMappedRAM, fastAbove, true, false},
+		{FormatMappedRAM, fastAbove + 1, false, false},
+		{FormatStream, fastAbove + 1, true, false},
+	} {
+		if got := fastLoad(c.format, c.data, c.granted); got != c.want {
+			t.Errorf("%s, %d bytes of data, userfaultfd granted %v: fast %v, want %v", c.format, c.data, c.granted, got, c.want)
+		}
+	}
+}
+
+// QEMU gets a userfaultfd from a character device every user may read and write, or from the
+// sysctl at 1; a device QEMU's user cannot open, or a file that is no device, gives it none.
+func TestAHostGrantsAUserfaultfdThroughTheDeviceOrTheSysctl(t *testing.T) {
+	dir := t.TempDir()
+	knob := func(v string) string {
+		p := filepath.Join(dir, "knob-"+v)
+		if err := os.WriteFile(p, []byte(v+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	plain := filepath.Join(dir, "plain")
+	if err := os.WriteFile(plain, nil, 0o666); err != nil { // #nosec G306 -- a file open to all, which is still no device
+		t.Fatal(err)
+	}
+	if err := os.Chmod(plain, 0o666); err != nil { // #nosec G302 -- past the umask
+		t.Fatal(err)
+	}
+	none := filepath.Join(dir, "none")
+	for _, c := range []struct {
+		name, dev, knob string
+		want            bool
+	}{
+		{"a device open to all", "/dev/null", none, true},
+		{"the sysctl at 1", none, knob("1"), true},
+		{"the sysctl at 0", none, knob("0"), false},
+		{"neither", none, none, false},
+		{"a file open to all, no device", plain, knob("0"), false},
+	} {
+		if got := userfaults(c.dev, c.knob); got != c.want {
+			t.Errorf("%s: granted %v, want %v", c.name, got, c.want)
+		}
+	}
+	closed := closedDevice(t)
+	if userfaults(closed, none) {
+		t.Errorf("%s, a device not every user may read and write, grants a userfaultfd", closed)
+	}
+}
+
+// closedDevice is a character device of this host that not every user may read and write.
+func closedDevice(t *testing.T) string {
+	t.Helper()
+	entries, err := os.ReadDir("/dev")
+	if err != nil {
+		t.Skip(err)
+	}
+	for _, e := range entries {
+		fi, err := e.Info()
+		if err == nil && fi.Mode().Type()&os.ModeCharDevice != 0 && fi.Mode().Perm()&0o006 != 0o006 {
+			return filepath.Join("/dev", e.Name())
+		}
+	}
+	t.Skip("no character device here is closed to other users")
+	return ""
+}
+
+// loadingFast has every resume in t load fast, or none, whatever its state and host.
+func loadingFast(t *testing.T, fast bool) {
+	t.Helper()
+	was := loadsFast
+	loadsFast = func(*os.File, Saved) bool { return fast }
+	t.Cleanup(func() { loadsFast = was })
 }
