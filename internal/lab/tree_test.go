@@ -412,6 +412,14 @@ func TestATreesSpinMachineCanBeItsReleases(t *testing.T) {
 		!strings.Contains(err.Error(), "machine.env") {
 		t.Errorf("a release with no machine.env: %v", err)
 	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "c"), TreeSpec{Name: "c", From: fakeRelease(t, "k"), SpinMachine: "commit:abc"}, src(t)); err == nil ||
+		!strings.Contains(err.Error(), "40 hexadecimal digits") {
+		t.Errorf("a commit named short: %v", err)
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "x"), TreeSpec{Name: "x", From: fakeRelease(t, "k"), SpinMachine: "mine"}, src(t)); err == nil ||
+		!strings.Contains(err.Error(), "commit:SHA") {
+		t.Errorf("--spin-machine mine: %v", err)
+	}
 }
 
 func TestATreeFromADirectoryNamesItWhole(t *testing.T) {
