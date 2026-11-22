@@ -130,7 +130,10 @@ const checkpointBandwidth = int64(64) << 30
 // writer in the guest, 64 MiB of a 512 MiB set every ~100 ms, it went from 221 ms to 8,
 // -213 [-218, -208], and the total rose 39 ms [33, 45] for one more pass (bench, spin's shape
 // plugged to 2 GiB, 20 saves an arm interleaved, lab 44940051596, 2026-11-21, #415).
-const checkpointDowntime = 30
+var checkpointDowntime int64 = 30
+
+// SetCheckpointDowntime is for the #437 experiment only.
+func SetCheckpointDowntime(ms int64) { checkpointDowntime = ms }
 
 var (
 	migrateOut = qmpdef.Define[migrateArgs, qmp.None]("migrate")

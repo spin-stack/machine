@@ -92,7 +92,8 @@ jobs:
       TASK_OUTPUT: interleaved
       SPIN_PAUSE_TRACE: /tmp/p437
       SPIN_PAUSE_CASES: "pressure beside"
-      SPIN_PAUSE_SAVES: "16"
+      SPIN_PAUSE_SAVES: "40"
+      SPIN_PAUSE_ALT_DOWNTIME: "15"
       SPIN_PAUSE_HEADROOM_MB: "4096"
     steps:
       - name: Checkout
