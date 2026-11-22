@@ -173,10 +173,7 @@ func bootWaits(t *testing.T, out string, v variant, target, end string) waitsBoo
 	if target == "sshd-vsock.socket" {
 		spec.VsockCID = 4000000 + os.Getpid()%100000
 	}
-	root, err := rootDisk(overlay, base)
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := rootDisk(t, overlay, base)
 
 	r, w, err := os.Pipe()
 	if err != nil {

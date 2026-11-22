@@ -77,10 +77,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		root, err := rootDisk(overlay, r.base())
-		if err != nil {
-			t.Fatal(err)
-		}
+		root := rootDisk(t, overlay, r.base())
 		f, err := os.Open(state)
 		if err != nil {
 			t.Fatal(err)

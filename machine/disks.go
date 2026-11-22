@@ -28,6 +28,12 @@ type Disk struct {
 	Readonly bool
 	// Locking has the VMM hold an image lock on the top image, for a caller outside it that
 	// takes the same lock to find out whether a VM has the image open.
+	//
+	// The lock is on the open file description the VMM is handed, which the image's File shares:
+	// a File still open when the VMM ends keeps the lock, and the next machine on the image is
+	// refused it. Close the Disk once it is bound. The boot tests left theirs to the garbage
+	// collector, and a resume was refused its overlay whenever no collection had run since the
+	// last machine on it was killed (#459).
 	Locking bool
 }
 

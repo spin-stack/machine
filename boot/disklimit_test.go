@@ -44,16 +44,14 @@ func TestADiskLimitHoldsOneDiskAndLetsItGo(t *testing.T) {
 	}
 	disks := func(t *testing.T) []machine.Disk {
 		t.Helper()
-		root, err := rootDisk(overlay, r.base())
-		if err != nil {
-			t.Fatal(err)
-		}
+		root := rootDisk(t, overlay, r.base())
 		out := []machine.Disk{root}
 		for _, serial := range []string{"a", "b"} {
 			d, err := machine.OpenDisk(machine.DiskPath{Serial: serial, Path: data[serial], Format: "raw"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Cleanup(func() { _ = d.Close() })
 			out = append(out, d)
 		}
 		return out
@@ -123,6 +121,7 @@ func TestADiskLimitHoldsOneDiskAndLetsItGo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = c.Close() })
 	if err := g.AttachDisk(ctx, c); err != nil {
 		t.Fatal(err)
 	}
