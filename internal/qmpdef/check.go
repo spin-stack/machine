@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -34,6 +35,27 @@ func Enum[T ~string](values ...T) {
 
 // enums is every Enum's values by their Go type. Like defs, only package initialisation writes it.
 var enums = map[reflect.Type][]string{}
+
+// Probed says values are Enum values the module sends only after asking QEMU whether it has them,
+// as Checkpoint asks query-migrate-capabilities before it sets x-defer-disk-flush: a released QEMU
+// without one is still a QEMU the module drives, and CheckSupported passes it. Check holds them to
+// the pinned QEMU as it holds any Enum value, so a pinned QEMU that lost the patch adding one fails.
+//
+// A struct member is said to be probed by its tag, qmpdef:"probed", with the same meaning; Check
+// refuses one that is sent every time (not omitempty or omitzero), which would be no ask at all.
+func Probed[T ~string](values ...T) {
+	Enum(values...)
+	t := reflect.TypeFor[T]()
+	if probed[t] == nil {
+		probed[t] = map[string]bool{}
+	}
+	for _, v := range values {
+		probed[t][string(v)] = true
+	}
+}
+
+// probed is every Probed value by its Go type. Like defs, only package initialisation writes it.
+var probed = map[reflect.Type]map[string]bool{}
 
 // Union says variants are every type a T holds wherever a definition sends one: a sealed interface
 // standing for one of QEMU's unions, such as blockdev-add's BlockdevOptions. Check holds each
@@ -65,14 +87,66 @@ var (
 // map are taken as they are: what they put on the wire is not in their type. An interface Union
 // lists the variants of is held to QEMU's union through each variant.
 func Check(schema json.RawMessage) error {
-	var entries []entry
-	if err := json.Unmarshal(schema, &entries); err != nil {
-		return fmt.Errorf("reading query-qmp-schema's answer: %w", err)
+	s, err := check(schema, false)
+	if err != nil {
+		return err
 	}
-	s := schemaOf{types: map[string]entry{}, reached: map[reflect.Type]bool{}}
-	for _, e := range entries {
-		s.types[e.Name] = e
+	return errors.Join(s.errs...)
+}
+
+// CheckSupported holds every definition the binary links to each supported release's QEMU, by the
+// release's name, and names each disagreement with the release it is with: that every command,
+// argument and capability the module sends unconditionally exists in every QEMU a machine it drives
+// may run, which compat proves by resuming each release's checkpoint on KVM, here without a VM.
+//
+// It is Check but for two things. A Probed value, or a member tagged qmpdef:"probed", that a
+// release's QEMU lacks is no disagreement: the module asks before it sends one. And a definition
+// said Unstable for what only the pinned QEMU marks unstable is not refused where nothing is. A
+// probed value or member every release has is refused: the ask and its fallback are dead, and go.
+//
+// The releases are internal/qmpdef/testdata/released, one file each that spin-machine-dev releases
+// schema records. A release's file goes when compat stops proving its checkpoints resume: when its
+// table first says a release is not meant to resume (the machine moved), or a release falls out of
+// its window, that release's file and every older one's are deleted in the same change. A probed
+// value or member left with no release lacking it then fails here, which is when its ask goes.
+func CheckSupported(released map[string]json.RawMessage) error {
+	if len(released) == 0 {
+		return errors.New("no supported release's query-qmp-schema to hold the module's definitions to")
 	}
+	var errs []error
+	// offered is the releases whose QEMU has each probed value or member.
+	offered := map[string][]string{}
+	for _, tag := range slices.Sorted(maps.Keys(released)) {
+		s, err := check(released[tag], true)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", tag, err))
+			continue
+		}
+		for _, e := range s.errs {
+			errs = append(errs, fmt.Errorf("%s: %w", tag, e))
+		}
+		for probe, has := range s.probes {
+			if has {
+				offered[probe] = append(offered[probe], tag)
+			}
+		}
+	}
+	for _, probe := range slices.Sorted(maps.Keys(offered)) {
+		if len(offered[probe]) == len(released) {
+			errs = append(errs, fmt.Errorf("%s is probed, and every supported release's QEMU has it: the ask and its fallback can go", probe))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// check walks every definition against schema. released is whether schema is a released QEMU's,
+// held as CheckSupported holds one.
+func check(schema json.RawMessage, released bool) (*schemaOf, error) {
+	parsed, err := ParseSchema(schema)
+	if err != nil {
+		return nil, err
+	}
+	s := &schemaOf{types: parsed.types, reached: map[reflect.Type]bool{}, released: released, probes: map[string]bool{}}
 	names := make([]string, 0, len(defs))
 	for name := range defs {
 		names = append(names, name)
@@ -97,7 +171,7 @@ func Check(schema json.RawMessage) error {
 		}
 	}
 	slices.SortFunc(s.errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
-	return errors.Join(s.errs...)
+	return s, nil
 }
 
 // entry is one SchemaInfo of query-qmp-schema's answer: a command, an event or a type, which the
@@ -145,6 +219,10 @@ type schemaOf struct {
 	// unstable is whether the definition being walked is Unstable, and used whether it reached
 	// anything QEMU marks so.
 	unstable, used bool
+	// released is whether the schema is a released QEMU's (CheckSupported), and probes is each
+	// probed value or member a definition reached, by name, and whether the schema has it.
+	released bool
+	probes   map[string]bool
 }
 
 type visit struct {
@@ -175,7 +253,7 @@ func (s *schemaOf) check(d def) {
 		s.fit(d.name+" arguments", d.args, e.ArgType, true)
 		s.fit(d.name+" answer", d.ret, e.RetType, false)
 	}
-	if d.unstable && !s.used {
+	if d.unstable && !s.used && !s.released {
 		s.fail("%s is defined Unstable, and QEMU marks nothing it sends or reads unstable", d.name)
 	}
 }
@@ -285,8 +363,13 @@ func (s *schemaOf) enum(path string, t reflect.Type, e entry) {
 	}
 	for _, v := range values {
 		m, ok := members[v]
+		if probed[t][v] {
+			s.probe(fmt.Sprintf("%s %q", t, v), ok)
+		}
 		if !ok {
-			s.fail("%s: QEMU's enum has no %q, which Enum %s says it has", path, v, t)
+			if !probed[t][v] || !s.released {
+				s.fail("%s: QEMU's enum has no %q, which Enum %s says it has", path, v, t)
+			}
 			continue
 		}
 		s.features(fmt.Sprintf("%s %q", path, v), m.Features)
@@ -341,8 +424,16 @@ func (s *schemaOf) object(path string, t reflect.Type, e entry, send bool) {
 				}
 			}
 		}
+		if f.probed {
+			s.probe(path+"."+f.name, ok)
+			if send && !f.omitted {
+				s.fail("%s.%s is probed, and a %s sends it every time: a probed member is omitempty or omitzero", path, f.name, t)
+			}
+		}
 		if !ok {
-			s.fail("%s: QEMU has no member %q", path, f.name)
+			if !f.probed || !s.released {
+				s.fail("%s: QEMU has no member %q", path, f.name)
+			}
 			continue
 		}
 		if !f.omitted {
@@ -359,6 +450,12 @@ func (s *schemaOf) object(path string, t reflect.Type, e entry, send bool) {
 			s.fail("%s: QEMU requires %q, which a %s does not send every time", path, m.Name, t)
 		}
 	}
+}
+
+// probe notes that a definition reached the probed value or member name, and whether the schema
+// has it.
+func (s *schemaOf) probe(name string, has bool) {
+	s.probes[name] = s.probes[name] || has
 }
 
 // tagOf is the variant of a union a t's zero value names by the member tag, as encoding/json
@@ -392,6 +489,7 @@ type field struct {
 	name    string
 	typ     reflect.Type
 	omitted bool // omitempty or omitzero: not sent every time
+	probed  bool // tagged qmpdef:"probed": sent only after asking QEMU
 }
 
 // fields is what encoding/json makes of a struct's fields: an untagged embedded struct's fields
@@ -420,8 +518,11 @@ func fields(t reflect.Type) []field {
 			name = f.Name
 		}
 		options := strings.Split(opts, ",")
+		// Lookup, not Get: the pins gate reads a Get of a quoted name as a versions.yaml entry.
+		probe, _ := f.Tag.Lookup("qmpdef")
 		out = append(out, field{name: name, typ: f.Type,
-			omitted: slices.Contains(options, "omitempty") || slices.Contains(options, "omitzero")})
+			omitted: slices.Contains(options, "omitempty") || slices.Contains(options, "omitzero"),
+			probed:  probe == "probed"})
 	}
 	return out
 }
