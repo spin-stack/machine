@@ -103,9 +103,12 @@ tasks:
   test:
     desc: Test the machine definition, under the race detector, with its coverage in coverage.out and held to a floor.
     vars:
-      # Below today's number. Raise it when the number has moved up and stayed; never lower it to
-      # let a change through, or it is a gate that reports whatever it is given.
-      COVERAGE_FLOOR: 80
+      # Below today's number, of the statements CI can run: a function marked `mutate-lane:` is
+      # held by a test that needs root and KVM, and internal/coverfloor leaves it out as mutate
+      # does (#410). 93.36% on 2026-11-22, 80.65% with the lane's 1601 statements counted. Raise
+      # it when the number has moved up and stayed; never lower it to let a change through, or it
+      # is a gate that reports whatever it is given.
+      COVERAGE_FLOOR: 93
     # No release tree, as CI has none when it runs this: the tests that ask for a QEMU skip, and
     # a checkout that has one built gives CI's verdict and CI's coverage, not a point more
     # (09-28's floor broke main that way). `spin-machine-dev verify args` is where they run. The
@@ -125,13 +128,7 @@ tasks:
           find _output >&2
           exit 1
         fi
-      # The anchor makes it the total line, not a function with "total" in its name.
-      - |
-        total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}' | tr -d '%')
-        awk -v got="$total" -v floor={{.COVERAGE_FLOOR}} 'BEGIN {
-          if (got + 0 < floor + 0) { printf "coverage is %s%%, below the floor of %s%%\n", got, floor; exit 1 }
-          printf "coverage: %s%% (floor %s%%)\n", got, floor
-        }'
+      - go run ./internal/coverfloor {{.COVERAGE_FLOOR}} coverage.out
 
   lint:
     desc: >-
