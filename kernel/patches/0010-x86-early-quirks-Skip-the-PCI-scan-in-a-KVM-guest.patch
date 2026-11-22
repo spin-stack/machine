@@ -1,6 +1,6 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Thu, 19 Nov 2026 14:00:00 -0300
-Subject: [PATCH 10/11] x86/early-quirks: Skip the PCI scan in a KVM guest
+Subject: [PATCH] x86/early-quirks: Skip the PCI scan in a KVM guest
 
 early_quirks() scans bus 0, and the buses behind its bridges, through
 configuration mechanism #1 for the chipsets, GPUs and NICs in
@@ -37,6 +37,8 @@ Assisted-by: LLM
  arch/x86/kernel/early-quirks.c | 12 ++++++++++++
  1 file changed, 12 insertions(+)
 
+diff --git a/arch/x86/kernel/early-quirks.c b/arch/x86/kernel/early-quirks.c
+index 6b6f32f40..53270cfa9 100644
 --- a/arch/x86/kernel/early-quirks.c
 +++ b/arch/x86/kernel/early-quirks.c
 @@ -28,6 +28,7 @@
@@ -66,3 +68,4 @@ Assisted-by: LLM
  }
 -- 
 2.53.0
+

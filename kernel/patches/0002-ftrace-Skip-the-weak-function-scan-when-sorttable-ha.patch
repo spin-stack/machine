@@ -1,7 +1,6 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Tue, 29 Sep 2026 21:53:46 -0300
-Subject: [PATCH 2/4] ftrace: Skip the weak function scan when sorttable has
- run
+Subject: [PATCH] ftrace: Skip the weak function scan when sorttable has run
 
 Since commit ef378c3b8233 ("scripts/sorttable: Zero out weak functions
 in mcount_loc table"), sorttable zeroes the __mcount_loc entries of
@@ -31,7 +30,7 @@ Assisted-by: LLM
  1 file changed, 8 insertions(+)
 
 diff --git a/kernel/trace/ftrace.c b/kernel/trace/ftrace.c
-index 673a54f..8f8e3c3 100644
+index 164fbc07b..9c575b927 100644
 --- a/kernel/trace/ftrace.c
 +++ b/kernel/trace/ftrace.c
 @@ -4405,6 +4405,14 @@ static __init void ftrace_check_work_func(struct work_struct *work)

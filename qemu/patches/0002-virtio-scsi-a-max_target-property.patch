@@ -24,12 +24,14 @@ Assisted-by: LLM
  include/hw/virtio/virtio-scsi.h |  1 +
  2 files changed, 29 insertions(+)
 
+diff --git a/hw/scsi/virtio-scsi.c b/hw/scsi/virtio-scsi.c
+index d7e2662aa..6fe374a5d 100644
 --- a/hw/scsi/virtio-scsi.c
 +++ b/hw/scsi/virtio-scsi.c
-@@ -985,6 +985,19 @@
+@@ -985,6 +985,19 @@ static void virtio_scsi_get_config(VirtIODevice *vdev,
      virtio_stl_p(vdev, &scsiconf->max_lun, VIRTIO_SCSI_MAX_LUN);
  }
-
+ 
 +/*
 + * The common config, with the targets this controller has: the guest scans
 + * every target up to max_target at boot, and each one it scans that holds no
@@ -46,10 +48,10 @@ Assisted-by: LLM
  static void virtio_scsi_set_config(VirtIODevice *vdev,
                                     const uint8_t *config)
  {
-@@ -1159,6 +1172,13 @@
+@@ -1159,6 +1172,13 @@ static void virtio_scsi_hotplug(const HotplugHandler *hotplug_dev, DeviceState *
      AioContext *ctx = s->vq_aio_context[VIRTIO_SCSI_VQ_NUM_FIXED];
      SCSIDevice *sd = SCSI_DEVICE(dev);
-
+ 
 +    /* A disk at a target the guest does not scan would never be seen. */
 +    if (sd->id > s->max_target) {
 +        error_setg(errp, "scsi-id %d is beyond this controller's max_target %u",
@@ -60,10 +62,10 @@ Assisted-by: LLM
      if (ctx != qemu_get_aio_context() && !s->dataplane_fenced) {
          /*
           * Try to make the BlockBackend's AioContext match ours. Ignore failure
-@@ -1334,6 +1354,11 @@
+@@ -1334,6 +1354,11 @@ static void virtio_scsi_device_realize(DeviceState *dev, Error **errp)
      VirtIOSCSI *s = VIRTIO_SCSI(dev);
      Error *err = NULL;
-
+ 
 +    if (s->max_target > VIRTIO_SCSI_MAX_TARGET) {
 +        error_setg(errp, "max_target must be at most %d", VIRTIO_SCSI_MAX_TARGET);
 +        return;
@@ -71,8 +73,8 @@ Assisted-by: LLM
 +
      qemu_mutex_init(&s->ctrl_lock);
      qemu_mutex_init(&s->event_lock);
-
-@@ -1393,6 +1418,8 @@
+ 
+@@ -1393,6 +1418,8 @@ static const Property virtio_scsi_properties[] = {
                                                    0xFFFF),
      DEFINE_PROP_UINT32("cmd_per_lun", VirtIOSCSI, parent_obj.conf.cmd_per_lun,
                                                    128),
@@ -81,7 +83,7 @@ Assisted-by: LLM
      DEFINE_PROP_BIT("hotplug", VirtIOSCSI, host_features,
                                             VIRTIO_SCSI_F_HOTPLUG, true),
      DEFINE_PROP_BIT("param_change", VirtIOSCSI, host_features,
-@@ -1433,6 +1460,7 @@
+@@ -1433,6 +1460,7 @@ static void virtio_scsi_class_init(ObjectClass *klass, const void *data)
      set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
      vdc->realize = virtio_scsi_device_realize;
      vdc->unrealize = virtio_scsi_device_unrealize;
@@ -89,13 +91,18 @@ Assisted-by: LLM
      vdc->set_config = virtio_scsi_set_config;
      vdc->get_features = virtio_scsi_get_features;
      vdc->reset = virtio_scsi_reset;
+diff --git a/include/hw/virtio/virtio-scsi.h b/include/hw/virtio/virtio-scsi.h
+index b6028bb5c..702478eb9 100644
 --- a/include/hw/virtio/virtio-scsi.h
 +++ b/include/hw/virtio/virtio-scsi.h
-@@ -98,6 +98,7 @@
+@@ -98,6 +98,7 @@ struct VirtIOSCSI {
      bool dataplane_stopping;
      bool dataplane_fenced;
      uint32_t host_features;
 +    uint16_t max_target; /* the highest target the guest is told to scan */
  };
-
+ 
  void virtio_scsi_common_realize(DeviceState *dev,
+-- 
+2.53.0
+

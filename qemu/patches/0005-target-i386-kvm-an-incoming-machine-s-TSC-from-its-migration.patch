@@ -41,10 +41,14 @@ runs, write the TSC as before.
 
 Assisted-by: LLM
 ---
-diff -ruN a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+ target/i386/kvm/kvm.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
+index e29ecaba5..9255b683e 100644
 --- a/target/i386/kvm/kvm.c
 +++ b/target/i386/kvm/kvm.c
-@@ -4250,7 +4250,18 @@
+@@ -4250,7 +4250,18 @@ static int kvm_put_msrs(X86CPU *cpu, KvmPutState level)
       * for normal writeback. Limit them to reset or full state updates.
       */
      if (level >= KVM_PUT_RESET_STATE) {
@@ -64,3 +68,6 @@ diff -ruN a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
          if (env->features[FEAT_KVM] & (CPUID_KVM_CLOCK | CPUID_KVM_CLOCK2)) {
              kvm_msr_entry_add(cpu, MSR_KVM_SYSTEM_TIME, env->system_time_msr);
              kvm_msr_entry_add(cpu, MSR_KVM_WALL_CLOCK, env->wall_clock_msr);
+-- 
+2.53.0
+

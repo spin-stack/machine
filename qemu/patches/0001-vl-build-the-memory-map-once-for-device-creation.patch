@@ -26,7 +26,7 @@ Assisted-by: LLM
  1 file changed, 15 insertions(+), 1 deletion(-)
 
 diff --git a/system/vl.c b/system/vl.c
-index 061cbdf86..9159e9fd6 100644
+index e7b759d54..f591bf4d7 100644
 --- a/system/vl.c
 +++ b/system/vl.c
 @@ -44,6 +44,7 @@
@@ -37,7 +37,7 @@ index 061cbdf86..9159e9fd6 100644
  #include "system/runstate-action.h"
  #include "system/seccomp.h"
  #include "system/tcg.h"
-@@ -2813,14 +2814,27 @@ static bool qemu_machine_creation_done(Error **errp)
+@@ -2827,14 +2828,27 @@ static bool qemu_machine_creation_done(Error **errp)
  
  void qmp_x_exit_preconfig(Error **errp)
  {
