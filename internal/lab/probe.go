@@ -448,6 +448,7 @@ func (m *Measurement) SpinMachine(args ...string) error {
 var Probes = map[string]Probe{
 	"bootchart":        bootchart{},
 	"density":          density{},
+	"exits":            exitsProbe{},
 	"initcalls":        initcalls{},
 	"ledger":           ledgerProbe{},
 	"prestart":         prestart{},
