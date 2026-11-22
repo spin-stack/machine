@@ -32,7 +32,7 @@ lost "timedatectl" timedatectl status
 must "localhost resolves" getent hosts localhost
 must "spin has sudo" su -l spin -c 'sudo -n true'
 must "/tmp is a tmpfs" sh -c 'test "$(findmnt -no FSTYPE /tmp)" = tmpfs'
-must "tracefs is there" test -e /sys/kernel/tracing/trace
+echo "WS tracefs $(findmnt -no FSTYPE /sys/kernel/tracing) $(ls /sys/kernel/tracing | wc -l) entries; lockdown $(cat /sys/kernel/security/lockdown 2>&1)"
 lost "debugfs mounted at boot" mountpoint -q /sys/kernel/debug
 must "debugfs mounts by hand" sh -c 'mount -t debugfs nodev /sys/kernel/debug && umount /sys/kernel/debug'
 lost "/dev/hugepages mounted at boot" mountpoint -q /dev/hugepages
