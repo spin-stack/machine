@@ -28,9 +28,10 @@ cold number cannot reach 100 ms by userspace work alone: QEMU, the firmware and 
 **Every part of the machine may be changed, without limit.** The kernel, systemd, QEMU and qboot
 are all ours to patch when a patch serves the goal. Carry a patch where the tree keeps that
 part's patches today: the kernel's in `kernel/patches`, QEMU's in `qemu/patches`, qboot's beside
-its README in `qemu/qboot`, and systemd's in `image/systemd`, whose Dockerfile rebuilds Ubuntu's
-source package. systemd carries no patch yet, so the first one also adds the step that applies it,
-as `kernel/Dockerfile` does. An experiment's systemd patch goes in `image/systemd/experiments`.
+its README in `qemu/qboot`, systemd's in `image/systemd` and OpenSSH's in `image/openssh`, whose
+Dockerfiles rebuild Ubuntu's source packages. systemd carries no patch yet, so the first one also
+adds the step that applies it, as `image/openssh/Dockerfile` does. An experiment's systemd patch
+goes in `image/systemd/experiments`.
 
 ## What must not break
 

@@ -13,10 +13,11 @@ The contents are an Ubuntu 26.04 userland with systemd as the guest's PID 1,
 the tools a workspace expects, and the boot optimizations in
 `mkosi.extra/usr/local/lib/spin-base/optimize-systemd.sh`.
 
-Every package comes from the Ubuntu archive except systemd's. Those are Ubuntu's own source
-package rebuilt here (`systemd/Dockerfile`, which says what is built out and what it measured),
-versioned `+spin1` and held, so an `apt upgrade` in a workspace cannot bring back the archive's
-build. `build.sh` fails an image whose systemd is not that build or whose packages are not held.
+Every package comes from the Ubuntu archive except systemd's and OpenSSH's. Those are Ubuntu's
+own source packages rebuilt here (`systemd/Dockerfile`, which says what is built out and what it
+measured, and `openssh/Dockerfile`, which applies the patches beside it), versioned `+spin1` and
+held, so an `apt upgrade` in a workspace cannot bring back the archive's build. `build.sh` fails an
+image whose systemd or sshd is not that build or whose packages are not held.
 The rebuild has a cost. A package of the same source that the image does not carry, such as
 `systemd-container` or `systemd-resolved`, asks for the archive's systemd at exactly its
 version. apt therefore refuses to install it in a workspace rather than mix the two builds.

@@ -65,9 +65,10 @@ func everything(t *testing.T, dir string) string {
 		put(t, filepath.Join(fixture, "bin", b), "#!/bin/sh\necho mke2fs "+e.Version+"\n", 0o755)
 	}
 	put(t, filepath.Join(fixture, "systemd/systemd_1_amd64.deb"), "", 0o644)
+	put(t, filepath.Join(fixture, "openssh/openssh-server_1_amd64.deb"), "", 0o644)
 	_ = os.Remove(filepath.Join(fixture, "bin/spin-machine"))
 	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/a.patch", "qemu/patches/0001-a.patch",
-		"qemu/Dockerfile", "kernel/config", "e2fsprogs/Dockerfile", "image/systemd/Dockerfile", "image/Dockerfile",
+		"qemu/Dockerfile", "kernel/config", "e2fsprogs/Dockerfile", "image/systemd/Dockerfile", "image/openssh/Dockerfile", "image/openssh/a.patch", "image/Dockerfile",
 		"cmd/spin-machine-pressure/main.go", "internal/pressure/pressure.go", "go.mod", "go.sum"} {
 		put(t, filepath.Join(dir, f), f, 0o644)
 	}
@@ -82,7 +83,7 @@ func TestAReleaseIsBuiltAndPacked(t *testing.T) {
 	// Each build leaves its part: here, the whole fixture, which the next build's emptying trims.
 	docker := `dest=""; prev=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; esac
   [ "$prev" = -v ] && case "$a" in *:/out) dest=${a%:/out};; esac; prev=$a; done
-case "$dest" in */systemd) cp -r ` + fixture + `/systemd/. "$dest"/;; ?*) cp -r ` + fixture + `/. "$dest"/;; esac; exit 0`
+case "$dest" in */systemd) cp -r ` + fixture + `/systemd/. "$dest"/;; */openssh) cp -r ` + fixture + `/openssh/. "$dest"/;; ?*) cp -r ` + fixture + `/. "$dest"/;; esac; exit 0`
 	// A go that builds the image's sender and nothing else: a release ships no spin-machine and
 	// needs none to say what it is.
 	sender := filepath.Join(t.TempDir(), "sender")

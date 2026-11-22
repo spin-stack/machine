@@ -175,6 +175,7 @@ func verifyCmd() *cobra.Command {
   kernel     a bzImage whose setup header says relocatable, and the vmlinux it was made from
   e2fsprogs  the four tools and mke2fs.conf, and mkfs.ext4 answers the pinned version
   systemd    the packages the image installs
+  openssh    the packages the image installs
   image      rootfs.qcow2, packages.txt and licenses.txt (image/build.sh asserts what is inside)
   args       the TCG QEMU accepts every interesting command line the machine package builds: each
              is started, stopped before its first instruction, and asked to answer on QMP
