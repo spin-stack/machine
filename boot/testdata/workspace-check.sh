@@ -34,7 +34,7 @@ must "localhost resolves" getent hosts localhost
 must "spin has sudo" su -l spin -c 'sudo -n true'
 must "/tmp is a tmpfs" sh -c 'test "$(findmnt -no FSTYPE /tmp)" = tmpfs'
 echo "WS lockdown $(cat /sys/kernel/security/lockdown 2>&1)"
-lost "tracefs, which lockdown=confidentiality refuses" mount -t tracefs nodev /sys/kernel/tracing
+lost "tracefs, which lockdown=confidentiality keeps empty" sh -c 'mount -t tracefs nodev /sys/kernel/tracing 2>/dev/null; test -e /sys/kernel/tracing/trace'
 lost "debugfs mounted at boot" mountpoint -q /sys/kernel/debug
 must "debugfs mounts by hand" sh -c 'mount -t debugfs nodev /sys/kernel/debug && umount /sys/kernel/debug'
 lost "/dev/hugepages mounted at boot" mountpoint -q /dev/hugepages

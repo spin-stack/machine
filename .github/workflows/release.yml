@@ -227,6 +227,10 @@ jobs:
       # v20261122.03's first login failing `systemctl --user` on 10 of 10 bench boots.
       - name: A first login has its session and its user bus
         run: spin-machine-dev lab check logind --tree "release=--from release:$VERSION"
+      # What a workspace expects of the release's own image, and what docs/image.md says it gives up
+      # (boot:workspace). Here and not in compat, for the same reason as the step above.
+      - name: A workspace has what it expects
+        run: spin-machine-dev lab check workspace --tree "release=--from release:$VERSION"
 
   # Where the release's time went, the jobs of compat and report included: the critical path on
   # the run's summary, and trace.html, every job and step on one time axis, as an artifact. Run
