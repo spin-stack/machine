@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,12 +24,12 @@ import (
 func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 	qemu, firmware := qemuTCG(t)
 	kernel := bzImageStub(t)
-	held := func(t *testing.T, s Spec) *QEMU {
+	held := func(t *testing.T, s Spec, extra ...string) *QEMU {
 		t.Helper()
 		s.QEMU, s.Accel, s.Kernel, s.Firmware, s.Cmdline = qemu, "tcg", kernel, firmware, DefaultCmdline()
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		p, err := Start(ctx, s, StartOptions{})
+		p, err := Start(ctx, s, StartOptions{Cmd: func(c *exec.Cmd) { c.Args = append(c.Args, extra...) }})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,19 +85,18 @@ func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 	})
 
 	t.Run("0003 defers the stop's flush to the host's disk", func(t *testing.T) {
-		// A disk written since its last flush, over blkdebug failing every flush to the host's
-		// disk: a save whose stop flushes it fails, and one under x-defer-disk-flush completes.
-		// The first is what proves the second: the instrument sees the flush it says is gone.
-		save := func(deferred bool) migrationInfo {
-			m := held(t, Spec{BootCPUs: 1, Memory: Memory{BaseMB: 128}})
+		// A disk written since its last flush, on io_uring, which QEMU traces each request to:
+		// a save whose stop flushes it submits a flush (type 4, QEMU_AIO_FLUSH), and one under
+		// x-defer-disk-flush submits none. The first is what proves the second: the trace sees
+		// the flush that is said to be gone.
+		save := func(deferred bool) int {
+			log := filepath.Join(t.TempDir(), "trace")
+			m := held(t, Spec{BootCPUs: 1, Memory: Memory{BaseMB: 128}}, "-trace", "enable=luring_co_submit", "-D", log)
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			image := rawDisk(t, "written.raw")
 			for _, n := range []blockdevNode{
-				{Driver: "file", NodeName: "written-file", Filename: image},
-				{Driver: "blkdebug", NodeName: "written-debug", Image: "written-file",
-					InjectError: []blkdebugError{{Event: "flush_to_disk", IOType: "flush", Errno: 5}}},
-				{Driver: "raw", NodeName: "written", File: "written-debug"},
+				{Driver: "file", NodeName: "written-file", Filename: rawDisk(t, "written.raw"), AIO: "io_uring"},
+				{Driver: "raw", NodeName: "written", File: "written-file"},
 			} {
 				if _, err := qmp.Do(ctx, m.c, blockdevAddNode, n); err != nil {
 					t.Fatalf("adding %s: %v", n.NodeName, err)
@@ -120,14 +120,29 @@ func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
-			t.Logf("x-defer-disk-flush %v: the save %s %s", deferred, info.Status, info.ErrorDesc)
-			return info
+			if info.Status != completed {
+				t.Fatalf("x-defer-disk-flush %v: the save %s: %s", deferred, info.Status, info.ErrorDesc)
+			}
+			b, err := os.ReadFile(log) // #nosec G304 -- the trace this test asked for
+			if err != nil {
+				t.Fatal(err)
+			}
+			writes, flushes := 0, 0
+			for _, l := range strings.Split(string(b), "\n") {
+				writes += strings.Count(l, "luring_co_submit") - strings.Count(l, "type 4")
+				flushes += strings.Count(l, "type 4")
+			}
+			t.Logf("x-defer-disk-flush %v: %d other requests and %d flushes submitted", deferred, writes, flushes)
+			if writes == 0 {
+				t.Fatalf("the trace shows no request at all: it does not see this disk's I/O\n%s", b)
+			}
+			return flushes
 		}
-		if info := save(false); info.Status != failed {
-			t.Fatalf("a save over a disk whose flushes fail %s (%s), want failed: blkdebug does not see the stop's flush, and the next case proves nothing", info.Status, info.ErrorDesc)
+		if n := save(false); n == 0 {
+			t.Fatal("a save's stop submitted no flush: the trace does not see it, and the next case proves nothing")
 		}
-		if info := save(true); info.Status != completed {
-			t.Errorf("with x-defer-disk-flush, a save over a disk whose flushes fail %s (%s), want completed: the stop flushed to the host's disk", info.Status, info.ErrorDesc)
+		if n := save(true); n != 0 {
+			t.Errorf("with x-defer-disk-flush, a save's stop submitted %d flushes to the host's disk, want none", n)
 		}
 	})
 
@@ -170,24 +185,17 @@ func TestEachQEMUPatchDoesItsJob(t *testing.T) {
 // ROMs' reset after it.
 const maxFlatViewsAtStart = 200
 
-// blockdevAddNode is blockdev-add with the members a test sends that qmp.BlockNode has no variant
-// for: blkdebug, which fails a flush at a chosen event.
+// blockdevAddNode is blockdev-add of a node by its members, without the machine's places and
+// descriptor sets around it.
 var blockdevAddNode = qmpdef.Define[blockdevNode, qmp.None]("blockdev-add")
 
 type blockdevNode struct {
-	Driver      string          `json:"driver"`
-	NodeName    string          `json:"node-name"`
-	Filename    string          `json:"filename,omitempty"`
-	Image       string          `json:"image,omitempty"`
-	File        string          `json:"file,omitempty"`
-	InjectError []blkdebugError `json:"inject-error,omitempty"`
-}
-
-// blkdebugError fails every request of IOType with Errno once Event has happened on the node.
-type blkdebugError struct {
-	Event  string `json:"event"`
-	IOType string `json:"iotype"`
-	Errno  int    `json:"errno"`
+	Driver   string `json:"driver"`
+	NodeName string `json:"node-name"`
+	Filename string `json:"filename,omitempty"`
+	Image    string `json:"image,omitempty"`
+	File     string `json:"file,omitempty"`
+	AIO      string `json:"aio,omitempty"`
 }
 
 // humanMonitorCommand runs an HMP command: here qemu-io, which writes a node without a guest.
