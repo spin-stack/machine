@@ -321,9 +321,13 @@ The kinds, each read from what came out, not from the scripts:
 On 2026-11-22 the list had 120 lines. A file a maintainer script makes on every Ubuntu (the
 accounts, `ld.so.cache`, systemd's own three enables) is not a deviation and the script says which
 it skips. A unit Ubuntu itself ships disabled or masked, such as `systemd-gpt-auto-generator`, is
-not one either. `optimize-systemd.sh` linked it again, and also re-made Ubuntu's own
-`sockets.target.wants/ssh.socket` and removed an `ssh.service` enable nothing makes; the inventory
-showed the three change nothing, and they were deleted (2026-11-22).
+not one either. One blind spot follows: a path a package lists that the image makes itself is not
+seen. `/etc/systemd/system-generators/systemd-gpt-auto-generator` is in `systemd.list`, but the
+installed package leaves no link there: an image built without the image's own link had none, and
+the derived list gained `deleted /etc/systemd/system-generators/` (image build on #517,
+2026-11-22). The image's mask is what turns that generator off, and it is in the generator table.
+`optimize-systemd.sh` also re-made Ubuntu's own `sockets.target.wants/ssh.socket` and removed an
+`ssh.service` enable nothing makes; those two changed nothing and were deleted (2026-11-22).
 
 ## Categories
 
@@ -440,8 +444,7 @@ The distribution's background maintenance timers:
 ## Generators and tmpfiles rules turned off
 
 Group C-generators, taken back together: cold first login +16.7 [+11.6, +23.3] (lab 44818953987).
-The group counted 8 generators: the seven below and `systemd-gpt-auto-generator`, which Ubuntu's
-systemd package masks itself (the link is in `systemd.list`), so it is not the image's.
+The group counted the 8 generators below.
 
 | Deviation | Category | Why | A workspace gives up |
 |---|---|---|---|
@@ -449,6 +452,7 @@ systemd package masks itself (the link is in `systemd.list`), so it is not the i
 | `systemd-debug-generator` | removed | It implements `systemd.mask=`, `systemd.wants=` and the debug shell from the command line. | Those command-line switches do nothing. The lab masks with links for this reason. |
 | `systemd-sysv-generator`, `systemd-rc-local-generator` | removed | No SysV init scripts and no `rc.local` in the image. | An init script or `/etc/rc.local` added in a workspace does not run. |
 | `systemd-hibernate-resume-generator`, `systemd-system-update-generator`, `systemd-factory-reset-generator` | removed | No hibernation, no offline updates, no EFI. | Nothing. |
+| `systemd-gpt-auto-generator` | removed | The root is a partitionless filesystem named on the command line; there is no GPT and no EFI to discover partitions from. | Nothing. |
 | `systemd-pstore.conf`, `systemd-network.conf`, `x11.conf` (tmpfiles) | removed | No pstore, no networkd, no X11. | Nothing. |
 | `systemd-nologin.conf` (tmpfiles) | reordered | It writes `/run/nologin` at boot, and `systemd-user-sessions` removes it late in the boot. Until then `pam_nologin` refuses every user, and the first login arrives before that ("Access denied for user spin by PAM account configuration"). Shutting down still writes it. | lane: part of 478 → 402 (lab 43518915618) | Nothing: logins are refused at shutdown as before. |
 
@@ -727,8 +731,7 @@ repeated too quickly"). Every boot here is a first boot, so keys live exactly as
   cannot do anything on a machine systemd logs as not booted in EFI mode: with a tpm2 generator that
   was there too, worth 1.0 ms of the 26 ms systemd spends loading units and building the initial
   transaction (2026-09-26, the unitload probe, `ad05544`, asking `systemd --test`; the same number from
-  a debug-logged boot is 212 ms, the difference being the logging). `systemd-gpt-auto-generator` is
-  masked by Ubuntu's own systemd package (the link is in `systemd.list`), not by the image.
+  a debug-logged boot is 212 ms, the difference being the logging).
 - **The manager's logging.** `LogLevel=err`, `LogTarget=journal`, `ShowStatus=no`,
   `StatusUnitFormat=name` and `kernel.printk = 3 3 3 3` were set and taken out together: +2.4 [−2.3,
   +7.8] at 20 boots and −1.8 [−7.7, +3.2] at 40 (labs 44818953987, 44822157367, 2026-11-21). The

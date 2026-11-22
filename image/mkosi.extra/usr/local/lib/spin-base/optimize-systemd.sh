@@ -63,6 +63,7 @@ mkdir -p /etc/systemd/system-generators
 DISABLE_GENERATORS=(
     systemd-fstab-generator
     systemd-debug-generator
+    systemd-gpt-auto-generator
     systemd-sysv-generator
     systemd-rc-local-generator
     systemd-hibernate-resume-generator
