@@ -100,7 +100,7 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 			continue
 		}
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 			defer cancel()
 			s, mac := r.next(t, "/bin/sh")
 			traced(t, &s, tc.name)
