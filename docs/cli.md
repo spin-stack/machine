@@ -422,6 +422,16 @@ window of the kernel's clock by whose tasks ran and the idle. It keeps `TREE-REP
 `TREE-REP.journal.txt` beside `result.json`. Reading them is in
 [measuring.md](measuring.md#the-ledger).
 
+`exits` counts the VM exits of one cold boot to the first login, by reason. It reads KVM's
+counters for the guest's vCPUs through QEMU's `query-stats` when the first login returns. As
+root on the host, it also arms tracefs histograms before QEMU's exec: `kvm_exit` by its reason,
+each exit timed to the vCPU's next `kvm_entry`, and the MSRs, ports and MMIO addresses behind the
+exits. The detail under its table lists each reason's count and host time by tree and every
+non-zero counter. Each boot's histograms are kept as `TREE-REP.exits.txt` beside `result.json`,
+with the host's `vmx flags` and `kvm_intel` parameters. On a nested host the time is the L1's
+handling alone, a floor on what the guest waited. Run it with `--host bench` and
+`--host bench-metal` to see where nesting's cost goes. It needs sudo.
+
 `lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
 compare. Use `--host bench` (nested, the default) unless the question is nested against metal. `--ref` names the branch whose lab.yml and probes run (default
