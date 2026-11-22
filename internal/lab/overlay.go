@@ -207,6 +207,12 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLoggingEdit, nil
 	case "carry-coldplug":
 		return carryColdplugEdit, nil
+	case "udev-after-basic":
+		return Edit{Setup: `for u in systemd-udevd.service systemd-udev-trigger.service; do
+	grep -qx 'Before=sysinit.target' "$MNT/usr/lib/systemd/system/$u"
+	sed '/^Before=sysinit.target$/d' "$MNT/usr/lib/systemd/system/$u" > "$MNT/etc/systemd/system/$u"
+	! grep -q 'Before=sysinit.target' "$MNT/etc/systemd/system/$u"
+done`}, nil
 	}
 	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-logging, carry-coldplug", name)
 }
