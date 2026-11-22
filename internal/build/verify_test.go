@@ -461,4 +461,13 @@ func TestTouchesErrsTowardsBuilding(t *testing.T) {
 	if !Touches(context.Background(), root, base, now(), []string{"nope"}, []string{"untouched"}) {
 		t.Error("an entry the base cannot be read for did not build")
 	}
+	fork := git("rev-parse", "HEAD")
+	_ = os.WriteFile(filepath.Join(root, "part/f"), []byte("3"), 0o644)
+	ahead := commit()
+	git("checkout", "-q", fork)
+	_ = os.WriteFile(filepath.Join(root, "other"), []byte("3"), 0o644)
+	commit()
+	if touches(ahead) {
+		t.Error("a base that moved on in the part after the change forked built the change")
+	}
 }
