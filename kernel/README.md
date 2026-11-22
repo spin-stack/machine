@@ -120,7 +120,11 @@ every kernel bump.
 | 0010 | `early_quirks` calls `kvm_para_available` before its scan |
 
 None of them is a guest check. What the patches save is CPU and VM exits, which a guest cannot
-count, and the format files 0003 defers are behind lockdown. A new patch adds its row here and
+count, and the format files 0003 defers are behind lockdown. The host can count exits: 0004 and
+0010 also depend on the running machine (0004 on `raw_pci_ext_ops`, set from the ACPI MCFG
+table, 0010 on KVM's CPUID leaf), so `boot:patches` reads KVM's `io_exits` through QEMU's
+`query-stats` after a cold boot to userspace and holds them under a budget that fails without
+either (`TestPCIConfigurationCostsNoPortExits`, #486). A new patch adds its row here and
 its assertion in that step, and shows it red on a branch without the patch.
 
 A change to the config is a new kernel for every guest's next boot, and the release notes say
