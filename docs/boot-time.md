@@ -73,6 +73,14 @@ On a c8i.metal-48xl (the same CPU), the cold first login read 332 ms against 378
 exits: the PCI walk takes 5.00 ms nested against 2.22 on metal, about 29 µs an exit against 13
 (labs 44535161371, 44535156851). A production host that is not nested starts closer to the goal.
 
+**Both hosts make the same exits, and the nested ones cost more** (#565, the `exits` probe,
+v20261122.06, labs 45082640147 and 45082640186). A cold boot to the first login makes ~10,400
+exits on either host: CPUID 3805, MMIO 3138, MSR writes 1169 (1043 of them the TSC deadline),
+preemption timer 827, port I/O 667, interrupts 424, HLT 334, EPT violations 172. The nested L1
+spends 78.7 ms on them against 48.3 on metal. Removing 1541 CPUID exits moved the first login
+−10.3 ms, ~6.7 µs an exit. EC2 gives the L1 EPT, VMCS shadowing and APICv, all on, so no L1
+setting is left to turn. Every exit removed counts at ~5-15 µs nested. #565 ranks the levers.
+
 ## Where the time goes
 
 Each table splits one number into phases, in spin's shape, and gives each phase a source. A phase
@@ -184,6 +192,7 @@ them for boot time.
 | The resume reads the state ahead | machine | restored into a QEMU started ahead −12.9 [−14.7, −9.8] | measured | lab 44809512339 |
 | `spin-machine restore` reads the state ahead before its dial (`machine.ReadAhead`), beside QEMU's start | cmd/spin-machine, machine | restored −9.3 [−12.2, −7.3] evicted, cached −0.2 [−2.2, +1.5] | measured, 30 a side | lab 44976494418 |
 | The read-ahead asked for by four goroutines, each every fourth 128 KiB piece | machine | restored −6.2 [−9.1, −4.3] evicted against one goroutine, cached −0.5 [−1.6, +1.9] | measured, 30 a side | lab 44976924478 |
+| CPUID leaf 2 with QEMU's cache descriptors (`x-consistent-cache=off`), so glibc does not walk leaf 4 at every process start | machine/shape.go | first login −10.3 [−14.2, −4.0], 40 a side; CPUID exits 3727 → 2176; restored +1.0 [−3.9, +4.4] evicted, in noise | measured | labs 45083473790, 45083473855, 45083754801 |
 | `pci=lastbus=0` | machine/cmdline.go | kernel to init 87.6 → 51.1 (2026-09): 8192 configuration reads, each an exit | runner, mechanism | log.md, 09 |
 | `no_timer_check`, `tsc=reliable` | machine/cmdline.go | nothing on record (09-07) | unmeasured | - |
 | `TERM=dumb` | machine/cmdline.go | 687 → 19 ms to systemd's first line (09-10), while systemd queries the console | laptop, mechanism | `b5f361f` |
@@ -417,6 +426,7 @@ The rows are ranked by ceiling. A row stays here until it is decided, and then m
 | What functional items cost, last measured on another machine: BPF JIT and BTF (+21.4 ms to "Freeing", 09-07, a vmlinux through PVH, before the ftrace patches), lockdown at confidentiality (nothing told from noise, 10-01, a host at load 6-10) | cold | a few ms each, unknown in spin's shape | `ssh-first` with a `--kernel` built without each, 20 boots | open. They stay for function, so a number says what they cost and decides nothing |
 | The no-systemd floor, each release | a bound | how much of the cold number is systemd's to give back: 445 → 240 in spin's shape | `ssh-first` on the release with `--edit floor --append init=/usr/local/sbin/spin-floor` and `login=lane`; `releases measure` does it beside every release, and report.yml records it (docs/releases.md, "Bounds") | last measured 11-22 on v20261122.02: the lane's first login 407 → 241, −166.3 [−174.7, −160.3] (report.yml run 45018301368, 20 boots). On v20261122.01: 404 → 250, −153.9 [−162.5, −151.2], sshd accepting 242 → 197 (lab 44978079694, 20 boots). 11-20: 445 → 240 (lab 44750322384) |
 | A workspace's cgroup at a higher `cpu.weight` while it boots or restores, on a busy host (spin's runner owns the cgroup) | restore, as a busy host sees it | with 16 workspaces keeping the 16 CPUs busy, the restored first login is 306 ms against 115 idle, and QEMU's threads wait 282 ms for a CPU (lab 44925573288). The same weight ratio as QEMU at nice −10, set as the crowd at nice 10: restored −79.3 [−93.5, −71.0], cold −104.7 [−258.3, +150.9], within noise (lab 44927312303) | spin's `restore-together` or a crowd on its runner, with the weight raised through the workspace's cgroup and set back after the login, against without it | a proposal for spin. Measured in one cgroup, where each thread competes alone. In spin each workspace is a cgroup, and the weight is shared by its threads. The idle host has nothing to win (Measured and rejected, "Memory and the host") |
+| Timer ticks: TSC deadline writes (1043) and preemption-timer exits (827) at HZ=1000 (#567) | cold | ~330 ticks of busy boot, ~600 exits; HZ=250 removes ~500, ~3.5 ms at ~7 µs a nested exit (inferred, #565) | `ssh-first`, nested, `--kernel run:N` with `HZ_250` against the release, 60 a side, `restore-first` beside it | open |
 | The restore with more than 2 GiB of RAM | restore | unmeasured (#242's checklist) | `restore-first` with `plugged` above 2048 | open |
 
 The floor is a bound and never a candidate: systemd stays (AGENTS.md, "What must not break").

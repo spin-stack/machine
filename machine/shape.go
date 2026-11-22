@@ -61,6 +61,15 @@ func (s Spec) cpuArg() string {
 	// vmx=1,0,0,0 before; no warning and vmx=0 on all four with it. Global properties of the
 	// model, so a CPU added later is given them too.
 	cpu += ",-vmx,-svm"
+	// CPUID leaf 2 with QEMU's own cache descriptors, where QEMU's default answers 0xFF ("see
+	// leaf 4"). Every process glibc starts asks for its cache sizes 12 times, and each 0xFF sends
+	// it round leaf 4's subleaves, ~32 CPUID exits a process. Leaves 2 and 4 describe the same
+	// caches, QEMU's model of them (env->cache_info), so a guest reads the same sizes either way.
+	// On the bench (nested), spin's shape, v20261122.06: CPUID exits from boot to the first login
+	// 3727 → 2176, first login −10.3 [−14.2, −4.0], 40 boots a side, restored login within noise
+	// (labs 45083473855, 45083473790, 45083754801, 2026-11-22, #565). It is an x- property, so a
+	// QEMU that renames it fails qemu_accepts_test, not a boot.
+	cpu += ",x-consistent-cache=off"
 	for _, f := range s.CPUWithout {
 		cpu += ",-" + f
 	}
