@@ -207,6 +207,34 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLoggingEdit, nil
 	case "carry-coldplug":
 		return carryColdplugEdit, nil
+	case "user-early":
+		return Edit{Setup: `grep -q 'pam_systemd.so.*class=user-early-light' "$MNT/etc/pam.d/common-session"
+sed -i 's/class=user-early-light/class=user-early/' "$MNT/etc/pam.d/common-session"
+grep -q 'pam_systemd.so.*class=user-early$' "$MNT/etc/pam.d/common-session"
+`}, nil
+	case "user-env":
+		return Edit{
+			Files: map[string]string{
+				"/etc/environment.d/10-user-sockets.conf":          "DBUS_SESSION_BUS_ADDRESS=unix:path=${XDG_RUNTIME_DIR}/bus\nSSH_AUTH_SOCK=${XDG_RUNTIME_DIR}/openssh_agent\n",
+				"/etc/systemd/user/dbus.socket.d/10-env.conf":      "[Socket]\nExecStartPost=\n",
+				"/etc/systemd/user/ssh-agent.socket.d/10-env.conf": "[Socket]\nExecStartPost=\nExecStopPre=\n",
+			},
+			Setup: `grep -q '^ExecStartPost=.*systemctl --user set-environment' "$MNT/usr/lib/systemd/user/dbus.socket"
+grep -q '^ExecStartPost=.*systemctl --user set-environment' "$MNT/usr/lib/systemd/user/ssh-agent.socket"
+`}, nil
+	case "user-xdg":
+		return Edit{Links: map[string]string{"/etc/systemd/user-generators/systemd-xdg-autostart-generator": "/dev/null"},
+			Setup: `test -x "$MNT/usr/lib/systemd/user-generators/systemd-xdg-autostart-generator"
+`}, nil
+	case "user-gens":
+		return Edit{Links: map[string]string{
+			"/etc/systemd/user-generators/systemd-xdg-autostart-generator":                "/dev/null",
+			"/etc/systemd/user-environment-generators/30-systemd-environment-d-generator": "/dev/null",
+		}}, nil
+	case "pam-min":
+		return Edit{Files: map[string]string{"/etc/pam.d/systemd-user": "account required pam_permit.so\nsession optional pam_systemd.so\n"},
+			Setup: `test -e "$MNT/usr/lib/pam.d/systemd-user"
+`}, nil
 	}
 	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-logging, carry-coldplug", name)
 }

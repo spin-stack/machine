@@ -137,6 +137,7 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	// from before it lets one in, so this is counted rather than failed.
 	_, err = m.Key.Login(cid, xssh.KeyExchangeCurve25519)
 	m.Record("curve25519_in", map[bool]float64{true: 1, false: 0}[err == nil])
+	managerDiag(m, cid)
 	// The prompt is usually there by now; it is waited for so the column is not empty.
 	for time.Now().Before(deadline) {
 		mu.Lock()
