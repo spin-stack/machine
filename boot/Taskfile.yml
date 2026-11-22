@@ -89,16 +89,19 @@ tasks:
   here:
     desc: >-
       This change's machine: the newest release, fetched and checked against its sha256 and its
-      signature, with this tree's QEMU, firmware, kernel and spin-machine in place of its own
-      (spin-machine-dev lab tree here, in _output/trees/here). Exported to the steps after in CI
-      as SPIN_MACHINE_OUTPUT. Needs a built QEMU and kernel.
+      signature, with this tree's QEMU, firmware and spin-machine in place of its own, and its
+      kernel when one is built (spin-machine-dev lab tree here, in _output/trees/here). Exported
+      to the steps after in CI as SPIN_MACHINE_OUTPUT. Needs a built or fetched QEMU.
     # The base image is the release's: a checkpoint resumes with the disks it was saved with. So
     # are the e2fsprogs tools that edit a copy of it (boot:lockdown's debugfs) and qemu-img, which
-    # makes the overlays.
+    # makes the overlays. Without a built kernel, the release's: compat builds one only for a
+    # change that reaches it.
     cmds:
       - |
         set -euo pipefail
-        here=$(go run ./cmd/spin-machine-dev lab tree here --qemu {{.OUTPUT_ABS}} --kernel {{.OUTPUT_ABS}}/kernel/bzImage --spin-machine here)
+        kernel=()
+        if [ -f {{.OUTPUT_ABS}}/kernel/bzImage ]; then kernel=(--kernel {{.OUTPUT_ABS}}/kernel/bzImage); fi
+        here=$(go run ./cmd/spin-machine-dev lab tree here --qemu {{.OUTPUT_ABS}} "${kernel[@]}" --spin-machine here)
         echo "SPIN_MACHINE_OUTPUT=$here" >> "${GITHUB_ENV:-/dev/stdout}"
 
   compat:
