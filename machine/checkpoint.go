@@ -191,7 +191,10 @@ const (
 )
 
 func init() {
-	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd, events, deferDiskFlush)
+	qmpdef.Enum(mappedRAM, pauseBeforeSwitchover, postcopyRAM, multifd, events)
+	// Asked for only when query-migrate-capabilities lists it (Checkpoint): a released QEMU may
+	// not have it.
+	qmpdef.Probed(deferDiskFlush)
 	qmpdef.Enum(preSwitchover, postcopyActive, completed, failed, cancelled)
 }
 
