@@ -58,7 +58,7 @@ else. So every file is required, and a patch directory ships whole, never as a l
 	}
 	f.register(c)
 	c.Flags().StringVar(&version, "version", "", "the release's version (default: git describe --tags --always --dirty)")
-	c.AddCommand(releasePackCmd(), releaseVersionCmd(), releaseNotesCmd(), releaseProvenanceCmd(), releaseSignCmd(), releaseTagCmd())
+	c.AddCommand(releasePackCmd(), releaseVersionCmd(), releaseNotesCmd(), releaseProvenanceCmd(), releaseSignCmd(), releaseTagCmd(), releaseTraceableKernelCmd(), releaseUploadCmd())
 	return c
 }
 
@@ -148,6 +148,92 @@ func gh(ctx context.Context, args ...string) (string, error) {
 		return "", fmt.Errorf("gh %s: %w: %s", strings.Join(args[:min(len(args), 2)], " "), err, bytes.TrimSpace(stderr.Bytes()))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func releaseTraceableKernelCmd() *cobra.Command {
+	var f buildFlags
+	var version string
+	c := &cobra.Command{
+		Use:    "traceable-kernel --version <version>",
+		Short:  "Build the lab's traceable kernel of a release into _output/release, beside it and never in it",
+		Hidden: true,
+		Long: `Build the release's kernel (as build kernel does, into _output) and a second one from the same
+source and config with lockdown forced to none instead of confidentiality, into _output/traceable,
+then hold the second's config to the first's: that one option swapped and every other as the
+release has it. Its bzImage is put in _output/release as the release's traceable kernel, to be
+signed and published beside the release for the lab's ledger, which reads a scheduler trace that
+lockdown takes away (kernel/README.md). It enters no tarball and nothing spin boots.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			w, err := open()
+			if err != nil {
+				return err
+			}
+			if version == "" {
+				return couldNot(errors.New("--version names the release whose traceable kernel this is"))
+			}
+			kernel, err := build.Plan([]string{"kernel"})
+			if err != nil {
+				return couldNot(err)
+			}
+			o := f.options(c, w)
+			if _, err := build.Make(c.Context(), o, kernel); err != nil {
+				return couldNot(err)
+			}
+			t := o
+			t.Out, t.Traceable = filepath.Join(w.out, "traceable"), true
+			if _, err := build.Make(c.Context(), t, kernel); err != nil {
+				return couldNot(err)
+			}
+			if err := build.TraceableConfig(filepath.Join(o.Out, "kernel", "kernel-config"), filepath.Join(t.Out, "kernel", "kernel-config")); err != nil {
+				return couldNot(err)
+			}
+			to := filepath.Join(w.out, "release", release.TraceableKernel(version))
+			if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+				return couldNot(fmt.Errorf("making %s: %w", filepath.Dir(to), err))
+			}
+			if err := copyFile(filepath.Join(t.Out, "kernel", "bzImage"), to); err != nil {
+				return couldNot(err)
+			}
+			say(c, "✓ %s", to)
+			return nil
+		},
+	}
+	f.register(c)
+	c.Flags().StringVar(&version, "version", "", "the release's version")
+	return c
+}
+
+func releaseUploadCmd() *cobra.Command {
+	var version string
+	c := &cobra.Command{
+		Use:    "upload --version <version>",
+		Short:  "Add every file of _output/release to the published release",
+		Hidden: true,
+		Long: `Add every file of _output/release to the release --version, published already: release.yml's
+traceable job publishes the release's traceable kernel and its bundles this way, after the release
+itself. A file the release has already is refused, as gh release upload refuses it. Needs gh.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			w, err := open()
+			if err != nil {
+				return err
+			}
+			if version == "" {
+				return couldNot(errors.New("--version names the release the files are added to"))
+			}
+			files, err := filepath.Glob(filepath.Join(w.out, "release", "*"))
+			if err != nil || len(files) == 0 {
+				return couldNot(fmt.Errorf("nothing in %s to add to release %s (%v)", filepath.Join(w.out, "release"), version, err))
+			}
+			if _, err := gh(c.Context(), append([]string{"release", "upload", version}, files...)...); err != nil {
+				return exitError{code: 1, err: err}
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&version, "version", "", "the release's version")
+	return c
 }
 
 func releaseVersionCmd() *cobra.Command {
@@ -332,7 +418,7 @@ func sign(ctx context.Context, c *cobra.Command, dir, predicate, identity string
 			"--certificate-identity", identity, "--certificate-oidc-issuer", release.OIDCIssuer)
 	}
 	var files []string
-	for _, g := range []string{"*.tar.gz", "*.tar.gz.sha256", "machine.env", "*.cdx.json"} {
+	for _, g := range []string{"*.tar.gz", "*.tar.gz.sha256", "machine.env", "*.cdx.json", release.TraceableKernel("*")} {
 		found, _ := filepath.Glob(filepath.Join(dir, g))
 		files = append(files, found...)
 	}
@@ -364,7 +450,7 @@ func sign(ctx context.Context, c *cobra.Command, dir, predicate, identity string
 	}
 	for _, g := range []struct{ require, except []string }{
 		{[]string{"provenance"}, nil},
-		{[]string{"cdx"}, []string{"*.sha256", "machine.env", "*.cdx.json"}},
+		{[]string{"cdx"}, []string{"*.sha256", "machine.env", "*.cdx.json", release.TraceableKernel("*")}},
 	} {
 		missing, err := attestgate.Files(dir, g.require, g.except)
 		if err != nil {

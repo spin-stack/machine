@@ -133,6 +133,16 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 			t.Fatalf("releaseSpinMachine = %q, %v", source, err)
 		}
 	}
+	// A release's traceable kernel, its signature checked: from the first release built with one.
+	if tag := os.Getenv("SPIN_LAB_TRACEABLE"); tag != "" {
+		bz, err := src.traceable(tag)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := isBzImage(bz); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if id := os.Getenv("SPIN_LAB_RUN"); id != "" {
 		d, err := src.run(id, "lab-*")
 		if err != nil {

@@ -68,8 +68,17 @@ untouched, and so is a BPF LSM program that reads no kernel memory.
 It takes tracefs too. The boot probes read the ring buffer and systemd, which lockdown leaves
 alone: `spin-machine-dev lab run initcalls` reads `initcall_debug` from the ring buffer. Tracing
 the kernel itself (function_graph, scheduler events) needs a kernel built with
-`CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y`. Swap that option into this config and take it out of
-`Dockerfile`'s check on a branch or in a scratch worktree, never in a release.
+`CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y`, and the lab's ledger needs one for each release (#536).
+
+So each release has a traceable kernel beside it, for the lab and nothing else. `release.yml`'s
+`traceable` job builds this config with `KERNEL_LOCKDOWN=none`, which `Dockerfile` swaps for the
+confidentiality option before olddefconfig and checks in its place. `spin-machine-dev release
+traceable-kernel` then holds the result's config to the release kernel's: lockdown swapped, and
+every other option the same. The job signs the bzImage as the release's files are signed and
+publishes it on the release as `spin-machine-TAG-linux-x86_64.lab-only-traceable.bzImage`. It is
+in no tarball and in nothing spin boots, and `lab tree --kernel traceable:TAG` checks its
+signature before a tree boots it. Every kernel spin boots is built with
+`KERNEL_LOCKDOWN=confidentiality`.
 
 Under the archive's systemd, the console showed two lines at boot that read like missing
 protection and are lockdown working:

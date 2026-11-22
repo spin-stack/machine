@@ -30,6 +30,12 @@ import (
 // Name is the release's name, which its tarball and directory carry.
 func Name(version string) string { return "spin-machine-" + version + "-linux-" + build.Arch }
 
+// TraceableKernel is the name the lab's kernel of release version is published under beside the
+// release: its kernel built from the same source and config with lockdown forced to none, so the
+// ledger can read a scheduler trace (kernel/README.md). Never in the tarball nor anything spin
+// boots, and named lab-only for whoever reads the release's files.
+func TraceableKernel(version string) string { return Name(version) + ".lab-only-traceable.bzImage" }
+
 // Options is what a release is packed from.
 type Options struct {
 	// Root is the repository: its LICENSE, NOTICE and patches ship.

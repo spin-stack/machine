@@ -474,3 +474,35 @@ func TestTouchesErrsTowardsBuilding(t *testing.T) {
 		t.Error("a base that moved on in the part after the change forked built the change")
 	}
 }
+
+// The traceable kernel's config is the release kernel's with lockdown forced to none and nothing
+// else: each other difference is named, and so is a lockdown left as it was.
+func TestTheTraceableConfigIsTheReleasesLessLockdown(t *testing.T) {
+	dir := t.TempDir()
+	config := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("#\n# Linux/x86 7.3.0 Kernel Configuration\n#\n"+body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	release := config("release", "CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_LSM=\"lockdown,bpf\"\n")
+	swapped := "# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_LSM=\"lockdown,bpf\"\n"
+	if err := TraceableConfig(release, config("ok", swapped)); err != nil {
+		t.Errorf("the release's config with lockdown swapped: %v", err)
+	}
+	for name, c := range map[string]struct{ body, want string }{
+		"not swapped": {"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_LSM=\"lockdown,bpf\"\n",
+			"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is y in the release kernel and y in the traceable one, not y and n"},
+		"an option added":   {swapped + "CONFIG_KPROBES=y\n", "CONFIG_KPROBES is n in the release kernel and y in the traceable one"},
+		"an option dropped": {strings.Replace(swapped, "CONFIG_LSM=\"lockdown,bpf\"\n", "", 1), `CONFIG_LSM is "lockdown,bpf" in the release kernel and n in the traceable one`},
+		"no option at all":  {"", "sets no option"},
+	} {
+		if err := TraceableConfig(release, config(name, c.body)); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", name, err, c.want)
+		}
+	}
+	if err := TraceableConfig(filepath.Join(dir, "none"), release); err == nil || !strings.Contains(err.Error(), "reading the kernel config") {
+		t.Errorf("a config not there: %v", err)
+	}
+}

@@ -114,13 +114,48 @@ func one(dir, suffix string) (string, error) {
 	return found[0], nil
 }
 
+// traceable is release tag's traceable kernel (release.TraceableKernel), downloaded and its
+// signature checked the first time it is asked for, in Cache/traceable/TAG.
+//
+// mutate-lane: TestTheLabTalksToGitHub, with SPIN_LAB_TRACEABLE set to a release that has one.
+func (s Sources) traceable(tag string) (string, error) {
+	dir := filepath.Join(s.Cache, "traceable", tag)
+	bz := filepath.Join(dir, release.TraceableKernel(tag))
+	if fileExists(bz) {
+		return bz, nil
+	}
+	pins, err := versions.Load(filepath.Join(s.Checkout, versions.File))
+	if err != nil {
+		return "", fmt.Errorf("reading the pins release %s's traceable kernel is verified with: %w", tag, err)
+	}
+	if err := os.RemoveAll(dir + ".part"); err != nil {
+		return "", fmt.Errorf("clearing %s.part: %w", dir, err)
+	}
+	if err := os.MkdirAll(dir+".part", 0o755); err != nil {
+		return "", fmt.Errorf("making %s.part: %w", dir, err)
+	}
+	if _, err := release.Signed(context.Background(), pins, tag, dir+".part", release.TraceableKernel(tag)); err != nil {
+		return "", fmt.Errorf("release %s's traceable kernel (published beside releases from #536 on): %w", tag, err)
+	}
+	if err := os.Rename(dir+".part", dir); err != nil {
+		return "", fmt.Errorf("keeping release %s's traceable kernel: %w", tag, err)
+	}
+	return bz, nil
+}
+
 // placeKernel puts the kernel what names into the tree at dir and says where it came from.
 //
 // A bzImage, always, which is what the machine boots. A Kernel run from before 2026-11-19
 // uploaded none, and is refused by name.
 func (s Sources) placeKernel(what, dir string) (string, error) {
 	bz, source := what, what
-	if id, ok := strings.CutPrefix(what, "run:"); ok {
+	if tag, ok := strings.CutPrefix(what, "traceable:"); ok {
+		var err error
+		if bz, err = s.traceable(tag); err != nil {
+			return "", err
+		}
+		source = "release " + tag + "'s traceable kernel"
+	} else if id, ok := strings.CutPrefix(what, "run:"); ok {
 		d, err := s.run(id, "vmlinux-*")
 		if err != nil {
 			return "", err

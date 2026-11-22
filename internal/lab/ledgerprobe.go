@@ -98,14 +98,18 @@ func LedgerFiles(tree string, rep int) (text, data, trace, journal string) {
 	return name + ".ledger.txt", name + ".ledger.json", name + ".trace.txt", name + ".journal.txt"
 }
 
+// LedgerSuffix names the tree releases measure accounts for a release with, after the release:
+// the release on its traceable kernel, with the ledger edit and LedgerAppend.
+const LedgerSuffix = "-" + ledgerName
+
 // ledgerProbe accounts for one boot to the first login, from the moment before QEMU is exec'd: the
 // ledger (ledger.go), kept beside result.json with the trace and journal it was made from. It is a
 // diagnostic and never a goal number: the trace and sshd's DEBUG1 run beside the boot they record,
 // and what that costs is measured (docs/measuring.md, "The ledger").
 //
 // It needs a kernel that lets the trace be read: the release's forces lockdown at confidentiality,
-// which takes tracefs away (kernel/README.md), and a tree boots one built with lockdown forced to
-// none (--kernel run:N), which no release ships (#536).
+// which takes tracefs away (kernel/README.md), and a tree boots the one built beside each release
+// with lockdown forced to none (--kernel traceable:TAG), which the release does not ship.
 //
 // The first login is ssh-first's, on the first connection accepted, with /usr/bin/true for its
 // command so that the trace shows where the command started and exited. The host then asks the

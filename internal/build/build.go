@@ -60,6 +60,11 @@ type Options struct {
 	Export bool
 	// SystemdExperiment is image/systemd/experiments/<name>.patch, applied to systemd's build.
 	SystemdExperiment string
+	// Traceable builds the kernel with lockdown forced to none instead of confidentiality, and
+	// nothing else changed: the lab's traceable kernel, published beside a release and never in
+	// one (spin-machine-dev release traceable-kernel). Into an Out of its own, so a release never
+	// packs it.
+	Traceable bool
 	// Rebuild builds a part whatever its manifest says.
 	Rebuild bool
 	// Stdout and Stderr are the builds' own output, for a person.
@@ -295,7 +300,11 @@ func partArgs(o Options, p Part) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, "--build-arg", "KERNEL_SERIES="+series, "--build-arg", "KERNEL_ARCH="+Arch)
+		lockdown := "confidentiality"
+		if o.Traceable {
+			lockdown = "none"
+		}
+		args = append(args, "--build-arg", "KERNEL_SERIES="+series, "--build-arg", "KERNEL_ARCH="+Arch, "--build-arg", "KERNEL_LOCKDOWN="+lockdown)
 	case "systemd":
 		args = append(args, "--build-arg", "SYSTEMD_EXPERIMENT="+o.SystemdExperiment)
 	}

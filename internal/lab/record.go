@@ -88,6 +88,10 @@ type Record struct {
 	// (docs/measuring.md, "Boot charts").
 	Bootchart string `json:"bootchart,omitempty"`
 	Plot      string `json:"plot,omitempty"`
+	// Ledger is a file beside the record that accounts for one boot of the release to its first
+	// login, from a scheduler trace, taken in the record's run (the ledger probe): read as the
+	// charts are (docs/measuring.md, "The ledger").
+	Ledger string `json:"ledger,omitempty"`
 }
 
 // Against is the release a record was measured interleaved with: that release's numbers from the
@@ -334,7 +338,7 @@ func tables(records []Record, kept string) []table {
 		}
 	}
 	where := table{Title: "Where each was measured",
-		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run", "bootchart", "units"}}
+		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run", "bootchart", "units", "ledger"}}
 	for _, r := range records {
 		g, d, bd := []entry{{Text: r.Release}}, []entry{{Text: r.Release}}, []entry{{Text: r.Release}}
 		for _, n := range numbers {
@@ -373,9 +377,9 @@ func tables(records []Record, kept string) []table {
 		if r.Run != "" {
 			run = entry{Text: r.Run[strings.LastIndex(r.Run, "/")+1:], Link: r.Run}
 		}
-		chart, plot := keptFile("processes", r.Bootchart, kept), keptFile("units", r.Plot, kept)
+		chart, plot, ledger := keptFile("processes", r.Bootchart, kept), keptFile("units", r.Plot, kept), keptFile("ledger", r.Ledger, kept)
 		where.Rows = append(where.Rows, []entry{release, {Text: r.Measured.Format(time.DateOnly)}, {Text: r.Host},
-			{Text: r.shape()}, {Text: itoa(r.Reps)}, against, run, chart, plot})
+			{Text: r.shape()}, {Text: itoa(r.Reps)}, against, run, chart, plot, ledger})
 	}
 	if len(records) > 0 {
 		newest := records[len(records)-1]

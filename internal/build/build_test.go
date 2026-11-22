@@ -384,7 +384,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	}
 	for i, want := range [][]string{
 		{"--build-arg JOBS=3", "--output type=local,dest=" + out + " ."},
-		{"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_ARCH=x86_64", "--build-arg KERNEL_NPROC=3", "--output type=local,dest=" + out + " ."},
+		{"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_ARCH=x86_64", "--build-arg KERNEL_LOCKDOWN=confidentiality", "--build-arg KERNEL_NPROC=3", "--output type=local,dest=" + out + " ."},
 		{"--output type=local,dest=" + out + " ."},
 		{"--build-arg SYSTEMD_EXPERIMENT=exp", "--build-arg JOBS=3", "--output type=local,dest=" + filepath.Join(out, "systemd") + " ."},
 		{"--build-arg JOBS=3", "--output type=local,dest=" + filepath.Join(out, "openssh") + " ."},

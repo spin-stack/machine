@@ -196,6 +196,81 @@ mkdir -p "$dest/bin" "$dest/e2fsprogs"; : > "$dest/e2fsprogs/mke2fs.conf"
 for b in mkfs.ext4 e2fsck dumpe2fs debugfs; do printf '#!/bin/sh\necho mke2fs ` + version + `\n' > "$dest/bin/$b"; chmod +x "$dest/bin/$b"; done`
 }
 
+// kernelDocker is a docker whose kernel build writes a bzImage and vmlinux that verify, and the
+// config they were built with: lockdown as KERNEL_LOCKDOWN asks, and extra in the one built with
+// none.
+func kernelDocker(extra string) string {
+	return `dest=""; lockdown=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; KERNEL_LOCKDOWN=*) lockdown=${a#KERNEL_LOCKDOWN=};; esac; done
+[ -n "$dest" ] || exit 0
+mkdir -p "$dest/kernel"; head -c 1024 /dev/zero > "$dest/kernel/bzImage"
+printf HdrS | dd of="$dest/kernel/bzImage" bs=1 seek=514 conv=notrunc 2>/dev/null
+printf '\001' | dd of="$dest/kernel/bzImage" bs=1 seek=564 conv=notrunc 2>/dev/null
+cp /proc/self/exe "$dest/kernel/vmlinux"
+if [ "$lockdown" = none ]; then
+	printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"
+else
+	printf 'CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_BPF_LSM=y\n' > "$dest/kernel/kernel-config"
+fi`
+}
+
+// The traceable kernel is the release kernel with lockdown forced to none and nothing else: it is
+// put beside the release only then, and an option that moved with it is refused by name.
+func TestTheTraceableKernelIsTheReleaseKernelLessLockdown(t *testing.T) {
+	dir := checkout(t)
+	put(t, filepath.Join(dir, "kernel/Dockerfile"), "FROM x", 0o644)
+	published := filepath.Join(dir, "_output/release", release.TraceableKernel("v1"))
+	calls := fakes(t, map[string]string{"docker": kernelDocker("")})
+	if _, stderr, status := verb(t, "release", "traceable-kernel", "--version", "v1"); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	got := read(t, calls)
+	if !strings.Contains(got, "KERNEL_LOCKDOWN=confidentiality") || !strings.Contains(got, "KERNEL_LOCKDOWN=none --build-arg KERNEL_NPROC=8 --output type=local,dest="+filepath.Join(dir, "_output/traceable")+" ") {
+		t.Errorf("docker was not asked for both kernels:\n%s", got)
+	}
+	if read(t, published) != read(t, filepath.Join(dir, "_output/traceable/kernel/bzImage")) {
+		t.Error("the traceable kernel was not put beside the release")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "_output/kernel/bzImage")); err != nil {
+		t.Errorf("the release kernel was not built: %v", err)
+	}
+	_ = os.Remove(published)
+	fakes(t, map[string]string{"docker": kernelDocker(`CONFIG_KPROBES=y\n`)})
+	if _, stderr, status := verb(t, "release", "traceable-kernel", "--version", "v1", "--rebuild"); status != 2 || !strings.Contains(stderr, "CONFIG_KPROBES is n in the release kernel and y in the traceable one") {
+		t.Errorf("KPROBES beside lockdown: exit %d, %q", status, stderr)
+	}
+	if _, err := os.Stat(published); err == nil {
+		t.Error("KPROBES beside lockdown: the kernel was put beside the release anyway")
+	}
+	if _, _, status := verb(t, "release", "traceable-kernel"); status != 2 {
+		t.Errorf("no version exited %d", status)
+	}
+}
+
+// Upload adds what _output/release holds to a release published already, and fails when gh does.
+func TestUploadAddsEveryFileOfTheReleaseDirectory(t *testing.T) {
+	dir := checkout(t)
+	if _, stderr, status := verb(t, "release", "upload", "--version", "v1"); status != 2 || !strings.Contains(stderr, "nothing in") {
+		t.Errorf("nothing to add: exit %d, %q", status, stderr)
+	}
+	rel := filepath.Join(dir, "_output/release")
+	put(t, filepath.Join(rel, "k"), "k", 0o644)
+	put(t, filepath.Join(rel, "k.sigstore.json"), "{}", 0o644)
+	calls := fakes(t, map[string]string{"gh": ""})
+	if _, stderr, status := verb(t, "release", "upload", "--version", "v1"); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	if got, want := read(t, calls), "gh release upload v1 "+filepath.Join(rel, "k")+" "+filepath.Join(rel, "k.sigstore.json")+"\n"; got != want {
+		t.Errorf("gh was asked %q, want %q", got, want)
+	}
+	fakes(t, map[string]string{"gh": "exit 1"})
+	if _, _, status := verb(t, "release", "upload", "--version", "v1"); status != 1 {
+		t.Errorf("an upload that failed exited %d", status)
+	}
+	if _, _, status := verb(t, "release", "upload"); status != 2 {
+		t.Errorf("no version exited %d", status)
+	}
+}
+
 func TestBuildMakesWhatIsStaleAndSaysWhatItMade(t *testing.T) {
 	dir := checkout(t)
 	put(t, filepath.Join(dir, "e2fsprogs/Dockerfile"), "FROM x", 0o644)
@@ -554,7 +629,7 @@ func TestProvenanceIsRefusedOutsideAWorkflow(t *testing.T) {
 func TestSignChecksEveryBundleAndThatNothingIsLeftUnattested(t *testing.T) {
 	dir := checkout(t)
 	rel := filepath.Join(dir, "_output/release")
-	for _, f := range []string{"r.tar.gz", "r.tar.gz.sha256", "machine.env", "r.cdx.json"} {
+	for _, f := range []string{"r.tar.gz", "r.tar.gz.sha256", "machine.env", "r.cdx.json", release.TraceableKernel("v1")} {
 		put(t, filepath.Join(rel, f), f, 0o644)
 	}
 	// cosign writes each bundle it is asked for.
@@ -574,7 +649,7 @@ func TestSignChecksEveryBundleAndThatNothingIsLeftUnattested(t *testing.T) {
 			t.Errorf("cosign was not asked %q:\n%s", want, got)
 		}
 	}
-	if strings.Count(got, "cosign sign-blob") != 4 || strings.Count(got, "cosign attest-blob --yes --type slsaprovenance1") != 4 {
+	if strings.Count(got, "cosign sign-blob") != 5 || strings.Count(got, "cosign attest-blob --yes --type slsaprovenance1") != 5 {
 		t.Errorf("not every file was signed and attested:\n%s", got)
 	}
 	bundles, _ := filepath.Glob(filepath.Join(rel, "*.sigstore.json"))
@@ -992,7 +1067,7 @@ func TestMenuconfigEditsTheConfigInPlace(t *testing.T) {
 	series := strings.Join(strings.SplitN(k.Version, ".", 3)[:2], ".")
 	got := read(t, calls)
 	for _, want := range []string{"docker buildx build --file kernel/Dockerfile --target kernel-build-base --platform linux/amd64 --cache-from type=local,src=" + filepath.Join(dir, ".cache/buildkit/kernel"),
-		"--build-arg KERNEL_SERIES=" + series, "--output type=docker,name=spin-machine-menuconfig .",
+		"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_LOCKDOWN=confidentiality", "--output type=docker,name=spin-machine-menuconfig .",
 		"docker run --rm -it -v " + filepath.Join(dir, "kernel") + ":/config -w /usr/src/linux -e KCONFIG_CONFIG=/config/config-" + series + "-x86_64 -e TERM=xterm-256color spin-machine-menuconfig make ARCH=x86_64 menuconfig"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("docker was not asked %q:\n%s", want, got)
