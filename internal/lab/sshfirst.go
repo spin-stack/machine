@@ -33,7 +33,7 @@ func (sshFirst) About() string {
 	return "ms from the moment before QEMU is exec'd to sshd accepting on vsock, and to `true` run over SSH, as spin or, on spin's login, root"
 }
 func (sshFirst) Options() []Option {
-	return append(append([]Option{}, shape...), Option{"first", "true", "the first login's command: true, or userbus (systemctl --user, counted in userbus_ok)"})
+	return append(append([]Option{}, shape...), Option{"first", "login", "the first login: login (true), or userbus (systemctl --user, counted in userbus_ok)"})
 }
 func (sshFirst) Rows(Options) []string { return []string{"boot"} }
 func (sshFirst) Phases() int           { return 1 }
