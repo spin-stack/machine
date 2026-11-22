@@ -164,7 +164,7 @@ index bd40394aa..5f2f597a4 100644
 +    MigrationState *s = migrate_get_current();
 +
 +    return s->capabilities[MIGRATION_CAPABILITY_X_DEFER_DISK_FLUSH] &&
-+           !migrate_postcopy_ram() && !migrate_mode_is_cpr();
++           !migrate_postcopy_ram();
 +}
 +
  bool migrate_mapped_ram(void)
