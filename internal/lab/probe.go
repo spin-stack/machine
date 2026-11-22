@@ -444,6 +444,7 @@ func (m *Measurement) SpinMachine(args ...string) error {
 
 // Probes are the probes there are, by name.
 var Probes = map[string]Probe{
+	"chain":            chain{},
 	"density":          density{},
 	"initcalls":        initcalls{},
 	"prestart":         prestart{},
