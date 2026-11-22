@@ -269,7 +269,7 @@ type boot struct {
 // cut at an exec as well, so that each part is under the name it ran under. A task's time off the
 // CPUs is in the state its switch away left it in, until a wakeup makes it runnable.
 func replay(events []schedEvent) *boot {
-	b := &boot{parent: map[int]int{}, forked: map[int]float64{}, execs: map[int][]execAt{}, exited: map[int]float64{}, marks: map[string]float64{}, cpu0: math.Inf(1)}
+	b := &boot{parent: map[int]int{}, forked: map[int]float64{}, execs: map[int][]execAt{}, exited: map[int]float64{}, marks: map[string]float64{}, cpu0: math.Inf(1)} // mutate-exempt: Inf reads only its argument's sign
 	type onCPU struct {
 		pid   int
 		comm  string
@@ -352,7 +352,7 @@ func replay(events []schedEvent) *boot {
 // Sent less the marker's time and no later than Answered less it. The trips' brackets meet in one,
 // and its middle is the estimate, give or take half its width.
 func (b *boot) kernelZero(trips []Trip) (zero, halfWidth float64, err error) {
-	lo, hi, n := math.Inf(-1), math.Inf(1), 0
+	lo, hi, n := math.Inf(-1), math.Inf(1), 0 // mutate-exempt: Inf reads only its argument's sign
 	for _, t := range trips {
 		at, ok := b.marks[fmt.Sprintf("%s%d", syncMarker, t.N)]
 		if !ok {
@@ -421,7 +421,7 @@ func (b *boot) cuts() ([]cut, float64, error) {
 // and the task that made it.
 func (b *boot) execOf(suffix string, from float64, ancestor int) (float64, int, bool) {
 	var first *execAt
-	who := 0
+	var who int
 	for pid, es := range b.execs {
 		for i, e := range es {
 			if e.at >= from && strings.HasSuffix(e.file, suffix) && b.descends(pid, ancestor) && (first == nil || e.at < first.at) {
@@ -488,7 +488,7 @@ func parseUnits(text string) map[int]string {
 // guest could not name is unattributed: systemd moves its children into their units' cgroups, so
 // PID 1's own is not theirs.
 func (b *boot) owners(units map[int]string) func(pid int, at float64) string {
-	pid1 := math.Inf(1)
+	pid1 := math.Inf(1) // mutate-exempt: Inf reads only its argument's sign
 	if inits := b.execs[1]; len(inits) > 0 {
 		pid1 = inits[0].at
 	}
