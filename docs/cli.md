@@ -75,6 +75,11 @@ spin-machine-dev cves [--local]       the kernel CNA's CVEs against the newest r
 repository shares. `spin-machine-dev` adds what belongs to this repository: the QEMU machine types,
 the builder images, OSV and the kernel's CVEs.
 
+`go tool task versions` and `go tool task bump NAME=<entry> [TO=<ver>]` are the names every
+spin-stack repository has for the same two (go-tools' common tasks, below). They run the
+`versions` of go-tools' latest release, not go.mod's, and `bump NAME=qemu` does not print the
+machine types: a QEMU bump is `spin-machine-dev bump qemu`.
+
 ## Releasing
 
 ```
@@ -149,9 +154,15 @@ the release that needed them.
 ## The Taskfile
 
 What a person types is spin-machine-dev. The Taskfile is go-tools' gates, the same in every
-spin-stack repository (`test`, `lint`, `lint:workflows`, `mutate`, `coverage`), and CI's plumbing:
+spin-stack repository (`test`, `lint`, `mutate`, `coverage`), and CI's plumbing:
 `bin`, `git:app` (git as the release app), `trace` and `ship-it:wake`. The probes' targets
 (`boot:*`), `lab`, `lab:ci` and `vsock` run what the verbs built.
+
+`versions`, `bump`, `release`, `lint:workflows` and `consumers` are not written here: the
+Taskfile includes go-tools' own file of them (`GO_TOOLS_TASKS`, which only `go tool task` sets),
+so each means what it means in every repository. `lint` runs `lint:workflows`. `release` and
+`consumers` are listed and refuse: the include names no gate, because a release is release.yml's
+(Releasing, above), and nothing copies from this repository by a `consumers.toml`.
 
 ## Measuring
 

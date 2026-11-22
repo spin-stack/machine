@@ -5,10 +5,11 @@
 # verifies, boots, releases and keeps the pins with its verbs, and a workflow composes the same
 # verbs, a step each (docs/cli.md). `go tool task bin` puts it in _output/bin.
 #
-# This file is go-tools' gates and CI's plumbing: test, lint, lint:workflows, mutate and coverage;
-# bin, the release app's git (git:app), and the probes' (boot/ and the lab's targets), which boot
-# what the verbs built. `go tool task <name>` is the Task CI runs: go-tools'
-# task command, which runs the Task versions.yaml pins with go-tools' commands on its PATH.
+# This file is go-tools' gates and CI's plumbing: test, lint, mutate and coverage; the tasks
+# go-tools writes once for every repository (the common include below); bin, the release app's
+# git (git:app), and the probes' (boot/ and the lab's targets), which boot what the verbs built.
+# `go tool task <name>` is the Task CI runs: go-tools' task command, which runs the Task
+# versions.yaml pins with go-tools' commands on its PATH.
 #
 # What is deliberately NOT here: the software that runs inside a guest. This repository
 # builds a machine and knows nothing about what boots on it, and there is no exception to
@@ -22,6 +23,12 @@ silent: true
 output: prefixed
 
 includes:
+  # versions, bump, release, lint:workflows and consumers, as every spin-stack repository has
+  # them: go-tools' own file, which go tool task names. No GATE_* vars, so release refuses: a
+  # release here is release.yml, which builds, signs and tags with spin-machine-dev release.
+  common:
+    taskfile: '{{.GO_TOOLS_TASKS}}'
+    flatten: true
   boot:
     taskfile: boot/Taskfile.yml
     dir: '{{.ROOT_DIR}}'
@@ -168,22 +175,6 @@ tasks:
       - taskgate -allow .github/taskgate-allow.txt -task {{.TASK_EXE}} -command spin-machine-dev
       - sfw check
       - task: lint:workflows
-
-  lint:workflows:
-    desc: actionlint over .github/, and every action pinned by its commit.
-    cmds:
-      # -shellcheck= because actionlint runs whatever shellcheck is on PATH: a runner has one and
-      # a laptop may not, and a gate whose answer depends on the machine is not a gate.
-      - go run github.com/rhysd/actionlint/cmd/actionlint@$(versions version actionlint) -shellcheck=
-      - cmd: 'echo "OK: actionlint"'
-      # A tag is whatever its owner points it at, and release.yml holds the token that publishes
-      # the tarball every host boots its machines from; the comment is the version Dependabot moves.
-      - |
-        if grep -rnE '^\s*(- )?uses: [^./][^ ]*@' .github | grep -vE '@[0-9a-f]{40} # v[0-9]'; then
-          echo "an action above is used by a tag its owner can move: pin it by commit SHA, with '# vX.Y.Z' after it"
-          exit 1
-        fi
-        echo "OK: every action pinned by its commit"
 
   mutate:
     desc: >-
