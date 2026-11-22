@@ -290,7 +290,14 @@ func TestResumeRefusesAnotherMachine(t *testing.T) {
 		{"no record", Target{}, []Difference{{Part: "vmm", Here: "qemu 11.2.0", Rule: AsNew}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &fakeQEMU{answer: migrations(machineAnswers("inmigrate"), "completed")}
+			f := &fakeQEMU{}
+			held, loaded := machineAnswers("inmigrate"), machineAnswers("running")
+			f.answer = migrations(func(c call) string {
+				if slices.Contains(f.commands(), "migrate-incoming") {
+					return loaded(c)
+				}
+				return held(c)
+			}, "RESUME", "completed")
 			err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: tc.from}, this, LoadOptions{})
 			var r *Refusal
 			switch {

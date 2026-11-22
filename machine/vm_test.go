@@ -389,8 +389,8 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// resumeEvent is QEMU's RESUME: the guest's vCPUs started.
-const resumeEvent = `{"event": "RESUME", "timestamp": {"seconds": 1, "microseconds": 3}}` + "\n"
+// resumeLine is QEMU's RESUME: the guest's vCPUs started.
+const resumeLine = `{"event": "RESUME", "timestamp": {"seconds": 1, "microseconds": 3}}` + "\n"
 
 // migrationEvents is QEMU's MIGRATION for each of statuses, one line each, and its RESUME for a
 // status "RESUME", where a load runs the guest.
@@ -398,7 +398,7 @@ func migrationEvents(statuses ...string) string {
 	var b strings.Builder
 	for _, st := range statuses {
 		if st == "RESUME" {
-			b.WriteString(resumeEvent)
+			b.WriteString(resumeLine)
 			continue
 		}
 		b.WriteString(`{"event": "MIGRATION", "data": {"status": "` + st + `"}, "timestamp": {"seconds": 1, "microseconds": 2}}` + "\n")
@@ -432,7 +432,7 @@ func migrations(then func(c call) string, statuses ...string) func(c call) strin
 		case "migrate-continue":
 			return upTo("") + then(c)
 		case "cont":
-			return resumeEvent + then(c)
+			return resumeLine + then(c)
 		case "query-migrate":
 			if sent > 0 && statuses[sent-1] == "failed" {
 				return ret(`{"status": "failed", "error-desc": "No space left on device"}`)
@@ -1306,6 +1306,21 @@ func TestAttachDiskTargets(t *testing.T) {
 	err := m.attachAt(ctx(t), -1, Disk{Serial: "y", Images: []Image{image(t, "qcow2")}})
 	if err == nil || !strings.Contains(err.Error(), "target -1, and the controller addresses 0 to 255") {
 		t.Errorf("attachAt(-1) = %v", err)
+	}
+}
+
+// A full load that completes and leaves the guest in a state that neither runs it nor a cont would
+// fails the resume: QEMU sent no RESUME, and the guest is not running.
+func TestALoadThatLeavesTheGuestStoppedFailsTheResume(t *testing.T) {
+	from := fakeTarget(t)
+	f := &fakeQEMU{answer: migrations(machineAnswers("inmigrate", "root"), "active", "completed")}
+	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{},
+		Disk{Serial: "root", Images: []Image{image(t, "qcow2")}})
+	if err == nil || !strings.Contains(err.Error(), "the load completed and left the machine inmigrate") {
+		t.Errorf("Resume = %v, want the run state the load left", err)
+	}
+	if slices.Contains(f.commands(), "cont") {
+		t.Error("continued a machine that was not paused")
 	}
 }
 

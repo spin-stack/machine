@@ -146,6 +146,8 @@ var (
 	// migrationEvent is sent at each change of a migration's state, either direction, once the
 	// events capability is on: every wait on a migration waits on it.
 	migrationEvent = qmpdef.DefineEvent[migrationNews]("MIGRATION")
+	// resumeEvent is the guest's vCPUs started: by cont, or by a load's run BH.
+	resumeEvent = qmpdef.DefineEvent[qmp.None]("RESUME")
 )
 
 type migrateArgs struct {
@@ -503,10 +505,11 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 //
 // Fast is QEMU 11.2's fast snapshot load (docs/devel/migration/fast-snapshot-load.rst): mapped-ram
 // and postcopy-ram on a file: URI, the guest running once its device state is in while
-// userfaultfd serves its faults from the file and an eager thread reads the rest. It returns at
-// postcopy-active. QEMU needs userfaultfd for it: /dev/userfaultfd readable and writable by its
-// user, or vm.unprivileged_userfaultfd=1, or CAP_SYS_PTRACE - the guest's faults are taken in
-// the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor does not see.
+// userfaultfd serves its faults from the file and an eager thread reads the rest. It returns once
+// QEMU runs the guest, after postcopy-active. QEMU needs userfaultfd for it: /dev/userfaultfd
+// readable and writable by its user, or vm.unprivileged_userfaultfd=1, or CAP_SYS_PTRACE - the
+// guest's faults are taken in the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor
+// does not see.
 func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error {
 	if err := CanResume(saved, here); err != nil {
 		return fmt.Errorf("resuming: %w", err)
@@ -577,6 +580,8 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	}
 	running := m.expectMigration(until...)
 	defer running.Stop()
+	resumed := qmp.Expect(m.c, resumeEvent, nil)
+	defer resumed.Stop()
 	var data int64
 	if load.Phases != nil {
 		data = written(state)
@@ -594,18 +599,37 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	if err := m.migrate(ctx, migrateIn, state, os.O_RDONLY, loaded); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	// A machine saved stopped comes back stopped: QEMU carries the source's run state across.
-	if st, err = m.Status(ctx); err != nil {
-		return fmt.Errorf("resuming: %w", err)
-	}
-	if st == Paused {
-		if err := m.Continue(ctx); err != nil {
-			return err
+	if !load.Fast {
+		if err := m.runLoaded(ctx); err != nil {
+			return fmt.Errorf("resuming: %w", err)
 		}
+	}
+	// A fast load says postcopy-active and then starts the guest from a BH on QEMU's main loop
+	// (QEMU 11.2.0-rc0, qemu_loadvm_run_fast_snapshot_load), so the guest runs at RESUME and not
+	// before: #459's guest, which never ran, was told running at postcopy-active (#465). A full
+	// load's RESUME came before completed, or with cont's answer.
+	if _, err := resumed.Wait(ctx); err != nil {
+		return fmt.Errorf("resuming: waiting for QEMU to run the guest: %w", err)
 	}
 	tell(load.Phases, GuestRunning{At: time.Now()})
 	if load.Fast {
 		m.then, m.data = load.Phases, data
+	}
+	return nil
+}
+
+// runLoaded runs a fully loaded guest that QEMU left stopped. QEMU runs it before it says
+// completed when it was saved running, and leaves it stopped when it was saved stopped, carrying
+// the source's run state across. Any other state is a guest that will not run.
+func (m *QEMU) runLoaded(ctx context.Context) error {
+	st, err := m.Status(ctx)
+	switch {
+	case err != nil:
+		return err
+	case st == Paused:
+		return m.Continue(ctx)
+	case st != Running:
+		return fmt.Errorf("the load completed and left the machine %s", st)
 	}
 	return nil
 }
