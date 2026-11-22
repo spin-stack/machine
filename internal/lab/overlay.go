@@ -231,6 +231,10 @@ grep -q '^ExecStartPost=.*systemctl --user set-environment' "$MNT/usr/lib/system
 			"/etc/systemd/user-generators/systemd-xdg-autostart-generator":                "/dev/null",
 			"/etc/systemd/user-environment-generators/30-systemd-environment-d-generator": "/dev/null",
 		}}, nil
+	case "linger-root":
+		return Edit{Files: map[string]string{"/var/lib/systemd/linger/root": ""}}, nil
+	case "manager-debug":
+		return Edit{Files: map[string]string{"/etc/systemd/system/user@0.service.d/90-debug.conf": "[Service]\nEnvironment=SYSTEMD_LOG_LEVEL=debug\n"}}, nil
 	case "pam-min":
 		return Edit{Files: map[string]string{"/etc/pam.d/systemd-user": "account required pam_permit.so\nsession optional pam_systemd.so\n"},
 			Setup: `test -e "$MNT/usr/lib/pam.d/systemd-user"

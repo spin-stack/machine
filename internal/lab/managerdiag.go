@@ -54,7 +54,7 @@ func managerDiag(m *Measurement, cid uint32) {
 	span("u_sockets", "manager.UnitsLoadFinishTimestampMonotonic", "u:sockets.target.ActiveEnterTimestampMonotonic")
 	if m.Rep == 0 {
 		m.Logf("manager diag raw:\n%s", out)
-		const units = "systemctl --user list-units --all --plain --no-legend; ls /etc/systemd/user /usr/lib/systemd/user-generators /usr/lib/systemd/user-environment-generators; cat /etc/pam.d/systemd-user /usr/lib/pam.d/systemd-user /etc/pam.d/common-session 2>&1; systemctl --user show-environment; true"
+		const units = "systemctl --user list-units --all --plain --no-legend; ls /etc/systemd/user /usr/lib/systemd/user-generators /usr/lib/systemd/user-environment-generators; cat /etc/pam.d/systemd-user /usr/lib/pam.d/systemd-user /etc/pam.d/common-session 2>&1; systemctl --user show-environment; journalctl -b -o short-monotonic --no-pager _SYSTEMD_UNIT=user@0.service | head -400; journalctl -b -o short-monotonic --no-pager -u user@0.service -u user-runtime-dir@0.service -u systemd-logind.service | head -60; true"
 		if _, list, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, units); err == nil {
 			m.Logf("user units:\n%s", list)
 		}

@@ -52,6 +52,12 @@ func (sshFirst) Metrics() []Metric {
 		{"qemu_rss_anon", "MiB", "of qemu_rss, anonymous memory: each machine's own"},
 		{"qemu_rss_file", "MiB", "of qemu_rss, mapped files: shared between the machines that map them"},
 		{"qemu_rss_shmem", "MiB", "of qemu_rss, shared memory, such as guest RAM in a memfd"},
+		{"mgr_total", "ms", "user@0 start to ready"},
+		{"mgr_spawn", "ms", "user@0 start to systemd --user's main"},
+		{"mgr_generators", "ms", "user generators"},
+		{"mgr_load", "ms", "user units loaded"},
+		{"mgr_to_basic", "ms", "units loaded to basic.target"},
+		{"u_sockets", "ms", "units loaded to sockets.target"},
 	}
 }
 
