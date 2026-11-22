@@ -268,6 +268,7 @@ and a row measured in another shape than spin's has such a reason.
 | `driver_async_probe` for rng, balloon and vsock; `rcupdate.rcu_expedited=1` (carried since 11-13 and 09-07) | taken back −1.4 [−4.9, +3.1]: one vCPU has no second CPU to probe on. Deleted | spin | lab 44818953987, #352 | 11-21 |
 | Kernel 0006 (BTF parsed in the background), 0009 (a booting AP polled by local_clock()), 0011 (queue_select written only on a change) | taken back −2.5 [−8.4, +1.8] at 40 boots. Deleted | spin | labs 44818953987, 44822157367, #345 | 11-21 |
 | `DEFERRED_STRUCT_PAGE_INIT` (carried since 11-13, for 2 GiB at boot) | taken back −2.5 [−9.3, +3.8] at 40 boots: spin boots 128 MiB, which the kernel does not defer, and plugged memory is never deferred. Deleted | spin | lab 44839538785, #356 | 11-21 |
+| vmlinux BTF parsed on first use, not at the first kfunc registration (a kernel patch on branch `exp/btf-first-use`) | kernel to "Freeing" −7.2 [−8.6, −6.2], inet_init 6.85 → 0.14 ms (lab 44982285400, 10 boots), but the first login −1.5 [−3.1, +1.6] at 60 boots (lab 44982285406): journald's `DeviceAllow=` and `IPAddressDeny=` load cgroup BPF programs at its start, and `bpf_check()` parses the BTF there, before the login. A verifier that asks for BTF only when a program needs it is the next step | spin | labs 44982285400, 44982285406 | 11-22 |
 
 ### Firmware, QEMU and the machine
 
