@@ -67,7 +67,8 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 		}
 		return out
 	}
-	load := []string{`{"return": {"status": "inmigrate"}}`, `{"return": []}`, ok}
+	// The run state, the disks bound (none), taken (blockdev-set-active), and the capabilities.
+	load := []string{`{"return": {"status": "inmigrate"}}`, `{"return": []}`, ok, ok}
 	if machine.DefaultChannels > 1 { // migrate-set-parameters: a mapped-ram state loads by the default's channels
 		load = append(load, ok)
 	}
