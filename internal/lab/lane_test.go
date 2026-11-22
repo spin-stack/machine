@@ -39,6 +39,15 @@ func TestEveryProbeMeasuresATree(t *testing.T) {
 		}
 		trees = append(trees, st)
 	}
+	// And this checkout's OpenSSH, with SPIN_LAB_OPENSSH=1: built here too.
+	if os.Getenv("SPIN_LAB_OPENSSH") == "1" {
+		ot, err := MakeTree(filepath.Join(t.TempDir(), "openssh"), TreeSpec{Name: "openssh", From: from, OpenSSH: true},
+			Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), Log: io.Discard})
+		if err != nil {
+			t.Fatal(err)
+		}
+		trees = append(trees, ot)
+	}
 	for _, name := range ProbeNames() {
 		t.Run(name, func(t *testing.T) {
 			p := Probes[name]

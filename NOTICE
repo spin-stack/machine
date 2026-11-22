@@ -58,6 +58,9 @@ almost entirely other people's software under other people's licences:
       usr/share/spin-stack/licenses.txt carries the copyright and licence text of
       each — the notices those licences require to accompany a copy, which the
       image itself does not carry because it ships no documentation.
+      Its OpenSSH (BSD-style licences, usr/share/spin-stack/licenses.txt) is
+      modified: Ubuntu's source package with usr/share/spin-stack/openssh/*.patch
+      applied, each saying what it changes.
 
 Distributing a release therefore carries obligations this licence does not
 discharge — GPL-2.0 section 3 in particular, and section 6 of the LGPL for the

@@ -228,15 +228,18 @@ func pinsWithout(t *testing.T, name string) *versions.Versions {
 	return &w
 }
 
-func TestTheImageAndItsSystemdVerifyByWhatTheyLeave(t *testing.T) {
+func TestTheImageAndItsPackagesVerifyByWhatTheyLeave(t *testing.T) {
 	out := t.TempDir()
-	if err := verifySystemd(Options{Out: out}); err == nil {
+	if err := verifyDebs("systemd")(Options{Out: out}); err == nil {
 		t.Error("no packages passed")
 	}
 	_ = os.MkdirAll(filepath.Join(out, "systemd"), 0o755)
 	_ = os.WriteFile(filepath.Join(out, "systemd/systemd_1_amd64.deb"), nil, 0o644)
-	if err := verifySystemd(Options{Out: out}); err != nil {
+	if err := verifyDebs("systemd")(Options{Out: out}); err != nil {
 		t.Errorf("a package: %v", err)
+	}
+	if err := verifyDebs("openssh")(Options{Out: out}); err == nil || !strings.Contains(err.Error(), "openssh") {
+		t.Errorf("systemd's packages passed for openssh's: %v", err)
 	}
 	for _, f := range []string{"image/rootfs.qcow2", "packages.txt", "licenses.txt"} {
 		if err := verifyImage(Options{Out: out}); err == nil || !strings.Contains(err.Error(), f) {

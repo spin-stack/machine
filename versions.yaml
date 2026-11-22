@@ -181,6 +181,21 @@
     bump: `spin-machine-dev build image` (its checks: the meson options taken, the packages held), then
     `task boot:ssh-first` and `task boot:lockdown`.
 
+- name: openssh-source
+  kind: download
+  source: https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/openssh/1:{version}/openssh_{version}.dsc
+  version: 10.2p1-2ubuntu3.8
+  pin: 5f83862e65677da1dcb509642feb14a55da88544283949a70d46eb1e2aef2d3d
+  track: page https://launchpad.net/ubuntu/resolute/+source/openssh
+  note: >-
+    image/openssh/Dockerfile: Ubuntu's openssh source package as resolute publishes it, by its
+    .dsc, without the epoch (1:) the package's version carries; rebuilt with the patches in
+    image/openssh and installed in place of the archive's. The archive serves only the current
+    version, so the build fails once Ubuntu moves it. After the bump: every patch still applies
+    without fuzz (the build refuses otherwise), and an upstream release that takes one is when it
+    is deleted; `spin-machine-dev build image` (sshd-auth's version, the packages held), then `task
+    boot:sshd-delay`.
+
 - name: mkosi
   kind: download
   source: https://github.com/systemd/mkosi/archive/refs/tags/v{version}.tar.gz
