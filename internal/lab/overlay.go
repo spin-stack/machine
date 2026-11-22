@@ -207,10 +207,22 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLoggingEdit, nil
 	case "carry-coldplug":
 		return carryColdplugEdit, nil
+	case "carry-nsswitch":
+		return carryNsswitchEdit, nil
+	case "carry-journal":
+		return carryJournalEdit, nil
+	case "carry-docker":
+		return carryDockerEdit, nil
+	case "carry-timeouts":
+		return carryTimeoutsEdit, nil
+	case "carry-lane-logind":
+		return carryLaneLogindEdit, nil
+	case "carry-keygen":
+		return carryKeygenEdit, nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-logging, carry-coldplug, bootchart", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-logging, carry-coldplug, carry-nsswitch, carry-journal, carry-docker, carry-timeouts, carry-lane-logind, carry-keygen, bootchart", name)
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
@@ -272,6 +284,71 @@ var carryColdplugEdit = Edit{
 	Setup: `f="$MNT/etc/systemd/system/systemd-udev-trigger.service.d/10-coldplug.conf"
 grep -q -- '--subsystem-match=block' "$f"
 rm "$f"
+`,
+}
+
+// The image's deviations from Ubuntu that had no measurement of their own (docs/image.md), each
+// taken back to what Ubuntu ships, one per edit, after --edit lane.
+
+// carryNsswitchEdit is /etc/nsswitch.conf as libc-bin installs it.
+var carryNsswitchEdit = Edit{
+	Setup: `grep -qx 'protocols:      files' "$MNT/etc/nsswitch.conf"
+cp "$MNT/usr/share/libc-bin/nsswitch.conf" "$MNT/etc/nsswitch.conf"
+`,
+}
+
+// carryJournalEdit is journald as Ubuntu ships it: its own settings, a /var/log/journal to keep
+// the journal in, and the flush that moves the boot's journal there.
+var carryJournalEdit = Edit{
+	Setup: `rm "$MNT/etc/systemd/journald.conf.d/volatile.conf"
+test "$(readlink "$MNT/etc/systemd/system/systemd-journal-flush.service")" = /dev/null
+rm "$MNT/etc/systemd/system/systemd-journal-flush.service"
+gid=$(awk -F: '$1 == "systemd-journal" {print $3}' "$MNT/etc/group")
+test -n "$gid"
+install -d -m 2755 -o 0 -g "$gid" "$MNT/var/log/journal"
+`,
+}
+
+// carryDockerEdit is docker and containerd as their packages enable them: both services wanted
+// by multi-user.target, and docker's own docker.socket in place of the image's.
+var carryDockerEdit = Edit{
+	Setup: `rm "$MNT/etc/systemd/system/docker.socket" "$MNT/etc/systemd/system/containerd.socket"
+rm "$MNT/etc/systemd/system/sockets.target.wants/containerd.socket"
+for u in docker.socket docker.service containerd.service; do test -e "$MNT/usr/lib/systemd/system/$u"; done
+ln -sf /usr/lib/systemd/system/docker.socket "$MNT/etc/systemd/system/sockets.target.wants/docker.socket"
+mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
+ln -s /usr/lib/systemd/system/docker.service "$MNT/etc/systemd/system/multi-user.target.wants/docker.service"
+ln -s /usr/lib/systemd/system/containerd.service "$MNT/etc/systemd/system/multi-user.target.wants/containerd.service"
+`,
+}
+
+// carryTimeoutsEdit is the manager's timeouts and watchdogs as systemd's defaults.
+var carryTimeoutsEdit = Edit{
+	Setup: `grep -qx 'DefaultTimeoutStartSec=15s' "$MNT/etc/systemd/system.conf.d/fast-boot.conf"
+rm "$MNT/etc/systemd/system.conf.d/fast-boot.conf"
+`,
+}
+
+// carryLaneLogindEdit puts logind, its Varlink socket, user-runtime-dir@, user@ and dbus.socket
+// back behind sysinit.target and basic.target, as Ubuntu orders them. They were measured on the
+// lane, two vCPUs (lab 43518915618), never in spin's shape on spin's login.
+var carryLaneLogindEdit = Edit{
+	Setup: `for f in systemd-logind.service.d/10-lane.conf systemd-logind-varlink.socket.d/20-lane.conf \
+	user-runtime-dir@.service.d/10-lane.conf user@.service.d/10-lane.conf; do
+	grep -qx 'DefaultDependencies=no' "$MNT/etc/systemd/system/$f"
+	rm "$MNT/etc/systemd/system/$f"
+done
+grep -q '^ListenStream=/run/dbus/system_bus_socket' "$MNT/etc/systemd/system/dbus.socket"
+rm "$MNT/etc/systemd/system/dbus.socket"
+`,
+}
+
+// carryKeygenEdit leaves the host keys to the first ssh.service, which wants the image's keygen
+// unit too, rather than to the boot's first dispatch. Measured on the lane (lab 43483372488),
+// never on spin's login.
+var carryKeygenEdit = Edit{
+	Setup: `rm "$MNT/etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.service"
+test -L "$MNT/etc/systemd/system/ssh.service.wants/spin-machine-sshd-keygen.service"
 `,
 }
 

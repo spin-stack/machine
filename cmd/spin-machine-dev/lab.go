@@ -55,7 +55,7 @@ func treeFlags(fs *pflag.FlagSet, s *lab.TreeSpec) {
 	fs.StringVar(&s.Append, "append", "", "added to the kernel command line of every boot")
 	fs.StringArrayVar(&s.Boot, "boot", nil, "a spin-machine boot flag for every boot of the tree, e.g. --boot --cpu=Skylake-Server-v4")
 	fs.StringVar(&s.CPU, "cpu", "", "baseline: the newest named CPU model the host making the tree can run, chosen there (machine.QEMU.CPUModels, internal/lab)")
-	fs.StringArrayVar(&s.Edits, "edit", nil, "an edit of every boot's overlay, by name: lane (the first login's lane as this checkout builds it), pressure (the pressure probe's guest sender as this checkout builds it into the image), floor (no systemd before sshd: a bound, with --append init=/usr/local/sbin/spin-floor), nolinger (spin not lingering, as this checkout builds the image), forwarder-early (login=spin's forwarder, spin's supervisor, without systemd's default dependencies), carry-masks, carry-generators, carry-logging and carry-coldplug (optimize-systemd.sh's boot-time changes and the coldplug filter taken back, after lane), bootchart (systemd-bootchart as PID 1, which the bootchart probe draws)")
+	fs.StringArrayVar(&s.Edits, "edit", nil, "an edit of every boot's overlay, by name: lane (the first login's lane as this checkout builds it), pressure (the pressure probe's guest sender as this checkout builds it into the image), floor (no systemd before sshd: a bound, with --append init=/usr/local/sbin/spin-floor), nolinger (spin not lingering, as this checkout builds the image), forwarder-early (login=spin's forwarder, spin's supervisor, without systemd's default dependencies), carry-masks, carry-generators, carry-logging and carry-coldplug (optimize-systemd.sh's boot-time changes and the coldplug filter taken back, after lane), carry-nsswitch, carry-journal, carry-docker, carry-timeouts, carry-lane-logind and carry-keygen (the image's deviations docs/image.md found unmeasured, each as Ubuntu ships it, after lane), bootchart (systemd-bootchart as PID 1, which the bootchart probe draws)")
 	fs.StringVar(&s.Systemd, "systemd", "", "an image/systemd/experiments patch: systemd built with it here, in every overlay")
 	fs.BoolVar(&s.OpenSSH, "openssh", false, "OpenSSH as this checkout builds it (image/openssh), built here, in every overlay")
 }
@@ -573,7 +573,7 @@ func labCheck() *cobra.Command {
 		Use:   "check TARGET",
 		Short: "Run a boot/ Task target - a pass/fail check, or a probe not yet a lab probe - on one tree",
 		Long: `Run boot:TARGET with the tree as the release it boots (SPIN_MACHINE_OUTPUT): the functional
-checks (firmware, record, rollback, checkpoint-pause, cpu-plug, finish-migrate, compat, hotadd, logind, lockdown, sshd-delay) and the
+checks (firmware, record, rollback, checkpoint-pause, cpu-plug, finish-migrate, compat, hotadd, logind, lockdown, sshd-delay, workspace) and the
 probes still Go tests (firmware-stages, waits), on a tree made like any other. A second tree is
 SPIN_MACHINE_OUTPUT_B, which firmware-stages boots interleaved with the first. Exits with the
 target's status.`,

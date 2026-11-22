@@ -200,6 +200,9 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--edit bootchart`: systemd-bootchart as PID 1, Ubuntu's package at its pin in versions.yaml,
   which samples the boot and execs systemd. The `bootchart` probe draws only a tree that carries
   it (measuring.md, "Boot charts").
+- `--edit carry-nsswitch`, `carry-journal`, `carry-docker`, `carry-timeouts`, `carry-lane-logind`
+  and `carry-keygen`: one of the image's deviations from Ubuntu that had no measurement of its own,
+  taken back to what Ubuntu ships (docs/image.md). Each goes after `--edit lane`.
 - `--systemd PATCH`: systemd built here with a patch from image/systemd/experiments, in every
   overlay.
 - `--openssh`: OpenSSH as this checkout builds it (image/openssh), built here, in every overlay.
@@ -398,9 +401,9 @@ the last lines of its step from the job's log, and exits 1 when the run did not 
 
 What is not a probe is a check, pass or fail, and stays a Go test with its `boot:` target:
 `firmware`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug`, `compat` (every release whose machine is this one, through `lab compat`),
-`hotadd`, `logind`, `lockdown`, `sshd-delay` and `finish-migrate` (a checkpoint continued at once on two busy CPUs, which a qemu bump runs). Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
+`hotadd`, `logind`, `lockdown`, `sshd-delay`, `workspace` (what a workspace expects of the image, docs/image.md) and `finish-migrate` (a checkpoint continued at once on two busy CPUs, which a qemu bump runs). Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
 `lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
-`firmware-stages`, `waits`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug` and `sshd-delay`, the targets its `probe` input
+`firmware-stages`, `waits`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug`, `sshd-delay`, `logind` and `workspace`, the targets its `probe` input
 lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its
