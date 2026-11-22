@@ -1,6 +1,6 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Thu, 19 Nov 2026 14:00:00 -0300
-Subject: [PATCH 7/11] x86/unwind/orc: Build the lookup table in one pass
+Subject: [PATCH] x86/unwind/orc: Build the lookup table in one pass
 
 unwind_init() fills orc_lookup[] with one binary search of the whole
 .orc_unwind_ip table for every 256-byte block of kernel text. On this
@@ -31,9 +31,11 @@ fleet the gap was 3.5 ms nested and on bare metal alike (lab runs
 
 Assisted-by: LLM
 ---
- arch/x86/kernel/unwind_orc.c | 42 +++++++++++++++++++-----------------------
- 1 file changed, 19 insertions(+), 23 deletions(-)
+ arch/x86/kernel/unwind_orc.c | 40 ++++++++++++++++--------------------
+ 1 file changed, 18 insertions(+), 22 deletions(-)
 
+diff --git a/arch/x86/kernel/unwind_orc.c b/arch/x86/kernel/unwind_orc.c
+index 6407bc925..939931103 100644
 --- a/arch/x86/kernel/unwind_orc.c
 +++ b/arch/x86/kernel/unwind_orc.c
 @@ -335,8 +335,8 @@ void __init unwind_init(void)
@@ -71,15 +73,14 @@ Assisted-by: LLM
 -			orc_warn("WARNING: Corrupt .orc_unwind table.  Disabling unwinder.\n");
 -			return;
 -		}
--
--		orc_lookup[i] = orc - __start_orc_unwind;
--	}
 +	for (i = 0; i < lookup_num_blocks; i++) {
 +		if (i < lookup_num_blocks - 1)
 +			ip = LOOKUP_START_IP + (LOOKUP_BLOCK_SIZE * i);
 +		else
 +			ip = LOOKUP_STOP_IP;
-+
+ 
+-		orc_lookup[i] = orc - __start_orc_unwind;
+-	}
 +		while (j + 1 < num_entries &&
 +		       orc_ip(__start_orc_unwind_ip + j + 1) <= ip)
 +			j++;
@@ -98,3 +99,4 @@ Assisted-by: LLM
  }
 -- 
 2.53.0
+

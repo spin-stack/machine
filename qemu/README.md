@@ -3,7 +3,8 @@
 One build, **statically linked**, against musl on Alpine. `spin-machine-dev build qemu` builds it from
 source (tens of minutes). `spin-machine-dev fetch qemu` unpacks the published build of the pinned
 version (seconds). `devices.mak` is the device allowlist, and `patches/` holds the changes this
-tree makes to QEMU's source, applied in name order with no fuzz (`source.sh`).
+tree makes to QEMU's source, applied in name order with no fuzz (`source.sh`). They are made
+as the kernel's are (`kernel/README.md`, "Changing it").
 
 ## The patches
 

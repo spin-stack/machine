@@ -1,6 +1,6 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Thu, 12 Nov 2026 19:45:27 -0300
-Subject: [PATCH 5/6] PCI: Remember a device's standard capability list
+Subject: [PATCH] PCI: Remember a device's standard capability list
 
 pci_find_capability() reads the status register and walks the
 capability list from its start on every call, and
@@ -43,7 +43,7 @@ Assisted-by: LLM
  4 files changed, 64 insertions(+)
 
 diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
-index f852564..691c73d 100644
+index f85256413..691c73dd0 100644
 --- a/drivers/pci/pci.c
 +++ b/drivers/pci/pci.c
 @@ -420,6 +420,20 @@ static u8 __pci_find_next_cap(struct pci_bus *bus, unsigned int devfn,
@@ -125,7 +125,7 @@ index f852564..691c73d 100644
   * pci_find_next_ext_capability - Find an extended capability
   * @dev: PCI device to query
 diff --git a/drivers/pci/pci.h b/drivers/pci/pci.h
-index ba3c3fd..f23ea45 100644
+index ba3c3fddd..f23ea4586 100644
 --- a/drivers/pci/pci.h
 +++ b/drivers/pci/pci.h
 @@ -18,6 +18,8 @@ struct pcie_tlp_log;
@@ -138,7 +138,7 @@ index ba3c3fd..f23ea45 100644
  
  #define PCIE_LINK_RETRAIN_TIMEOUT_MS	1000
 diff --git a/drivers/pci/probe.c b/drivers/pci/probe.c
-index 52a79b0..a0e6232 100644
+index 52a79b033..a0e623273 100644
 --- a/drivers/pci/probe.c
 +++ b/drivers/pci/probe.c
 @@ -2031,6 +2031,7 @@ int pci_setup_device(struct pci_dev *dev)
@@ -150,7 +150,7 @@ index 52a79b0..a0e6232 100644
  	set_pcie_port_type(dev);
  
 diff --git a/include/linux/pci.h b/include/linux/pci.h
-index 272378d..fbaa2fc 100644
+index 272378dd8..fbaa2fc83 100644
 --- a/include/linux/pci.h
 +++ b/include/linux/pci.h
 @@ -370,6 +370,10 @@ struct pci_dev {

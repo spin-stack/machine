@@ -100,6 +100,11 @@ order. The gaps in their numbers are patches deleted once a run read nothing for
 (0006, 0009 and 0011, #345). They share one row in `docs/boot-time.md`, "What the machine
 carries", which says what they earn together.
 
+A patch is made, and a changed one remade, as `git format-patch -N` writes it: from a git tree
+of the pinned tarball with the series applied, keeping each file's name, less the mbox
+`From <commit>` line. Subjects say `[PATCH]`, not a place in a series that deleting a patch
+makes stale. `gates/patches_test.go` holds this directory and `qemu/patches` to it (#487).
+
 `patch --fuzz=0` refuses a patch that no longer applies. What it cannot see is a patch deleted
 from the directory, or one whose effect a kernel bump took away while its text still applied:
 that kernel builds, boots and is a few milliseconds slower. So `Dockerfile` reads each patch's

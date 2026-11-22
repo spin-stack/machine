@@ -1,7 +1,7 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Sat, 21 Nov 2026 23:00:00 -0300
-Subject: [PATCH] block: query-blockstats x-flat, a device's counters
- without its backing chain
+Subject: [PATCH] block: query-blockstats x-flat, a device's counters without
+ its backing chain
 
 query-blockstats answers each device with the statistics of every node
 below it: its data child as "parent" and its filtered or COW child as
@@ -23,10 +23,16 @@ device whatever its chain.
 
 Assisted-by: LLM
 ---
-diff -ruN a/block/monitor/block-hmp-cmds.c b/block/monitor/block-hmp-cmds.c
+ block/monitor/block-hmp-cmds.c |  2 +-
+ block/qapi.c                   | 21 ++++++++++++++++-----
+ qapi/block-core.json           | 11 ++++++++++-
+ 3 files changed, 27 insertions(+), 7 deletions(-)
+
+diff --git a/block/monitor/block-hmp-cmds.c b/block/monitor/block-hmp-cmds.c
+index 7bae4d425..b86a5037d 100644
 --- a/block/monitor/block-hmp-cmds.c
 +++ b/block/monitor/block-hmp-cmds.c
-@@ -724,7 +724,7 @@
+@@ -724,7 +724,7 @@ void hmp_info_blockstats(MonitorHMP *hmp, const QDict *qdict)
  {
      BlockStatsList *stats_list, *stats;
  
@@ -35,10 +41,11 @@ diff -ruN a/block/monitor/block-hmp-cmds.c b/block/monitor/block-hmp-cmds.c
  
      for (stats = stats_list; stats; stats = stats->next) {
          if (!stats->value->device) {
-diff -ruN a/block/qapi.c b/block/qapi.c
+diff --git a/block/qapi.c b/block/qapi.c
+index 1dfac5109..a08fc9e86 100644
 --- a/block/qapi.c
 +++ b/block/qapi.c
-@@ -629,8 +629,14 @@
+@@ -629,8 +629,14 @@ static void bdrv_query_blk_stats(BlockDeviceStats *ds, BlockBackend *blk)
      qemu_mutex_unlock(&stats->lock);
  }
  
@@ -54,7 +61,7 @@ diff -ruN a/block/qapi.c b/block/qapi.c
  {
      BdrvChild *parent_child;
      BlockDriverState *filter_or_cow_bs;
-@@ -658,6 +664,10 @@
+@@ -658,6 +664,10 @@ bdrv_query_bds_stats(BlockDriverState *bs, bool blk_level)
  
      s->driver_specific = bdrv_get_specific_stats(bs);
  
@@ -65,7 +72,7 @@ diff -ruN a/block/qapi.c b/block/qapi.c
      parent_child = bdrv_primary_child(bs);
      if (!parent_child ||
          !(parent_child->role & (BDRV_CHILD_DATA | BDRV_CHILD_FILTERED)))
-@@ -685,7 +695,7 @@
+@@ -685,7 +695,7 @@ bdrv_query_bds_stats(BlockDriverState *bs, bool blk_level)
          }
      }
      if (parent_child) {
@@ -74,7 +81,7 @@ diff -ruN a/block/qapi.c b/block/qapi.c
      }
  
      filter_or_cow_bs = bdrv_filter_or_cow_bs(bs);
-@@ -695,7 +705,7 @@
+@@ -695,7 +705,7 @@ bdrv_query_bds_stats(BlockDriverState *bs, bool blk_level)
           * compatibility to when we put bs0->backing here, which might
           * be either)
           */
@@ -83,7 +90,7 @@ diff -ruN a/block/qapi.c b/block/qapi.c
      }
  
      return s;
-@@ -734,6 +744,7 @@
+@@ -734,6 +744,7 @@ BlockInfoList *qmp_query_block(bool has_flat, bool flat, Error **errp)
  
  BlockStatsList *qmp_query_blockstats(bool has_query_nodes,
                                       bool query_nodes,
@@ -91,7 +98,7 @@ diff -ruN a/block/qapi.c b/block/qapi.c
                                       Error **errp)
  {
      BlockStatsList *head = NULL, **tail = &head;
-@@ -745,7 +756,7 @@
+@@ -745,7 +756,7 @@ BlockStatsList *qmp_query_blockstats(bool has_query_nodes,
      /* Just to be safe if query_nodes is not always initialized */
      if (has_query_nodes && query_nodes) {
          for (bs = bdrv_next_node(NULL); bs; bs = bdrv_next_node(bs)) {
@@ -100,7 +107,7 @@ diff -ruN a/block/qapi.c b/block/qapi.c
          }
      } else {
          for (blk = blk_all_next(NULL); blk; blk = blk_all_next(blk)) {
-@@ -756,7 +767,7 @@
+@@ -756,7 +767,7 @@ BlockStatsList *qmp_query_blockstats(bool has_query_nodes,
                  continue;
              }
  
@@ -109,7 +116,8 @@ diff -ruN a/block/qapi.c b/block/qapi.c
              s->device = g_strdup(blk_name(blk));
  
              qdev = blk_get_attached_dev_id(blk);
-diff -ruN a/qapi/block-core.json b/qapi/block-core.json
+diff --git a/qapi/block-core.json b/qapi/block-core.json
+index 23c5787d9..dfd13e213 100644
 --- a/qapi/block-core.json
 +++ b/qapi/block-core.json
 @@ -1281,6 +1281,14 @@
@@ -137,3 +145,6 @@ diff -ruN a/qapi/block-core.json b/qapi/block-core.json
    'returns': ['BlockStats'],
    'allow-preconfig': true }
  
+-- 
+2.53.0
+

@@ -1,7 +1,7 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Tue, 29 Sep 2026 21:53:46 -0300
-Subject: [PATCH 1/4] ftrace: Prefer objtool mcount recording where it can
- write NOPs
+Subject: [PATCH] ftrace: Prefer objtool mcount recording where it can write
+ NOPs
 
 When the compiler accepts -mrecord-mcount, FTRACE_MCOUNT_USE_CC is
 selected and objtool does not record the __fentry__ call sites. The
@@ -31,7 +31,7 @@ Assisted-by: LLM
  1 file changed, 1 insertion(+)
 
 diff --git a/kernel/trace/Kconfig b/kernel/trace/Kconfig
-index 0ab5916..9d0d059 100644
+index 6587450cf..969908605 100644
 --- a/kernel/trace/Kconfig
 +++ b/kernel/trace/Kconfig
 @@ -895,6 +895,7 @@ config FTRACE_MCOUNT_USE_CC

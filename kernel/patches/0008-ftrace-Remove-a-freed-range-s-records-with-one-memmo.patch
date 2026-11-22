@@ -1,6 +1,6 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Thu, 19 Nov 2026 14:00:00 -0300
-Subject: [PATCH 8/11] ftrace: Remove a freed range's records with one memmove
+Subject: [PATCH] ftrace: Remove a freed range's records with one memmove
 
 ftrace_free_mem() takes the records in the freed range out of their
 page one at a time: a bsearch() for the next one, then a memmove() of
@@ -27,12 +27,14 @@ bench fleet the gap was 2.6 ms nested and on bare metal alike (lab runs
 
 Assisted-by: LLM
 ---
- kernel/trace/ftrace.c | 39 ++++++++++++++++++++++++++++-----------
- 1 file changed, 28 insertions(+), 11 deletions(-)
+ kernel/trace/ftrace.c | 41 +++++++++++++++++++++++++++++------------
+ 1 file changed, 29 insertions(+), 12 deletions(-)
 
+diff --git a/kernel/trace/ftrace.c b/kernel/trace/ftrace.c
+index 9c575b927..0b62b26c6 100644
 --- a/kernel/trace/ftrace.c
 +++ b/kernel/trace/ftrace.c
-@@ -8367,24 +8367,43 @@ void ftrace_free_mem(struct module *mod,
+@@ -8367,24 +8367,43 @@ void ftrace_free_mem(struct module *mod, void *start_ptr, void *end_ptr)
  		mod_map = allocate_ftrace_mod_map(mod, start, end);
  
  	for (pg = ftrace_pages_start; pg; last_pg = &pg->next, pg = *last_pg) {
@@ -52,6 +54,9 @@ Assisted-by: LLM
  
 -		/* rec will be cleared from hashes after ftrace_lock unlock */
 -		add_to_clear_hash_list(&clear_hash, rec);
+-
+-		if (mod_map)
+-			save_ftrace_mod_rec(mod_map, rec);
 +		/*
 +		 * The records are sorted, so those in the range are the ones
 +		 * either side of the one found. Take them out with a single
@@ -65,9 +70,7 @@ Assisted-by: LLM
 +		stop = rec + 1;
 +		while (stop < pg->records + index && stop->ip <= end)
 +			stop++;
- 
--		if (mod_map)
--			save_ftrace_mod_rec(mod_map, rec);
++
 +		for (rec = first; rec < stop; rec++) {
 +			/* rec will be cleared from hashes after ftrace_lock unlock */
 +			add_to_clear_hash_list(&clear_hash, rec);
@@ -83,7 +86,7 @@ Assisted-by: LLM
  		if (!pg->index) {
  			*last_pg = pg->next;
  			pg->next = tmp_page;
-@@ -8394,10 +8413,8 @@ void ftrace_free_mem(struct module *mod,
+@@ -8394,10 +8413,8 @@ void ftrace_free_mem(struct module *mod, void *start_ptr, void *end_ptr)
  				ftrace_pages = pg;
  			continue;
  		}
@@ -98,3 +101,4 @@ Assisted-by: LLM
  
 -- 
 2.53.0
+
