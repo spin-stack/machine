@@ -114,6 +114,11 @@ jobs:
       - name: Load vhost_vsock
         run: go tool task vsock
 
+      # graphviz draws the bootchart probe's ordering graph, which it keeps as dot without it.
+      - name: Install graphviz
+        if: inputs.probe == 'bootchart'
+        run: command -v dot || { sudo apt-get update -q && sudo apt-get install -y -q graphviz; }
+
       # Makes the trees, runs the probe, writes result.json and puts the table on the summary.
       - name: Run the experiment
         run: go tool task lab:ci

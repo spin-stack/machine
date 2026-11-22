@@ -99,6 +99,14 @@ func ChartFiles(tree string, rep int) (bootchart, plot string) {
 	return name + ".bootchart.svg", name + ".plot.svg"
 }
 
+// DependencyFiles are the names the bootchart probe keeps repetition rep (from 1) of tree's
+// dependency view under: systemd-analyze critical-chain of the login's units, and systemd-analyze
+// dot --order among the units on those chains, as dot and as the SVG graphviz draws of it.
+func DependencyFiles(tree string, rep int) (chain, order, graph string) {
+	name := fmt.Sprintf("%s-%d", tree, rep)
+	return name + ".chain.txt", name + ".order.dot", name + ".order.svg"
+}
+
 // chartData is the name the chart's samples are kept under beside the chart itself: the JSON the
 // fork writes beside its SVG, for a comparison a script makes rather than a person's eye.
 func chartData(chart string) string { return strings.TrimSuffix(chart, ".svg") + ".json" }
@@ -212,6 +220,100 @@ const fetchData = "cat /run/log/bootchart-*.json"
 // and prints its plot.
 const fetchPlot = "timeout 30 systemctl is-system-running --wait >/dev/null; systemd-analyze plot --scale-svg=20"
 
+// loginUnits are the units a login waits for, which critical-chain is asked about: the user's
+// manager, whose start the login's PAM session waits for, and what accepts the connection. On
+// spin's path that is the forwarder that stands for spin's supervisor and the sshd it forwards to;
+// on the lane, systemd's vsock socket, which starts an sshd for each connection. $(id -u) is the
+// login's own user, evaluated in the guest.
+func loginUnits(spinsPath bool) string {
+	if spinsPath {
+		return "spin-lab-forward.service ssh.service user@$(id -u).service"
+	}
+	return "sshd-vsock.socket user@$(id -u).service"
+}
+
+// chainedUnit is a unit's name at the start of a line of critical-chain's tree, after the tree's
+// drawing.
+var chainedUnit = regexp.MustCompile(`(?m)^[\s│├└─]*([^\s@+]+\.(?:service|socket|target|mount|device|slice|scope|path|timer|swap|automount))\b`)
+
+// chainUnits are the units on critical-chain's chains, each once, in the order printed.
+func chainUnits(chain string) []string {
+	var units []string
+	for _, m := range chainedUnit.FindAllStringSubmatch(chain, -1) {
+		if !slices.Contains(units, m[1]) {
+			units = append(units, m[1])
+		}
+	}
+	return units
+}
+
+// orderAmong is the systemd-analyze dot command for the ordering between units and nothing else:
+// a pattern on both ends keeps an edge only when both its units match one, where a positional
+// pattern would keep every edge into sysinit.target, which most of the boot is ordered before.
+func orderAmong(units []string) string {
+	var b strings.Builder
+	b.WriteString("systemd-analyze dot --order")
+	for _, end := range []string{"from", "to"} {
+		for _, u := range units {
+			fmt.Fprintf(&b, " --%s-pattern='%s'", end, u)
+		}
+	}
+	return b.String()
+}
+
+// keepDependencies keeps the dependency view of a finished boot beside chart: the login's
+// critical chains, the system manager's and the login user's own, and the ordering among the
+// system chain's units, drawn by graphviz where the probe runs. Like the plot, a view that could
+// not be taken is left out and the log says why; only a file that could not be written fails the
+// measurement.
+func keepDependencies(m *Measurement, cid uint32, tree string, rep int) error {
+	chainFile, orderFile, graphFile := DependencyFiles(tree, rep)
+	run := func(command string) (string, error) {
+		_, out, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, command)
+		return out, err
+	}
+	system := "systemd-analyze critical-chain --no-pager " + loginUnits(m.Key.SpinsPath)
+	chain, err := run(system)
+	if err != nil {
+		m.Logf("no critical chain: %v", err)
+		return nil
+	}
+	view := "$ " + system + "\n" + chain
+	user := "systemd-analyze --user critical-chain --no-pager"
+	if out, err := run(user); err != nil {
+		m.Logf("no critical chain of the login user's manager: %v", err)
+	} else {
+		view += "\n$ " + user + "\n" + out
+	}
+	if err := os.WriteFile(filepath.Join(m.Keep, chainFile), []byte(view), 0o644); err != nil { //nolint:gosec // for a person to read
+		return fmt.Errorf("keeping the critical chain: %w", err)
+	}
+	units := chainUnits(chain)
+	if len(units) == 0 {
+		m.Logf("the critical chain names no unit, so there is no ordering to draw: %q", chain)
+		return nil
+	}
+	order, err := run(orderAmong(units))
+	if err != nil {
+		m.Logf("no ordering graph: %v", err)
+		return nil
+	}
+	if err := os.WriteFile(filepath.Join(m.Keep, orderFile), []byte(order), 0o644); err != nil { //nolint:gosec // for a person and graphviz
+		return fmt.Errorf("keeping the ordering graph: %w", err)
+	}
+	cmd := exec.Command("dot", "-Tsvg")
+	cmd.Stdin = strings.NewReader(order)
+	svg, err := cmd.Output()
+	if err != nil {
+		m.Logf("the ordering graph is kept as dot only, not drawn: %v", err)
+		return nil
+	}
+	if err := os.WriteFile(filepath.Join(m.Keep, graphFile), svg, 0o644); err != nil { //nolint:gosec // a graph for a person to read
+		return fmt.Errorf("keeping the ordering graph's drawing: %w", err)
+	}
+	return nil
+}
+
 // mutate-lane: TestEveryProbeMeasuresATree
 func (bootchart) Measure(_ context.Context, m *Measurement) error {
 	if !slices.ContainsFunc(m.Tree.Manifest.Edits, func(e NamedEdit) bool { return e.Name == bootchartName }) {
@@ -299,6 +401,9 @@ func (bootchart) Measure(_ context.Context, m *Measurement) error {
 			return fmt.Errorf("keeping the plot: %w", err)
 		}
 	}
+	if err := keepDependencies(m, cid, m.Tree.Name(), m.Rep+1); err != nil {
+		return err
+	}
 	m.RecordMs("first_login", login)
 	m.Record("pid1", start*1000)
 	m.Record("chart_end", end*1000)
@@ -366,7 +471,8 @@ func (bootchart) Detail(r *Result) string {
 	for _, s := range r.Samples {
 		if s.Missed == "" {
 			chart, plot := ChartFiles(s.Tree, s.Rep)
-			fmt.Fprintf(&b, "  %s, %s, %s\n", chart, chartData(chart), plot)
+			chain, order, graph := DependencyFiles(s.Tree, s.Rep)
+			fmt.Fprintf(&b, "  %s, %s, %s, %s, %s, %s\n", chart, chartData(chart), plot, chain, order, graph)
 		}
 	}
 	return b.String()
