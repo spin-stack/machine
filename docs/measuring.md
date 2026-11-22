@@ -99,7 +99,8 @@ marks the first login at `chart_end`. Four things on it are easy to misread, all
 v20261122.04's plot (release run 45041820698, first login at 340 ms):
 
 - Right of the line came after the login and did not hold it: udevd's readiness at 395 ms,
-  `session-4.scope` at 418 ms, which is the plot's own login, and the getty and
+  a session scope near the plot's end (`session-4.scope` at 418 ms on .04, `session-5.scope` on
+  .06), which is one of the probe's later logins and never the first, and the getty and
   `multi-user.target`, which wait for the serial console's device. The first login's own session
   scope ended before the plot was taken, and the plot leaves out a unit that is gone.
 - A red bar is a unit's activating time on the wall clock, and on one vCPU that includes the time
