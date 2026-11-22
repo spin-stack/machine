@@ -1,22 +1,4 @@
-# The toolchain that builds rootfs.qcow2. It is not the image build itself: that is
-# image/build.sh, run inside a container from this Dockerfile.
-#
-# Why the split, since everything else here is a `docker buildx build --target extract`:
-# mkosi assembles a root filesystem by unsharing a user and mount namespace, and BuildKit
-# forbids that — `mkosi was forbidden to unshare namespaces`, PermissionError on unshare(2),
-# measured 2026-09-07. The escape hatches are RUN --security=insecure, which needs a
-# buildkitd started with an entitlement flag (so `spin-machine-dev build image` would fail on any
-# machine whose builder was created the ordinary way), or a container run with the
-# privileges mkosi needs. The second is one flag on one `docker run`.
-#
-# So: this file pins the tools, image/build.sh is the build, `spin-machine-dev build image` joins them.
-#
-# ubuntu:26.04 and not debian, because the image being built is Ubuntu 26.04 (resolute) and
-# this is where mkosi's keyring and apt come from. Debian's mkosi can build an Ubuntu image
-# too, with ubuntu-keyring installed by hand; using the same distribution removes the
-# question.
-#
-# By digest, from versions.yaml (`spin-machine-dev build image` hands it in), like every other base here.
+# docs/image.md, "The toolchain"
 ARG UBUNTU_IMAGE
 FROM ${UBUNTU_IMAGE}
 
@@ -25,22 +7,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
-# What mkosi itself runs: apt and dpkg to assemble the tree, ubuntu-keyring for the archive
-# it comes from (gpgv, which checks the signatures, arrives with apt). curl fetches mkosi
-# itself, below. qemu-utils wraps the filesystem in a qcow2. apt-utils for apt-ftparchive, with
-# which mkosi makes the systemd packages image/systemd builds into a local repository
-# (--package-directory, image/build.sh): without it mkosi stops at "apt-ftparchive not found".
-#
-# No e2fsprogs. The filesystem is made and checked with the static e2fsprogs this repository
-# builds (e2fsprogs/Dockerfile), which image/build.sh takes from the mounted _output: an ext4's
-# features are what the mke2fs that made it defaults to, and that is version- and
-# configuration-sensitive in exactly the direction that matters, the kernel reading it. Left
-# installed, a build missing the pinned tools would quietly use these.
-#
-# qemu-utils and not this repository's own qemu-img: the image build would otherwise depend
-# on the QEMU build, which is tens of minutes of compiling to write one qcow2 header. The
-# format is not version-sensitive in the direction that matters — an image written by
-# Ubuntu's qemu-img is read by ours.
 RUN --mount=type=cache,sharing=locked,id=image-aptlib,target=/var/lib/apt \
     --mount=type=cache,sharing=locked,id=image-aptcache,target=/var/cache/apt \
     apt-get update && apt-get install --no-install-recommends -y \
@@ -56,20 +22,6 @@ RUN --mount=type=cache,sharing=locked,id=image-aptlib,target=/var/lib/apt \
         zstd && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# mkosi from its release tarball and not from Ubuntu's `mkosi` package, which is whatever
-# the distribution happens to carry — 26-3 in resolute, and a different version the day the
-# archive moves. Which version assembles the tree decides what ends up in it, and the base
-# image is hashed into machine.env, so "apt gave us a newer mkosi" is a change to the
-# release nobody wrote down.
-#
-# mkosi is pure Python and runs from its source tree: bin/mkosi puts the checkout on
-# PYTHONPATH and execs it. Nothing is installed into the system Python, so there is no
-# second copy to go stale, and `apt-get install mkosi`'s 30-package dependency closure —
-# systemd-boot, tpm2-tools, pesign, cryptsetup, for outputs this build does not produce —
-# stays out of the container.
-#
-# By content, like the kernel and QEMU tarballs: https says who sent it, not what they sent.
-# Both from versions.yaml.
 ARG MKOSI_VERSION
 ARG MKOSI_SHA256
 RUN --mount=type=cache,sharing=locked,id=image-mkosi-src,target=/var/cache/mkosi-src \
@@ -77,19 +29,12 @@ RUN --mount=type=cache,sharing=locked,id=image-mkosi-src,target=/var/cache/mkosi
     if [ ! -f "$tarball" ]; then \
         curl -fsSL --retry 5 --retry-all-errors -o "$tarball" "https://github.com/systemd/mkosi/archive/refs/tags/v${MKOSI_VERSION}.tar.gz"; \
     fi && \
-    # Every build, not only after a download: the cache mount outlives the build that
-    # filled it.
     echo "${MKOSI_SHA256}  $tarball" | sha256sum -c - && \
     mkdir -p /opt/mkosi && \
     tar -xf "$tarball" -C /opt/mkosi --strip-components=1 && \
     ln -s /opt/mkosi/bin/mkosi /usr/local/bin/mkosi && \
-    # Asks the binary just installed which version it is, rather than trusting the tag.
     test "$(mkosi --version)" = "mkosi ${MKOSI_VERSION}"
 
-# What install-dev-tools.sh downloads into the image, by content. It runs inside mkosi's tree,
-# which sees only what mkosi.conf's Environment= passes through, so each is an ENV here. Task is
-# pinned for every platform (versions.yaml): the guest's is linux/amd64's, under the name the script
-# reads.
 ARG TASK_VERSION
 ARG TASK_SHA256_LINUX_AMD64
 ARG GIT_LFS_VERSION

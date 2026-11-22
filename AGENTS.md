@@ -170,6 +170,12 @@ Comments here are longer than usual, on purpose. These rules are what make them 
   that owns it (spin-stack/machine or spin-stack/spin), with its evidence and how to settle it.
   A comment, a PR body or `docs/log.md` cites the issue and never stands in for it: a comment is
   read only by whoever opens that file, and an issue is where the next person looks for work.
+- **The image explains itself in `docs/image.md`, not in `image/`.** Why a unit is masked,
+  reordered or added, why a package is in or out, what measured it and what a workspace gives
+  up: all of it is a row or a note in `docs/image.md`. A script, Dockerfile or drop-in under
+  `image/` carries at most a one-line pointer, `# docs/image.md, "<section>"`. A deviation from
+  the packages that `image/build.sh` finds and `image/deviations.txt` lists, with no row in
+  `docs/image.md`, fails `gates/image_doc_test.go`.
 
 ## Artefacts leave this machine
 

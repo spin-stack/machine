@@ -3,7 +3,7 @@ set -euo pipefail
 
 echo "Installing development tools..."
 
-# Versions and sha256s from versions.yaml, through image/Dockerfile and mkosi.conf's Environment=.
+# docs/image.md, "The toolchain"
 : "${TASK_VERSION:?}" "${TASK_SHA256:?}"
 : "${GIT_LFS_VERSION:?}" "${GIT_LFS_SHA256:?}"
 : "${BUILDKIT_VERSION:?}" "${BUILDKIT_SHA256:?}"
@@ -11,8 +11,6 @@ echo "Installing development tools..."
 download() {
     local url="$1" output="$2" sha256="$3"
     echo "Downloading ${url}..."
-    # GitHub sheds anonymous release downloads under load: a 504 failed this build on
-    # 2026-11-09 and passed when run again. The sum below is still what decides the bytes.
     curl -fsSL --retry 5 --retry-all-errors "${url}" -o "${output}"
     echo "${sha256}  ${output}" | sha256sum -c -
 }

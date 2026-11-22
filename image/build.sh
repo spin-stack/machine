@@ -1,43 +1,14 @@
 #!/bin/bash
-# Build rootfs.qcow2 from the tree mkosi assembles. Runs inside the image/Dockerfile
-# container; writes $OUT (default /out/image/rootfs.qcow2).
-#
-# What it produces: a partitionless ext4 filesystem holding the workload's userland,
-# wrapped in a read-only qcow2 that every VM maps as a backing file.
-#
-# One filesystem and not a stack of layers, so copy-on-write happens in the block layer
-# where QEMU does it rather than in a union filesystem inside the guest:
-#
-#     qemu-img create -f qcow2 -F qcow2 -b rootfs.qcow2 overlay.qcow2
-#
-# which is the shape a chain of images is made of: one base, many overlays.
-#
-# ext4 and not something denser: the guest kernel has EXT4_FS and OVERLAY_FS and explicitly
-# not XFS_FS, BTRFS_FS, SQUASHFS or EROFS_FS (kernel/config-7.3-x86_64). Any other
-# filesystem here starts with a kernel config change one directory over.
+# docs/image.md, "The filesystem"
 set -euo pipefail
 
 OUT="${OUT:-/out/image/rootfs.qcow2}"
 
-# The two texts that describe the image rather than being it. They go at the root of the
-# tree and not beside the image, because that is where a release carries them: one
-# licences.txt and one packages.txt for the whole machine, not one per part.
 SHARE="${SHARE:-$(dirname "$(dirname "$OUT")")}"
-# Normalizes timestamps in the tree, so the build's wall clock is not baked into every
-# file. It is not on its own a claim that the image is bit-reproducible: the userland is
-# assembled from a live archive, and the filesystem is sized from what came out of it, so
-# two builds days apart differ for reasons this variable does not touch. What a given
-# release actually contains is the checksum in machine.env.
+# docs/image.md, "The filesystem"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
 
-# The filesystem is made and read by this machine's own e2fsprogs, from the same _output the
-# image is written into, and not the build container's. What an ext4 is made with — its
-# features, its block and inode sizes — is what mke2fs's version and mke2fs.conf default to,
-# and the distribution's copy is whatever it shipped the day the container was built: 1.47.0
-# made orphan_file a default, for one. So the build container carries no e2fsprogs, and a
-# build that finds these missing stops here rather than falling back to one.
-#
-# qemu-img is still the container's; image/Dockerfile says why that is a different case.
+# docs/image.md, "The toolchain"
 bin=/out/bin
 for tool in mkfs.ext4 e2fsck dumpe2fs debugfs; do
     test -x "$bin/$tool" || {
@@ -51,9 +22,6 @@ mkdir -p "$(dirname "$OUT")" "$SHARE" /work/out /cache
 cd /work
 
 echo "==> mkosi: assembling the userland"
-# The systemd and the OpenSSH this repository builds (image/systemd and image/openssh, `spin-machine-dev
-# build systemd openssh`), mounted under /debs: local repositories apt prefers by version (+spin1)
-# for everything the tree installs from them.
 compgen -G '/debs/systemd/systemd_*+spin[0-9]*_*.deb' > /dev/null ||
     { echo "ERROR: /debs/systemd has no systemd package of ours - spin-machine-dev build systemd" >&2; exit 1; }
 compgen -G '/debs/openssh/openssh-server_*+spin[0-9]*_*.deb' > /dev/null ||
@@ -62,40 +30,21 @@ mkosi --force --package-directory=/debs/systemd --package-directory=/debs/openss
 tree=/work/out/rootfs
 test -d "$tree" || { echo "ERROR: mkosi produced no tree at $tree" >&2; exit 1; }
 
-# The pressure probe's guest half (cmd/spin-machine-pressure), which `spin-machine-dev build image`
-# compiles from this checkout into /out/guest before this runs: a Go program of this repository,
-# not a package of the archive's.
 install -D -m 0755 /out/guest/spin-machine-pressure "$tree/usr/libexec/spin-machine-pressure"
 
-# Identity, done here rather than through mkosi's RemoveFiles because the two files below are not
-# "remove it": /etc/machine-id has to exist and be empty. Empty is what systemd reads as
-# "not provisioned yet", so each VM generates its own on its writable overlay; absent makes
-# some tooling treat the image as broken, and populated makes every VM that ever boots from
-# this base share one identity. mkosi also writes a machine-id of its own after RemoveFiles
-# runs, which is how a build that looked clean shipped one (measured 2026-09-07).
+# docs/image.md, "What build.sh checks, and why"
 : > "$tree/etc/machine-id"
 rm -f "$tree/var/lib/dbus/machine-id"
 rm -f "$tree/etc/hostname" "$tree/etc/resolv.conf"
 rm -f "$tree"/etc/ssh/ssh_host_*
-# The random seed is the same argument as machine-id and worse: a pool every VM starts from
-# the same state is not a pool. The guest gets entropy from virtio-rng, which is why
-# systemd-random-seed.service is masked in optimize-systemd.sh.
 rm -f "$tree/var/lib/systemd/random-seed"
 
-# The directories the guest mounts over. They have to exist — a mount over a missing
-# directory fails — and the guest expects them empty.
 for d in etc tmp proc sys dev run; do
     mkdir -p "$tree/$d"
 done
 chmod 1777 "$tree/tmp"
 
-# The licences, moved out of the tree, not generated here: the file was written by
-# mkosi.postinst.chroot, which is the only moment the copyright files exist —
-# optimize-systemd.sh deletes /usr/share/doc a few lines later.
-#
-# Beside the image rather than inside it. The notices have to accompany a copy of the
-# software, and a release is what gets copied; a few hundred licence texts in every VM that
-# boots are just bytes nobody reads.
+# docs/image.md, "The filesystem"
 harvested="$tree/var/lib/spin-machine-licenses.txt"
 test -s "$harvested" || {
     echo "ERROR: no licence texts were collected — the image would be redistributed" >&2
@@ -105,23 +54,11 @@ test -s "$harvested" || {
 mv "$harvested" "$SHARE/licenses.txt"
 echo "==> $(grep -c '^======== ' "$SHARE/licenses.txt" || true) licence texts, $(du -h "$SHARE/licenses.txt" | cut -f1)"
 
-# The bill of materials: every package in the tree, by name and exact version, written beside the image rather
-# than into it.
-#
-# It is the only record of what this image is made of. The tree is thrown away, the qcow2
-# is opaque, and `CleanPackageMetadata=no` keeps dpkg's database inside the image — but
-# reading it back requires booting a VM. This file answers "which version of that library
-# shipped in the release from March?" without one, and it is what the SOURCES file in a
-# release points at for the userland half: an Ubuntu source package is fetched by name and
-# version, and those are the two things here.
 dpkg-query --admindir="$tree/var/lib/dpkg" -W -f='${Package} ${Version} ${Architecture}\n' \
     2>/dev/null | sort > "$SHARE/packages.txt"
 echo "==> $(wc -l < "$SHARE/packages.txt") packages recorded"
 
-# What came out of /debs: systemd and openssh-server are ours, and every package of ours is held
-# (mkosi.postinst.chroot), by dpkg's own status and not apt-mark's word. A tree that took the
-# archive's systemd boots, and pays again for everything image/systemd/Dockerfile says it built out;
-# one that took the archive's sshd logs in, and every login sleeps twice (image/openssh/Dockerfile).
+# docs/image.md, "The rebuilt packages"
 grep -qE '^systemd [^ ]+\+spin[0-9]+ ' "$SHARE/packages.txt" ||
     { echo "ERROR: the image's systemd is the archive's, not image/systemd's" >&2; exit 1; }
 grep -qE '^openssh-server [^ ]+\+spin[0-9]+ ' "$SHARE/packages.txt" ||
@@ -141,88 +78,12 @@ diff -u /usr/local/share/spin-image/deviations.txt /work/deviations.txt || {
     exit 1; }
 echo "==> $(wc -l < /work/deviations.txt) deviations from the packages, as image/deviations.txt lists"
 
-# The filesystem, sized to what the tree needs, plus a small margin, and nothing else. Free space in the base
-# is free space in every overlay built on it, whether or not that overlay's disk was meant to
-# have it: a disk larger than the image, with the filesystem grown to fill it, has the space it
-# was given plus whatever the image carried. It carried 317 MiB (2026-09-14).
-#
-# Two passes, because the answer to "how much does this tree take as ext4" includes ext4's
-# own overhead — inode tables and the directory structure are charged before a single file
-# is written — and that overhead scales with the filesystem's size. The first pass is
-# generous enough to always fit and is only measured; the second is built at what the first
-# used plus the margin. It cannot be shrunk afterwards instead: `resize2fs -M` estimates its
-# minimum from the inode tables mkfs laid out for the larger size, and on this image that
-# estimate was the size it already had.
-#
-# The margin is for a machine booted from this image with nothing grown — `spin-machine-dev shell`, the
-# boot benchmarks — whose writes at boot land in whatever the image has free.
-#
-# -b 4096, stated rather than left to the profile. mke2fs picks a "small" profile under
-# 512 MiB, and upstream's mke2fs.conf — the one this build uses — gives it 1024-byte blocks,
-# where Debian's and Ubuntu's give 4096. The image is over that size today, so it gets 4096
-# either way; a tree that shrank under it would quietly get the other (measured on a 64 MiB
-# filesystem, 2026-09-14).
-#
-# -m 0: no blocks reserved for root. ext4 keeps 5% by default so root can still write when a
-# filesystem is full, and the reservation is a proportion: a filesystem grown from this one to
-# fill a larger disk keeps the same 5% of the larger size — 0.55 GiB of an 11 GiB disk
-# (measured 2026-09-14) that a user who is not root cannot write to.
-#
-# mkfs.ext4 -d writes the tree in directly: no loop device and no mount, so the filesystem
-# is built with no privilege beyond what mkosi already needed.
-#
-# -U clear: a null filesystem UUID, on purpose. It makes the build deterministic, and
-# nothing in this stack mounts by UUID — the guest resolves disks by virtio-blk serial,
-# because a /dev node depends on probe order. A random UUID would be one more thing that
-# changes the image's checksum for no reason anyone could name.
-#
-# A journal, of 64 MiB. This file is never written — every VM reads it through an overlay of
-# its own — but the filesystem in it is: an overlay holds this same ext4, mounted read-write
-# and grown onto the disk the overlay was made at. A copy of that overlay taken while the guest
-# writes, or the overlay of a machine that died, is a filesystem interrupted mid-update, and
-# without a journal nothing puts its metadata back together at the next mount. Measured
-# 2026-09-14: built without one, a copy taken seconds after a grow does not mount —
-# "structure needs cleaning", a corrupt group descriptor.
-#
-# Each overlay replays and writes its own journal; the blocks it writes land in that overlay,
-# like any other write, and the image under it stays clean for every VM. The build asserts it
-# is clean below: a journal needing recovery in the image could not be mounted from a
-# read-only drive at all, and every overlay would replay it separately.
-#
-# 64 MiB, stated rather than derived: mke2fs sizes a journal from the filesystem it makes,
-# which would give this image 16 MiB and the first sizing pass a different number than the
-# second. 64 MiB is what mke2fs gives an 11 GiB filesystem, the size a VM's disk is grown to in
-# practice (so do 3 and 4 GiB; 16 GiB gets 128), and the grow does not resize a journal. It
-# costs the image almost nothing, since mke2fs does not zero it — an empty 974 MiB filesystem
-# converts to 1540 KiB of qcow2 with it and 1220 KiB without — and an overlay at most 64 MiB,
-# once the guest has cycled through it (all measured 2026-09-14).
-#
-# No orphan_file, which mke2fs.conf turns on for ext4 since 1.47.0. Every mount, read-only
-# included, loads the orphan file into memory one block at a time (ext4_init_orphan_info,
-# fs/ext4/orphan.c in 7.3): about 73 sequential single-block reads with no readahead, each a
-# virtio round trip, inside the root mount the whole boot waits for. What the feature buys is
-# scale for a filesystem unlinking many open files at once from many CPUs, where the classic
-# orphan list in the superblock serialises on one lock; a workspace is not that. Crash
-# correctness is the same either way - an inode unlinked while open is recorded in the classic
-# list and the journal, and released at the next mount, as on every ext4 before 1.47.
-#
-# lazy_itable_init=0: the inode tables are zeroed here and every group is marked so
-# (ITABLE_ZEROED). Without it - mke2fs -d left every group unmarked - the first read-write mount
-# of each overlay set ext4lazyinit to zero every inode table, in the first second of the boot,
-# while the machine is reaching its first login: 16.06 MiB of zero clusters in the overlay after
-# one boot, and none with the tables zeroed here (`--init /bin/sh`, laptop, 2026-11-19). The
-# thread itself still starts, to prefetch block bitmaps, which only reads. Zeros cost the image
-# nothing, because qemu-img does not allocate a cluster of them: with both changes it came out
-# 256 KiB smaller than the build before it.
+# docs/image.md, "The filesystem"
 mkbase() {
     rm -f /work/base.raw
     "$bin/mkfs.ext4" -q -F -L "" -U clear -J size=64 -m 0 -b 4096 -O ^orphan_file \
         -E root_owner=0:0,lazy_itable_init=0 -d "$tree" /work/base.raw "${1}k"
 }
-# The size is given in KiB with its unit spelled. A bare number is KiB only until -b is on the
-# command line, after which mke2fs reads it as a count of blocks: adding -b 4096 made this image
-# a 4.08 GiB filesystem instead of a 974 MiB one, and v20260914.01 shipped it (the checks below
-# now compare the size made against the size asked).
 used_kb() {
     "$bin/dumpe2fs" -h /work/base.raw 2>/dev/null | awk -F: '
         /^Block count:/ { blocks = $2 }
@@ -235,63 +96,38 @@ kb=$(du -sk "$tree" | cut -f1)
 first_kb=$(( kb + kb / 10 + 262144 ))
 mkbase "$first_kb"
 used=$(used_kb)
-# Rounded up to a whole MiB, so the device is aligned and its size is a number a person can
-# read in `qemu-img info`.
 size_kb=$(( (used + margin_kb + 1023) / 1024 * 1024 ))
 echo "==> mkfs.ext4: ${size_kb} KiB (${used} KiB used at ${first_kb} KiB, plus ${margin_kb} KiB) from a ${kb} KiB tree"
 mkbase "$size_kb"
 
-# Checks, asked of the finished filesystem rather than of the build that made it. A tree that
-# failed to copy in produces a perfectly valid empty ext4, and the failure would then be a
-# VM that boots and finds nothing to run.
+# docs/image.md, "What build.sh checks, and why"
 echo "==> checking the filesystem"
 "$bin/e2fsck" -fn /work/base.raw
-# And that it is made the way it was asked to be. mke2fs takes a size, -m and -J and never says
-# how it read them; each is only visible on the filesystem.
 header=$("$bin/dumpe2fs" -h /work/base.raw 2>/dev/null)
 made_kb=$(awk -F: '/^Block count:/ { n = $2 } /^Block size:/ { bs = $2 } END { printf "%d\n", n * bs / 1024 }' <<<"$header")
 test "$made_kb" = "$size_kb" || { echo "ERROR: the filesystem is $made_kb KiB, and $size_kb KiB was asked for" >&2; exit 1; }
 reserved=$(awk -F: '/^Reserved block count:/ { gsub(/ /, "", $2); print $2 }' <<<"$header")
 test "$reserved" = 0 || { echo "ERROR: the filesystem reserves $reserved blocks for root, want 0" >&2; exit 1; }
-# The journal is there, at the size asked, and nothing is waiting in it: the image is shared by
-# every VM and mounted from a read-only drive, where a journal needing recovery cannot be replayed.
 grep -q '^Filesystem features:.* has_journal' <<<"$header" || { echo "ERROR: the filesystem has no journal" >&2; exit 1; }
 grep -q '^Filesystem features:.* needs_recovery' <<<"$header" && { echo "ERROR: the filesystem's journal needs recovery" >&2; exit 1; }
 grep -q '^Total journal size: *64M$' <<<"$header" || { echo "ERROR: the journal is not 64M: $(grep '^Total journal size' <<<"$header")" >&2; exit 1; }
 grep -q '^Filesystem state: *clean$' <<<"$header" || { echo "ERROR: the filesystem is not clean" >&2; exit 1; }
-# The two choices mkbase makes against mke2fs.conf's defaults, read back: an e2fsprogs bump whose
-# mke2fs ignored one would build a filesystem that mounts and boots, only slower.
 grep -q '^Filesystem features:.* orphan_file' <<<"$header" && {
     echo "ERROR: the filesystem has orphan_file; every mount reads it block by block" >&2; exit 1; }
-# Every group, from the group descriptors: dumpe2fs prints one "Group N:" line each, with
-# ITABLE_ZEROED among its flags when the mark is there. The count is compared with the header's
-# group count rather than only looking for a group without it, so that output dumpe2fs did not
-# print, or printed differently, fails rather than passes.
 groups=$("$bin/dumpe2fs" /work/base.raw 2>/dev/null | grep '^Group [0-9]*:')
 want=$(awk -F: '/^Block count:/ { b = $2 } /^Blocks per group:/ { g = $2 } END { printf "%d\n", (b + g - 1) / g }' <<<"$header")
 zeroed=$(grep -c 'ITABLE_ZEROED' <<<"$groups" || true)
 test "$want" -gt 0 && test "$zeroed" = "$want" || {
     echo "ERROR: $zeroed of $want groups have zeroed inode tables; each overlay would run ext4lazyinit" >&2; exit 1; }
 
-# debugfs is asked and its *output* is read, not its exit status: `debugfs -R` exits 0
-# whether or not the request succeeded, printing "File not found by ext2_lookup" to stderr
-# and returning success anyway. A check written the obvious way therefore passes for every
-# path, present or not — which is how this script first reported a missing /bin/sh as fine
-# and a deleted /etc/hostname as baked in (2026-09-07). A successful stat starts its output
-# with "Inode:"; nothing else does.
+# docs/image.md, "What build.sh checks, and why"
 stat_in_image() { "$bin/debugfs" -R "stat $1" /work/base.raw 2>&1; }
 in_image() { stat_in_image "$1" | grep -q '^Inode:'; }
 
-# /sbin/init is what this image is: a userland whose first process is systemd, and what a
-# boot with `init=/sbin/init` lands on. /bin/sh is what `spin-machine boot --init /bin/sh` runs.
 for f in /sbin/init /bin/sh /bin/bash /usr/bin/docker /usr/local/bin/task /usr/bin/bwrap /usr/bin/socat /usr/bin/rg; do
     in_image "$f" || { echo "ERROR: the image has no $f" >&2; exit 1; }
 done
 
-# hwclock comes from util-linux-extra, not from util-linux and not from a package called
-# hwclock — Ubuntu split the two. Asked of the finished image rather than of the package
-# list because the package that provides it has moved once already, and the failure this
-# catches is a rename that still installs cleanly.
 in_image /usr/sbin/hwclock || {
     echo "ERROR: the image has no /usr/sbin/hwclock; check util-linux-extra" >&2
     exit 1; }
@@ -300,8 +136,6 @@ for d in /etc /tmp /proc /sys /dev /run; do
     in_image "$d" || { echo "ERROR: the image has no $d for the guest to mount over" >&2; exit 1; }
 done
 
-# The identity checks, asserted rather than trusted to the deletions above. An image
-# carrying one of these hands the same identity to every VM that ever boots from it.
 for f in /etc/hostname /etc/resolv.conf /var/lib/dbus/machine-id /var/lib/systemd/random-seed; do
     if in_image "$f"; then
         echo "ERROR: $f is baked into the base image; every VM would share it" >&2
@@ -309,25 +143,16 @@ for f in /etc/hostname /etc/resolv.conf /var/lib/dbus/machine-id /var/lib/system
     fi
 done
 if in_image /etc/ssh/ssh_host_ed25519_key; then
-    # openssh-server's postinst generates a set at install time. Every VM booting from this
-    # base would present the same host key, which is the identity trap with a fingerprint.
     echo "ERROR: an SSH host key is baked into the base image" >&2
     exit 1
 fi
 
-# machine-id is the exception: present, and empty.
 in_image /etc/machine-id || { echo "ERROR: /etc/machine-id is missing" >&2; exit 1; }
 mid_size=$(stat_in_image /etc/machine-id | sed -n 's/.*Size: \([0-9]\+\).*/\1/p' | head -1)
 [ "${mid_size:-unset}" = "0" ] || {
     echo "ERROR: /etc/machine-id is ${mid_size} bytes; every VM would share that identity" >&2
     exit 1; }
 
-# udev runs, and the assertion is that nothing masks it again. It was masked here for six
-# months to save boot time it does not cost: 15 boots of each with `task boot:bench` on
-# 2026-09-10, and with these four masked, fifteen out of fifteen never reached a login at
-# all — the machine waits out the full ten-second dev-ttyS0.device timeout and then offers
-# nothing. Masking is a one-line edit that looks like an optimization, so the result lives
-# here too, where such an edit is caught.
 for u in systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-control.socket \
          systemd-udev-trigger.service; do
     if stat_in_image "/etc/systemd/system/$u" | grep -q '/dev/null'; then
@@ -336,50 +161,29 @@ for u in systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-control
     fi
 done
 
-# The OOM kill that stops a slowly filling guest from thrashing (see the file). Nothing fails
-# without it; the machine just stops answering under memory pressure, weeks later.
 in_image /etc/tmpfiles.d/lru-gen.conf || {
     echo "ERROR: the image has no /etc/tmpfiles.d/lru-gen.conf; MGLRU runs without min_ttl_ms" >&2
     exit 1; }
-# And its other half: min_ttl_ms kills where the old LRU thrashed, and memory held by tmpfs is
-# not anybody's to kill. /tmp at half of memory hands the OOM killer innocents (see the drop-in).
 "$bin/debugfs" -R "cat /etc/systemd/system/tmp.mount.d/10-size.conf" /work/base.raw 2>/dev/null |
     grep -q '^Options=.*size=25%%' || {
     echo "ERROR: /tmp is not capped at 25% of memory; see tmp.mount.d/10-size.conf" >&2
     exit 1; }
 
-# What udev is on for, other than the getty: an added CPU or memory block arrives as a
-# kernel event and nothing else is listening for one. Without the rules file the events are
-# delivered to no one, which is indistinguishable from udev being masked.
 in_image /etc/udev/rules.d/40-spin-hotadd.rules || {
     echo "ERROR: the image has no 40-spin-hotadd.rules; a hot-plugged CPU stays offline" >&2
     exit 1; }
 
-# The kernel command line carries TERM=dumb, to stop systemd waiting 334ms twice for a serial
-# port to answer a terminfo query. agetty is invoked as `- ${TERM}` and its unit sets none,
-# so without these drop-ins PID1's `dumb` is what a human's login shell gets: no colour, no
-# clear, no cursor addressing. The two files are 687ms of boot and a usable terminal, and
-# they only work together — which is why the absence of one is an error and not a warning.
 for f in /etc/systemd/system/serial-getty@.service.d/term.conf \
          /etc/systemd/system/getty@.service.d/term.conf; do
     in_image "$f" || { echo "ERROR: the image has no $f; a login would inherit TERM=dumb" >&2; exit 1; }
 done
 
-
-# A boot optimization that is invisible in a file listing and expensive when it regresses:
-# a masked unit is a symlink to /dev/null, and a package upgrade replacing one turns it
-# back on. One of the ones optimize-systemd.sh masked for measured reasons.
 for u in systemd-random-seed.service; do
     stat_in_image "/etc/systemd/system/$u" | grep -q '/dev/null' || {
         echo "ERROR: $u is not masked - optimize-systemd.sh masked it and something put it back" >&2
         exit 1; }
 done
 
-# And every mask shadows something the image has. A mask of a unit, generator or tmpfiles rule
-# no package installed is dead code that reads as a decision: optimize-systemd.sh carried 16
-# (avahi, cups, multipathd, the tpm2 units of a systemd built without TPM2, ...), found on
-# 2026-11-21 (docs/boot-time.md, "What the machine carries"). An instance's mask is checked
-# against its template.
 for dir in /etc/systemd/system /etc/systemd/system-generators /etc/tmpfiles.d; do
     links=$("$bin/debugfs" -R "ls -l $dir" /work/base.raw 2>/dev/null | awk '$2 ~ /^120/ {print $NF}')
     for name in $links; do
@@ -397,11 +201,6 @@ for dir in /etc/systemd/system /etc/systemd/system-generators /etc/tmpfiles.d; d
     done
 done
 
-# And two that must never be masked, whatever they cost a boot. /tmp is where a machine's
-# services and its users leave what one boot needs - sockets, private directories, files
-# somebody meant to throw away - and on the disk it outlives the boot: every copy of the disk
-# carries it. tmp.mount makes it a tmpfs, so it ends with the boot; tmpfiles-setup is what
-# removes and recreates at boot what the distribution says does not carry over.
 for u in tmp.mount systemd-tmpfiles-setup.service; do
     if stat_in_image "/etc/systemd/system/$u" | grep -q '/dev/null'; then
         echo "ERROR: $u is masked - /tmp would be on the disk, and in every copy of it" >&2
@@ -409,9 +208,6 @@ for u in tmp.mount systemd-tmpfiles-setup.service; do
     fi
 done
 
-# logind starts in the boot, so that the first login does not start it (optimize-systemd.sh).
-# The want is the package's, in /usr; an override would be a /dev/null symlink at the /etc path,
-# which is how it was done before (2026-09-12) and what a stale configure step would bring back.
 if stat_in_image /etc/systemd/system/multi-user.target.wants/systemd-logind.service |
         grep -q '/dev/null'; then
     echo "ERROR: the want for systemd-logind is overridden; the first login would start it" >&2
@@ -420,37 +216,23 @@ fi
 in_image /usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service || {
     echo "ERROR: the package no longer wants systemd-logind from multi-user.target" >&2
     exit 1; }
-# root lingers and spin does not: spin logs in as root, whose login waits for its manager, so
-# root's starts in the boot; spin's would be a systemd --user in every boot for nobody
-# (configure-system.sh).
 in_image /var/lib/systemd/linger/root || {
     echo "ERROR: root does not linger; spin's first login would wait for root's whole manager" >&2
     exit 1; }
 ! in_image /var/lib/systemd/linger/spin || {
     echo "ERROR: spin lingers; its manager would start in every boot" >&2
     exit 1; }
-# The drop-in still matters with logind in the boot: a login can arrive before logind has
-# run, and without it pam_systemd hands that login no session and says nothing.
 in_image /etc/systemd/system/systemd-logind-varlink.socket.d/10-seats.conf || {
     echo "ERROR: the image has no logind seats drop-in; an early login would lose its session" >&2
     exit 1; }
-# The per-connection sshd that systemd-ssh-generator's vsock and AF_UNIX sockets start must
-# wait for the host keys: without the drop-in, nothing can log in over vsock at all.
 "$bin/debugfs" -R "cat /etc/systemd/system/sshd@.service.d/keygen.conf" /work/base.raw 2>/dev/null |
         grep -qx 'After=spin-machine-sshd-keygen.service' || {
     echo "ERROR: sshd@.service does not wait for spin-machine-sshd-keygen.service" >&2
     exit 1; }
-# sshd offers one key exchange, ML-KEM, and refuses a client without it (configure-system.sh).
-# Read back from the finished filesystem: a drop-in that is not there leaves OpenSSH's own list,
-# with three classical exchanges in it, and every login still works.
 "$bin/debugfs" -R "cat /etc/ssh/sshd_config.d/10-spin-kex.conf" /work/base.raw 2>/dev/null |
         grep -qx 'KexAlgorithms mlkem768x25519-sha256' || {
     echo "ERROR: sshd does not offer mlkem768x25519-sha256 alone" >&2
     exit 1; }
-# The sshd that runs userauth is image/openssh's, asked of the binary in the finished filesystem
-# and not of the package list: sshd-auth sends every client the version it was built as, and the
-# rebuilt one's ends in the +spinN its package was given. Dumped to a file and not piped: grep -q
-# stops reading at the match, and under pipefail debugfs's SIGPIPE failed a binary that matched.
 sshd_version=$(awk '$1 == "openssh-server" { v = $2; sub(/^[0-9]+:/, "", v); print v }' "$SHARE/packages.txt")
 sshd_says="OpenSSH_${sshd_version%%-*} Ubuntu-${sshd_version#*-}"
 "$bin/debugfs" -R "dump -p /usr/lib/openssh/sshd-auth /work/sshd-auth" /work/base.raw 2>/dev/null
@@ -458,10 +240,6 @@ grep -aqF "$sshd_says" /work/sshd-auth || {
     echo "ERROR: the image's /usr/lib/openssh/sshd-auth does not say $sshd_says" >&2
     exit 1; }
 rm -f /work/sshd-auth
-# And the keys are made from the boot's first dispatch, not by the first login's sshd@, which
-# would wait for them before its banner: 18 ms of the first login over vsock (the numbers are in
-# the unit). Both halves: the link is what starts it in the boot, and without
-# DefaultDependencies=no the unit waits for the sysinit.target that wants it and is late anyway.
 stat_in_image /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.service |
         grep -qF '/usr/lib/systemd/system/spin-machine-sshd-keygen.service' || {
     echo "ERROR: spin-machine-sshd-keygen.service is not wanted by sysinit.target" >&2
@@ -470,8 +248,6 @@ stat_in_image /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.
         grep -qx 'DefaultDependencies=no' || {
     echo "ERROR: spin-machine-sshd-keygen.service has default dependencies; it starts after sysinit.target" >&2
     exit 1; }
-# The pressure probe's guest half: the binary as it was built (static, which the build checked),
-# and its timer wanted by timers.target, starting it 10 s after the boot, past the first login.
 "$bin/debugfs" -R "dump -p /usr/libexec/spin-machine-pressure /work/pressure.bin" /work/base.raw 2>/dev/null
 cmp -s /work/pressure.bin /out/guest/spin-machine-pressure && test -x /work/pressure.bin || {
     echo "ERROR: /usr/libexec/spin-machine-pressure is not in the image as built" >&2
@@ -489,9 +265,6 @@ stat_in_image /etc/systemd/system/timers.target.wants/spin-machine-pressure.time
         grep -q '^WantedBy=' && {
     echo "ERROR: spin-machine-pressure.service is enabled itself, and would start beside the first login" >&2
     exit 1; }
-# The first SSH login's lane (configure-system.sh and the units' 10-lane.conf), read back from
-# the finished filesystem: each piece alone gains little and leaves the login waiting on the
-# next, so a missing one costs the lane without failing anything.
 for f in sshd-vsock.socket.d/10-lane.conf sshd@.service.d/10-lane.conf systemd-logind.service.d/10-lane.conf \
          systemd-logind-varlink.socket.d/20-lane.conf user-runtime-dir@.service.d/10-lane.conf \
          user@.service.d/10-lane.conf ssh.socket.d/10-lane.conf ssh.service.d/10-lane.conf \
@@ -501,8 +274,6 @@ for f in sshd-vsock.socket.d/10-lane.conf sshd@.service.d/10-lane.conf systemd-l
         echo "ERROR: ${f%%.d/*} is not in the first login's lane ($f)" >&2
         exit 1; }
 done
-# The user sockets' environment, read once by the user manager a login waits for, in place of the
-# two `systemctl --user set-environment` the sockets run (environment.d/10-user-sockets.conf).
 "$bin/debugfs" -R "cat /etc/environment.d/10-user-sockets.conf" /work/base.raw 2>/dev/null |
         grep -qxF 'DBUS_SESSION_BUS_ADDRESS=unix:path=${XDG_RUNTIME_DIR}/bus' || {
     echo "ERROR: the user manager's environment has no bus address (environment.d/10-user-sockets.conf)" >&2
@@ -512,36 +283,28 @@ for f in dbus.socket.d/10-env.conf ssh-agent.socket.d/10-env.conf; do
         echo "ERROR: ${f%%.d/*} still runs systemctl --user while the first login waits ($f)" >&2
         exit 1; }
 done
-# spin's login path (ssh.socket, ssh.service, sshd-keygen.service) without default dependencies
-# must still be stopped at shutdown: DefaultDependencies=no took that away with the rest.
 for f in ssh.socket.d/10-lane.conf ssh.service.d/10-lane.conf sshd-keygen.service.d/10-lane.conf; do
     "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
             grep -qx 'Conflicts=shutdown.target' || {
         echo "ERROR: ${f%%.d/*} has no default dependencies and is not stopped at shutdown ($f)" >&2
         exit 1; }
 done
-# ssh.service without Ubuntu's `sshd -t` before it starts (20-no-config-test.conf): one exec less
-# on the one vCPU before the first login. An empty ExecStartPre= is what resets the list.
 "$bin/debugfs" -R "cat /etc/systemd/system/ssh.service.d/20-no-config-test.conf" /work/base.raw 2>/dev/null |
         grep -qx 'ExecStartPre=' || {
     echo "ERROR: ssh.service still runs sshd -t before it starts (ssh.service.d/20-no-config-test.conf)" >&2
     exit 1; }
-# logind and the bus without a private /tmp, which would order them after
-# systemd-tmpfiles-setup.service and the filesystems (30-privatetmp.conf).
 for f in systemd-logind.service.d/30-privatetmp.conf dbus-broker.service.d/30-privatetmp.conf; do
     "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
             grep -qx 'PrivateTmp=no' || {
         echo "ERROR: ${f%%.d/*} has a private /tmp and waits for systemd-tmpfiles-setup ($f)" >&2
         exit 1; }
 done
-# udev at the lowest CPU weight while the boot runs, so the early login gets the one vCPU first.
 for f in systemd-udevd.service.d/20-startup.conf systemd-udev-trigger.service.d/20-startup.conf; do
     "$bin/debugfs" -R "cat /etc/systemd/system/$f" /work/base.raw 2>/dev/null |
             grep -qx 'StartupCPUWeight=1' || {
         echo "ERROR: ${f%%.d/*} runs at the normal weight while the boot runs ($f)" >&2
         exit 1; }
 done
-# ... and not before sysinit.target, which would hold basic.target for it (configure-system.sh).
 for u in systemd-udevd.service systemd-udev-trigger.service; do
     unit=$("$bin/debugfs" -R "cat /etc/systemd/system/$u" /work/base.raw 2>/dev/null)
     printf '%s\n' "$unit" | grep -q '^ExecStart=' || {
@@ -581,18 +344,12 @@ if stat_in_image /etc/systemd/system/systemd-logind.service | grep -q '/dev/null
     exit 1
 fi
 
-# The distribution's background maintenance, masked by configure-system.sh for reasons
-# that are written there. Asserted separately from the three above because the cause is a
-# different script: these come back if a package upgrade re-runs a unit's [Install], and
-# what they cost is an apt lock taken under a workload that is doing its own install.
 for u in apt-daily.timer apt-daily-upgrade.timer motd-news.timer dpkg-db-backup.timer; do
     stat_in_image "/etc/systemd/system/$u" | grep -q '/dev/null' || {
         echo "ERROR: $u is not masked - configure-system.sh masked it and something put it back" >&2
         exit 1; }
 done
 
-# fstrim hourly, by configure-system.sh's drop-in, and still enabled: it is how what a guest
-# deletes leaves the host's disk and page cache.
 "$bin/debugfs" -R "cat /etc/systemd/system/fstrim.timer.d/spin.conf" /work/base.raw 2>/dev/null | grep -qx 'OnCalendar=hourly' || {
     echo "ERROR: fstrim.timer does not run hourly - configure-system.sh's drop-in is missing" >&2
     exit 1; }
@@ -600,11 +357,6 @@ in_image /etc/systemd/system/timers.target.wants/fstrim.timer || {
     echo "ERROR: fstrim.timer is not enabled" >&2
     exit 1; }
 
-# No login runs a MOTD: pam_motd is off in every stack the distribution enables it in, so
-# whatever a package upgrade restores into /etc/update-motd.d - 50-motd-news reaches the
-# network - is never run. Read from the finished filesystem, and the file is checked to be a
-# PAM stack before its lines are: debugfs prints nothing for a file that is not there, and
-# nothing has no pam_motd line in it.
 for f in /etc/pam.d/sshd /etc/pam.d/login; do
     stack=$("$bin/debugfs" -R "cat $f" /work/base.raw 2>/dev/null)
     printf '%s\n' "$stack" | grep -q 'pam_unix\|common-session' || {
@@ -616,20 +368,7 @@ for f in /etc/pam.d/sshd /etc/pam.d/login; do
     fi
 done
 
-# qcow2, with no compression: the base is read by every VM on every boot and a compressed cluster is
-# decompressed on each read. The file is written once and read forever.
-# Written beside the target and renamed over it, never into it.
-#
-# The obvious version — `qemu-img convert -O qcow2 … "$OUT"` — opens the existing base for
-# writing, and a VM running against that base holds an image lock on it, so the build dies
-# with `Failed to get "write" lock. Is another process using the image?`. Which is the
-# right refusal for the wrong reason: the problem is not the lock, it is that a base image
-# is never edited. Every VM maps it read-only through a backing chain and many share one,
-# so anything that writes into that file invalidates every overlay in existence — silently,
-# because the overlays keep working until they read a cluster that moved.
-#
-# A rename replaces the directory entry and leaves the old inode alone, so a VM that is
-# running right now keeps the image it booted from, and the next one gets the new file.
+# docs/image.md, "The filesystem"
 echo "==> qemu-img: wrapping it"
 rm -f "$OUT.new"
 qemu-img convert -f raw -O qcow2 /work/base.raw "$OUT.new"
