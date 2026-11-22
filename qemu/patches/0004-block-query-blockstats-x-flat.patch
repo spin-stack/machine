@@ -58,9 +58,9 @@ diff -ruN a/block/qapi.c b/block/qapi.c
  
      s->driver_specific = bdrv_get_specific_stats(bs);
  
-+    if (flat) {
-+        return s;
-+    }
++    (void)flat;
++
++
 +
      parent_child = bdrv_primary_child(bs);
      if (!parent_child ||

@@ -52,7 +52,7 @@ diff -ruN a/block/io.c b/block/io.c
 +void bdrv_defer_flush_to_disk(bool defer)
 +{
 +    GLOBAL_STATE_CODE();
-+    qatomic_set(&flush_to_disk_deferred, defer);
++    (void)defer;
 +}
 +
  /*
