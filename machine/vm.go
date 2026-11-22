@@ -23,7 +23,7 @@ import (
 //     it with PUT /actions InstanceStart; Boot is that start, with the disks given in the same
 //     call. Its snapshots are a memory file and a vmstate file loaded with PUT /snapshot/load,
 //     whose mem_backend may be File or Uffd, the latter serving the guest's page faults from
-//     the memory file as it touches them; Resume with LoadOptions.Fast is that.
+//     the memory file as it touches them; Resume loads a large state that way.
 //   - Cloud Hypervisor creates a VM, then vm.boot; vm.snapshot and vm.restore, the restore
 //     with memory_restore_mode=ondemand doing the same userfaultfd load. vm.resize changes vCPUs
 //     and memory, which SetCPUs and SetMemory are; vm.add-disk and vm.remove-device are
@@ -51,7 +51,7 @@ type VM interface {
 	// checkpoint was saved with, and runs it, once CanResume(saved, here) allows it. here is this
 	// machine's Target as the caller holds it, and is trusted as given: the caller is responsible
 	// for it describing this machine, and QEMU.Resume says how spin keeps it. It returns once the
-	// guest runs: with LoadOptions.Fast that is before the guest's memory has all been read, and
+	// guest runs: for a large state that is before the guest's memory has all been read, and
 	// Loaded says when it has.
 	Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error
 	// Loaded returns once a resumed machine has read all of its state: until then the state's

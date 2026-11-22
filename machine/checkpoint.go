@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,24 +23,15 @@ import (
 
 // LoadOptions is how a checkpoint is read.
 type LoadOptions struct {
-	// Fast runs the guest as soon as its devices are loaded and reads its memory as it touches
-	// it, the rest behind it. Without Fast the guest runs once all of it has been read.
-	//
-	// Slower to the first login on the bench fleet (nested, QEMU 11.2.0-rc0, a 140 MiB state read
-	// from disk, 2026-11-19, lab 44585840498): running at 38 ms instead of 102, logged in at 293
-	// instead of 152. Every page the guest touches on the way to a login is a fault served by one
-	// read from the file, and a nested fault is expensive; the full load reads the file in one
-	// pass. It is kept for a caller whose state is large and whose guest needs little of it soon.
-	Fast bool
 	// Channels is how many threads read the guest's memory, each its own part of the file: QEMU's
 	// multifd over a mapped-ram state. One is the migration's own thread; none given is
-	// DefaultChannels for a full load of a mapped-ram state, and one for a fast load or a stream
-	// state, which one thread reads.
+	// DefaultChannels for a full load of a mapped-ram state, and one for a fast load (loadsFast)
+	// or a stream state, which one thread reads.
 	Channels int
 	// Phases, when set, is told each Phase of the resume as it happens, on Resume's goroutine:
-	// LoadStarted, StateLoaded and GuestRunning. A fast load runs the guest before its state is
-	// all read, and Loaded tells StateLoaded. It asks QEMU nothing more: StateLoaded's bytes are one
-	// fstat of the state.
+	// LoadStarted, StateLoaded and GuestRunning. A fast load (loadsFast) runs the guest before its
+	// state is all read, and Loaded tells StateLoaded. It asks QEMU nothing more: StateLoaded's
+	// bytes are one fstat of the state.
 	Phases func(Phase)
 }
 
@@ -73,15 +65,61 @@ func (s SaveOptions) channels() int {
 	return s.Channels
 }
 
-// channels is how many threads read a state in format with l.
-func (l LoadOptions) channels(format string) int {
+// channels is how many threads read a state in format with l, fast or not.
+func (l LoadOptions) channels(format string, fast bool) int {
 	switch {
 	case l.Channels != 0:
 		return l.Channels
-	case l.Fast || format == FormatStream:
+	case fast || format == FormatStream:
 		return 1
 	}
 	return DefaultChannels
+}
+
+// fastAbove is the state's data above which a resume runs the guest once its devices are in and
+// reads its memory as the guest touches it, QEMU 11.2's fast snapshot load, instead of reading
+// all of it first. Measured on the bench (nested, spin's shape and login, the state evicted from
+// the page cache, 20 a side interleaved, 2026-11-22, #470), the first login in full against fast:
+//
+//	state's data   in full       fast          fast - full [95%]       lab
+//	179 MiB         95 / 105 ms  489 / 563 ms   +394 [+388, +420]   45034868686
+//	825 MiB        258 / 310     431 / 446      +173 [+149, +195]   45035462371
+//	1.2 GiB        374 / 510     476 / 534      +103 [+88, +120]    45035462478
+//	1.7 GiB        570 / 763     441 / 498      -129 [-167, -76]    45034881876
+//	3.7 GiB       1410 / 1804    451 / 518      -959 [-1008, -911]  45034881433
+//	7.3 GiB       3152 / 3658    538 / 581     -2615 [-2642, -2589] 45034881366
+//
+// A full load costs the disk's read of the data; a fast load's login barely moves with it. At 179
+// MiB its ~2,500 faults blocked the vCPU 45 ms of the ~400 it adds, and with the state read ahead
+// each fault took 5 µs instead of 69 and the login still 325 ms (lab 45035029887). What is left
+// is the postcopy itself, which ran 0.8 s: QEMU's eager thread places every 4 KiB page of the RAM
+// blocks at their ceilings, 8 GiB in spin's shape, one ioctl each (QEMU 11.2.0-rc0, #519).
+const fastAbove = 1536 << 20
+
+// loadsFast is whether a resume of state runs its guest before its memory is read (fastLoad).
+// Tests replace it.
+var loadsFast = func(state *os.File, saved Saved) bool {
+	return fastLoad(saved.Format, written(state), userfaults("/dev/userfaultfd", "/proc/sys/vm/unprivileged_userfaultfd"))
+}
+
+// fastLoad is whether a state in format with data bytes loads fast on a host that grants QEMU a
+// userfaultfd or not: a mapped-ram state, whose pages are at fixed offsets a fault can be served
+// from, with more than fastAbove of data, where the host grants it.
+func fastLoad(format string, data int64, granted bool) bool {
+	return format == FormatMappedRAM && data > fastAbove && granted
+}
+
+// userfaults is whether this host gives a QEMU, run as a user of its own with no capability, the
+// userfaultfd a fast load serves the guest's faults with: dev, /dev/userfaultfd, a character
+// device every user may read and write, or knob, vm.unprivileged_userfaultfd, at 1. spin's hosts
+// grant the device when their operator chooses to (spin-stack/spin internal/runner/vmm/pool.go,
+// fastLoadRefusal), and a host that does not loads every state in full.
+func userfaults(dev, knob string) bool {
+	if fi, err := os.Stat(dev); err == nil && fi.Mode().Type()&os.ModeCharDevice != 0 && fi.Mode().Perm()&0o006 == 0o006 {
+		return true
+	}
+	b, err := os.ReadFile(knob)
+	return err == nil && strings.TrimSpace(string(b)) == "1"
 }
 
 // Saved is what a checkpoint is besides its state file: what the caller keeps beside the state
@@ -105,7 +143,7 @@ type Saved struct {
 const (
 	// FormatMappedRAM is QEMU's migration stream with mapped-ram: each RAM page at a fixed
 	// offset of the file, which is what lets a load read a page when the guest touches it
-	// (LoadOptions.Fast). The file is sparse, as large as the machine's RAM blocks at their
+	// (loadsFast). The file is sparse, as large as the machine's RAM blocks at their
 	// ceilings; what is not written is holes.
 	FormatMappedRAM = "qemu-mapped-ram"
 	// FormatStream is the stream before it, every page in order: what a checkpoint saved by
@@ -503,26 +541,25 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 // 2026-11-21), and no part of it could leave the clock: QEMU's main loop is busy from its exec to
 // the load's end, and QEMU answers no monitor while it loads a state.
 //
-// Fast is QEMU 11.2's fast snapshot load (docs/devel/migration/fast-snapshot-load.rst): mapped-ram
-// and postcopy-ram on a file: URI, the guest running once its device state is in while
-// userfaultfd serves its faults from the file and an eager thread reads the rest. It returns once
-// QEMU runs the guest, after postcopy-active. QEMU needs userfaultfd for it: /dev/userfaultfd
-// readable and writable by its user, or vm.unprivileged_userfaultfd=1, or CAP_SYS_PTRACE - the
-// guest's faults are taken in the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor
-// does not see.
+// A state over fastAbove loads fast where the host allows it (loadsFast): QEMU 11.2's fast
+// snapshot load (docs/devel/migration/fast-snapshot-load.rst), mapped-ram and postcopy-ram on a
+// file: URI, the guest running once its device state is in while userfaultfd serves its faults
+// from the file and an eager thread reads the rest. It returns once QEMU runs the guest, after
+// postcopy-active, and Loaded says when the state is all read. The guest's faults are taken in
+// the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor does not see, so QEMU needs a
+// full userfaultfd (userfaults).
 func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error {
 	if err := CanResume(saved, here); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	channels := load.channels(saved.Format)
+	fast := loadsFast(state, saved)
+	channels := load.channels(saved.Format, fast)
 	caps := map[migrationCapability]bool{pauseBeforeSwitchover: false, events: true}
 	switch {
 	case saved.Format == FormatMappedRAM:
 		caps[mappedRAM] = true
-		caps[postcopyRAM] = load.Fast
+		caps[postcopyRAM] = fast
 		caps[multifd] = channels > 1
-	case saved.Format == FormatStream && load.Fast:
-		return errors.New("resuming: a stream checkpoint has no page at a fixed offset to fetch when the guest touches it, and loads only in full")
 	case saved.Format == FormatStream && channels > 1:
 		return errors.New("resuming: a stream checkpoint is one sequence of pages, which one thread reads")
 	case saved.Format == FormatStream:
@@ -530,7 +567,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	default:
 		return fmt.Errorf("resuming: a checkpoint in format %q, and this machine reads %s and %s", saved.Format, FormatMappedRAM, FormatStream)
 	}
-	ReadAhead(state, saved, load)
+	ReadAhead(state, saved)
 	var again added
 	if len(saved.Added) > 0 {
 		if err := json.Unmarshal(saved.Added, &again); err != nil {
@@ -575,7 +612,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		}
 	}
 	until := []migrationStatus{completed}
-	if load.Fast {
+	if fast {
 		until = append(until, postcopyActive)
 	}
 	running := m.expectMigration(until...)
@@ -591,7 +628,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		if err := loading(ctx, running); err != nil {
 			return err
 		}
-		if !load.Fast {
+		if !fast {
 			tell(load.Phases, StateLoaded{At: time.Now(), Bytes: data})
 		}
 		return nil
@@ -599,7 +636,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	if err := m.migrate(ctx, migrateIn, state, os.O_RDONLY, loaded); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	if !load.Fast {
+	if !fast {
 		if err := m.runLoaded(ctx); err != nil {
 			return fmt.Errorf("resuming: %w", err)
 		}
@@ -612,7 +649,7 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		return fmt.Errorf("resuming: waiting for QEMU to run the guest: %w", err)
 	}
 	tell(load.Phases, GuestRunning{At: time.Now()})
-	if load.Fast {
+	if fast {
 		m.then, m.data = load.Phases, data
 	}
 	return nil
@@ -634,22 +671,24 @@ func (m *QEMU) runLoaded(ctx context.Context) error {
 	return nil
 }
 
-// ReadAhead starts reading state into the page cache, when Resume would read it with load, and
+// ReadAhead starts reading state into the page cache, when Resume would read it in full, and
 // returns at once. Resume calls it too, once it holds the machine's monitor. A restore that starts
 // QEMU itself holds the state ~20 ms before QEMU answers its monitor, and calling ReadAhead then
 // runs the read beside QEMU's start instead of after it. Called twice, the second call asks for
 // pages already read or on their way, which the kernel skips.
-func ReadAhead(state *os.File, saved Saved, load LoadOptions) {
-	if prefetches(saved, load) {
+func ReadAhead(state *os.File, saved Saved) {
+	if prefetches(state, saved) {
 		prefetch(state)
 	}
 }
 
 // prefetches is whether a resume reads the state ahead: only a full load of a mapped-ram state.
-// A fast load reads a page when the guest touches it, which reading every page ahead would undo,
-// and a stream state is read once, in order, by the load itself.
-func prefetches(saved Saved, load LoadOptions) bool {
-	return saved.Format == FormatMappedRAM && !load.Fast
+// A stream state is read once, in order, by the load itself. A fast load's guest faults pages in
+// faster than a read in the file's order reaches them: read ahead, a 3.7 GiB state's faults took
+// 78 µs against 85 and its login 436 ms against 458, p95 713 against 490 (bench, spin's shape,
+// 10 a side, lab 45035048486, 2026-11-22, #470).
+func prefetches(state *os.File, saved Saved) bool {
+	return saved.Format == FormatMappedRAM && !loadsFast(state, saved)
 }
 
 // prefetch asks the kernel to start reading the state's data into the page cache, extent by

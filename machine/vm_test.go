@@ -799,7 +799,7 @@ func TestACheckpointRecordsItsMachineOnceTheStateIsWritten(t *testing.T) {
 }
 
 // A resume rebuilds what the checkpoint says the machine had, asks for what the format needs,
-// and returns when the guest runs: with Fast, before all of it is read.
+// and returns when the guest runs: loading fast, before all of it is read.
 func TestResume(t *testing.T) {
 	again, _ := json.Marshal(added{
 		CPUs:  []addedCPU{{ID: "vcpu1", Driver: "host-x86_64-cpu", Props: map[string]any{"core-id": 1}}},
@@ -816,19 +816,21 @@ func TestResume(t *testing.T) {
 		after    string // the run state once loaded
 		caps     map[string]bool
 		cont     bool
+		fast     bool
 	}{
-		{"fast, at postcopy-active", mapped, LoadOptions{Fast: true}, 1, []string{"setup", "postcopy-active", "RESUME"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false, "events": true}, false},
+		{"fast, at postcopy-active", mapped, LoadOptions{}, 1, []string{"setup", "postcopy-active", "RESUME"}, "running",
+			map[string]bool{"mapped-ram": true, "postcopy-ram": true, "pause-before-switchover": false, "multifd": false, "events": true}, false, true},
 		{"in full, past postcopy-active, which it never asked for", mapped, LoadOptions{}, DefaultChannels, []string{"active", "postcopy-active", "RESUME", "completed"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": DefaultChannels > 1, "events": true}, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": DefaultChannels > 1, "events": true}, false, false},
 		{"in full, by one channel, named", mapped, LoadOptions{Channels: 1}, 1, []string{"active", "RESUME", "completed"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false, "events": true}, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false, "events": true}, false, false},
 		{"in full, by two channels", mapped, LoadOptions{Channels: 2}, 2, []string{"active", "RESUME", "completed"}, "running",
-			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true, "events": true}, false},
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true, "events": true}, false, false},
 		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream, From: from}, LoadOptions{}, 1, []string{"completed"}, "paused",
-			map[string]bool{"mapped-ram": false, "pause-before-switchover": false, "events": true}, true},
+			map[string]bool{"mapped-ram": false, "pause-before-switchover": false, "events": true}, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			loadingFast(t, tc.fast)
 			status := "inmigrate"
 			places := machineAnswers("inmigrate", "root")
 			f := &fakeQEMU{}
@@ -903,7 +905,6 @@ func TestResumeRefuses(t *testing.T) {
 		status string
 		want   string
 	}{
-		{"a stream checkpoint, fast", Saved{Format: FormatStream, From: here}, here, LoadOptions{Fast: true}, "inmigrate", "loads only in full"},
 		{"a stream checkpoint, by channels", Saved{Format: FormatStream, From: here}, here, LoadOptions{Channels: 2}, "inmigrate", "which one thread reads"},
 		{"a format QEMU does not read", Saved{Format: "firecracker-snapshot", From: here}, other, LoadOptions{}, "inmigrate", `format "firecracker-snapshot"`},
 		{"a machine held for a boot", Saved{Format: FormatMappedRAM, From: here}, here, LoadOptions{}, "prelaunch", "is prelaunch"},
@@ -1352,7 +1353,8 @@ func TestResumeFailsWhereTheDisksCannotBeTaken(t *testing.T) {
 		}
 		return machineAnswers("inmigrate", "root")(c)
 	}
-	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{Fast: true},
+	loadingFast(t, true)
+	err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{},
 		Disk{Serial: "root", Images: []Image{image(t, "qcow2")}})
 	if err == nil || !strings.Contains(err.Error(), `taking the machine's disks: blockdev-set-active: GenericError: Failed to get "write" lock`) {
 		t.Errorf("Resume = %v, want QEMU's refusal of the lock", err)

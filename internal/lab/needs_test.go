@@ -58,7 +58,6 @@ func TestAProbeRunsOnlyWhereItsSpinMachineHasWhatItNeeds(t *testing.T) {
 		{"restore-first", nil, old, "boot has no --restore"},
 		{"prestart", nil, old, "boot has no --held"},
 		{"restore-first", nil, now, ""},
-		{"restore-first", Options{"fast": "true"}, now, "restore has no --fast"},
 		{"restore-first", Options{"channels": "1 4"}, now, "save has no --channels"},
 		{"prestart", Options{"channels": "4"}, treeWith(t, map[string][]string{"boot": append(boot, "restore", "held"), "save": {"to", "channels"},
 			"restore": {"disk"}, "start": {"disk"}}), "restore has no --channels"},

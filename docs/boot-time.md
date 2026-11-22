@@ -359,6 +359,8 @@ and a row measured in another shape than spin's has such a reason.
 |---|---|---|---|---|
 | mapped-ram with multifd ×4, 11-13 | not comparable by its own run's log; channels were measured again on 11-20 and kept | ladder | #246, lab 43483852339 | 11-13 |
 | Fast snapshot load (mapped-ram and postcopy-ram on a `file:` URI) as the restore | running at 38 ms, but the login at 293/325 instead of 152/161: every page touched is a fault served by one read. `LoadOptions.Fast` stays for large states | ladder | lab 44585840498 | 11-19 |
+| Fast snapshot load for every state, the caller's choice (`LoadOptions.Fast`, spin's `fast_load`) | login +394 [+388, +420] at 179 MiB of data, +103 at 1.2 GiB, −129 at 1.7 GiB, −2615 at 7.3 GiB. Replaced by the machine's choice above 1.5 GiB (#470) | spin, touched | labs 45034868686, 45035462478, 45034881876, 45034881366 | 11-22 |
+| The state read ahead during a fast load | at 179 MiB the login −168 ms, still +234 over a full load; at 3.7 GiB within noise, p95 713 against 490 | spin, touched | labs 45035029887, 45035048486 | 11-22 |
 | Base memory in a shared file, left out of the checkpoint (`x-ignore-shared`) | state 0.3 MiB, save 15 ms, but neither goal number improves: cold 1089 ms on disk, 709-719 on tmpfs | ladder | labs 44663272360, 44664989139, #306 | 11-20 |
 | 16 multifd channels as the default | −10.1 alone, but +3.2 [+1.1, +5.8] against 8 when 4 restore at once | spin | lab 44792429636 | 11-20 |
 | `direct-io` (O_DIRECT) on the channels | within the noise evicted, +45 ms cached | laptop | log.md, 11-21 | 11-21 |

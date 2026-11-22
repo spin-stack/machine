@@ -313,8 +313,10 @@ QEMU.
 
 `ssh-first` and `restore-first` are the goal's two numbers. `prestart` is a QEMU started ahead
 against today's, and `initcalls` is the kernel's boot by initcall. Every probe takes the shape's
-options (above) and its own: `restore-first` takes `fast=true` and `channels`, `prestart` takes
-`channels`, and `initcalls` takes `top=N`. The
+options (above) and its own: `restore-first` takes `channels` and `touched=MIB`, `prestart` takes
+`channels`, and `initcalls` takes `top=N`. `touched` writes that many MiB into a tmpfs in the guest
+after its cold login and before its save, so the checkpoint carries them. A state with more than
+1.5 GiB of data loads fast, and a bench runner grants QEMU the userfaultfd that needs. The
 lab refuses an option the probe does not take. A probe that restores (`restore-first`, `prestart`,
 `restore-together`) hands every restore its tree's machine record (`spin-machine restore
 --target`). The record is read once per tree, before anything is measured, from a machine of the

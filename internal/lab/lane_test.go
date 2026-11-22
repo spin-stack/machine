@@ -61,12 +61,7 @@ func TestEveryProbeMeasuresATree(t *testing.T) {
 			if name == bootchartName {
 				trees = []*Tree{charted}
 			}
-			o := Options{}
-			// The fast load where QEMU's user may have userfaultfd; elsewhere the probe says how.
-			if b, _ := os.ReadFile("/proc/sys/vm/unprivileged_userfaultfd"); name == "restore-first" && string(b) == "1\n" {
-				o["fast"] = "true"
-			}
-			r, err := Experiment{Probe: p, Trees: trees, Reps: 1, Options: o, Scratch: t.TempDir(), Keep: keep, Log: io.Discard}.Run(t.Context())
+			r, err := Experiment{Probe: p, Trees: trees, Reps: 1, Options: Options{}, Scratch: t.TempDir(), Keep: keep, Log: io.Discard}.Run(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}

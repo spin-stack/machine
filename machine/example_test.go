@@ -67,7 +67,7 @@ func Example() {
 			log.Fatal(err)
 		}
 		defer state.Close()
-		if err := m.Resume(ctx, state, saved, here, machine.LoadOptions{Fast: true}, root, home); err != nil {
+		if err := m.Resume(ctx, state, saved, here, machine.LoadOptions{}, root, home); err != nil {
 			log.Fatal(err)
 		}
 		if err := m.Loaded(ctx); err != nil { // the state file is free once this returns

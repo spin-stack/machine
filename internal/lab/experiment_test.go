@@ -609,7 +609,7 @@ func TestTheProbesAreTheGoalsAndTheKernels(t *testing.T) {
 		}
 	}
 	rf := Probes["restore-first"]
-	if !slices.Equal(rf.Rows(Options{"fast": "true"}), []string{"evicted", "cached", "fast"}) || rf.Phases() != 2 {
+	if !slices.Equal(rf.Rows(Options{}), []string{"evicted", "cached"}) || rf.Phases() != 2 {
 		t.Error("restore-first's rows")
 	}
 	if Probes["prestart"].Phases() != 2 || Probes["ssh-first"].Phases() != 1 || Probes["initcalls"].Phases() != 1 || Probes["transport"].Phases() != 2 || Probes["usage"].Phases() != 1 || Probes["bootchart"].Phases() != 1 {
