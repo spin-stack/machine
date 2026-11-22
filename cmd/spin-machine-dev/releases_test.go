@@ -175,6 +175,40 @@ func TestReleasesDocChecksThePageAgainstTheRecords(t *testing.T) {
 	}
 }
 
+// The boot charts releases measure drew beside a ladder are kept beside the newest release's record,
+// linked from the page and copied beside the site's; a release drawn by nothing links none.
+func TestAReleasesBootChartsAreKeptBesideItsRecord(t *testing.T) {
+	dir := checkout(t)
+	verb(t, "releases", "record", ladderOf(t, 300, "v1"))
+	ladder := ladderOf(t, 320, "v1", "v2")
+	put(t, filepath.Join(filepath.Dir(ladder), "v2-bootchart-1.bootchart.svg"), "<svg>processes</svg>", 0o644)
+	put(t, filepath.Join(filepath.Dir(ladder), "v2-bootchart-1.plot.svg"), "<svg>units</svg>", 0o644)
+	if _, stderr, status := verb(t, "releases", "record", ladder); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	records := filepath.Join(dir, "docs", "releases")
+	if got := read(t, filepath.Join(records, "v2-bootchart.svg")) + read(t, filepath.Join(records, "v2-plot.svg")); got != "<svg>processes</svg><svg>units</svg>" {
+		t.Errorf("the charts kept beside v2's record: %q", got)
+	}
+	v2, err := lab.ReadRecord(filepath.Join(records, "v2.json"))
+	if err != nil || v2.Bootchart != "v2-bootchart.svg" || v2.Plot != "v2-plot.svg" {
+		t.Errorf("v2's record names its charts as %q and %q, %v", v2.Bootchart, v2.Plot, err)
+	}
+	page := read(t, records+".md")
+	if !strings.Contains(page, "| [processes](releases/v2-bootchart.svg) | [units](releases/v2-plot.svg) |\n") ||
+		!strings.Contains(page, "| v1 | ") || strings.Contains(page, "v1-bootchart") {
+		t.Errorf("the page's charts:\n%s", page)
+	}
+	out := filepath.Join(t.TempDir(), "site")
+	if _, stderr, status := verb(t, "releases", "site", "--out", out); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	if read(t, filepath.Join(out, "releases", "v2-bootchart.svg")) != "<svg>processes</svg>" ||
+		!strings.Contains(read(t, filepath.Join(out, "index.html")), `href="releases/v2-plot.svg"`) {
+		t.Error("the site neither keeps nor links v2's charts")
+	}
+}
+
 // The site is the page as HTML, with each record it links to beside it, read back as written.
 func TestReleasesSiteWritesThePageAndItsRecords(t *testing.T) {
 	dir := checkout(t)

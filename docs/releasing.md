@@ -49,7 +49,7 @@ same change.
 | `task lint test coverage mutate`, the schema checks among the tests, `verify args` | `ci.yml` | every pull request and push to main |
 | QEMU, the kernel and the image, built and verified | `parts.yml` | a change that reaches the part |
 | a checkpoint of each release resumes, `boot:record`, `boot:cpu-plug`, `boot:lockdown` | `compat.yml`, KVM fleet | a change that reaches the machine, and every release before it is built |
-| the goal's two numbers, and the no-systemd floor beside them | `report.yml`, bench | every release, once published |
+| the goal's two numbers, the no-systemd floor beside them, and one boot drawn | `report.yml`, bench | every release, once published |
 | `boot:checkpoint-pause`, the pause a checkpoint stops the guest for | `release.yml`'s `pause`, bench | every release, once published, and a QEMU bump (versions.yaml) |
 | `boot:finish-migrate` | by hand, on a busy host | a QEMU bump (versions.yaml) |
 
@@ -114,13 +114,16 @@ the two goal numbers, a cold boot and a restore, each to the first SSH login, an
 QEMU started ahead. Save, state, the kernel's time and QEMU's resident memory are beside them as
 diagnostics. The release is booted again beside its no-systemd floor, both logging in by the lane:
 a bound, re-measured with every release so that it stays one (docs/measuring.md, rule 8). The
-record keeps the floor's Δp50 against the release, with its 95% interval.
+record keeps the floor's Δp50 against the release, with its 95% interval. One more boot of the
+release is drawn by the `bootchart` probe: its processes by systemd-bootchart and its units by
+`systemd-analyze plot`, to the first login (docs/measuring.md, "Boot charts").
 
 The job keeps the release's record, `docs/releases/RELEASE.json`: each number's p50 and p95, the
 host, the shape, the date, the run whose artifact holds every sample (90 days), and the release
 before it, with its numbers from the same run and each Δ with its 95% interval. `releases record`
 writes `docs/releases.md` from every record: a chart of the goal's numbers release by release
-(`docs/releases.svg`), the tables, and where each was measured. The job proposes the records and
+(`docs/releases.svg`), the tables, and where each was measured, which links each release's charts,
+kept beside its record as `RELEASE-bootchart.svg` and `RELEASE-plot.svg`. The job proposes the records and
 the page as a pull request, as the release app, so the checks on it run. A test fails when the page
 or its chart is not what the records say, so nobody edits either by hand. Once that pull request
 merges, `pages.yml` publishes the same page, with each record, at

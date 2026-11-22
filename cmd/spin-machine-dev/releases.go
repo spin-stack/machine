@@ -62,7 +62,10 @@ func recordsDir(dir string) (string, error) {
 // recordNewest writes the record of l's newest release in dir, the release the ladder was run
 // for, against the release before it in the ladder. The older releases have no record of their
 // own from it: each record is the release a run was made for (releases measure).
-func recordNewest(dir string, l *lab.Ladder, run string) (lab.Record, error) {
+//
+// The charts releases measure drew of that release, in measured beside the ladder, are kept
+// beside the record as RELEASE-bootchart.svg and RELEASE-plot.svg, and the record names them.
+func recordNewest(dir string, l *lab.Ladder, measured, run string) (lab.Record, error) {
 	records := l.Records()
 	if len(records) == 0 {
 		return lab.Record{}, errors.New("the ladder measured no release")
@@ -71,6 +74,20 @@ func recordNewest(dir string, l *lab.Ladder, run string) (lab.Record, error) {
 	r.Run = run
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return lab.Record{}, fmt.Errorf("making %s: %w", dir, err)
+	}
+	chart, plot := lab.ChartFiles(r.Release+lab.ChartSuffix, 1)
+	for _, c := range []struct {
+		from, to string
+		field    *string
+	}{{chart, r.Release + "-bootchart.svg", &r.Bootchart}, {plot, r.Release + "-plot.svg", &r.Plot}} {
+		from := filepath.Join(measured, c.from)
+		if !exists(from) {
+			continue
+		}
+		if err := copyFile(from, filepath.Join(dir, c.to)); err != nil {
+			return lab.Record{}, err
+		}
+		*c.field = c.to
 	}
 	return r, lab.WriteRecord(filepath.Join(dir, r.Release+".json"), r)
 }
@@ -107,7 +124,8 @@ func releasesRecord(dir *string) *cobra.Command {
 		Use:   "record LADDER_JSON...",
 		Short: "Write the record of each ladder.json's newest release, replacing one before it, and the page",
 		Long: `Write the record of each ladder.json's newest release - the release that ladder was measured for -
-replacing a record of it, and then the page, DIR.md and DIR.svg, from every record. report.yml
+replacing a record of it, and then the page, DIR.md and DIR.svg, from every record. The release's
+boot charts that releases measure drew beside the ladder.json are kept beside its record. report.yml
 records what releases measure measured with main's spin-machine-dev, whichever commit measured it,
 so the page proposed is the one main's test holds the records to.`,
 		Args: cobra.MinimumNArgs(1),
@@ -121,7 +139,7 @@ so the page proposed is the one main's test holds the records to.`,
 				if err != nil {
 					return couldNot(err)
 				}
-				r, err := recordNewest(d, l, run)
+				r, err := recordNewest(d, l, filepath.Dir(path), run)
 				if err != nil {
 					return couldNot(fmt.Errorf("recording %s: %w", path, err))
 				}
@@ -147,8 +165,8 @@ func releasesMeasure() *cobra.Command {
 release is when it is published - and keep the ladder.json, every sample, in
 _output/lab/measured/TAG: releases record writes TAG's record from it, with the release before it
 and the Δ of each number against it, and the page. The oldest published release is measured alone.
-TAG is also measured beside its no-systemd floor, a bound re-measured with every release.
-Each release boots with the spin-machine of the commit it was made from; one whose spin-machine
+TAG is also measured beside its no-systemd floor, a bound re-measured with every release, and its
+boot is drawn once, by the bootchart probe, beside the ladder.json. Each release boots with the spin-machine of the commit it was made from; one whose spin-machine
 cannot run a probe is a dash that says why. Measuring and recording are two verbs because they are
 two commits in report.yml: a release is measured at its own tag, and recorded by main's code, which
 writes the page main's test holds the records to. Records are only worth keeping from the bench
@@ -197,10 +215,14 @@ fleet: report.yml runs this there. Exits 1 when a measurement was lost (the ladd
 				if err := l.MeasureFloor(c.Context(), ts[len(ts)-1], floor[0], reps, scratch, c.ErrOrStderr()); err != nil {
 					return couldNot(err)
 				}
-				if err := writeLadder(c.OutOrStdout(), l, filepath.Join(root, "_output", "lab", "measured", tag)); exitCode(err) == 1 {
+				measured := filepath.Join(root, "_output", "lab", "measured", tag)
+				if err := writeLadder(c.OutOrStdout(), l, measured); exitCode(err) == 1 {
 					lost = err
 				} else if err != nil {
 					return err
+				}
+				if err := drawRelease(c, root, tag, measured, scratch); err != nil {
+					return couldNot(err)
 				}
 			}
 			return lost
@@ -208,6 +230,36 @@ fleet: report.yml runs this there. Exits 1 when a measurement was lost (the ladd
 	}
 	c.Flags().IntVar(&reps, "reps", 20, "boots of each release for each probe")
 	return c
+}
+
+// copyFile writes a copy of the file at from to to.
+func copyFile(from, to string) error {
+	b, err := os.ReadFile(from) //nolint:gosec // a chart this tool drew or kept
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", from, err)
+	}
+	if err := os.WriteFile(to, b, 0o644); err != nil { //nolint:gosec // a chart for a person to read
+		return fmt.Errorf("writing %s: %w", to, err)
+	}
+	return nil
+}
+
+// drawRelease draws one boot of tag with the bootchart probe and keeps its charts and its result,
+// bootchart.json, in measured. A chart is a diagnostic: one that could not be drawn - a release whose
+// spin-machine cannot run the probe, a boot whose sampler wrote nothing - is said, and fails nothing.
+//
+// mutate-lane: TestReleasesMeasureLaddersEachWithTheOneBefore
+func drawRelease(c *cobra.Command, root, tag, measured, scratch string) error {
+	ts, err := trees(root, nil, []string{tag + lab.ChartSuffix + "=--from release:" + tag + " --spin-machine release --edit bootchart"}, c.ErrOrStderr())
+	if err != nil {
+		return err
+	}
+	r, err := lab.Experiment{Probe: lab.Probes["bootchart"], Trees: ts, Reps: 1, Scratch: scratch, Keep: measured, Log: c.ErrOrStderr()}.Run(c.Context())
+	if err != nil {
+		say(c, "%s's boot was not drawn: %v", tag, err)
+		return nil
+	}
+	return r.Write(filepath.Join(measured, "bootchart.json"))
 }
 
 // publishedReleases is how many of the newest releases missing asks GitHub for: all of them.
@@ -321,7 +373,7 @@ func releasesSite(dir *string) *cobra.Command {
 		Use:   "site --out OUT",
 		Short: "Write the records' web page, OUT/index.html, and each record beside it in OUT/releases",
 		Long: `Write what docs/releases.md says as one HTML page that fetches nothing - the chart inline, so
-its points' tooltips show - with each record it links to copied beside it. pages.yml publishes it
+its points' tooltips show - with each record and boot chart it links to copied beside it. pages.yml publishes it
 at https://spin-stack.github.io/spin-machine/ from every merge that changes a record.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -344,6 +396,14 @@ at https://spin-stack.github.io/spin-machine/ from every merge that changes a re
 			for _, r := range records {
 				if err := lab.WriteRecord(filepath.Join(kept, r.Release+".json"), r); err != nil {
 					return couldNot(err)
+				}
+				for _, chart := range []string{r.Bootchart, r.Plot} {
+					if chart == "" {
+						continue
+					}
+					if err := copyFile(filepath.Join(d, chart), filepath.Join(kept, chart)); err != nil {
+						return couldNot(err)
+					}
 				}
 			}
 			index := filepath.Join(out, "index.html")
