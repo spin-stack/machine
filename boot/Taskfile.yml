@@ -1,5 +1,5 @@
 # The checks of a booted machine - whether its firmware runs it, a checkpoint of the release before
-# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, a workspace grows after one, lockdown, logind, a core hot-added - and
+# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, a workspace grows after one, sshd delays only a failure, lockdown, logind, a core hot-added - and
 # the probes still Go tests: firmware-stages and waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
 # unless its SPIN_* switch is set, which is what these targets do. Each boots the release tree
 # OUTPUT_DIR names; `spin-machine-dev lab check TARGET --tree NAME=SPEC` runs one on any tree, on the
@@ -153,6 +153,17 @@ tasks:
       /dev/vhost-net, sudo, ~9 GiB of free memory and as much disk under TMPDIR.
     cmds:
       - SPIN_OVERHEAD_TEST=1 go test ./machine/ -exec 'sudo -n --preserve-env=SPIN_OVERHEAD_TEST,SPIN_MACHINE_OUTPUT env TMPDIR={{.TMPDIR | default "/tmp"}}' -run '^TestAMachineRunsInARootOfItsFilesWithinItsOverhead$' -count=1 -v -timeout 20m
+
+  sshd-delay:
+    desc: >-
+      sshd keeps OpenSSH's userauth minimum time for a failure and skips it for a login that
+      succeeds (image/openssh): spin's shape booted to systemd and logged into as root over vsock;
+      every turn of a refused key and of a user that does not exist takes 5 ms or more, and the
+      median of SPIN_SSHD_LOGINS logins' key query and signed request (default 10) each less
+      (sshd_test.go). Needs a built release, /dev/kvm and /dev/vhost-vsock.
+    deps: [':tools']
+    cmds:
+      - SPIN_SSHD_DELAY_TEST=1 go test ./boot/ -run '^TestSSHDDelaysOnlyAFailure$' -count=1 -v -timeout 5m
 
   lockdown:
     desc: >-

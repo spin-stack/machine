@@ -40,6 +40,7 @@ on:
           - check:rollback
           - check:checkpoint-pause
           - check:cpu-plug
+          - check:sshd-delay
       trees:
         description: "NAME=SPEC; NAME=SPEC - lab tree's flags, e.g. release=--from release; kaslr=--kernel run:44584704610"
         required: true
