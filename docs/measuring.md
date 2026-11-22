@@ -68,7 +68,10 @@ Each of these made a number say something it did not measure.
   - a shell harness throttling the console, 1424 vs 190 ms (`80f984b`);
   - a log_buf_len of 8M, costing 4.9 ms (`5221690`);
   - the probes' own logins left open, which a checkpoint then carried: ~5 ms on the restored
-    login (lab 44809015139, fixed by #341).
+    login (lab 44809015139, fixed by #341);
+  - a connection to port 22 that only asked whether sshd accepts, before each login. On spin's
+    path the forwarder opened one to sshd, and sshd started a session for it beside the login:
+    4.1 ms on the restored login (lab 44978246896). `ssh-first` still asks, to time `accepts`.
 - **The instrument could not see the phase.**
   - The kernel's "Freeing" clock misses the bzImage's decompression. `boot:firmware-stages` now
     times it from kvm-clock: ~21 ms (lab 44787491631).
