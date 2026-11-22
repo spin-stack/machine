@@ -216,7 +216,7 @@ func TestAFastResumeTellsTheGuestRunningWhenQEMURunsIt(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 	ran := time.Now()
-	f.send(resumeEvent)
+	f.send(resumeLine)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}

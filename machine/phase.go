@@ -51,8 +51,8 @@ type SaveCompleted struct {
 	Cost Cost
 }
 
-// GuestRunning is the guest running again: cont returned after a checkpoint, or the resumed guest
-// runs.
+// GuestRunning is the guest running again: cont returned after a checkpoint, or QEMU said the
+// resumed guest's vCPUs started (RESUME).
 type GuestRunning struct{ At time.Time }
 
 // GuestHeld is a checkpointed machine's disks taken back with the guest left stopped (Hold).

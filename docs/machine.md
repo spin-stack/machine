@@ -368,7 +368,7 @@ err = m.Resume(ctx, state, saved, here, machine.LoadOptions{Phases: func(p machi
 | `GuestStopped` | pre-switchover: the guest stopped and its disks quiet | |
 | `Sealed` | the caller's seal returned | `Took` |
 | `SaveCompleted` | QEMU said `completed` | the `Cost` Checkpoint returns |
-| `GuestRunning` | `cont` returned, from `Continue` or inside `Resume` | |
+| `GuestRunning` | `cont` returned, from `Continue`, or QEMU's `RESUME` for the loaded guest, inside `Resume` | |
 | `GuestHeld` | `Hold` took the disks back, the guest still stopped | |
 | `LoadStarted` | QEMU took `migrate-incoming` | |
 | `StateLoaded` | the whole state read: in `Resume`, or in `Loaded` after a fast load | `Bytes`, the data the state's file holds |

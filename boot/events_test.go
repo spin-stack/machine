@@ -25,8 +25,9 @@ import (
 // save or a resume waiting until its context ended. Each side's stream is held to the order the
 // machine relies on: the save stops at pre-switchover and completes after it, a full load runs
 // the guest (RESUME) before it reports completed, and a fast load passes postcopy-device to
-// postcopy-active, where Resume returns, and runs the guest after it (bench, QEMU 11.2.0-rc0,
-// lab 44898418357, 2026-11-21). A load of a truncated state ends the destination's QEMU.
+// postcopy-active and runs the guest after it, where Resume returns (bench, QEMU 11.2.0-rc0,
+// lab 44898418357, 2026-11-21). A resume tells GuestRunning with QEMU's run state running (#465).
+// A load of a truncated state ends the destination's QEMU.
 //
 //	SPIN_RECORD_TEST=1   it starts machines (task boot:record)
 func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
@@ -83,7 +84,14 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = f.Close() }()
-		load.Phases = told.tell
+		load.Phases = func(p machine.Phase) {
+			if _, ok := p.(machine.GuestRunning); ok {
+				if st, err := g.Status(ctx); err != nil || st != machine.Running {
+					t.Errorf("told GuestRunning with the machine %s (%v)", st, err)
+				}
+			}
+			told.tell(p)
+		}
 		err = g.Resume(ctx, f, saved, here, load, root)
 		if err == nil && load.Fast {
 			err = g.Loaded(ctx)

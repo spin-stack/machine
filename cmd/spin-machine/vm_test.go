@@ -72,7 +72,9 @@ func TestSaveAndRestoreKeepTheMachineBesideTheState(t *testing.T) {
 	if machine.DefaultChannels > 1 { // migrate-set-parameters: a mapped-ram state loads by the default's channels
 		load = append(load, ok)
 	}
-	load = append(load, `{"return": {"fdset-id": 1}}`, completed, ok, `{"return": {"status": "running"}}`)
+	// The load runs the guest (RESUME) before it says completed.
+	resumed := `{"event": "RESUME", "timestamp": {"seconds": 1, "microseconds": 2}}` + "\n"
+	load = append(load, `{"return": {"fdset-id": 1}}`, resumed+completed, ok, `{"return": {"status": "running"}}`)
 	m, err := restoring("", slices.Concat(readRecord, load)...)
 	if err != nil {
 		t.Errorf("restore into the machine it was taken on: %v", err)
