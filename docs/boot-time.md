@@ -20,6 +20,13 @@ otherwise. An interval is the bootstrap 95% interval of a Δp50.
 | A checkpoint restored to the first login | `restore-first`, `evicted`: the state read from NVMe, out of the page cache | 108/111 | +8 | the same |
 | The same, QEMU started ahead | `prestart`, `restored into prestarted` | 83.2/87.1 | under | the same |
 
+**The cold number's probe stopped adding work on 11-22 (#450).** `ssh-first` used to close the
+connection that timed `accepts` and log in on a new one, and on spin's path sshd started a session
+for the closed one beside the first login. It now logs in over the connection accepted. In one
+run, the probe's two versions as rows of one tree: accept to login −4.3 [−5.4, −3.0], first login
+−4.4 [−9.1, +0.3] (bench, spin's shape and login, v20261122.01, 40 each, lab 44987441326). A
+release measured with the new probe reads ~4 ms lower without the machine having changed.
+
 These are the release's numbers, booted interleaved with v20261120.03 (`docs/releases.md`). Two
 runs are two machines, so compare a new number only with one booted in the same run (`docs/measuring.md`,
 rule 3).
