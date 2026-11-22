@@ -55,7 +55,7 @@ func (restoreFirst) Options() []Option {
 }
 
 func (restoreFirst) Rows(o Options) []string {
-	rows := []string{"evicted", "cached"}
+	rows := []string{"evicted", "old"}
 	if o.Bool("fast") {
 		rows = append(rows, "fast")
 	}
@@ -91,10 +91,11 @@ func (restoreFirst) Measure(_ context.Context, m *Measurement) error {
 	if err != nil {
 		return err
 	}
+	m.Key.Old = way == "old"
 	if m.Phase == 0 {
 		return coldSave(m, channels...)
 	}
-	return restore(m, way == "cached", way == "fast", channels...)
+	return restore(m, false, false, channels...)
 }
 
 // restore resumes m's saved state - evicted from the page cache, or read back into it first when

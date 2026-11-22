@@ -22,6 +22,7 @@ type Key struct {
 	// SpinsPath is a login the way spin makes one (the login option's "spin", the default) rather
 	// than the lane's: see spinsPath.
 	SpinsPath bool
+	Old       bool
 }
 
 // NewKey makes a key for one experiment.
@@ -221,6 +222,9 @@ func (k *Key) run(cid uint32, kex, command string, wrap func(net.Conn) net.Conn)
 // 30 a side, lab 44977850524).
 // mutate-lane: TestEveryProbeMeasuresATree
 func (k *Key) LoggedIn(mc *Machine, cid uint32, t0 time.Time) (time.Duration, error) {
+	if k.Old {
+		return k.loggedInOld(mc, cid, t0)
+	}
 	deadline := t0.Add(60 * time.Second)
 	var last error
 	for time.Now().Before(deadline) {
@@ -233,6 +237,31 @@ func (k *Key) LoggedIn(mc *Machine, cid uint32, t0 time.Time) (time.Duration, er
 		time.Sleep(2 * time.Millisecond)
 	}
 	return 0, Miss("never logged into on vsock: %v", last)
+}
+
+// loggedInOld is LoggedIn as main has it, for the row experiment.
+func (k *Key) loggedInOld(mc *Machine, cid uint32, t0 time.Time) (time.Duration, error) {
+	deadline := t0.Add(60 * time.Second)
+	for !VsockAccepts(cid, 22) {
+		if err := mc.Exited(); err != nil {
+			return 0, err
+		}
+		if time.Now().After(deadline) {
+			return 0, Miss("sshd never accepted on vsock")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	var last error
+	for time.Now().Before(deadline) {
+		if _, last = k.Login(cid, xssh.KeyExchangeMLKEM768X25519); last == nil {
+			return time.Since(t0), nil
+		}
+		if err := mc.Exited(); err != nil {
+			return 0, err
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return 0, Miss("sshd accepted but was never logged into: %v", last)
 }
 
 // vsockConn is a connected vsock socket as the net.Conn x/crypto/ssh takes: net.FileConn knows no
