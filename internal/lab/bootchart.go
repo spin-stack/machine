@@ -289,8 +289,15 @@ func (bootchart) Measure(_ context.Context, m *Measurement) error {
 	// still kept, and the log says why the plot is not.
 	if _, plot, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, fetchPlot); err != nil {
 		m.Logf("no systemd-analyze plot: %v", err)
-	} else if err := os.WriteFile(filepath.Join(m.Keep, plotFile), []byte(plot), 0o644); err != nil { //nolint:gosec // a chart for a person to read
-		return fmt.Errorf("keeping the plot: %w", err)
+	} else {
+		if marked, err := markLogin(plot, end); err != nil {
+			m.Logf("the plot is kept without its first login: %v", err)
+		} else {
+			plot = marked
+		}
+		if err := os.WriteFile(filepath.Join(m.Keep, plotFile), []byte(plot), 0o644); err != nil { //nolint:gosec // a chart for a person to read
+			return fmt.Errorf("keeping the plot: %w", err)
+		}
 	}
 	m.RecordMs("first_login", login)
 	m.Record("pid1", start*1000)
@@ -317,6 +324,39 @@ func chartHeader(svg string) (start float64, dropped int, err error) {
 	start, _ = strconv.ParseFloat(s[1], 64) // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
 	dropped, _ = strconv.Atoi(d[1])
 	return start, dropped, nil
+}
+
+// The plot's geometry, as systemd-analyze plot draws it (analyze-plot.c): its units are drawn in
+// a translated group whose first child is the box they sit in; the kernel's bar starts where the
+// kernel did, which is the plot's 0 only when the firmware reports no time of its own; and its
+// first faint line is a tenth of a second from 0.
+var (
+	plotBox    = regexp.MustCompile(`<g transform="(translate\([0-9.]+, ?[0-9.]+\))">\s*<rect class="box" x="0" y="0" width="[0-9.]+" height="([0-9.]+)"`)
+	plotKernel = regexp.MustCompile(`<rect class="kernel" x="([0-9.]+)"`)
+	plotTenth  = regexp.MustCompile(`<line class="sec01" x1="([0-9.]+)"`)
+)
+
+// markLogin draws the first login on a plot, at s seconds of the kernel's clock: chart_end, where
+// the bootchart ends. The plot is taken once the boot has finished, after the probe's three
+// later logins, so it runs past the first login, and the first login's own session scope has
+// ended and is gone from it by then: without the line, the login the chart is about is nowhere on
+// the plot, and units that started after it read as if the login waited for them.
+func markLogin(plot string, s float64) (string, error) {
+	box, kernel, tenth := plotBox.FindStringSubmatch(plot), plotKernel.FindStringSubmatch(plot), plotTenth.FindStringSubmatch(plot)
+	head, ended := strings.CutSuffix(strings.TrimRight(plot, "\n"), "</svg>")
+	if box == nil || kernel == nil || tenth == nil || !ended {
+		return "", fmt.Errorf("what the guest printed is not a systemd-analyze plot: no unit box, kernel bar, tenth-of-a-second line or end in its %d bytes", len(plot))
+	}
+	height, _ := strconv.ParseFloat(box[2], 64) // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
+	x0, _ := strconv.ParseFloat(kernel[1], 64)  // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
+	px, _ := strconv.ParseFloat(tenth[1], 64)   // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
+	x := x0 + s*10*px
+	mark := fmt.Sprintf(`<g transform="%s">
+  <line x1="%.3f" y1="0" x2="%.3f" y2="%.3f" style="stroke: rgb(0,128,0); stroke-width: 2; stroke-dasharray: 6,4" />
+  <text x="%.3f" y="-20" style="fill: rgb(0,128,0)">first login %.0f ms</text>
+</g>
+`, box[1], x, x, height, x+4, s*1000)
+	return head + mark + "</svg>\n", nil
 }
 
 // Detail names the charts the probe kept, which result.json does not hold.

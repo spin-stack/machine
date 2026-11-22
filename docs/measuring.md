@@ -86,8 +86,26 @@ its exit or to the chart's end. Its colour is the CPU it used (blue) and the tim
 by unit" sums it by unit. Every process that used CPU while the chart ran is drawn, however
 briefly. Only what did not run, idle kernel threads mostly, is left out. The CPU and IO graphs
 above the bars are the whole guest's. `systemd-analyze plot` is the same boot drawn
-by unit: when each unit started activating and when it was active. It is taken after the boot
-finishes, so it reaches past the login.
+by unit: when each unit started activating and when it was active.
+
+**Reading the plot.** The plot is taken once the boot has finished, after the probe's three later
+logins (the chart, its data, the plot itself), so it runs past the first login. A dashed green line
+marks the first login at `chart_end`. Four things on it are easy to misread, all seen on
+v20261122.04's plot (release run 45041820698, first login at 340 ms):
+
+- Right of the line came after the login and did not hold it: udevd's readiness at 395 ms,
+  `session-4.scope` at 418 ms, which is the plot's own login, and the getty and
+  `multi-user.target`, which wait for the serial console's device. The first login's own session
+  scope ended before the plot was taken, and the plot leaves out a unit that is gone.
+- A red bar is a unit's activating time on the wall clock, and on one vCPU that includes the time
+  its process waited to run. `systemd-logind-varlink.socket`'s 18 ms and `tmp.mount`'s 16 ms both
+  end at 175 ms, when PID 1 ran again after forking five services. The plot says when. The chart
+  says whether the time was CPU or waiting.
+- A stretch where no unit changes state is PID 1's or the kernel's own work: 110 to 151 ms, after
+  the unit files load. The chart's PID 1 row and its CPU graph say which (#521).
+- `dev-vda.device` reads activating from 110 ms to the plot's end. The kernel mounted root from
+  it, and the unit waits only for udevd to announce the disk. Every unit left of the line became
+  active while it was still activating, so none of them waited for it.
 
 **What it costs.** The sampler runs on the guest's one vCPU beside the boot it draws. With the
 edit, `ssh-first` read the first login +10.4 ms [+4.5, +16.8], sshd accepting +8.5
