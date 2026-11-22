@@ -573,7 +573,7 @@ func labCheck() *cobra.Command {
 		Use:   "check TARGET",
 		Short: "Run a boot/ Task target - a pass/fail check, or a probe not yet a lab probe - on one tree",
 		Long: `Run boot:TARGET with the tree as the release it boots (SPIN_MACHINE_OUTPUT): the functional
-checks (firmware, record, rollback, checkpoint-pause, cpu-plug, finish-migrate, compat, hotadd, logind, lockdown, sshd-delay, workspace) and the
+checks (firmware, record, rollback, checkpoint-pause, cpu-plug, finish-migrate, compat, hotadd, logind, lockdown, sshd-delay, shell, workspace) and the
 probes still Go tests (firmware-stages, waits), on a tree made like any other. A second tree is
 SPIN_MACHINE_OUTPUT_B, which firmware-stages boots interleaved with the first. Exits with the
 target's status.`,
