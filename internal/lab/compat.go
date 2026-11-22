@@ -53,7 +53,7 @@ func Compat(here string, tags []string, src Sources, resume func(previous, previ
 	}
 	var rows []CompatRow
 	for _, tag := range tags {
-		dir, err := src.release(tag)
+		dir, err := src.Release(tag)
 		if err != nil {
 			return nil, err
 		}

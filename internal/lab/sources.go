@@ -27,7 +27,7 @@ func (s Sources) from(from string) (dir, source string, err error) {
 		if err != nil {
 			return "", "", err
 		}
-		dir, err := s.release(tag)
+		dir, err := s.Release(tag)
 		return dir, "release " + tag, err
 	default:
 		abs, err := filepath.Abs(from)
@@ -48,11 +48,12 @@ func (s Sources) releaseTag(from string) (string, error) {
 	return s.GitHub.LatestRelease()
 }
 
-// release is the unpacked tree of the release tag, downloaded and verified the first time it is
-// asked for: the cache holds only what passed.
+// Release is the unpacked usr/share/spin-stack of the release tag, downloaded and verified the
+// first time it is asked for, in Cache/releases/TAG: the cache holds only what passed, and every
+// verb that reads a release on a host shares its download.
 //
 // mutate-lane: TestTheLabTalksToGitHub
-func (s Sources) release(tag string) (string, error) {
+func (s Sources) Release(tag string) (string, error) {
 	cache := filepath.Join(s.Cache, "releases", tag)
 	dir := filepath.Join(cache, release.Name(tag), "usr", "share", "spin-stack")
 	if _, err := os.Stat(filepath.Join(dir, partFiles["qemu"])); err == nil {

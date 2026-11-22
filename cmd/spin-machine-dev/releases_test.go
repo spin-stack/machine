@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/machine/internal/lab"
+	"github.com/spin-stack/machine/internal/release"
 )
 
 // ladderOf writes, under the test's own directory, a ladder of releases whose cold boots read
@@ -258,7 +259,8 @@ func TestReleasesProposeCommitsWhatWasRecorded(t *testing.T) {
 	// Measured at an older commit, as report.yml measures a release at its tag, while main moved on.
 	measured := strings.TrimSpace(git("rev-parse", "HEAD"))
 	put(t, filepath.Join(dir, ".github/workflows/release.yml"), "moved\n", 0o644)
-	git("add", ".github/workflows/release.yml")
+	put(t, filepath.Join(dir, releasedSchemas, "v1.json"), "[]\n", 0o644)
+	git("add", ".github/workflows/release.yml", releasedSchemas)
 	git("commit", "-q", "-m", "main moves on")
 	git("push", "-q", "origin", "main")
 	git("switch", "-q", "--detach", measured)
@@ -266,6 +268,7 @@ func TestReleasesProposeCommitsWhatWasRecorded(t *testing.T) {
 		t.Errorf("nothing recorded: exit %d, %q", status, stderr)
 	}
 	verb(t, "releases", "record", ladderOf(t, 300, "v2"))
+	put(t, filepath.Join(dir, releasedSchemas, "v2.json"), "[]\n", 0o644)
 	if _, stderr, status := verb(t, "releases", "propose"); status != 0 || !strings.Contains(stderr, "https://x/pull/9") {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
@@ -273,7 +276,7 @@ func TestReleasesProposeCommitsWhatWasRecorded(t *testing.T) {
 		!strings.Contains(got, "### v2\n\nv2: measured") || !strings.Contains(got, "### releases.md, as it reads now") {
 		t.Errorf("gh ran %q", got)
 	}
-	if got := git("show", "--name-only", "--format=%s", "origin/releases/v2"); got != "releases: v2, measured\n\ndocs/releases.md\ndocs/releases.svg\ndocs/releases/v2.json\n" {
+	if got := git("show", "--name-only", "--format=%s", "origin/releases/v2"); got != "releases: v2, measured\n\ndocs/releases.md\ndocs/releases.svg\ndocs/releases/v2.json\n"+releasedSchemas+"/v2.json\n" {
 		t.Errorf("the branch proposed holds %q", got)
 	}
 	if parent, main := git("rev-parse", "origin/releases/v2^"), git("rev-parse", "origin/main"); parent != main {
@@ -313,6 +316,49 @@ func TestReleasesProposeCommitsWhatWasRecorded(t *testing.T) {
 	put(t, filepath.Join(dir, "docs", "releases", "v4.json"), read(t, filepath.Join(dir, "docs", "releases", "v3.json")), 0o644)
 	if _, _, status := verb(t, "releases", "propose"); status == 0 {
 		t.Error("a push that failed was a proposal")
+	}
+}
+
+// fakeQEMUAnswering is a QEMU's QMP at descriptor 3 as build.QMPSchema meets it, answering
+// query-qmp-schema with schema.
+func fakeQEMUAnswering(schema string) string {
+	return `#!/bin/sh
+printf '{"QMP": {"version": {"qemu": {"micro": 0, "minor": 2, "major": 11}, "package": ""}, "capabilities": []}}\n' >&3
+while read -r line <&3; do
+	id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+	case "$line" in
+	*qmp_capabilities*) printf '{"return": {}, "id": %s}\n' "$id" >&3 ;;
+	*query-qmp-schema*) printf '{"return": %s, "id": %s}\n' '` + schema + `' "$id" >&3 ;;
+	esac
+done
+`
+}
+
+// Each release's QEMU, from the lab's cache of releases, is asked for its schema, which is written
+// where go test reads it; a QEMU that cannot answer writes nothing.
+func TestReleasesSchemaRecordsEachReleasesQEMU(t *testing.T) {
+	dir := checkout(t)
+	qemu := func(tag string) string {
+		return filepath.Join(dir, "_output", "lab", "releases", tag, release.Name(tag), "usr", "share", "spin-stack", "bin", "qemu-system-x86_64")
+	}
+	const schema = `[{"name": "int", "meta-type": "builtin", "json-type": "int"}]`
+	put(t, qemu("v1"), fakeQEMUAnswering(schema), 0o755)
+	put(t, qemu("v2"), fakeQEMUAnswering(`[]`), 0o755)
+	put(t, qemu("v3"), "#!/bin/sh\necho 'qemu: no KVM' >&2\nexit 1\n", 0o755)
+	if _, stderr, status := verb(t, "releases", "schema", "v1", "v2"); status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	if got := read(t, filepath.Join(dir, releasedSchemas, "v1.json")); got != schema+"\n" {
+		t.Errorf("v1.json is %q", got)
+	}
+	if got := read(t, filepath.Join(dir, releasedSchemas, "v2.json")); got != "[]\n" {
+		t.Errorf("v2.json is %q", got)
+	}
+	if _, stderr, status := verb(t, "releases", "schema", "v3"); status != 2 || !strings.Contains(stderr, "release v3") || !strings.Contains(stderr, "no KVM") {
+		t.Errorf("a QEMU that would not start: exit %d, %q", status, stderr)
+	}
+	if exists(filepath.Join(dir, releasedSchemas, "v3.json")) {
+		t.Error("a QEMU that would not start left a schema")
 	}
 }
 
