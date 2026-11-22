@@ -18,8 +18,9 @@ First SSH login, ms p50/p95. Δ is the p50 against the release before it, booted
 | v20261120.03 | 474 / 485 | -35.7 [-43.1, -27.6] | 125 / 132 | -46.7 [-48.2, -43.5] | 446 / 459 | 102 / 106 |
 | v20261120.04 | 456 / 477 | -14.3 [-20.4, -8.2] | 108 / 111 | -13.2 [-15.1, -11.4] | 428 / 440 | 83.2 / 87.1 |
 | v20261121.01 | 464 / 486 | +1.1 [-1.7, +9.9] within noise | 110 / 116 | -2.2 [-4.7, +1.6] within noise | 442 / 461 | 83.7 / 90.8 |
+| v20261122.01 | 464 / 485 | +5.0 [-0.2, +9.3] within noise | 110 / 115 | +2.5 [-0.8, +5.0] within noise | 432 / 449 | 83.6 / 88.4 |
 
-v20261121.01 against the goal: cold +364 ms, restore +10 ms.
+v20261122.01 against the goal: cold +364 ms, restore +10 ms.
 
 ## Diagnostics
 
@@ -33,6 +34,7 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | v20261120.03 | 122 | 178 | 70.8 | 234 |
 | v20261120.04 | 122 | 178 | 79.9 | 232 |
 | v20261121.01 | 125 | 179 | 82.6 | 232 |
+| v20261122.01 | 122 | 179 | 82.2 | 232 |
 
 ## Where each was measured
 
@@ -44,3 +46,4 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | [v20261120.03](releases/v20261120.03.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.02 | [44809542263](https://github.com/spin-stack/spin-machine/actions/runs/44809542263) |
 | [v20261120.04](releases/v20261120.04.json) | 2026-11-20 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 4 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.03 | [44811347183](https://github.com/spin-stack/spin-machine/actions/runs/44811347183) |
 | [v20261121.01](releases/v20261121.01.json) | 2026-11-21 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261120.04 | [44911249078](https://github.com/spin-stack/machine/actions/runs/44911249078) |
+| [v20261122.01](releases/v20261122.01.json) | 2026-11-22 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261121.01 | [44973276221](https://github.com/spin-stack/machine/actions/runs/44973276221) |
