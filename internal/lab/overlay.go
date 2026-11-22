@@ -213,6 +213,31 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLaneLogindEdit, nil
 	case "carry-keygen":
 		return carryKeygenEdit, nil
+	case "user-xdg":
+		return Edit{Links: map[string]string{"/etc/systemd/user-generators/systemd-xdg-autostart-generator": "/dev/null"},
+			Setup: `test -x "$MNT/usr/lib/systemd/user-generators/systemd-xdg-autostart-generator"
+`}, nil
+	case "user-floor":
+		return Edit{
+			Links: map[string]string{
+				"/etc/systemd/user-generators/systemd-xdg-autostart-generator":                "/dev/null",
+				"/etc/systemd/user-environment-generators/30-systemd-environment-d-generator": "/dev/null",
+				"/etc/systemd/user/ssh-agent.socket":                                          "/dev/null",
+				"/etc/systemd/user/systemd-ask-password.socket":                               "/dev/null",
+			},
+			Files: map[string]string{"/etc/pam.d/systemd-user": "account required pam_permit.so\nsession optional pam_systemd.so\n"},
+			Setup: `test -x "$MNT/usr/lib/systemd/user-generators/systemd-xdg-autostart-generator"
+test -x "$MNT/usr/lib/systemd/user-environment-generators/30-systemd-environment-d-generator"
+test -e "$MNT/usr/lib/systemd/user/ssh-agent.socket"
+test -e "$MNT/usr/lib/systemd/user/systemd-ask-password.socket"
+test -e "$MNT/usr/lib/pam.d/systemd-user" || test -e "$MNT/etc/pam.d/systemd-user"
+`}, nil
+	case "no-manager":
+		return Edit{Setup: `rm "$MNT/var/lib/systemd/linger/root"
+grep -q '^session.*pam_systemd\.so.*class=user-early$' "$MNT/etc/pam.d/common-session"
+sed -i 's/class=user-early$/class=user-early-light/' "$MNT/etc/pam.d/common-session"
+grep -q '^session.*pam_systemd\.so.*class=user-early-light$' "$MNT/etc/pam.d/common-session"
+`}, nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	case ledgerName:
