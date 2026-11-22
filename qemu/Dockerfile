@@ -514,14 +514,13 @@ RUN git clone --quiet --branch "${QBOOT_VERSION}" https://github.com/bonzini/qbo
     git -C upstream archive "${QBOOT_COMMIT}" > upstream.tar && \
     echo "${QBOOT_ARCHIVE_SHA256}  upstream.tar" | sha256sum -c -
 
-COPY qemu/qboot/write-pointer.patch qemu/qboot/pam.patch qemu/qboot/mtrr.patch qemu/qboot/no-pci-walk.patch /build/
+COPY qemu/qboot/write-pointer.patch qemu/qboot/mtrr.patch qemu/qboot/no-pci-walk.patch /build/
 
 # Upstream's meson.build flags, with -Os fixed rather than taken from a build type.
 RUN set -eux; \
     mkdir -p src out; \
     tar -xf upstream.tar -C src; \
     patch -p1 --fuzz=0 -d src < write-pointer.patch; \
-    patch -p1 --fuzz=0 -d src < pam.patch; \
     patch -p1 --fuzz=0 -d src < mtrr.patch; \
     patch -p1 --fuzz=0 -d src < no-pci-walk.patch; \
     cd src; \
@@ -544,7 +543,6 @@ RUN set -eux; \
     size=$(stat -c%s /build/qboot.bin); \
     test "$size" -eq 65536 || { echo "qboot.bin is $size bytes, not 65536" >&2; exit 1; }; \
     grep -q 'CMD_WRITE_PTR' src/tables.c && grep -q 'fw_cfg_write_file' src/fw_cfg.c || { echo "the WRITE_POINTER patch is not in the tree that was compiled" >&2; exit 1; }; \
-    grep -q '0x33333330' src/hwsetup.c || { echo "the PAM patch is not in the tree that was compiled" >&2; exit 1; }; \
     grep -q 'setup_mtrr();' src/main.c || { echo "the MTRR patch is not in the tree that was compiled" >&2; exit 1; }; \
     ! grep -q '^	do_setup_pci_bus();$' src/pci.c && grep -q 'spin-machine: no walk of the bus' src/pci.c || { echo "the no-PCI-walk patch is not in the tree that was compiled" >&2; exit 1; }; \
     sha256sum /build/qboot.bin
