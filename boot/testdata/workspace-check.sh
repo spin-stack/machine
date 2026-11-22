@@ -1,8 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 # What a workspace expects of the image, checked in a booted guest (docs/image.md, "What a
-# workspace keeps"). `must` lines fail the check; `lost` lines are what docs/image.md says the
-# image gives up, asserted so that the document stays true in either direction.
+# workspace keeps" and "What a workspace gives up"). `must` lines fail the check; `lost` lines are
+# what docs/image.md says the image gives up, asserted so that the document stays true in either
+# direction.
 set -u
 failed=0
 must() { name=$1; shift; if out=$("$@" 2>&1); then echo "WS ok   $name"; else echo "WS FAIL $name: $out"; failed=1; fi; }
@@ -32,7 +33,8 @@ lost "timedatectl" timedatectl status
 must "localhost resolves" getent hosts localhost
 must "spin has sudo" su -l spin -c 'sudo -n true'
 must "/tmp is a tmpfs" sh -c 'test "$(findmnt -no FSTYPE /tmp)" = tmpfs'
-echo "WS tracefs $(findmnt -no FSTYPE /sys/kernel/tracing) $(ls /sys/kernel/tracing | wc -l) entries; lockdown $(cat /sys/kernel/security/lockdown 2>&1)"
+echo "WS lockdown $(cat /sys/kernel/security/lockdown 2>&1)"
+lost "tracefs, which lockdown=confidentiality refuses" mount -t tracefs nodev /sys/kernel/tracing
 lost "debugfs mounted at boot" mountpoint -q /sys/kernel/debug
 must "debugfs mounts by hand" sh -c 'mount -t debugfs nodev /sys/kernel/debug && umount /sys/kernel/debug'
 lost "/dev/hugepages mounted at boot" mountpoint -q /dev/hugepages

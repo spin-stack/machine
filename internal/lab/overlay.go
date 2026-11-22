@@ -203,18 +203,12 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryMasksEdit, nil
 	case "carry-generators":
 		return carryGeneratorsEdit, nil
-	case "carry-logging":
-		return carryLoggingEdit, nil
 	case "carry-coldplug":
 		return carryColdplugEdit, nil
-	case "carry-nsswitch":
-		return carryNsswitchEdit, nil
 	case "carry-journal":
 		return carryJournalEdit, nil
 	case "carry-docker":
 		return carryDockerEdit, nil
-	case "carry-timeouts":
-		return carryTimeoutsEdit, nil
 	case "carry-lane-logind":
 		return carryLaneLogindEdit, nil
 	case "carry-keygen":
@@ -222,15 +216,15 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-logging, carry-coldplug, carry-nsswitch, carry-journal, carry-docker, carry-timeouts, carry-lane-logind, carry-keygen, bootchart", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, bootchart", name)
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
 // time alone and was never measured on a goal number in spin's shape (docs/boot-time.md, "What the
 // machine carries"), one group each, as image/mkosi.extra/usr/local/lib/spin-base/
 // optimize-systemd.sh and the coldplug filter do it. What the script does for a function (the time
-// sync, the first boot's prompt, the machine-id commit, journald's storage, the timeouts, docker's
-// socket activation) is not in any of them, and neither are the masks of the five units of
+// sync, the first boot's prompt, the machine-id commit, journald's storage, docker's socket
+// activation) is not in any of them, and neither are the masks of the five units of
 // ConditionNeedsUpdate (ldconfig, sysusers, hwdb-update, journal-catalog-update, update-done): the
 // image has no /etc/.updated or /var/.updated, so unmasked they rebuild hwdb.bin, the linker cache
 // and the catalog in every boot, the first login +260 ms and QEMU's RSS +90 MiB on a laptop (2
@@ -267,16 +261,6 @@ done
 `,
 }
 
-// carryLoggingEdit is the manager's logging and status as systemd's defaults, and the printk sysctl
-// gone; the timeouts in fast-boot.conf stay.
-var carryLoggingEdit = Edit{
-	Setup: `f="$MNT/etc/systemd/system.conf.d/fast-boot.conf"
-grep -qx 'LogLevel=err' "$f" && grep -qx 'ShowStatus=no' "$f"
-sed -i -e '/^LogLevel=/d' -e '/^LogTarget=/d' -e '/^ShowStatus=/d' -e '/^StatusUnitFormat=/d' "$f"
-rm "$MNT/etc/sysctl.d/99-quiet-boot.conf"
-`,
-}
-
 // carryColdplugEdit is udev's coldplug unfiltered, as the distribution runs it: the release's
 // systemd-udev-trigger.service.d/10-coldplug.conf removed. It was kept on the lane in
 // 2 vCPUs (lab 43518915618, 436 -> 402 ms); spin's path and one vCPU have not measured it.
@@ -287,15 +271,9 @@ rm "$f"
 `,
 }
 
-// The image's deviations from Ubuntu that had no measurement of their own (docs/image.md), each
-// taken back to what Ubuntu ships, one per edit, after --edit lane.
-
-// carryNsswitchEdit is /etc/nsswitch.conf as libc-bin installs it.
-var carryNsswitchEdit = Edit{
-	Setup: `grep -qx 'protocols:      files' "$MNT/etc/nsswitch.conf"
-cp "$MNT/usr/share/libc-bin/nsswitch.conf" "$MNT/etc/nsswitch.conf"
-`,
-}
+// Four of the image's deviations from Ubuntu, each taken back to what Ubuntu ships, one per edit,
+// after --edit lane. Each was first measured in spin's shape by these edits (lab 45034963004,
+// docs/image.md, "Measured in this review"), and they stay so that a release can measure it again.
 
 // carryJournalEdit is journald as Ubuntu ships it: its own settings, a /var/log/journal to keep
 // the journal in, and the flush that moves the boot's journal there.
@@ -319,13 +297,6 @@ ln -sf /usr/lib/systemd/system/docker.socket "$MNT/etc/systemd/system/sockets.ta
 mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
 ln -s /usr/lib/systemd/system/docker.service "$MNT/etc/systemd/system/multi-user.target.wants/docker.service"
 ln -s /usr/lib/systemd/system/containerd.service "$MNT/etc/systemd/system/multi-user.target.wants/containerd.service"
-`,
-}
-
-// carryTimeoutsEdit is the manager's timeouts and watchdogs as systemd's defaults.
-var carryTimeoutsEdit = Edit{
-	Setup: `grep -qx 'DefaultTimeoutStartSec=15s' "$MNT/etc/systemd/system.conf.d/fast-boot.conf"
-rm "$MNT/etc/systemd/system.conf.d/fast-boot.conf"
 `,
 }
 
