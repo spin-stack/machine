@@ -113,6 +113,9 @@ func TestPatchedCompileRefusesAPartWithNothingToCompile(t *testing.T) {
 	if _, stderr, status := verb(t, "patched", "compile", "qboot"); status != 2 || !strings.Contains(stderr, "without a build") {
 		t.Errorf("status %d, %s", status, stderr)
 	}
+	if _, stderr, status := verb(t, "patched", "prepare", "qboot"); status != 2 || !strings.Contains(stderr, "nothing to prepare") {
+		t.Errorf("prepare: status %d, %s", status, stderr)
+	}
 }
 
 func TestPatchedCompileNamesThePartsItCompiles(t *testing.T) {
