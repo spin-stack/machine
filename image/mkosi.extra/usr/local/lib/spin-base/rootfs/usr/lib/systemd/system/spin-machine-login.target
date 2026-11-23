@@ -1,0 +1,19 @@
+# docs/image.md, "The first login's target"
+#
+# The boot's default target: what a workspace's first login needs, and nothing else before it.
+# multi-user.target, with everything else the boot starts, follows once these units are up
+# (spin-machine-boot-rest.service). On one vCPU every unit started before the login is on the
+# login's clock, and PID 1 loads only what this target reaches before it.
+[Unit]
+Description=What a workspace's first login needs
+Documentation=https://github.com/spin-stack/machine/blob/main/docs/image.md
+DefaultDependencies=no
+Wants=ssh.socket ssh.service spin-machine-sshd-keygen.service sshd-vsock.socket
+Wants=systemd-journald.service systemd-logind.service dbus.socket dbus-broker.service tmp.mount
+# A socket is refused once its service runs, so logind's Varlink socket, which pam_systemd asks
+# first, starts with logind or never (boot:logind, 2026-11-23).
+Wants=systemd-logind-varlink.socket
+# spin's supervisor, the way into a workspace on spin's path (spin-stack/spin,
+# deploy/guest/extension/supervisor). A boot without it, the image's own lane, wants nothing here.
+Wants=spin-supervisor.service
+Wants=spin-machine-boot-rest.service
