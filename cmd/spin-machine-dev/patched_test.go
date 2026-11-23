@@ -87,3 +87,37 @@ func TestPatchedNamesItsParts(t *testing.T) {
 		t.Errorf("outside a checkout: status %d", status)
 	}
 }
+
+func TestPatchedSevereExitsOneOnAnUnsuppressedSevereResult(t *testing.T) {
+	root := checkout(t)
+	dir := filepath.Join(root, "sarif")
+	sarif := func(suppressions string) string {
+		return `{"runs":[{"tool":{"driver":{"name":"CodeQL"},"extensions":[{"rules":[{"id":"go/x","properties":{"security-severity":"7.5"}}]}]},` +
+			`"results":[{"ruleId":"go/x","message":{"text":"bad"}` + suppressions + `,"locations":[{"physicalLocation":{"artifactLocation":{"uri":"a.go"},"region":{"startLine":3}}}]}]}]}`
+	}
+	put(t, filepath.Join(dir, "go.sarif"), sarif(""), 0o644)
+	if stdout, stderr, status := verb(t, "patched", "severe", dir); status != 1 || stdout != "a.go:3: go/x: bad\n" {
+		t.Errorf("status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+	put(t, filepath.Join(dir, "go.sarif"), sarif(`,"suppressions":[{"kind":"inSource"}]`), 0o644)
+	if _, stderr, status := verb(t, "patched", "severe", dir); status != 0 || !strings.Contains(stderr, "no result of medium") {
+		t.Errorf("suppressed: status %d, %s", status, stderr)
+	}
+	if _, _, status := verb(t, "patched", "severe", filepath.Join(root, "none")); status != 2 {
+		t.Errorf("no SARIF: status %d", status)
+	}
+}
+
+func TestPatchedCompileRefusesAPartWithNothingToCompile(t *testing.T) {
+	checkout(t)
+	if _, stderr, status := verb(t, "patched", "compile", "qboot"); status != 2 || !strings.Contains(stderr, "without a build") {
+		t.Errorf("status %d, %s", status, stderr)
+	}
+}
+
+func TestPatchedCompileNamesThePartsItCompiles(t *testing.T) {
+	checkout(t)
+	if stdout, _, status := verb(t, "patched", "compile", "--help"); status != 0 || !strings.Contains(stdout, "Parts that have it: kernel, qemu.") {
+		t.Errorf("status %d: %s", status, stdout)
+	}
+}

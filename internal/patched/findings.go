@@ -315,7 +315,7 @@ func Severe(dir string, at float64) ([]Finding, error) {
 				all = append(all, e.Rules...)
 			}
 			for _, r := range all {
-				if s, err := strconv.ParseFloat(r.Properties.Severity, 64); err == nil {
+				if s, err := strconv.ParseFloat(r.Properties.Severity, 64); err == nil { // mutate-exempt: any bitSize but 32 parses a float64
 					severity[r.ID] = s
 				}
 			}
