@@ -173,6 +173,9 @@ func (r *Result) Table() string {
 		if len(t.Boot) > 0 {
 			fmt.Fprintf(&b, " boot %q;", strings.Join(t.Boot, " "))
 		}
+		for _, k := range slices.Sorted(maps.Keys(t.Options)) {
+			fmt.Fprintf(&b, " %s=%s;", k, t.Options[k])
+		}
 		fmt.Fprintln(&b)
 	}
 	return b.String()

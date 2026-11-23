@@ -53,6 +53,10 @@ type Manifest struct {
 	CPU string `json:"cpu,omitempty"`
 	// Edits are made to every boot's own overlay, in order.
 	Edits []NamedEdit `json:"edits,omitempty"`
+	// Options are shape options (memory, plugged, cpus...) that replace the run's for this tree, so
+	// that two shapes are two trees of one interleaved run: two runs are two machines, and the bench
+	// moved ~8 ms between runs of one shape (#561).
+	Options Options `json:"options,omitempty"`
 }
 
 // Part is one part of a tree and where it came from.
@@ -178,6 +182,8 @@ type TreeSpec struct {
 	Systemd string
 	// OpenSSH is OpenSSH as this checkout builds it (image/openssh), put into every overlay.
 	OpenSSH bool
+	// Options are NAME=VALUE shape options for this tree's boots in place of the run's (Manifest.Options).
+	Options []string
 }
 
 // Sources is where MakeTree finds what a spec names: this checkout, and the downloads.
@@ -209,6 +215,16 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 		return nil, err
 	}
 	m := Manifest{Name: spec.Name, Parts: map[string]Part{}, Append: spec.Append, Boot: spec.Boot}
+	for _, o := range spec.Options {
+		name, value, ok := strings.Cut(o, "=")
+		if !ok || name == "" {
+			return nil, fmt.Errorf("tree %s: an option is NAME=VALUE, e.g. plugged=0, not %q", spec.Name, o)
+		}
+		if m.Options == nil {
+			m.Options = Options{}
+		}
+		m.Options[name] = value
+	}
 	for name := range partFiles {
 		m.Parts[name] = Part{Source: baseSource}
 	}

@@ -209,6 +209,45 @@ func TestAnOptionIsOneTheProbeTakesAndOfItsKind(t *testing.T) {
 	}
 }
 
+// A tree's own shape options replace the run's for its boots alone, so that two shapes are two
+// trees of one interleaved run (#561). The rows and the login stay the run's.
+func TestATreesShapeOptionsReplaceTheRunsForItsBoots(t *testing.T) {
+	p := &shapes{recorder: recorder{phases: 1, rows: []string{"x"}}, seen: map[string]Options{}}
+	ts := trees("plug", "start")
+	ts[1].Manifest.Options = Options{"memory": "2048", "plugged": "0"}
+	r, err := Experiment{Probe: p, Trees: ts, Reps: 1, Options: Options{"cpus": "2"}, Scratch: t.TempDir(), Log: io.Discard}.Run(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := p.seen["plug"]; o["memory"] != "128" || o["plugged"] != "2048" || o["cpus"] != "2" {
+		t.Errorf("the tree without options booted %v", o)
+	}
+	if o := p.seen["start"]; o["memory"] != "2048" || o["plugged"] != "0" || o["cpus"] != "2" {
+		t.Errorf("the tree with memory=2048 plugged=0 booted %v", o)
+	}
+	if r.Options["memory"] != "128" || !strings.Contains(r.Table(), "start: kernel release v1; qemu ; image ; spin-machine ; memory=2048; plugged=0;") {
+		t.Errorf("the run's options %v, table:\n%s", r.Options, r.Table())
+	}
+	for opts, says := range map[string]string{"login": "not a shape option", "n": "not a shape option", "memory": "is a number"} {
+		ts := trees("A")
+		ts[0].Manifest.Options = Options{opts: "lane"}
+		if _, err := (Experiment{Probe: p, Trees: ts, Reps: 1, Scratch: t.TempDir(), Log: io.Discard}).Run(t.Context()); err == nil || !strings.Contains(err.Error(), says) {
+			t.Errorf("a tree setting %s=lane: %v, want an error saying %q", opts, err, says)
+		}
+	}
+}
+
+// shapes is a recorder that keeps the options each tree's measurement was handed.
+type shapes struct {
+	recorder
+	seen map[string]Options
+}
+
+func (s *shapes) Measure(ctx context.Context, m *Measurement) error {
+	s.seen[m.Tree.Name()] = m.Options
+	return s.recorder.Measure(ctx, m)
+}
+
 // login=spin, the default, logs into every machine the experiment boots by spin's path, and lane
 // by the image's own.
 func TestTheLoginOptionIsHowEveryMachineIsLoggedInto(t *testing.T) {

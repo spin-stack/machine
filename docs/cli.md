@@ -280,6 +280,12 @@ flags). `--opt cpus=2 --opt memory=2048 --opt max-cpus=0 --opt max-memory=0 --op
 --opt plugged=0 --opt login=lane` is the shape the probes booted before they booted spin's. Every
 table and record says the shape it measured. A record that names none booted that older shape.
 
+A tree takes the same `--opt` for its own boots, in place of the run's, so that two shapes are two
+trees of one interleaved run instead of two runs: `--tree 'plug=--from release' --tree
+'start=--from release --opt memory=2048 --opt plugged=0'`. It sets any shape option but `login`,
+since one key logs into every machine of a run. The table lists each tree's options beside its
+parts.
+
 Two options make a boot spin's after it starts as well. `plugged=MIB` (default 2048) sizes the
 guest through virtio-mem right after its start. spin sizes every workspace the same way before
 handing it its filesystem, to 2048 MiB unless the workspace asks for more. Left at 128 MiB
