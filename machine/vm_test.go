@@ -781,10 +781,17 @@ func TestACheckpointRecordsItsMachineOnceTheStateIsWritten(t *testing.T) {
 				}
 				return ok
 			}, "active", "completed")
-			saved, _, err := f.attach(t).Checkpoint(ctx(t), image(t, "raw").File, SaveOptions{}, func(context.Context) error { return nil })
+			state := image(t, "raw").File
+			if err := state.Truncate(8192); err != nil {
+				t.Fatal(err)
+			}
+			saved, _, err := f.attach(t).Checkpoint(ctx(t), state, SaveOptions{}, func(context.Context) error { return nil })
 			if tc.after {
 				if want := fakeTarget(t); err != nil || !reflect.DeepEqual(saved.From, want) {
 					t.Fatalf("Checkpoint = %+v, %v, want one taken on %+v", saved.From, err, want)
+				}
+				if saved.Length != 8192 {
+					t.Errorf("Checkpoint recorded a state of %d bytes, want the 8192 it wrote", saved.Length)
 				}
 				return
 			}
@@ -824,6 +831,8 @@ func TestResume(t *testing.T) {
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": DefaultChannels > 1, "events": true}, false, false},
 		{"in full, by one channel, named", mapped, LoadOptions{Channels: 1}, 1, []string{"active", "RESUME", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false, "events": true}, false, false},
+		{"in full, the length it was saved at", Saved{Format: FormatMappedRAM, From: from, Length: 4096}, LoadOptions{Channels: 1}, 1, []string{"active", "RESUME", "completed"}, "running",
+			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": false, "events": true}, false, false},
 		{"in full, by two channels", mapped, LoadOptions{Channels: 2}, 2, []string{"active", "RESUME", "completed"}, "running",
 			map[string]bool{"mapped-ram": true, "postcopy-ram": false, "pause-before-switchover": false, "multifd": true, "events": true}, false, false},
 		{"a stream checkpoint, saved stopped", Saved{Format: FormatStream, From: from}, LoadOptions{}, 1, []string{"completed"}, "paused",
@@ -852,7 +861,11 @@ func TestResume(t *testing.T) {
 			if len(tc.saved.Added) > 0 {
 				disks = append(disks, Disk{Serial: "ext", Readonly: true, Images: []Image{image(t, "qcow2")}})
 			}
-			if err := m.Resume(ctx(t), image(t, "raw").File, tc.saved, from, tc.load, disks...); err != nil {
+			state := image(t, "raw").File
+			if err := state.Truncate(tc.saved.Length); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Resume(ctx(t), state, tc.saved, from, tc.load, disks...); err != nil {
 				t.Fatal(err)
 			}
 			caps := map[string]bool{}
@@ -915,11 +928,16 @@ func TestResumeRefuses(t *testing.T) {
 		{"a machine held for a boot", Saved{Format: FormatMappedRAM, From: here}, here, LoadOptions{}, "prelaunch", "is prelaunch", false},
 		{"a record it cannot read", Saved{Format: FormatMappedRAM, From: here, Added: json.RawMessage(`[`)}, here, LoadOptions{}, "inmigrate", "added: checkpoint unreadable", true},
 		{"a checkpoint from a newer QEMU", Saved{Format: FormatMappedRAM, From: here}, older, LoadOptions{}, "inmigrate", "vmm:", true},
+		{"a state cut short", Saved{Format: FormatMappedRAM, From: here, Length: 4096}, here, LoadOptions{}, "inmigrate", "state length: checkpoint 4096, here 2048 (same)", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeQEMU{answer: machineAnswers(tc.status, "root")}
 			m := f.attach(t)
-			err := m.Resume(ctx(t), image(t, "raw").File, tc.saved, tc.here, tc.load)
+			state := image(t, "raw").File
+			if err := state.Truncate(2048); err != nil {
+				t.Fatal(err)
+			}
+			err := m.Resume(ctx(t), state, tc.saved, tc.here, tc.load)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Resume = %v, want %q", err, tc.want)
 			}

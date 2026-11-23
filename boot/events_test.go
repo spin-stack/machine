@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -28,7 +29,7 @@ import (
 // the guest (RESUME) before it reports completed, and a fast load passes postcopy-device to
 // postcopy-active and runs the guest after it, where Resume returns (bench, QEMU 11.2.0-rc0,
 // lab 44898418357, 2026-11-21). A resume tells GuestRunning with QEMU's run state running (#465).
-// A load of a truncated state ends the destination's QEMU. The machine loads fast a state of more
+// A truncated state is refused by its length before QEMU reads it (#546). The machine loads fast a state of more
 // than 1.5 GiB of data, so the guest has 2 GiB of base memory and fills 1.6 GiB of it for a
 // second checkpoint, which the fast load reads.
 //
@@ -192,16 +193,14 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		if err == nil {
 			t.Fatalf("a truncated state resumed\n%s", g.said())
 		}
-		// MIGRATION carries the status alone, so the machine cannot tell this from a host whose
-		// read of the state failed, and keeps the memory (#516).
+		// Its length is not the one the checkpoint recorded, which Resume refuses before QEMU
+		// reads a byte: QEMU's own failed load would say only that it failed (#546).
 		var r *machine.Refusal
-		if errors.As(err, &r) {
-			t.Errorf("Resume = %v, a *machine.Refusal: a failed load does not say the state failed it", err)
+		if !errors.As(err, &r) || !slices.ContainsFunc(r.Differences, func(d machine.Difference) bool { return d.Part == "state length" }) {
+			t.Errorf("Resume = %v, want a *machine.Refusal of its state length", err)
 		}
-		select {
-		case <-g.Exited():
-		case <-time.After(10 * time.Second):
-			t.Errorf("QEMU still runs 10 s after a failed load")
+		if strings.Contains(s.String(), "MIGRATION setup") {
+			t.Errorf("the truncated state was read: %s", s)
 		}
 		t.Logf("loading: %s\nResume: %v\nQEMU said: %s", s, err, tail([]byte(g.said()), 600))
 	})
