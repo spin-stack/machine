@@ -126,27 +126,23 @@ RUN --mount=type=cache,sharing=locked,id=kernel-src-${KERNEL_VERSION},target=/va
 # They are written as kernel patches (Documentation/process/submitting-patches.rst): made with
 # git format-patch against the pinned tarball, a subsystem-prefixed subject, a changelog that
 # states the problem, the change, what it was measured to be worth and what it costs, and
-# master's scripts/checkpatch.pl --strict clean. A tool-assisted patch says so with
+# the pinned tree's scripts/checkpatch.pl --strict clean. A tool-assisted patch says so with
 # Assisted-by: (coding-assistants.rst) and carries no Signed-off-by a tool added: that
 # certifies the DCO, which only the human who takes the patch on can do.
 COPY kernel/patches/ /usr/src/patches/
 
-# That claim, checked: master's checkpatch.pl at the commit versions.yaml pins, beside the
-# pinned tree's spelling.txt and const_structs.checkpatch, which it reads from its own
-# directory. Three things are left out, each by name. --no-signoff and the Assisted-by:
-# trailer removed before the check, because checkpatch knows no Assisted-by: and the missing
-# Signed-off-by is the rule above. UNKNOWN_COMMIT_ID, because a tarball has no history to find
-# a cited commit in. Each patch must come out "has no obvious style problems", read from the
-# output rather than trusted from the exit status.
-ARG CHECKPATCH_VERSION
-ARG CHECKPATCH_SHA256
-RUN mkdir /usr/src/checkpatch && cd /usr/src/checkpatch && \
-    curl -o checkpatch.pl -fsSL --retry 5 --retry-all-errors "https://raw.githubusercontent.com/torvalds/linux/${CHECKPATCH_VERSION}/scripts/checkpatch.pl" && \
-    echo "${CHECKPATCH_SHA256}  checkpatch.pl" | sha256sum -c - && \
-    cp /usr/src/linux/scripts/spelling.txt /usr/src/linux/scripts/const_structs.checkpatch . && \
+# That claim, checked, with the checkpatch.pl, spelling.txt and const_structs.checkpatch of the
+# tree the patches apply to, already here and pinned with it: nothing fetched, so nothing to
+# rate-limit a build (raw.githubusercontent.com answered one with 429, job 137831193347). Three
+# things are left out, each by name. --no-signoff and the Assisted-by: trailer removed before the
+# check, because checkpatch knows no Assisted-by: and the missing Signed-off-by is the rule
+# above. UNKNOWN_COMMIT_ID, because a tarball has no history to find a cited commit in. Each
+# patch must come out "has no obvious style problems", read from the output rather than trusted
+# from the exit status.
+RUN cd /usr/src/linux && \
     failed=0 && \
     for p in /usr/src/patches/*.patch; do \
-        out=$(grep -v '^Assisted-by: ' "$p" | perl checkpatch.pl --strict --no-signoff --ignore UNKNOWN_COMMIT_ID \
+        out=$(grep -v '^Assisted-by: ' "$p" | perl scripts/checkpatch.pl --strict --no-signoff --ignore UNKNOWN_COMMIT_ID \
             --root=/usr/src/linux --summary-file --patch - 2>&1) || true; \
         case "$out" in \
             *"has no obvious style problems"*) echo "checkpatch: ${p##*/}: clean" ;; \

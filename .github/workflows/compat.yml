@@ -94,7 +94,7 @@ jobs:
       # run boots the release's base image, so a change to it reaches nothing this checks.
       - name: Does the change reach the machine
         id: machine
-        run: spin-machine-dev changed --base "$BASE" --pins qemu-builder,alpine,qemu,debian,debian-snapshot,qboot,kernel,moby-check-config,checkpatch,sparse machine cmd/spin-machine qemu kernel cmd/spin-machine-dev internal/build internal/lab/compat.go internal/lab/tree.go internal/lab/sources.go boot/harness_test.go boot/record_test.go boot/patches_test.go boot/events_test.go boot/verbs_test.go boot/cpuplug_test.go boot/lockdown_test.go boot/testdata/lockdown-check.sh boot/Taskfile.yml go.mod .github/workflows/compat.yml
+        run: spin-machine-dev changed --base "$BASE" --pins qemu-builder,alpine,qemu,debian,debian-snapshot,qboot,kernel,moby-check-config,sparse machine cmd/spin-machine qemu kernel cmd/spin-machine-dev internal/build internal/lab/compat.go internal/lab/tree.go internal/lab/sources.go boot/harness_test.go boot/record_test.go boot/patches_test.go boot/events_test.go boot/verbs_test.go boot/cpuplug_test.go boot/lockdown_test.go boot/testdata/lockdown-check.sh boot/Taskfile.yml go.mod .github/workflows/compat.yml
 
       - name: Does the change reach QEMU
         id: qemu
@@ -102,7 +102,7 @@ jobs:
 
       - name: Does the change reach the kernel
         id: kernel
-        run: spin-machine-dev changed --base "$BASE" --pins debian,debian-snapshot,kernel,moby-check-config,checkpatch,sparse kernel go.mod cmd/spin-machine-dev internal/build
+        run: spin-machine-dev changed --base "$BASE" --pins debian,debian-snapshot,kernel,moby-check-config,sparse kernel go.mod cmd/spin-machine-dev internal/build
 
   resume:
     needs: changed

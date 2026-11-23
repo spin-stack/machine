@@ -115,8 +115,7 @@ of the pinned tarball with the series applied, keeping each file's name, less th
 `From <commit>` line. Subjects say `[PATCH]`, not a place in a series that deleting a patch
 makes stale. `gates/patches_test.go` holds this directory and `qemu/patches` to it (#487).
 
-Before the patches are applied, `Dockerfile` runs master's `checkpatch.pl --strict` (versions.yaml's
-`checkpatch`) over each, and after the build it runs sparse (`make C=2`, versions.yaml's `sparse`)
+Before the patches are applied, `Dockerfile` runs the pinned tree's `checkpatch.pl --strict` over each, and after the build it runs sparse (`make C=2`, versions.yaml's `sparse`)
 over every C file they touch, with and without them; a style problem or a sparse warning the
 patches add fails the build (#653).
 

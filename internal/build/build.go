@@ -88,7 +88,7 @@ type Part struct {
 var Parts = []Part{
 	{Name: "qemu", Paths: []string{"qemu"}, Pins: qemuPins,
 		make: makeQEMU, check: checkQEMU},
-	{Name: "kernel", Paths: []string{"kernel"}, Pins: strings.Fields("debian debian-snapshot kernel moby-check-config checkpatch sparse"),
+	{Name: "kernel", Paths: []string{"kernel"}, Pins: strings.Fields("debian debian-snapshot kernel moby-check-config sparse"),
 		make: makeKernel, check: VerifyKernel},
 	{Name: "e2fsprogs", Paths: []string{"e2fsprogs"}, Pins: strings.Fields("e2fsprogs-builder e2fsprogs"),
 		make: makeE2fsprogs, check: VerifyE2fsprogs},
