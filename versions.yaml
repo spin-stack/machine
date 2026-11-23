@@ -154,6 +154,21 @@
     the patches, so a bump cannot change vmlinux; it can fail the build on a rule master has
     added, and that is the point. After the bump: `spin-machine-dev build kernel`.
 
+- name: sparse
+  kind: git
+  source: https://git.kernel.org/pub/scm/devel/sparse/sparse.git
+  version: master
+  pin: 84ec0658c81db4ccc4aabc420d3dc118c2c6a310
+  archive: a458c571a725f0b33992fc2c31d4008fd61230941e228d70aaae598eb8526dc8
+  track: branch
+  note: >-
+    the checker kernel/Dockerfile runs (make C=2) over the files kernel/patches touch. From
+    master because the last release, 0.6.4, cannot parse __typeof_unqual__, and the kernel's
+    checker-valid.sh then turns sparse off. It only reads the source, so a bump cannot change
+    vmlinux. archive is the sha256 of what `git archive` writes for the commit with debian's
+    git, which only a build computes, so a bump is by hand: the commit, a build, the sum from
+    its failure. After the bump: `spin-machine-dev build kernel`.
+
 - name: debian-snapshot
   kind: date
   version: 20261026T000000Z

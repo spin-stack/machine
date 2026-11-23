@@ -72,9 +72,7 @@ RUN --mount=type=cache,sharing=locked,id=kernel-aptlib,target=/var/lib/apt \
         # "apparmor: enabled, but apparmor_parser missing" and exits non-zero, failing a
         # configuration that is correct; without sysctl it prints three "sysctl: not found"
         # lines while inspecting the bridge driver.
-        apparmor procps \
-        # sparse, run over the files kernel/patches touch (kernel/README.md, "Patches").
-        sparse
+        apparmor procps
 
 # The version, and the tarball it is made of by content, from versions.yaml. See the same
 # argument in qemu/Dockerfile: https says who sent it, not what they sent. It is also what
@@ -604,6 +602,22 @@ EOT
 # Kconfig) keeps its patched text in both, or the build reconfigures between the two. Each
 # side must show make checking every file, or a file that stopped building would compare
 # empty with empty.
+#
+# sparse itself is built from versions.yaml's `sparse`, not taken from trixie: the kernel's
+# scripts/checker-valid.sh asks the checker to parse __typeof_unqual__, which trixie's 0.6.4
+# cannot, and make then prints "sparse is not available or not up to date", sets C=0 and
+# checks nothing. The build is checked the way make checks it, by that same script.
+ARG SPARSE_VERSION
+ARG SPARSE_COMMIT
+ARG SPARSE_ARCHIVE_SHA256
+RUN git clone --quiet --branch "${SPARSE_VERSION}" https://git.kernel.org/pub/scm/devel/sparse/sparse.git /usr/src/sparse-git && \
+    git -C /usr/src/sparse-git archive "${SPARSE_COMMIT}" > /usr/src/sparse.tar && \
+    echo "${SPARSE_ARCHIVE_SHA256}  /usr/src/sparse.tar" | sha256sum -c - && \
+    mkdir /usr/src/sparse && tar -xf /usr/src/sparse.tar -C /usr/src/sparse && \
+    make -C /usr/src/sparse -j"$(nproc)" HAVE_LLVM=no HAVE_GTK=no HAVE_LIBXML=no PREFIX=/usr/local install && \
+    { test "$(sh /usr/src/linux/scripts/checker-valid.sh sparse)" = 1 || \
+        { echo "ERROR: the kernel's checker-valid.sh refuses sparse ${SPARSE_COMMIT}"; exit 1; }; }
+
 RUN <<EOT
     set -eu
     cd /usr/src/linux
