@@ -43,7 +43,8 @@ much as a release does. Two records from different runs are compared by measurin
 	}
 	c.PersistentFlags().StringVar(&dir, "dir", "docs/releases", "the records' directory; the page is DIR.md")
 	c.AddCommand(releasesRecord(&dir), releasesMeasure(), releasesMissing(&dir), releasesShow(&dir),
-		releasesCompare(&dir), releasesDoc(&dir), releasesSite(&dir), releasesSchema(), releasesPropose(&dir))
+		releasesCompare(&dir), releasesDoc(&dir), releasesSite(&dir), releasesSchema(), releasesPropose(&dir),
+		releasesWithdraw(&dir), releasesRestore(&dir), releasesFlag())
 	return c
 }
 
@@ -73,6 +74,10 @@ func recordNewest(dir string, l *lab.Ladder, measured, run string) (lab.Record, 
 	}
 	r := records[len(records)-1]
 	r.Run = run
+	// A withdrawal is the release's, not a run's: measured again, the release is still withdrawn.
+	if before, err := lab.ReadRecord(filepath.Join(dir, r.Release+".json")); err == nil {
+		r.Withdrawn = before.Withdrawn
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return lab.Record{}, fmt.Errorf("making %s: %w", dir, err)
 	}
@@ -199,7 +204,7 @@ fleet: report.yml runs this there. Exits 1 when a measurement was lost (the ladd
 			}
 			var lost error
 			for _, tag := range tags {
-				pair, err := lab.LadderReleases(published, tag, 2)
+				pair, err := lab.LadderReleases(lab.Adopted(published, tag), tag, 2)
 				if err != nil {
 					return couldNot(err)
 				}
@@ -292,10 +297,11 @@ func releasesMissing(dir *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tags, err := github().Releases(publishedReleases)
+			published, err := github().Releases(publishedReleases)
 			if err != nil {
 				return couldNot(err)
 			}
+			tags := lab.Tags(published)
 			slices.Reverse(tags)
 			for _, tag := range tags {
 				if !exists(filepath.Join(d, tag+".json")) {
@@ -513,14 +519,17 @@ func proposalBranch(releases []string) string {
 }
 
 func releasesPropose(dir *string) *cobra.Command {
-	return &cobra.Command{
+	var branch, title string
+	c := &cobra.Command{
 		Use:   "propose",
 		Short: "Propose the records this checkout wrote, the page and the releases' schemas, as a pull request against main",
 		Long: `Commit what releases record wrote - each new or changed record in DIR, DIR.md and DIR.svg -
 and what releases schema wrote in ` + releasedSchemas + `, on a branch named for those
 releases, push it and open a pull request against main. Nothing is proposed when nothing was
 recorded, nor when the branch is on origin already: a set proposed once, merged or closed, is not
-proposed again. report.yml runs it as the release app, so the checks on the pull request run.`,
+proposed again. report.yml runs it as the release app, so the checks on the pull request run.
+withdraw.yml runs it with --branch and --title, for a withdrawal or its undoing: a release's
+record changes again after its measurement was proposed under the release's name.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			d, err := recordsDir(*dir)
@@ -539,7 +548,9 @@ proposed again. report.yml runs it as the release app, so the checks on the pull
 				say(c, "nothing recorded in %s to propose", d)
 				return nil
 			}
-			branch := proposalBranch(releases)
+			if branch == "" {
+				branch = proposalBranch(releases)
+			}
 			if exec.CommandContext(c.Context(), "git", "-C", root, "ls-remote", "--exit-code", "--heads", "origin", branch).Run() == nil { //nolint:gosec // a branch this names
 				say(c, "%s was proposed already", branch)
 				return nil
@@ -557,7 +568,9 @@ proposed again. report.yml runs it as the release app, so the checks on the pull
 				return couldNot(fmt.Errorf("reading the page: %w", err))
 			}
 			body += "### " + filepath.Base(d) + ".md, as it reads now\n\n" + string(page)
-			title := "releases: " + strings.Join(releases, ", ") + ", measured"
+			if title == "" {
+				title = "releases: " + strings.Join(releases, ", ") + ", measured"
+			}
 			// The branch is main with the records on it, not whatever this checkout is: a branch cut
 			// from an older commit carries the workflows as they were, which GitHub refuses from the
 			// release app once main's have moved (v20261120.03's record). report.yml records and
@@ -581,4 +594,7 @@ proposed again. report.yml runs it as the release app, so the checks on the pull
 			return summary(url + "\n")
 		},
 	}
+	c.Flags().StringVar(&branch, "branch", "", "the branch proposed (default named for the releases recorded)")
+	c.Flags().StringVar(&title, "title", "", "the pull request's title and commit's subject (default the releases, measured)")
+	return c
 }

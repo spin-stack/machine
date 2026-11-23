@@ -581,7 +581,10 @@ func TestReleaseNotesSayWhatChanged(t *testing.T) {
 	put(t, filepath.Join(share, "machine.env"), "version=v2\nqemu_sha256=q1\n", 0o644)
 	put(t, filepath.Join(share, "bin/qemu-system-x86_64"), "#!/bin/sh\necho '"+machine.Type+" q35'\n", 0o755)
 	gitRepo(t, dir, "v1")
-	fakes(t, map[string]string{"gh": `[ "$1 $2" = "release list" ] && printf 'v2\nv1\n'; exit 0`})
+	// v1.1 was withdrawn: a prerelease, which no consumer has, so not what changed is said against
+	// (and no tag here: notes against it would fail).
+	fakes(t, map[string]string{"gh": `[ "$1 $2" = "release list" ] || exit 0
+case "$*" in *--exclude-pre-releases*) printf 'v2\nv1\n';; *) printf 'v2\nv1.1\nv1\n';; esac`})
 	stdout, stderr, status := verb(t, "release", "notes", "--version", "v2")
 	if status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)

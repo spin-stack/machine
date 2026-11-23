@@ -1,0 +1,103 @@
+name: Withdraw
+
+# A published release withdrawn, so nothing adopts it, or a withdrawal undone: spin-machine-dev
+# releases withdraw or restore (docs/releasing.md, "Withdrawing a release"). Nothing is deleted. The
+# release becomes a prerelease, which GitHub's latest release never is, and spin's versions.yaml
+# track and ship-it read only that. Its record says so, and the page is written again. The record and
+# the page are proposed as a pull request, as the release app, as report.yml proposes a measurement.
+#
+# Only by hand: a person decides that a flagged regression is one (report.yml opens the issue), and
+# names that issue here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release, e.g. v20261122.04"
+        type: string
+        required: true
+      restore:
+        description: "Undo a withdrawal instead"
+        type: boolean
+        default: false
+      reason:
+        description: "Why, to withdraw: the number that regressed, and by how much"
+        type: string
+        default: ""
+      issue:
+        description: "The issue that decided it, to withdraw: its number"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One release's state at a time: two runs at once would each propose a page without the other's.
+concurrency:
+  group: withdraw
+  cancel-in-progress: false
+
+jobs:
+  withdraw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The release's title, notes and prerelease flag, and which release is latest.
+      contents: write
+      # The issue named, read to check that it is one.
+      issues: read
+    env:
+      TAG: ${{ inputs.tag }}
+      REASON: ${{ inputs.reason }}
+      ISSUE: ${{ inputs.issue }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          # The record is pushed as the app, below, and not with this run's token.
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Withdraw the release
+        if: ${{ !inputs.restore }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: spin-machine-dev releases withdraw "$TAG" --reason "$REASON" --issue "$ISSUE"
+
+      - name: Restore the release
+        if: ${{ inputs.restore }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: spin-machine-dev releases restore "$TAG"
+
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        with:
+          client-id: Iv23licJKNgsPIM00SD0 # spin-stack-release's client ID, public: app-id is deprecated
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          owner: spin-stack
+          repositories: machine
+
+      - name: Commit as the app
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: go tool task git:app
+
+      # A branch of this run's own: the release's measurement was proposed under its name already,
+      # and a withdrawal undone and made again is a change each time. A re-run of this run proposes
+      # nothing new.
+      - name: Propose the record
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          CHANGE: ${{ inputs.restore && 'restored' || 'withdrawn' }}
+        run: 'spin-machine-dev releases propose --branch "releases/$TAG-$CHANGE-$GITHUB_RUN_ID" --title "releases: $TAG, $CHANGE"'

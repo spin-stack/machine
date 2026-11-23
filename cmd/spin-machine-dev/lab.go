@@ -295,7 +295,8 @@ func labLadder() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "ladder",
 		Short: "Measure the newest releases together, each with its own spin-machine, and write ladder.json",
-		Long: `Measure the --releases newest published releases up to --newest, interleaved on this host:
+		Long: `Measure the --releases newest published releases up to --newest, interleaved on this host, leaving
+out the withdrawn but --newest (releases withdraw):
 the two goal numbers (a cold boot and a restore, each to the first SSH login), both again into a
 QEMU started ahead, and beside them save, state, kernel and QEMU RSS as diagnostics. Each release
 is a tree booted by the spin-machine of the commit it was made from; a release whose spin-machine
@@ -311,7 +312,7 @@ the table. Exits 1 when a measurement was lost, 2 when the ladder could not run.
 			if err != nil {
 				return couldNot(err)
 			}
-			tags, err := lab.LadderReleases(all, newest, releases)
+			tags, err := lab.LadderReleases(lab.Adopted(all, newest), newest, releases)
 			if err != nil {
 				return couldNot(err)
 			}
@@ -382,7 +383,8 @@ func labCompat() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "compat",
 		Short: "Resume, on this machine, a checkpoint of every release whose machine is this one",
-		Long: `boot:compat over the newest --releases published releases, newest first, each fetched and
+		Long: `boot:compat over the newest --releases published releases, newest first, the withdrawn among them
+(withdrawing a release changes nothing that resumes), each fetched and
 checked against its sha256 and its signature: a checkpoint each saves, at spin's shape, goes on
 running on the machine at --here (a built release: _output, or boot:here's tree in CI). It stops
 at the first release whose checkpoint the machine refuses (machine.CanResume), naming every
@@ -395,10 +397,13 @@ resume.`,
 			if err != nil {
 				return couldNot(err)
 			}
-			tags, err := github().Releases(releases)
+			// Withdrawn releases too: a release withdrawn for what it costs is still one a host may
+			// have saved checkpoints on, and withdrawing it changes nothing that resumes.
+			published, err := github().Releases(releases)
 			if err != nil {
 				return couldNot(err)
 			}
+			tags := lab.Tags(published)
 			abs, err := filepath.Abs(here)
 			if err != nil {
 				return couldNot(err)

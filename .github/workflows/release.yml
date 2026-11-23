@@ -238,6 +238,11 @@ jobs:
     needs: [release, traceable]
     if: ${{ always() && needs.release.result == 'success' && github.ref == 'refs/heads/main' }}
     uses: ./.github/workflows/report.yml
+    # What report.yml's job asks for, which a called workflow is granted no more than: issues, for
+    # the issue it opens when the release regressed.
+    permissions:
+      contents: read
+      issues: write
     with:
       versions: ${{ needs.release.outputs.version }}
       ref: ${{ needs.release.outputs.version }}
