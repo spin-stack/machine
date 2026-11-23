@@ -100,6 +100,13 @@ func calls() []call {
 	return cs
 }
 
+// The child makes its calls on the main thread, whose exit leaderGone watches for.
+func init() {
+	if len(os.Args) == 3 && os.Args[1] == "child" {
+		runtime.LockOSThread()
+	}
+}
+
 func main() {
 	if len(os.Args) == 3 && os.Args[1] == "child" {
 		child(os.Args[2])
@@ -174,6 +181,7 @@ func run(out io.Writer, cs []call, from int) int {
 	tick := time.NewTicker(2 * time.Millisecond)
 	defer tick.Stop()
 	asked := time.Now()
+	var goneAt time.Time
 	for {
 		select {
 		case l, ok := <-lines:
@@ -189,13 +197,20 @@ func run(out io.Writer, cs []call, from int) int {
 			next++
 			asked = time.Now()
 		case <-tick.C:
-			gone := leaderGone(cmd.Process.Pid)
-			if !gone && time.Since(asked) < 300*time.Millisecond {
+			// A main thread that has exited is either a process on its way out, whose status
+			// then says how it ended, or a thread a filter killed in a process that lives on.
+			if goneAt.IsZero() && leaderGone(cmd.Process.Pid) {
+				goneAt = time.Now()
+			}
+			gone := !goneAt.IsZero()
+			if gone && time.Since(goneAt) < 50*time.Millisecond || !gone && time.Since(asked) < 300*time.Millisecond {
 				continue
 			}
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			_ = cmd.Wait()
-			for range lines {
+			for l := range lines {
+				fmt.Fprintf(out, "%s = %s\n", cs[next], l)
+				next++
 			}
 			what := "no answer"
 			if gone {
@@ -207,9 +222,6 @@ func run(out io.Writer, cs []call, from int) int {
 	}
 }
 
-// leaderGone is whether the child's main thread, which makes the calls, has exited while the
-// process lives on: a filter's SCMP_ACT_KILL kills the thread, and the Go runtime's other threads
-// keep the process.
 func leaderGone(pid int) bool {
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
@@ -230,7 +242,6 @@ func died(err error) string {
 }
 
 func child(start string) {
-	runtime.LockOSThread()
 	from, err := strconv.Atoi(start)
 	if err != nil {
 		os.Exit(100)
