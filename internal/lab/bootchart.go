@@ -227,7 +227,7 @@ const fetchPlot = "timeout 30 systemctl is-system-running --wait >/dev/null; sys
 // login's own user, evaluated in the guest.
 func loginUnits(spinsPath bool) string {
 	if spinsPath {
-		return "spin-lab-forward.service ssh.service user@$(id -u).service"
+		return supervisorUnit + " ssh.service user@$(id -u).service"
 	}
 	return "sshd-vsock.socket user@$(id -u).service"
 }

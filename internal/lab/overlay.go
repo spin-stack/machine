@@ -333,9 +333,9 @@ ln -sfn /usr/lib/systemd/system/spin-machine-sshd-keygen.service "$MNT/etc/syste
 // tree booted without the forwarder.
 var forwarderEarlyEdit = Edit{
 	Files: map[string]string{
-		"/etc/systemd/system/spin-lab-forward.service.d/zz-early.conf": "[Unit]\nDefaultDependencies=no\nConflicts=shutdown.target\nBefore=shutdown.target\n",
+		"/etc/systemd/system/" + supervisorUnit + ".d/zz-early.conf": "[Unit]\nDefaultDependencies=no\nConflicts=shutdown.target\nBefore=shutdown.target\n",
 	},
-	Setup: `test -e "$MNT/etc/systemd/system/spin-lab-forward.service" || { echo "forwarder-early edits spin's path: boot it with login=spin" >&2; exit 1; }
+	Setup: `test -e "$MNT/etc/systemd/system/` + supervisorUnit + `" || { echo "forwarder-early edits spin's path: boot it with login=spin" >&2; exit 1; }
 `,
 }
 

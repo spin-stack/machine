@@ -78,7 +78,7 @@ const (
 )
 
 // echoes starts them, outliving the session that starts them. socat's PIPE writes back what it
-// reads; the forwarder is spin-lab-forward's socat (login.go) on other ports.
+// reads; the forwarder is the socat of login=spin's stand-in for spin's supervisor (login.go) on other ports.
 var echoes = fmt.Sprintf(`setsid -f socat VSOCK-LISTEN:%[1]d,fork,reuseaddr PIPE </dev/null >/dev/null 2>&1
 setsid -f socat TCP-LISTEN:%[3]d,bind=127.0.0.1,fork,reuseaddr,nodelay PIPE </dev/null >/dev/null 2>&1
 setsid -f socat VSOCK-LISTEN:%[2]d,fork,reuseaddr TCP:127.0.0.1:%[3]d,nodelay </dev/null >/dev/null 2>&1
