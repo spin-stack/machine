@@ -572,7 +572,8 @@ func labCheck() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "check TARGET",
 		Short: "Run a boot/ Task target - a pass/fail check, or a probe not yet a lab probe - on one tree",
-		Long: `Run boot:TARGET with the tree as the release it boots (SPIN_MACHINE_OUTPUT): the functional
+		Long: `Run boot:TARGET with the tree as the release it boots (SPIN_MACHINE_OUTPUT), its edits made in
+its image: the functional
 checks (firmware, record, rollback, checkpoint-pause, cpu-plug, finish-migrate, compat, hotadd, logind, lockdown, sshd-delay, shell, workspace) and the
 probes still Go tests (firmware-stages, waits), on a tree made like any other. A second tree is
 SPIN_MACHINE_OUTPUT_B, which firmware-stages boots interleaved with the first. Exits with the
@@ -587,9 +588,15 @@ target's status.`,
 			if err != nil {
 				return couldNot(err)
 			}
-			cmd := exec.CommandContext(c.Context(), "go", "tool", "task", "boot:"+args[0], "OUTPUT_DIR="+ts[0].Dir)
+			// A check boots the tree's image itself, not a probe's overlay, so the tree's edits
+			// are made in an image of its own.
+			out, err := ts[0].Edited(filepath.Join(ts[0].Dir, "edited"))
+			if err != nil {
+				return couldNot(err)
+			}
+			cmd := exec.CommandContext(c.Context(), "go", "tool", "task", "boot:"+args[0], "OUTPUT_DIR="+out)
 			cmd.Dir, cmd.Stdout, cmd.Stderr = root, c.OutOrStdout(), c.ErrOrStderr()
-			cmd.Env = append(os.Environ(), "SPIN_MACHINE_OUTPUT="+ts[0].Dir)
+			cmd.Env = append(os.Environ(), "SPIN_MACHINE_OUTPUT="+out)
 			if len(ts) > 1 {
 				// The tree a probe still a Go test boots interleaved with the first
 				// (firmware-stages); the checks boot one.
