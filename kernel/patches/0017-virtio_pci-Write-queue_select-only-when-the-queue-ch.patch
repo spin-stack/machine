@@ -1,0 +1,183 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 12:00:00 -0300
+Subject: [PATCH] virtio_pci: Write queue_select only when the queue changes
+
+Every vp_modern_*() accessor of a queue field writes queue_select
+first, and setting up a virtqueue with an MSI-X vector calls seven of
+them for the same queue: its size and enable state read, its size,
+addresses and vector written, its notify offset read, and, once every
+queue is set up, its enable written. Under a hypervisor each access to
+the common configuration is a trap to the device model, so most of
+those writes are exits that change nothing.
+
+Remember the queue last selected in struct virtio_pci_modern_device and
+write queue_select only when it changes. A reset leaves the device to
+choose, so writing 0 to device_status forgets it; every path that
+resets the device, a PCI function reset and a resume included, writes
+0 through vp_modern_set_status() before it touches a queue.
+
+The MSI-X vector is still read back after it is written. That read is
+how a device reports that it could not map the vector (it returns
+VIRTIO_MSI_NO_VECTOR), the specification requires the driver to make
+it, and no other register carries the refusal, so the driver's fallback
+to shared vectors or INTx depends on it.
+
+Counted from the source for this machine's six devices and 13
+virtqueues, each with a vector (vsock 3, balloon 4, SCSI 3, and rng,
+blk and virtio-mem 1 each): 91 writes to queue_select by the end of
+probe, 23 with this patch, one per queue at setup and one per queue
+of a multiqueue device when the queues are enabled. Nested on the
+bench fleet an exit costs ~6.7 us, which puts the 68 removed at about
+0.45 ms, not yet measured.
+
+The cost is that the driver now trusts the device to keep queue_select
+between two of its own accesses, however far apart, as the
+specification says it does, where before it rewrote it a few
+instructions earlier. A device model that loses it without a reset,
+such as a VMM restoring a snapshot without that register, would have a
+later queue reset address the wrong queue.
+
+Local patch for this machine. Not upstream.
+
+Assisted-by: LLM
+---
+
+diff --git a/drivers/virtio/virtio_pci_modern_dev.c b/drivers/virtio/virtio_pci_modern_dev.c
+index 03430963b..88ec20eb3 100644
+--- a/drivers/virtio/virtio_pci_modern_dev.c
++++ b/drivers/virtio/virtio_pci_modern_dev.c
+@@ -260,6 +260,7 @@ int vp_modern_probe(struct virtio_pci_modern_device *mdev)
+ 		}
+ 	}
+ 	mdev->id.vendor = pci_dev->subsystem_vendor;
++	mdev->selected_queue = -1;
+ 
+ 	virtio_pci_find_capabilities(pci_dev, pos,
+ 				     IORESOURCE_IO | IORESOURCE_MEM, &bars);
+@@ -505,9 +506,32 @@ void vp_modern_set_status(struct virtio_pci_modern_device *mdev,
+ 	 * before writing to the MMIO region.
+ 	 */
+ 	vp_iowrite8(status, &cfg->device_status);
++
++	/* A reset selects a queue of the device's choosing. */
++	if (!status)
++		mdev->selected_queue = -1;
+ }
+ EXPORT_SYMBOL_GPL(vp_modern_set_status);
+ 
++/*
++ * vp_modern_select_queue - select the queue the queue fields refer to
++ * @mdev: the modern virtio-pci device
++ * @index: queue index
++ *
++ * Setting up a virtqueue reads or writes its fields seven times, each
++ * selecting the queue first. Under a hypervisor every write to
++ * queue_select is a trap to the device; write it only when it changes.
++ */
++static void vp_modern_select_queue(struct virtio_pci_modern_device *mdev,
++				   u16 index)
++{
++	if (mdev->selected_queue == index)
++		return;
++
++	vp_iowrite16(index, &mdev->common->queue_select);
++	mdev->selected_queue = index;
++}
++
+ /*
+  * vp_modern_get_queue_reset - get the queue reset status
+  * @mdev: the modern virtio-pci device
+@@ -519,7 +543,7 @@ int vp_modern_get_queue_reset(struct virtio_pci_modern_device *mdev, u16 index)
+ 
+ 	cfg = (struct virtio_pci_modern_common_cfg __iomem *)mdev->common;
+ 
+-	vp_iowrite16(index, &cfg->cfg.queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	return vp_ioread16(&cfg->queue_reset);
+ }
+ EXPORT_SYMBOL_GPL(vp_modern_get_queue_reset);
+@@ -535,7 +559,7 @@ void vp_modern_set_queue_reset(struct virtio_pci_modern_device *mdev, u16 index)
+ 
+ 	cfg = (struct virtio_pci_modern_common_cfg __iomem *)mdev->common;
+ 
+-	vp_iowrite16(index, &cfg->cfg.queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	vp_iowrite16(1, &cfg->queue_reset);
+ 
+ 	while (vp_ioread16(&cfg->queue_reset))
+@@ -559,7 +583,7 @@ u16 vp_modern_queue_vector(struct virtio_pci_modern_device *mdev,
+ {
+ 	struct virtio_pci_common_cfg __iomem *cfg = mdev->common;
+ 
+-	vp_iowrite16(index, &cfg->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	vp_iowrite16(vector, &cfg->queue_msix_vector);
+ 	/* Flush the write out to device */
+ 	return vp_ioread16(&cfg->queue_msix_vector);
+@@ -600,7 +624,7 @@ void vp_modern_queue_address(struct virtio_pci_modern_device *mdev,
+ {
+ 	struct virtio_pci_common_cfg __iomem *cfg = mdev->common;
+ 
+-	vp_iowrite16(index, &cfg->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 
+ 	vp_iowrite64_twopart(desc_addr, &cfg->queue_desc_lo,
+ 			     &cfg->queue_desc_hi);
+@@ -620,7 +644,7 @@ EXPORT_SYMBOL_GPL(vp_modern_queue_address);
+ void vp_modern_set_queue_enable(struct virtio_pci_modern_device *mdev,
+ 				u16 index, bool enable)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	vp_iowrite16(enable, &mdev->common->queue_enable);
+ }
+ EXPORT_SYMBOL_GPL(vp_modern_set_queue_enable);
+@@ -635,7 +659,7 @@ EXPORT_SYMBOL_GPL(vp_modern_set_queue_enable);
+ bool vp_modern_get_queue_enable(struct virtio_pci_modern_device *mdev,
+ 				u16 index)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 
+ 	return vp_ioread16(&mdev->common->queue_enable);
+ }
+@@ -650,7 +674,7 @@ EXPORT_SYMBOL_GPL(vp_modern_get_queue_enable);
+ void vp_modern_set_queue_size(struct virtio_pci_modern_device *mdev,
+ 			      u16 index, u16 size)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 	vp_iowrite16(size, &mdev->common->queue_size);
+ 
+ }
+@@ -666,7 +690,7 @@ EXPORT_SYMBOL_GPL(vp_modern_set_queue_size);
+ u16 vp_modern_get_queue_size(struct virtio_pci_modern_device *mdev,
+ 			     u16 index)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 
+ 	return vp_ioread16(&mdev->common->queue_size);
+ 
+@@ -695,7 +719,7 @@ EXPORT_SYMBOL_GPL(vp_modern_get_num_queues);
+ static u16 vp_modern_get_queue_notify_off(struct virtio_pci_modern_device *mdev,
+ 					  u16 index)
+ {
+-	vp_iowrite16(index, &mdev->common->queue_select);
++	vp_modern_select_queue(mdev, index);
+ 
+ 	return vp_ioread16(&mdev->common->queue_notify_off);
+ }
+diff --git a/include/linux/virtio_pci_modern.h b/include/linux/virtio_pci_modern.h
+index 9a3f2fc53..c416818fb 100644
+--- a/include/linux/virtio_pci_modern.h
++++ b/include/linux/virtio_pci_modern.h
+@@ -44,6 +44,8 @@ struct virtio_pci_modern_device {
+ 	int notify_map_cap;
+ 
+ 	u32 notify_offset_multiplier;
++	/* The queue last written to queue_select, or -1 if not known */
++	int selected_queue;
+ 	int modern_bars;
+ 	struct virtio_device_id id;
+ 
