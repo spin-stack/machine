@@ -326,7 +326,7 @@ func (bootchart) Measure(_ context.Context, m *Measurement) error {
 	cid := NewCID()
 	t0 := time.Now()
 	qmp := filepath.Join(m.Socks, "m.qmp")
-	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--append", m.Tree.Cmdline()}, m.qmpToPlug(qmp)...)
+	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--append", m.Tree.Cmdline(m.Key.Init())}, m.qmpToPlug(qmp)...)
 	mc, err := m.Launch(nil, m.BootArgs(overlay, args...)...)
 	if err != nil {
 		return err

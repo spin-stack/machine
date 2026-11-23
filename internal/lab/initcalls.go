@@ -74,7 +74,7 @@ func (initcalls) Measure(_ context.Context, m *Measurement) error {
 	}
 	console, w := io.Pipe()
 	qmp := filepath.Join(m.Socks, "m.qmp")
-	args := append([]string{"--console", "file:/dev/stdout", "--append", m.Tree.Cmdline(), "--profile"}, m.qmpToPlug(qmp)...)
+	args := append([]string{"--console", "file:/dev/stdout", "--append", m.Tree.Cmdline("/sbin/init"), "--profile"}, m.qmpToPlug(qmp)...)
 	mc, err := m.Launch(w, m.BootArgs(overlay, args...)...)
 	if err != nil {
 		return err

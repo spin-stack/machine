@@ -35,10 +35,11 @@ func TestSpinsHandoffKeyIsTheOneTheKeygenStepsAsideFor(t *testing.T) {
 		t.Skip("no ssh-keygen here")
 	}
 	root := t.TempDir()
-	if err := setUp(t, spinHandoffEdit, root); err != nil {
+	if err := setUp(t, spinHandoff, root); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(root, "usr/local/lib/spin-lab/ssh_host_ed25519_key"))
+	// The key as the init reads it: sourced, and printed by printf.
+	b, err := exec.Command("sh", "-c", `. "$1"; printf '%s\n' "$key"`, "sh", filepath.Join(root, "usr/local/lib/spin-lab/host-key")).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,9 +51,9 @@ func TestSpinsHandoffKeyIsTheOneTheKeygenStepsAsideFor(t *testing.T) {
 		t.Errorf("the handoff's init is not executable: %v, %v", fi, err)
 	}
 	const key = "/run/spin/ssh/ssh_host_ed25519_key"
-	init := spinHandoffEdit.Files[spinHandoffInit]
-	if dropIn := spinHandoffEdit.Files["/etc/ssh/sshd_config.d/00-spin-host-key.conf"]; dropIn != "HostKey "+key+"\n" ||
-		!strings.Contains(init, "install -m 0600 /usr/local/lib/spin-lab/ssh_host_ed25519_key "+key+"\n") ||
+	init := spinHandoff.Files[spinHandoffInit]
+	if dropIn := spinHandoff.Files["/etc/ssh/sshd_config.d/00-spin-host-key.conf"]; dropIn != "HostKey "+key+"\n" ||
+		!strings.Contains(init, "\nprintf '%s\\n' \"$key\" > "+key+"\n") ||
 		!strings.HasSuffix(init, "exec /sbin/init\n") {
 		t.Errorf("the handoff places its key somewhere sshd is not told to read: %q, %q", dropIn, init)
 	}

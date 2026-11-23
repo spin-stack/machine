@@ -144,9 +144,10 @@ func (t *Tree) QEMUImg() string { return filepath.Join(t.Dir, "bin", "qemu-img")
 // Rootfs is the base image every overlay of the tree is backed by. It is never opened for writing.
 func (t *Tree) Rootfs() string { return filepath.Join(t.Dir, "image", "rootfs.qcow2") }
 
-// Cmdline is the kernel command line every boot of the tree starts from.
-func (t *Tree) Cmdline() string {
-	return strings.TrimSpace("init=/sbin/init " + t.Manifest.Append)
+// Cmdline is the kernel command line a boot of the tree that runs init starts from. The tree's
+// own --append comes after, and the kernel takes the last init= it is given.
+func (t *Tree) Cmdline(init string) string {
+	return strings.TrimSpace("init=" + init + " " + t.Manifest.Append)
 }
 
 // TreeSpec is how a tree is asked for: what it starts from and what replaces a part of it.

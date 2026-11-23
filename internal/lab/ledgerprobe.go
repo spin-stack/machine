@@ -135,6 +135,7 @@ func (ledgerProbe) Metrics() []Metric {
 		{"kernel_zero", "ms", "where the kernel's clock read 0, from the same moment: QEMU, the firmware and the kernel's decompression"},
 		{"kernel_zero_error", "ms", "kernel_zero's uncertainty, half its narrowest bracket"},
 		{"pid1", "ms", "PID 1's exec of init, on the kernel's clock"},
+		{"handoff", "ms", "spin's handoff as login=spin stands in for it, from its exec as PID 1 to its exec of systemd; 0 on the lane"},
 		{"connection", "ms", "the login's sshd-session's exec, on the kernel's clock"},
 		{"login_end", "ms", "the login's command's exit, on the kernel's clock"},
 		{"residue", "ms", "first_login less kernel_zero and login_end: after the command's exit, until the host had the answer"},
@@ -167,7 +168,7 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	cid := NewCID()
 	t0 := time.Now()
 	qmp := filepath.Join(m.Socks, "m.qmp")
-	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--append", m.Tree.Cmdline()}, m.qmpToPlug(qmp)...)
+	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--append", m.Tree.Cmdline(m.Key.Init())}, m.qmpToPlug(qmp)...)
 	mc, err := m.Launch(nil, m.BootArgs(overlay, args...)...)
 	if err != nil {
 		return err
@@ -246,7 +247,9 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.Record("kernel_zero", l.KernelZero)
 	m.Record("kernel_zero_error", l.KernelZeroError)
 	m.Record("pid1", l.Windows[1].Start)
-	m.Record("connection", l.Windows[2].Start)
+	handoff := l.window(windowHandoff)
+	m.Record("handoff", handoff.End-handoff.Start)
+	m.Record("connection", l.window(windowConnection).Start)
 	m.Record("login_end", l.LoginEnd)
 	m.Record("residue", l.Residue)
 	m.Record("unattributed", l.unattributed())
@@ -254,6 +257,16 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.Logf("first login %v: %.1f ms before the kernel's clock (±%.1f), %.1f on it to the command's exit, %.1f residue; kept as %s",
 		login.Round(time.Millisecond), l.KernelZero, l.KernelZeroError, l.LoginEnd, l.Residue, text)
 	return nil
+}
+
+// window is the window named name, and the zero Window, of no length, for a ledger without it.
+func (l Ledger) window(name string) Window {
+	for _, w := range l.Windows {
+		if w.Name == name {
+			return w
+		}
+	}
+	return Window{}
 }
 
 // unattributed is the CPU time from PID 1's exec to the login no unit could be named for.
