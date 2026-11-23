@@ -1,0 +1,228 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 14:00:00 -0300
+Subject: [PATCH] x86/ioapic: Skip the boot-time RTE accesses that change
+ nothing
+
+Before the first initcall a 64-bit boot goes through the IO-APIC
+redirection table several times. enable_IR_x2apic() saves every entry,
+masks those that are not masked and, when interrupt remapping was not
+enabled, writes every saved entry back. enable_IO_APIC() then reads
+every entry to look for the i8259's ExtINT pin, and clear_IO_APIC()
+reads each again, masks it with every other bit cleared, and reads it a
+third time to check its remote IRR. Each 32-bit register access is two
+MMIO accesses, the index written to IOREGSEL and the data read or
+written at IOWIN, so an entry costs four MMIO accesses to read or to
+write. In a guest each MMIO access is a VM exit.
+
+On a QEMU q35 guest without an IOMMU (24 pins, all reset masked) that
+is 96 accesses for the save, 96 for the restore, 96 for the ExtINT
+search and 288 for the clear: 576 exits, counted by guest RIP.
+
+Remove the three passes that change nothing:
+
+ - mask_ioapic_entries() returns whether it masked anything, and
+   enable_IR_x2apic() writes the saved entries back only if it did.
+   Nothing else writes an entry between the save and the restore, so
+   when nothing was masked every entry already holds what was saved.
+   When an entry was masked, the restore is unchanged.
+
+ - enable_IO_APIC() reads each entry once and uses it for both the
+   ExtINT search and the clear. Clearing a pin changes neither the mask
+   nor the delivery mode of another, which is all the search looks at,
+   and the first ExtINT pin is still the one recorded.
+
+ - clear_IO_APIC_pin() returns after its first read when the entry
+   already reads as what it leaves behind: masked, every other bit zero,
+   no remote IRR and no delivery pending. Writing that value again and
+   reading it back can change nothing. Any other entry, an SMI pin, or
+   one whose reserved bits read nonzero, goes through the clear as
+   before.
+
+The entries are still read: nothing assumes their reset state, which a
+kexec'd or crash kernel, or other firmware, does not leave. On the guest
+above the boot makes 96 accesses for the save and 96 for the single
+read in enable_IO_APIC(), 384 fewer exits (counted from the source, not
+yet measured). At ~6.7 us a nested exit that is ~2.6 ms of a nested
+cold boot (inferred).
+
+The suspend and resume paths are unchanged: resume still restores every
+entry, since the IO-APIC lost them. Reboot, kexec and crash, which call
+clear_IO_APIC(), skip the write and the check on an entry already
+clear.
+
+Local patch for this machine. Not upstream.
+
+Assisted-by: LLM
+---
+ arch/x86/include/asm/io_apic.h |  4 ++--
+ arch/x86/kernel/apic/apic.c    | 10 ++++++--
+ arch/x86/kernel/apic/io_apic.c | 43 +++++++++++++++++++++++++---------
+ 3 files changed, 42 insertions(+), 15 deletions(-)
+
+diff --git a/arch/x86/include/asm/io_apic.h b/arch/x86/include/asm/io_apic.h
+index 0d806513c..56586e0d9 100644
+--- a/arch/x86/include/asm/io_apic.h
++++ b/arch/x86/include/asm/io_apic.h
+@@ -136,7 +136,7 @@ extern void ioapic_insert_resources(void);
+ extern int arch_early_ioapic_init(void);
+ 
+ extern int save_ioapic_entries(void);
+-extern void mask_ioapic_entries(void);
++bool mask_ioapic_entries(void);
+ extern int restore_ioapic_entries(void);
+ 
+ extern void setup_ioapic_ids_from_mpc(void);
+@@ -197,7 +197,7 @@ static inline int save_ioapic_entries(void)
+ 	return -ENOMEM;
+ }
+ 
+-static inline void mask_ioapic_entries(void) { }
++static inline bool mask_ioapic_entries(void) { return false; }
+ static inline int restore_ioapic_entries(void)
+ {
+ 	return -ENOMEM;
+diff --git a/arch/x86/kernel/apic/apic.c b/arch/x86/kernel/apic/apic.c
+index 90025451a..f867881e6 100644
+--- a/arch/x86/kernel/apic/apic.c
++++ b/arch/x86/kernel/apic/apic.c
+@@ -1907,6 +1907,7 @@ void __init enable_IR_x2apic(void)
+ {
+ 	unsigned long flags;
+ 	int ret, ir_stat;
++	bool masked;
+ 
+ 	if (ioapic_is_disabled) {
+ 		pr_info("Not enabling interrupt remapping due to skipped IO-APIC setup\n");
+@@ -1925,7 +1926,7 @@ void __init enable_IR_x2apic(void)
+ 
+ 	local_irq_save(flags);
+ 	legacy_pic->mask_all();
+-	mask_ioapic_entries();
++	masked = mask_ioapic_entries();
+ 
+ 	/* If irq_remapping_prepare() succeeded, try to enable it */
+ 	if (ir_stat >= 0)
+@@ -1933,7 +1934,12 @@ void __init enable_IR_x2apic(void)
+ 	/* ir_stat contains the remap mode or an error code */
+ 	try_to_enable_x2apic(ir_stat);
+ 
+-	if (ir_stat < 0)
++	/*
++	 * Only the mask has written an entry since the save. When it had
++	 * nothing to mask, every entry still holds what was saved, and
++	 * writing it back would only cost two accesses a register.
++	 */
++	if (ir_stat < 0 && masked)
+ 		restore_ioapic_entries();
+ 	legacy_pic->restore_mask();
+ 	local_irq_restore(flags);
+diff --git a/arch/x86/kernel/apic/io_apic.c b/arch/x86/kernel/apic/io_apic.c
+index 7d7175d01..4e7c3a1cc 100644
+--- a/arch/x86/kernel/apic/io_apic.c
++++ b/arch/x86/kernel/apic/io_apic.c
+@@ -465,15 +465,24 @@ static void eoi_ioapic_pin(int vector, struct mp_chip_data *data)
+ 		__eoi_ioapic_pin(entry->apic, entry->pin, vector);
+ }
+ 
+-static void clear_IO_APIC_pin(unsigned int apic, unsigned int pin)
++static void clear_IO_APIC_entry(unsigned int apic, unsigned int pin,
++				struct IO_APIC_route_entry entry)
+ {
+-	struct IO_APIC_route_entry entry;
++	struct IO_APIC_route_entry cleared = { .masked = true };
+ 
+ 	/* Check delivery_mode to be sure we're not clearing an SMI pin */
+-	entry = ioapic_read_entry(apic, pin);
+ 	if (entry.delivery_mode == APIC_DELIVERY_MODE_SMI)
+ 		return;
+ 
++	/*
++	 * An entry that already reads as what the clear leaves behind,
++	 * masked with no remote IRR and nothing pending, has nothing to
++	 * clear and nothing to check afterwards. A virtual IO-APIC resets
++	 * every entry to this, and there each access skipped is a VM exit.
++	 */
++	if (entry.w1 == cleared.w1 && entry.w2 == cleared.w2)
++		return;
++
+ 	/*
+ 	 * Make sure the entry is masked and re-read the contents to check
+ 	 * if it is a level triggered pin and if the remote-IRR is set.
+@@ -509,6 +518,11 @@ static void clear_IO_APIC_pin(unsigned int apic, unsigned int pin)
+ 		       mpc_ioapic_id(apic), pin);
+ }
+ 
++static void clear_IO_APIC_pin(unsigned int apic, unsigned int pin)
++{
++	clear_IO_APIC_entry(apic, pin, ioapic_read_entry(apic, pin));
++}
++
+ void clear_IO_APIC (void)
+ {
+ 	int apic, pin;
+@@ -572,10 +586,11 @@ int save_ioapic_entries(void)
+ }
+ 
+ /*
+- * Mask all IO APIC entries.
++ * Mask all IO APIC entries. Returns whether any entry had to be masked.
+  */
+-void mask_ioapic_entries(void)
++bool mask_ioapic_entries(void)
+ {
++	bool masked = false;
+ 	int apic, pin;
+ 
+ 	for_each_ioapic(apic) {
+@@ -589,9 +604,11 @@ void mask_ioapic_entries(void)
+ 			if (!entry.masked) {
+ 				entry.masked = true;
+ 				ioapic_write_entry(apic, pin, entry);
++				masked = true;
+ 			}
+ 		}
+ 	}
++	return masked;
+ }
+ 
+ /*
+@@ -1279,19 +1296,26 @@ void __init enable_IO_APIC(void)
+ 	if (!nr_legacy_irqs() || !nr_ioapics)
+ 		return;
+ 
++	/*
++	 * Read each pin once, both to find the pin in ExtINT mode and to
++	 * clear it: do not trust the IO-APIC being empty at bootup. Clearing
++	 * a pin changes neither the mask nor the delivery mode of another,
++	 * which is all the search looks at.
++	 */
+ 	for_each_ioapic_pin(apic, pin) {
+-		/* See if any of the pins is in ExtINT mode */
+ 		struct IO_APIC_route_entry entry = ioapic_read_entry(apic, pin);
+ 
+ 		/*
+ 		 * If the interrupt line is enabled and in ExtInt mode I
+ 		 * have found the pin where the i8259 is connected.
+ 		 */
+-		if (!entry.masked && entry.delivery_mode == APIC_DELIVERY_MODE_EXTINT) {
++		if (ioapic_i8259.pin == -1 && !entry.masked &&
++		    entry.delivery_mode == APIC_DELIVERY_MODE_EXTINT) {
+ 			ioapic_i8259.apic = apic;
+ 			ioapic_i8259.pin  = pin;
+-			break;
+ 		}
++
++		clear_IO_APIC_entry(apic, pin, entry);
+ 	}
+ 
+ 	/*
+@@ -1313,9 +1337,6 @@ void __init enable_IO_APIC(void)
+ 	if (((ioapic_i8259.apic != i8259_apic) || (ioapic_i8259.pin != i8259_pin)) &&
+ 	    (i8259_pin >= 0) && (ioapic_i8259.pin >= 0))
+ 		pr_warn("ExtINT in hardware and MP table differ\n");
+-
+-	/* Do not trust the IO-APIC being empty at bootup */
+-	clear_IO_APIC();
+ }
+ 
+ void native_restore_boot_irq_mode(void)
