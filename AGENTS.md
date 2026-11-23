@@ -29,9 +29,13 @@ cold number cannot reach 100 ms by userspace work alone: QEMU, the firmware and 
 are all ours to patch when a patch serves the goal. Carry a patch where the tree keeps that
 part's patches today: the kernel's in `kernel/patches`, QEMU's in `qemu/patches`, qboot's beside
 its README in `qemu/qboot`, systemd's in `image/systemd` and OpenSSH's in `image/openssh`, whose
-Dockerfiles rebuild Ubuntu's source packages. systemd carries no patch yet, so the first one also
-adds the step that applies it, as `image/openssh/Dockerfile` does. An experiment's systemd patch
-goes in `image/systemd/experiments`.
+Dockerfiles rebuild Ubuntu's source packages. `image/systemd/Dockerfile` applies systemd's. An
+experiment's systemd patch goes in `image/systemd/experiments`.
+
+**A carried patch is not offered upstream until it has run in production.** Do not ask whether to
+send one, and do not draft one for sending. A patch earns an upstream offer by running in spin's
+workspaces first, and the owner decides when. Record a patch's upstream relevance in its header
+or its issue (an upstream commit it reverses, a refused series it answers), and leave it there.
 
 ## What must not break
 
