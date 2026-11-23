@@ -134,6 +134,10 @@ func (ledgerProbe) Metrics() []Metric {
 		{"first_login", "ms", "the first login, /usr/bin/true, from the moment before QEMU is exec'd, with the trace running"},
 		{"kernel_zero", "ms", "where the kernel's clock read 0, from the same moment: QEMU, the firmware and the kernel's decompression"},
 		{"kernel_zero_error", "ms", "kernel_zero's uncertainty, half its narrowest bracket"},
+		{"before_qemu", "ms", "kernel_zero's first part: spin-machine, from the same moment to its exec of QEMU"},
+		{"qemu_start", "ms", "kernel_zero's second part: QEMU's start and the held start, from its exec to the guest's first instruction"},
+		{"guest_to_zero", "ms", "kernel_zero's third part: the firmware, the bzImage's decompression and the kernel's setup, to the kernel's clock"},
+		{"qemu_exec_error", "ms", "before_qemu's uncertainty, half the bracket the host's polling put QEMU's exec in"},
 		{"pid1", "ms", "PID 1's exec of init, on the kernel's clock"},
 		{"handoff", "ms", "spin's handoff as login=spin stands in for it, from its exec as PID 1 to its exec of systemd; 0 on the lane"},
 		{"connection", "ms", "the login's sshd-session's exec, on the kernel's clock"},
@@ -173,10 +177,12 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	if err != nil {
 		return err
 	}
+	deadline := t0.Add(60 * time.Second)
+	execd := make(chan execBracket, 1)
+	go func() { execd <- mc.qemuExec(t0, deadline) }()
 	plugged := m.Plug(qmp)
 	defer mc.Stop()
 
-	deadline := t0.Add(60 * time.Second)
 	var first net.Conn
 	for first == nil && time.Now().Before(deadline) {
 		if first, err = DialVsock(cid); err != nil {
@@ -201,6 +207,10 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	login := time.Since(t0)
 	if err := plugged(); err != nil {
 		return err
+	}
+	exec := <-execd
+	if !exec.seen {
+		return Miss("spin-machine's QEMU was never seen exec'd, so nothing splits the time before the kernel's clock")
 	}
 	asRoot := ""
 	if m.Key.User() != "root" {
@@ -230,7 +240,7 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	dropped := traceDropped(fetched["stats"])
 	m.Record("trace_dropped", float64(dropped))
 	l, err := newLedger(ledgerInput{Trace: fetched["trace"], Journal: fetched["journal"], Units: fetched["units"],
-		Trips: trips, FirstLogin: float64(login) / float64(time.Millisecond)})
+		Trips: trips, FirstLogin: float64(login) / float64(time.Millisecond), QEMUExecLo: exec.lo, QEMUExecHi: exec.hi})
 	if err != nil {
 		return Miss("no ledger, %d events dropped by the buffer: %v", dropped, err)
 	}
@@ -246,6 +256,10 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.RecordMs("first_login", login)
 	m.Record("kernel_zero", l.KernelZero)
 	m.Record("kernel_zero_error", l.KernelZeroError)
+	m.Record("before_qemu", l.QEMUExec)
+	m.Record("qemu_start", l.Running-l.QEMUExec)
+	m.Record("guest_to_zero", l.KernelZero-l.Running)
+	m.Record("qemu_exec_error", l.QEMUExecError)
 	m.Record("pid1", l.Windows[1].Start)
 	handoff := l.window(windowHandoff)
 	m.Record("handoff", handoff.End-handoff.Start)
@@ -257,6 +271,37 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.Logf("first login %v: %.1f ms before the kernel's clock (±%.1f), %.1f on it to the command's exit, %.1f residue; kept as %s",
 		login.Round(time.Millisecond), l.KernelZero, l.KernelZeroError, l.LoginEnd, l.Residue, text)
 	return nil
+}
+
+// execBracket is where QEMU's exec was seen, in ms from the moment before spin-machine's exec: not
+// yet at lo, done by hi.
+type execBracket struct {
+	lo, hi float64
+	seen   bool
+}
+
+// qemuExec polls spin-machine for its QEMU until QEMU has exec'd, spin-machine has exited or the
+// deadline has passed. A process's start time in /proc is in clock ticks, 10 ms each, so the host
+// watches instead: a poll reads spin-machine's children and their names, and QEMU's exec is between
+// the last poll that did not see it and the first that did.
+// mutate-lane: TestEveryProbeMeasuresATree
+func (mc *Machine) qemuExec(t0 time.Time, deadline time.Time) execBracket {
+	ms := func() float64 { return float64(time.Since(t0)) / float64(time.Millisecond) }
+	pid := mc.cmd.Process.Pid
+	lo := 0.0
+	for time.Now().Before(deadline) {
+		before := ms()
+		if isQEMU(qemuPID(pid)) {
+			return execBracket{lo, ms(), true}
+		}
+		lo = before
+		select {
+		case <-mc.done:
+			return execBracket{}
+		default:
+		}
+	}
+	return execBracket{}
 }
 
 // window is the window named name, and the zero Window, of no length, for a ledger without it.

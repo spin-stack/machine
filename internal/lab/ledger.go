@@ -35,6 +35,16 @@ type Ledger struct {
 	// kernel's decompression, which no clock in the guest sees.
 	KernelZero      float64 `json:"kernel_zero"`
 	KernelZeroError float64 `json:"kernel_zero_error"`
+	// QEMUExec is where spin-machine exec'd QEMU, and QEMUExecError half the bracket the host's
+	// polling put it in: before it is spin-machine's own start.
+	QEMUExec      float64 `json:"qemu_exec"`
+	QEMUExecError float64 `json:"qemu_exec_error"`
+	// Running is where the machine went to running and its vCPU ran the guest's first instruction:
+	// KernelZero less the kvm-clock the kernel read as it made kvm-clock the scheduler's clock, which
+	// QEMU zeroed at that moment (schedOffset). From QEMUExec to Running is QEMU's start and the held
+	// start's monitor; from Running to KernelZero, the firmware, the bzImage's decompression and the
+	// kernel's setup until its clock runs.
+	Running float64 `json:"running"`
 	// LoginEnd is the login's command's exit on the kernel's clock: where the trace's account ends.
 	LoginEnd float64 `json:"login_end"`
 	// Residue is FirstLogin less KernelZero and LoginEnd: what the host waited for after the
@@ -115,6 +125,9 @@ type ledgerInput struct {
 	Units      string
 	Trips      []Trip
 	FirstLogin float64
+	// QEMU had not been exec'd at QEMUExecLo and had by QEMUExecHi, in ms on the host's clock from
+	// the moment before spin-machine's exec.
+	QEMUExecLo, QEMUExecHi float64
 }
 
 // newLedger is one boot's ledger, or why the trace cannot give one.
@@ -128,12 +141,21 @@ func newLedger(in ledgerInput) (Ledger, error) {
 	if err != nil {
 		return Ledger{}, err
 	}
+	offset, err := schedOffset(in.Journal)
+	if err != nil {
+		return Ledger{}, err
+	}
+	exec, execErr, running := (in.QEMUExecLo+in.QEMUExecHi)/2, (in.QEMUExecHi-in.QEMUExecLo)/2, zero-offset
+	if running < exec-execErr-zeroErr {
+		return Ledger{}, fmt.Errorf("the machine ran at %.3f ms, before QEMU's exec at %.3f ± %.3f: the kernel's sched offset of %.3f ms does not put kvm-clock's 0 on the host's clock", running, exec, execErr, offset)
+	}
 	cuts, end, err := b.cuts()
 	if err != nil {
 		return Ledger{}, err
 	}
 	owner := b.owners(parseUnits(in.Units))
-	l := Ledger{FirstLogin: in.FirstLogin, KernelZero: zero, KernelZeroError: zeroErr, LoginEnd: end,
+	l := Ledger{FirstLogin: in.FirstLogin, KernelZero: zero, KernelZeroError: zeroErr,
+		QEMUExec: exec, QEMUExecError: execErr, Running: running, LoginEnd: end,
 		Residue: in.FirstLogin - zero - end, Breaks: b.breaks, Marks: loginMarks(in.Journal)}
 	for i, c := range cuts {
 		to := end
@@ -369,6 +391,26 @@ func (b *boot) kernelZero(trips []Trip) (zero, halfWidth float64, err error) {
 	}
 	return (lo + hi) / 2, (hi - lo) / 2, nil
 }
+
+// schedOffset is the kvm-clock the kernel read as it made kvm-clock the scheduler's clock, in ms:
+// QEMU zeroes kvm-clock as the machine goes to running (hw/i386/kvm/clock.c,
+// kvmclock_vm_state_change, KVM_SET_CLOCK with the 0 a machine never run has), and the kernel's
+// clock, CLOCK_MONOTONIC's 0 included, starts from that reading (arch/x86/kernel/kvmclock.c,
+// kvm_sched_clock_init, which prints it in ns despite the word; timekeeping_init's boot offset is
+// local_clock()). boot:firmware-stages places the kernel's clock on QEMU's trace by the same line.
+func schedOffset(journal string) (float64, error) {
+	m := reSchedOffset.FindStringSubmatch(journal)
+	if m == nil {
+		return 0, fmt.Errorf("the journal has no \"kvm-clock: using sched offset\" line: a kernel not on kvm-clock, or a journal that lost the kernel's first lines, puts nothing between QEMU's exec and the kernel's 0")
+	}
+	ns, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("reading the kernel's sched offset %q: %w", m[1], err)
+	}
+	return float64(ns) / 1e6, nil
+}
+
+var reSchedOffset = regexp.MustCompile(`kvm-clock: using sched offset of (\d+) cycles`)
 
 // The windows the ledger probe records by name.
 const (
@@ -643,7 +685,10 @@ func (l Ledger) Text(title string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: from the moment before QEMU is exec'd to the first login, ms\n\n", title)
 	fmt.Fprintf(&b, "%8s %8s %8s  %s\n", "start", "end", "ms", "window, on the kernel's clock")
-	fmt.Fprintf(&b, "%8s %8s %8.1f  before the kernel's clock: QEMU, the firmware, the kernel's decompression (±%.2f)\n", "", "0.0", l.KernelZero, l.KernelZeroError)
+	fmt.Fprintf(&b, "%8s %8s %8.1f  before the kernel's clock (±%.2f)\n", "", "0.0", l.KernelZero, l.KernelZeroError)
+	fmt.Fprintf(&b, "%26.1f  spin-machine, to its exec of QEMU (±%.2f)\n", l.QEMUExec, l.QEMUExecError)
+	fmt.Fprintf(&b, "%26.1f  QEMU's start and the held start, to the guest's first instruction\n", l.Running-l.QEMUExec)
+	fmt.Fprintf(&b, "%26.1f  the firmware, the decompression and the kernel's setup, to the kernel's clock\n", l.KernelZero-l.Running)
 	for _, w := range l.Windows {
 		fmt.Fprintf(&b, "%8.1f %8.1f %8.1f  %s\n", w.Start, w.End, w.End-w.Start, w.Name)
 		var rest float64

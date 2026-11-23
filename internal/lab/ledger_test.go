@@ -104,13 +104,16 @@ func ledgerFixture(t *testing.T) ledgerInput {
 		t.Fatal(err)
 	}
 	return ledgerInput{
-		Trace: string(trace), Journal: string(journal),
+		// The run's journal kept only the login's lines; the kernel's kvm-clock line is as its
+		// kernel prints it, with an offset that puts the machine's running at 70.0215.
+		Trace: string(trace), Journal: "[    0.000000] localhost kernel: kvm-clock: using sched offset of 30000000 cycles\n" + string(journal),
 		// sshd (ssh.service), logind, journald, PID 1 and root's manager, as ledger-units prints them.
 		Units: "1 /init.scope\n61 /system.slice/systemd-journald.service\n68 /system.slice/systemd-logind.service\n77 /system.slice/ssh.service\n97 /user.slice/user-0.slice/user@0.service/init.scope\n",
 		// The markers are at 357.045, 357.297 and 357.412 ms on the kernel's clock: these put its 0
 		// in [99.955, 100.055], [99.953, 100.103] and [99.988, 100.088] on the host's.
 		Trips:      []Trip{{1, 457.000, 457.100}, {2, 457.250, 457.400}, {3, 457.400, 457.500}},
 		FirstLogin: 420,
+		QEMUExecLo: 17.9, QEMUExecHi: 18.1,
 	}
 }
 
@@ -150,6 +153,15 @@ func TestARealBootsLedgerAddsUp(t *testing.T) {
 	}
 	if !near(l.KernelZero, 100.0215) || !near(l.KernelZeroError, 0.0335) || !near(l.LoginEnd, 318.82) || !near(l.Residue, 420-100.0215-318.82) || l.Breaks != 0 {
 		t.Errorf("kernel's 0 %v ± %v, login end %v, residue %v, breaks %d", l.KernelZero, l.KernelZeroError, l.LoginEnd, l.Residue, l.Breaks)
+	}
+	// The span before the kernel's clock splits at QEMU's exec, the host's bracket's middle, and at
+	// the machine's running, the kernel's 0 less its sched offset; the three parts add up to it.
+	before, qemu, guest := l.QEMUExec, l.Running-l.QEMUExec, l.KernelZero-l.Running
+	if !near(before, 18) || !near(l.QEMUExecError, 0.1) || !near(qemu, 52.0215) || !near(guest, 30) {
+		t.Errorf("before QEMU %v ± %v, QEMU to the guest %v, the guest to the kernel's 0 %v", before, l.QEMUExecError, qemu, guest)
+	}
+	if sum := before + qemu + guest; math.Abs(sum-l.KernelZero) > 0.15 {
+		t.Errorf("the parts add up to %v of the kernel's 0 at %v", sum, l.KernelZero)
 	}
 	// true ran alone from its exec to its exit, and is sshd's: forked from the login's
 	// sshd-session, which sshd forked.
@@ -456,10 +468,25 @@ func TestPIDZeroIsTheKernelUntilTheFirstSwitch(t *testing.T) {
 	}
 }
 
+// A journal with no kvm-clock line has nothing to place the machine's running by, and an offset
+// that puts it before QEMU's exec is an alignment that is wrong: both refuse the ledger.
+func TestTheSplitBeforeTheKernelsClockIsRefusedWhenItCannotHold(t *testing.T) {
+	in := ledgerFixture(t)
+	in.Journal = in.Journal[strings.Index(in.Journal, "\n")+1:]
+	if _, err := newLedger(in); err == nil || !strings.Contains(err.Error(), "sched offset") {
+		t.Errorf("no kvm-clock line: %v", err)
+	}
+	in = ledgerFixture(t)
+	in.QEMUExecLo, in.QEMUExecHi = 80, 80.2
+	if _, err := newLedger(in); err == nil || !strings.Contains(err.Error(), "before QEMU's exec") {
+		t.Errorf("QEMU exec'd after the machine ran: %v", err)
+	}
+}
+
 // The table shows each share over 0.5 ms with its three busiest names, sums the rest, and has the
 // owners' states and the journal's marks when there are any.
 func TestTheLedgersTextShowsWhatMatters(t *testing.T) {
-	l := Ledger{FirstLogin: 400, KernelZero: 90, KernelZeroError: 0.15, LoginEnd: 309, Residue: 1, Breaks: 1,
+	l := Ledger{FirstLogin: 400, KernelZero: 90, KernelZeroError: 0.15, QEMUExec: 20, QEMUExecError: 0.05, Running: 70, LoginEnd: 309, Residue: 1, Breaks: 1,
 		Windows: []Window{
 			{Name: "first", Start: 0, End: 100, CPU: []Share{
 				{Owner: "big", Ms: 99.6, Comms: []Comm{{"a", 50}, {"b", 30}, {"c", 10}, {"d", 9.6}}},
@@ -480,6 +507,9 @@ func TestTheLedgersTextShowsWhatMatters(t *testing.T) {
 		"pair (x 150.0, y 50.0)\n",
 		"     9.0  alone\n",
 		"lost events at 1 switches",
+		"      20.0  spin-machine, to its exec of QEMU (±0.05)\n",
+		"      50.0  QEMU's start and the held start, to the guest's first instruction\n",
+		"      20.0  the firmware, the decompression and the kernel's setup, to the kernel's clock\n",
 		"owners from PID 1's exec (100.0)",
 		"     10.0       2.0       1.0       3.0  busy\n",
 		"   250.0  connection: sshd-session[94]: Connection from\n",
