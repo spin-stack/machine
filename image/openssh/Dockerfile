@@ -32,6 +32,7 @@ RUN for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
 
 COPY image/openssh/regress-ran.sh /build/regress-ran.sh
 RUN apt-get install -y --no-install-recommends sudo && \
+    useradd --system --no-create-home --home-dir /run/sshd --shell /usr/sbin/nologin sshd && \
     useradd --create-home regress && \
     echo 'regress ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/regress && \
     mkdir -p -m 0755 /run/sshd && \
