@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"strconv"
 	"syscall"
 	"time"
 	"unsafe"
@@ -53,8 +54,18 @@ func (restoreFirst) About() string {
 
 func (restoreFirst) Options() []Option {
 	return append(shape, channelsOption,
-		Option{"touched", "0", "MiB the guest writes into a tmpfs after its login and before its save, as root (login=spin): memory its checkpoint carries, as a workspace's that has run a while does"})
+		Option{"touched", "0", "MiB the guest writes into a tmpfs after its login and before its save, as root (login=spin): memory its checkpoint carries, as a workspace's that has run a while does"},
+		dropOption)
 }
+
+// dropOption asks the guest to drop its clean page cache right before its save (#276): a smaller
+// state for the restore to load, if the pages freed are not saved. A freed page keeps its bytes
+// until the balloon's free page reporting hands it back to the host, 2 s after it is freed, and a
+// save writes every page that is not zeros. So the option is the seconds waited after the drop: 0
+// saves at once, as a workspace asked to drop just before its checkpoint would be, and 3 leaves the
+// reporting its delay. Waiting 3 s with no drop moved neither the state nor the restored login
+// (docs/measuring.md, "When a checkpoint is taken").
+var dropOption = Option{"drop", "off", "off, or the seconds the probe waits after the guest's `sync; echo 1 > /proc/sys/vm/drop_caches`, as root (login=spin), before its save"}
 
 func (restoreFirst) Rows(o Options) []string {
 	return withChannels(o, "evicted", "cached")
@@ -265,6 +276,9 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 	if err := touch(m, c.cid); err != nil {
 		return nil, err
 	}
+	if err := dropCaches(m, c.cid); err != nil {
+		return nil, err
+	}
 	t0 = time.Now()
 	if err := m.SpinMachine(append([]string{"save", "--qmp", qmp, "--to", c.state}, channels...)...); err != nil {
 		return nil, err
@@ -326,6 +340,33 @@ func touch(m *Measurement, cid uint32) error {
 		return Miss("the guest did not write %d MiB: %v", mib, err)
 	}
 	return nil
+}
+
+// dropCaches asks the guest on cid to drop its clean page cache and waits the drop option's
+// seconds, when the option is not off (dropOption).
+// mutate-lane: TestEveryProbeMeasuresATree
+func dropCaches(m *Measurement, cid uint32) error {
+	wait, err := dropWait(m.Options)
+	if err != nil || wait < 0 {
+		return err
+	}
+	if _, _, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, "sync && echo 1 > /proc/sys/vm/drop_caches"); err != nil {
+		return Miss("the guest did not drop its page cache: %v", err)
+	}
+	time.Sleep(wait)
+	return nil
+}
+
+// dropWait is how long to wait after the drop, or -1 with the option off.
+func dropWait(o Options) (time.Duration, error) {
+	if o["drop"] == "off" || o["drop"] == "" {
+		return -1, nil
+	}
+	n, err := strconv.Atoi(o["drop"])
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("restore-first's option drop is off or a number of seconds, not %q", o["drop"])
+	}
+	return time.Duration(n) * time.Second, nil
 }
 
 // userfaultfd gives an unprivileged QEMU one on a bench runner, a throwaway host, as a spin host
