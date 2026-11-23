@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 100,
+  "date": "2026-11-23",
+  "change": "The guest's clean page cache dropped right before its save (`sync; echo 1 > /proc/sys/vm/drop_caches`), #276's last idea",
+  "result": "the state did not shrink: 183 MiB with the drop, saved at once −0.1 [−0.4, +0.3] and 3 s later −0.0 [−0.3, +0.4]. The restored login was worse, +4.7 [+3.5, +7.3] evicted at once and +5.6 [+4.6, +7.6] 3 s later, as the login read again from the guest's disk what the drop took from its cache",
+  "shape": "spin",
+  "source": "lab 45110967817",
+  "runs": [
+    45110967817
+  ]
+}

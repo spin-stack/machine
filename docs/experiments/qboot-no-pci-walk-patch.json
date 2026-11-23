@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 120,
+  "change": "qboot `no-pci-walk.patch`",
+  "where": "qemu/qboot",
+  "result": "cold +5.2 [−1.7, +9.2]: inside the noise, and the upper bound over +5 keeps it; 5.0 ms nested in `firmware-stages`",
+  "evidence": "measured, 40 a side",
+  "source": "lab 44993790452",
+  "runs": [
+    44993790452
+  ]
+}

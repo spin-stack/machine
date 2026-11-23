@@ -45,8 +45,6 @@ type Entry struct {
 	// Body is the prose after the head: on the head's line, or from the next when it starts with a
 	// newline.
 	Body string `yaml:"-"`
-	// File is the entry's file name.
-	File string `yaml:"-"`
 
 	day time.Time
 }
@@ -93,7 +91,6 @@ func parseEntry(name string, data []byte) (Entry, error) {
 	if err := dec.Decode(&e); err != nil {
 		return Entry{}, fmt.Errorf("front matter: %w", err)
 	}
-	e.File = name
 	e.Body = strings.TrimRight(string(body), " \n")
 	day, err := parseDate(e.Date)
 	if err != nil {
@@ -159,8 +156,9 @@ func ReadLog(dir string) (Log, error) {
 	if l.Head == "" || l.Rework == "" {
 		return Log{}, fmt.Errorf("reading the log: %s needs %s and %s", dir, logHead, logRework)
 	}
-	slices.SortFunc(l.Entries, func(a, b Entry) int {
-		return cmp.Or(a.day.Compare(b.day), cmp.Compare(a.Order, b.Order), strings.Compare(a.File, b.File))
+	// Stable: the directory is read in file-name order, which breaks a tie.
+	slices.SortStableFunc(l.Entries, func(a, b Entry) int {
+		return cmp.Or(a.day.Compare(b.day), cmp.Compare(a.Order, b.Order))
 	})
 	return l, nil
 }
@@ -184,7 +182,7 @@ func week(day time.Time) (n int, first, last time.Time) {
 		}
 		return k + 1, first, last
 	}
-	before := (days(firstWeek, weeksMove) + 6) / 7
+	before, _, _ := week(weeksMove.AddDate(0, 0, -1)) // mutate-exempt: any day of the last week before the move has its number
 	k := days(weeksMove, day) / 7
 	first = weeksMove.AddDate(0, 0, 7*k)
 	return before + 1 + k, first, first.AddDate(0, 0, 6)

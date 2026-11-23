@@ -1,0 +1,9 @@
+{
+  "decision": "open",
+  "order": 10,
+  "change": "An open experiment",
+  "number": "cold",
+  "phase": "~15 ms",
+  "decided_by": "`ssh-first`, 40 a side",
+  "state": "open"
+}

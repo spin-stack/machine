@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 120,
+  "date": "2026-11-22",
+  "change": "`user@`'s `After=systemd-user-sessions.service` (Ubuntu's `10-login-barrier.conf`) shadowed, for a login as spin",
+  "result": "lane +30.6 against +29.7 without it: the barrier is not what the lane waits for",
+  "shape": "lane",
+  "source": "lab 45031687433",
+  "runs": [
+    45031687433
+  ]
+}

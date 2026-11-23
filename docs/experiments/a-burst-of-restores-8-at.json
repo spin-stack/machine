@@ -1,0 +1,12 @@
+{
+  "decision": "open",
+  "order": 10,
+  "change": "A burst of restores: 8 at once read ~190-240 ms each under `defer`, against ~100 alone",
+  "number": "restore, as a host sees it; spin restores concurrently with no host-wide limit",
+  "phase": "the burst's ~100-140 ms over one restore alone",
+  "decided_by": "`restore-together`, `together=1 8`, evicted, with the change against without it",
+  "state": "open. The host's CPUs are 72-78% busy in the burst, and direct reclaim runs as the states fill the page cache (lab 44817486118). Next candidates: `vm.watermark_scale_factor`, and the CPU one restore costs",
+  "runs": [
+    44817486118
+  ]
+}

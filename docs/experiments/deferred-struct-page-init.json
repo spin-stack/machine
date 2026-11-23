@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 250,
+  "date": "2026-11-21",
+  "change": "`DEFERRED_STRUCT_PAGE_INIT` (carried since 11-13, for 2 GiB at boot)",
+  "result": "taken back −2.5 [−9.3, +3.8] at 40 boots: spin boots 128 MiB, which the kernel does not defer, and plugged memory is never deferred. Deleted",
+  "shape": "spin",
+  "source": "lab 44839538785, #356",
+  "runs": [
+    44839538785
+  ]
+}

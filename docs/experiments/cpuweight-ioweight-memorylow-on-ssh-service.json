@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 90,
+  "date": "2026-09-28",
+  "change": "CPUWeight/IOWeight/MemoryLow on ssh.service",
+  "result": "no change",
+  "shape": "runner",
+  "source": "`f7cd1ab`"
+}

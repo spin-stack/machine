@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 280,
+  "date": "2026-11-23",
+  "change": "The rest of the boot started by a timer 2 s after the boot, in place of `Type=idle` (#574)",
+  "result": "−66.5 [−75.2, −56.1] against idle's −59.2 [−69.1, −47.4] in the same run, both with the supervisor early: the timer starts the rest at an arbitrary time whatever the login, and docker's socket waits for it",
+  "shape": "spin",
+  "source": "lab 45090246267",
+  "issues": [
+    574
+  ],
+  "runs": [
+    45090246267
+  ]
+}

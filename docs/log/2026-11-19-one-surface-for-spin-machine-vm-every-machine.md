@@ -1,0 +1,9 @@
+---
+date: "2026-11-19"
+order: 80
+area: machine
+title: 'one surface for spin: `machine.VM`, every machine started held (this change)'
+prs: [293]
+runs: [44573266140]
+---
+spin built a `Spec`, exec'd `Args()` and drove QMP with a client of its own, so what a checkpoint is (the migration capabilities both ends must agree on), how a disk reaches a device, and the `-S` before a CPU plug lived in spin. Now `machine.VM` (QEMU's: `machine.Attach`) is that conversation: `Boot`, `Resume` with `Load{Fast}`, `Loaded`, `Checkpoint` with a seal at pre-switchover, `Continue`, `AttachDisk`/`DetachDisk`, `SetCPUs`, `SetMemory`, `CPU`. An interface on purpose, so another VMM can be put behind it and compared. Every machine starts held, `-S` or `-incoming defer` (`Spec.Restore`): under `-incoming defer`, `cont` leaves QEMU in `inmigrate` (11.2.0-rc0), so one QEMU cannot wait for both. A disk is bound to its place (`Spec.Disks`, a raw node over an empty `null-co`) by serial, `blockdev-reopen` onto the chain handed over `add-fd`: the device's serial and read-only-ness are fixed at realize, and QEMU 11.2 has no `blockdev-replace`, so the raw node stays and a seal targets `machine.TopNode`. The prestart prototype measured it on the bench fleet: cold first login 313→291, restore 170→153 ms (lab 44573266140). Checkpoints are written in mapped-ram (`FormatMappedRAM`, recorded in `Saved`); a stream checkpoint from before still loads, in full (`boot:compat`). The host CPU's model name left the fingerprint: a checkpoint records the CPU its guest was shown and `CanResume` checks it (spin#1348). Fast load needs userfaultfd for QEMU's user and was not run here: an unprivileged QEMU refuses postcopy ("Userfaultfd not available"). *Status:* PR, measured on the bench fleet with `boot:restore-first` (`SPIN_RESTORE_FAST=1`) and `boot:prestart`. Merged 11-19 (#293).

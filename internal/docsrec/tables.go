@@ -44,9 +44,6 @@ type Record struct {
 	Issues []int `json:"issues,omitempty"`
 	PRs    []int `json:"prs,omitempty"`
 	Runs   []int `json:"runs,omitempty"`
-
-	// File is the record's file name.
-	File string `json:"-"`
 }
 
 // cells is each text field by its JSON name. Date's cell is its month and day, as the tables have
@@ -136,7 +133,6 @@ func parseRecord(name string, data []byte) (Record, error) {
 	if err := dec.Decode(&r); err != nil {
 		return Record{}, err
 	}
-	r.File = name
 	if base, ok := strings.CutSuffix(name, ".json"); !ok || !slug.MatchString(base) {
 		return Record{}, errors.New("the file is not named [<issue>-]<slug>.json, a slug of a-z, 0-9 and -")
 	}
@@ -196,9 +192,8 @@ func ReadRecords(dir string) ([]Record, error) {
 		}
 		records = append(records, r)
 	}
-	slices.SortFunc(records, func(a, b Record) int {
-		return cmp.Or(cmp.Compare(a.Order, b.Order), strings.Compare(a.File, b.File))
-	})
+	// Stable: the directory is read in file-name order, which breaks a tie.
+	slices.SortStableFunc(records, func(a, b Record) int { return cmp.Compare(a.Order, b.Order) })
 	return records, nil
 }
 

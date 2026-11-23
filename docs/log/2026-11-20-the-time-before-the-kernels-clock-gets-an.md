@@ -1,0 +1,7 @@
+---
+date: "2026-11-20"
+order: 120
+area: boot
+title: the time before the kernel's clock gets an instrument (this change)
+---
+docs/measuring.md's rule 7 (then docs/boot-time.md's rule 6): the bzImage's decompression ran where no clock looked. QEMU zeroes kvm-clock as the machine goes to "running" (`kvmclock_vm_state_change`, KVM_SET_CLOCK with the 0 a machine never run has), and the kernel prints the kvm-clock it read when it made it the scheduler's clock ("kvm-clock: using sched offset of N cycles", in ns). The probe init prints that line and "Freeing" with their kmsg times, and `boot:firmware-stages` places them on QEMU's trace: after the firmware's last select, "to the kernel's clock" (the initrd's copy, the jump, the decompression and the kernel's setup until kvmclock_init), "kernel to Freeing", and "Freeing to SPIN-READY", what is left, which a wrong anchor would push below zero and the probe refuses. Its default shape is spin's (1 CPU, 128 MiB, ceilings 16 and 8 GiB, 4 hotplug disks), and `lab check` hands a second tree to it as SPIN_MACHINE_OUTPUT_B. *Checked, laptop, a lead (8 boots each interleaved):* v20261120.02 (bzImage) against v20261119.01 (PVH, no decompressor): to the kernel's clock 24.3 against 7.9 ms, kernel to Freeing 28.4 against 34.3, and Freeing to SPIN-READY 9.5 against 9.7: what moved is the phase the bzImage added, and the residual on the other side of the anchor did not. The bench reading is next.

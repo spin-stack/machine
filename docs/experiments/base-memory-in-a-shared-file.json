@@ -1,0 +1,14 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 50,
+  "date": "2026-11-20",
+  "change": "Base memory in a shared file, left out of the checkpoint (`x-ignore-shared`)",
+  "result": "state 0.3 MiB, save 15 ms, but neither goal number improves: cold 1089 ms on disk, 709-719 on tmpfs",
+  "shape": "ladder",
+  "source": "labs 44663272360, 44664989139, #306",
+  "runs": [
+    44663272360,
+    44664989139
+  ]
+}

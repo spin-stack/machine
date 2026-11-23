@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 160,
+  "date": "2026-11-19",
+  "change": "Mask `modprobe@drm` (logind is ordered after it)",
+  "result": "327/345 vs 328/337. It is masked all the same, since 09-07, one of the 16 masks of group C-masks",
+  "shape": "ladder",
+  "source": "lab 44558035927",
+  "runs": [
+    44558035927
+  ]
+}

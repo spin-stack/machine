@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 170,
+  "date": "2026-11-20",
+  "change": "`CONFIG_SCSI_SCAN_ASYNC`",
+  "result": "−2.6 [−8.9, +6.8]: the scan is waited for before \"Freeing\", and `max_target` leaves it little",
+  "shape": "spin",
+  "source": "#325, lab 44788216590",
+  "runs": [
+    44788216590
+  ]
+}

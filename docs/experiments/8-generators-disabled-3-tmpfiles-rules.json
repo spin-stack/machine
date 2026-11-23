@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 350,
+  "change": "8 generators disabled, 3 tmpfiles rules masked",
+  "where": "optimize-systemd.sh",
+  "result": "cold +16.7 [+11.6, +23.3]",
+  "evidence": "group C-generators",
+  "source": "lab 44818953987",
+  "runs": [
+    44818953987
+  ]
+}

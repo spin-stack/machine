@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 140,
+  "date": "2026-11-22",
+  "change": "No user manager for root, a bound: sessions of class `user-early-light` and root not lingering, as before #467",
+  "result": "first login −17.3 [−19.2, −12.4], console prompt −26.6: the manager's 17.5 ms of CPU, 1:1, on a vCPU with no idle from ~155 ms to the login. The first login's `systemctl --user` fails without it (#467)",
+  "shape": "spin",
+  "source": "lab 45070150688",
+  "issues": [
+    467
+  ],
+  "runs": [
+    45070150688
+  ]
+}

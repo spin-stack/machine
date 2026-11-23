@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 180,
+  "date": "2026-11-20",
+  "change": "The decompressor without `X86_VERBOSE_BOOTUP`",
+  "result": "to the kernel's clock 35.1 → 32.4 ms, under the 3 ms set before the run",
+  "shape": "spin",
+  "source": "#328, lab 44787878809",
+  "runs": [
+    44787878809
+  ]
+}

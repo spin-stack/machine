@@ -1,0 +1,9 @@
+{
+  "decision": "open",
+  "order": 20,
+  "change": "A login without OpenSSH's exec per connection and PAM",
+  "number": "both",
+  "phase": "a warm login, ~25-43 ms, is in both numbers",
+  "decided_by": "a bound first: `prestart` with the login replaced",
+  "state": "lead (docs/log/2026-11-20-spins-login-spins-memory-and-spin-no-longer.md). spin's path already runs one sshd, and PAM and pam_systemd are what spin's sessions are made of"
+}

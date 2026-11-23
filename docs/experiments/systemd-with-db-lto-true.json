@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 180,
+  "date": "2026-11-19",
+  "change": "systemd with `-Db_lto=true`",
+  "result": "Ubuntu already passes `-flto=auto`: the same packages",
+  "shape": "-",
+  "source": "image/systemd/Dockerfile"
+}

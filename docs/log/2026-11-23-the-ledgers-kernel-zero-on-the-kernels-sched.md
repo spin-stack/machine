@@ -1,0 +1,9 @@
+---
+date: "2026-11-23"
+order: 400
+area: lab
+title: the ledger's kernel_zero on the kernel's sched clock (#644, labs 45229897350, 45230233764, this change)
+issues: [561, 611, 644, 665, 666]
+runs: [45110630795, 45177817516, 45177818419, 45229897350, 45230233764]
+---
+The ledger's `kernel_zero` landed 19.5 ms (bench) and 12.6 ms (metal) after a port write at the sched clock's 0 (#611). *Found:* the ledger took CLOCK_MONOTONIC's 0, the trace's clock, for the kernel's. CLOCK_MONOTONIC runs on jiffies from timekeeping_init until the switch to kvm-clock and loses the ticks it misses. The kernel prints both clocks at one tick at late_initcall ("sched_clock: Marking stable"), and their difference was the whole error in all 24 boots of labs 45177818419 and 45177817516, to within 0.15 ms. *Changed:* the ledger moves the trace and the journal forward by that lag (`monotonic_lag`, 18-25 ms nested, 11-14 metal) and refuses a journal without the line. *Checked:* with the marker kernel, `kernel_zero` lands 0.03 to 0.14 ms before QEMU's trace stamps the marker, 10 boots on bench and 10 on metal (spin's shape, v20261123.04). *What moved*, recomputed from the runs' kept journals: docs/measuring.md's split of lab 45110630795, `kernel_zero` 97-114 → 77-95 and `qemu_start` 49.4 → 29.3 (`before_qemu` and `guest_to_zero` do not move); QEMU's exec to the kernel's clock untraced on the workspace's machine is 73.4 ms on bench and 68.7 on metal (labs 45177818419, 45177817516), against firmware-stages' 73.7; PID 1 in #561's ledgers −3.4 → −4.0 ms; the pressure sender's start 0.37-0.38 → 0.39-0.40 s (docs/image.md). #611's comment is corrected. No cold-budget row used the ledger's anchor. Two of its rows use clocks with errors of their own, now noted beside them: firmware-stages' anchor is ~2.8 ms late on bench (#665), and dmesg's clock reads the kernel 13-15 ms short from late_initcall on (#666). *Status:* in place.

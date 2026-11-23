@@ -1,0 +1,13 @@
+{
+  "decision": "carried",
+  "order": 450,
+  "change": "The user manager's sockets' environment from `environment.d/10-user-sockets.conf`, not two `systemctl --user set-environment`",
+  "where": "image",
+  "result": "with the row above: first login +19.6 [+15.9, +25.6] without it (lab 45031644179); with class `user-early` alone, −17.1 [−27.0, −10.7] (lab 45030778365)",
+  "evidence": "measured",
+  "source": "labs 45031644179, 45030778365",
+  "runs": [
+    45030778365,
+    45031644179
+  ]
+}

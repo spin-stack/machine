@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 70,
+  "date": "2026-09-26",
+  "change": "Fewer unit files",
+  "result": "300 extra: 236 vs 246",
+  "shape": "runner",
+  "source": "`9fab3f1`"
+}

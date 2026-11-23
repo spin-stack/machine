@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 200,
+  "date": "2026-11-23",
+  "change": "The same on QEMU 0007, which maps the bzImage and so no longer reads the 40 MB file in its start (#646, a lead for #645)",
+  "result": "first login −4.0 [−7.9, +0.3], sshd accepting −2.9 [−6.9, +2.4] at 40 a side against LZ4 on the same QEMU; QEMU's RSS +32.0 MiB (+22.2 file, +9.9 anonymous). The QEMU half of the 11-20 rejection is gone; what is left is under the interval at 40",
+  "shape": "spin",
+  "source": "lab 45183618987",
+  "issues": [
+    645,
+    646
+  ],
+  "runs": [
+    45183618987
+  ]
+}

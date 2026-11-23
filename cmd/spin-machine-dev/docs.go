@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -25,7 +23,7 @@ a row under docs/experiments. A pull request adds files of its own, so two in fl
 the same one. log and tables render the pages to stdout or --out; site writes both as web pages,
 which pages.yml publishes beside the releases' page. Every verb refuses a file that does not parse.`,
 	}
-	c.AddCommand(docsLog(), docsTables(), docsSite(), docsSplit())
+	c.AddCommand(docsLog(), docsTables(), docsSite())
 	return c
 }
 
@@ -139,65 +137,5 @@ func docsSite() *cobra.Command {
 	}
 	c.Flags().StringVar(&out, "out", "", "the directory the pages are written in")
 	_ = c.MarkFlagRequired("out")
-	return c
-}
-
-func docsSplit() *cobra.Command {
-	var kinds string
-	c := &cobra.Command{
-		Use:   "split --kinds FILE",
-		Short: "Turn docs/log.md and boot-time.md's tables into docs/log and docs/experiments, once (#709)",
-		Args:  cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			root, err := repo()
-			if err != nil {
-				return err
-			}
-			read := func(p string) (string, error) {
-				data, err := os.ReadFile(filepath.Join(root, p))
-				if err != nil {
-					return "", couldNot(fmt.Errorf("reading %s: %w", p, err))
-				}
-				return string(data), nil
-			}
-			k := docsrec.Kinds{}
-			list, err := os.ReadFile(kinds)
-			if err != nil {
-				return couldNot(err)
-			}
-			for _, l := range strings.Split(strings.TrimSpace(string(list)), "\n") {
-				n, kind, _ := strings.Cut(l, " ")
-				i, err := strconv.Atoi(n)
-				if err != nil {
-					return couldNot(fmt.Errorf("%s: %q is not N issue|pr", kinds, l))
-				}
-				k[i] = kind
-			}
-			log, err := read("docs/log.md")
-			if err != nil {
-				return err
-			}
-			bootTime, err := read("docs/boot-time.md")
-			if err != nil {
-				return err
-			}
-			files, err := docsrec.Split(log, bootTime, k)
-			if err != nil {
-				return couldNot(err)
-			}
-			for name, data := range files {
-				p := filepath.Join(root, name)
-				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-					return couldNot(err)
-				}
-				if err := os.WriteFile(p, data, 0o644); err != nil { //nolint:gosec // documentation
-					return couldNot(err)
-				}
-			}
-			say(c, "wrote %d files", len(files))
-			return nil
-		},
-	}
-	c.Flags().StringVar(&kinds, "kinds", "", "lines of N issue|pr, every number of the repository")
 	return c
 }

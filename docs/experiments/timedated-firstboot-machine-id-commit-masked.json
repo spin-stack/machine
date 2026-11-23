@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 540,
+  "change": "timedated, firstboot, machine-id-commit masked",
+  "where": "optimize-systemd.sh",
+  "result": "function: time from the host, no first-boot prompt, no identity",
+  "evidence": "-",
+  "source": "-"
+}

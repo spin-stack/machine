@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 70,
+  "date": "2026-11-21",
+  "change": "`direct-io` (O_DIRECT) on the channels",
+  "result": "within the noise evicted, +45 ms cached",
+  "shape": "laptop",
+  "source": "docs/log/2026-11-21-the-restore-into-a-qemu-started-ahead-taken.md"
+}

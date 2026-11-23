@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 20,
+  "date": "2026-11-19",
+  "change": "Fast snapshot load (mapped-ram and postcopy-ram on a `file:` URI) as the restore",
+  "result": "running at 38 ms, but the login at 293/325 instead of 152/161: every page touched is a fault served by one read. `LoadOptions.Fast` stays for large states",
+  "shape": "ladder",
+  "source": "lab 44585840498",
+  "runs": [
+    44585840498
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "memory",
+  "order": 60,
+  "date": "2026-10-01",
+  "change": "KSM, free page hinting, virtio-fs DAX",
+  "result": "security, correctness, unsupported",
+  "shape": "-",
+  "source": "docs/memory-and-disk.md"
+}

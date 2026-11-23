@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 40,
+  "date": "2026-09-10",
+  "change": "systemd-timesyncd",
+  "result": "SNTP only, no refclock",
+  "shape": "-",
+  "source": "`c7af4d3`"
+}

@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 90,
+  "date": "2026-11-22",
+  "change": "The user manager without the XDG autostart generator, on top of class `user-early` (#467)",
+  "result": "first login −4.8 [−11.2, +1.3], accept to login −3.7 [−7.5, −0.5] at 20 boots. Carried since #527, with root's manager in the boot: −3.8 [−6.2, −0.7] at 100 (\"What the machine carries\")",
+  "shape": "spin",
+  "source": "lab 45030778365",
+  "issues": [
+    467,
+    527
+  ],
+  "runs": [
+    45030778365
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 210,
+  "date": "2026-11-22",
+  "change": "logind, `user-runtime-dir@` and `user@` at `StartupCPUWeight=1000`, the units user@0's chain is (#553)",
+  "result": "−3.6 [−10.3, +0.6] at 40 boots (−9.2 [−16.1, −0.3] at 30 in a screening run of three arms, lab 45082870346). Accept to login −7.7, sshd accepting +8.8: logind and the manager come sooner and `sysinit.target` later, on the one vCPU",
+  "shape": "spin",
+  "source": "lab 45083184310",
+  "issues": [
+    553
+  ],
+  "runs": [
+    45082870346,
+    45083184310
+  ]
+}

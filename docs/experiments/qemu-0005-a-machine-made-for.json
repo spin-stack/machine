@@ -1,0 +1,15 @@
+{
+  "decision": "carried",
+  "order": 410,
+  "change": "QEMU 0005: a machine made for an incoming migration writes its TSC only from the migration, so KVM takes the checkpoint's TSC as given",
+  "where": "qemu/patches",
+  "result": "correctness: without it a guest saved with its tick running sleeps until its old TSC deadline, ~450 ms (#452). Alone it moves neither number: cold −3.0 [−5.8, +0.1], restored −1.9 [−7.6, +2.0]",
+  "evidence": "measured",
+  "source": "lab 44987412171",
+  "issues": [
+    452
+  ],
+  "runs": [
+    44987412171
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "qmp",
+  "order": 60,
+  "date": "2026-11-21",
+  "change": "QMP over vsock, SEQPACKET, ivshmem, virtio-serial, gRPC or protobuf framing",
+  "result": "QMP does not ride vsock: it is a Unix socket between the host and QEMU. vsock carries the login, and a login is 10 round trips of 47.8 µs (57.5 through the forwarder), 0.6 ms of a 32.8 ms warm login. Every vsock change shares that ceiling",
+  "shape": "spin",
+  "source": "the same"
+}

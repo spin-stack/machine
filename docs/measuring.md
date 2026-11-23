@@ -9,16 +9,17 @@ stand, where their time goes, and what was kept, rejected and is open are in
 1. Find the phase in `docs/boot-time.md`, "Where the time goes".
 2. Look the idea up in "Measured and rejected" and in "What the machine carries". An idea
    already there needs a new reason, not a new run.
-3. Write its row in "Open experiments" first: the phase, its p50, the ceiling, the rule that
-   decides it.
+3. Write its record in "Open experiments" first (`docs/experiments`, `"decision": "open"`): the
+   phase, its p50, the ceiling, the rule that decides it.
 4. Measure it with the rules below. The commands are in `docs/cli.md`, "Measuring".
-5. When it is decided, move the row: to "What the machine carries" when it is kept, or to
-   "Measured and rejected" when it is not. Then write its entry, dated and with its run, in `docs/log.md`.
+5. When it is decided, move the record: its `decision` becomes `carried` ("What the machine
+   carries") when it is kept, or `rejected` ("Measured and rejected") when it is not. Then write
+   its entry, dated and with its run, as a file of its own in `docs/log` (AGENTS.md says how).
 
 ## Follow the rules of a measurement
 
-1. **Write the budget entry first.** Before an experiment runs, write its row in "Open
-   experiments". Name the phase it attacks in `docs/boot-time.md`'s budget tables, the phase's p50 today, its
+1. **Write the budget entry first.** Before an experiment runs, write its record in "Open
+   experiments" (`docs/experiments`). Name the phase it attacks in `docs/boot-time.md`'s budget tables, the phase's p50 today, its
    ceiling (what the goal number gains if the phase cost nothing), and the result that would
    decide it. An experiment whose ceiling is under the noise needs more boots before it needs a
    run.
@@ -84,7 +85,7 @@ shape and login, v20261123.01, 40 a side, lab 45095349849, measured 2026-11-23).
 asked. The probes that save are `restore-first`, `prestart`, `restore-together`, `run-delay` and
 `transport`. `lab compat`'s checkpoint boots a shell as PID 1, with no systemd to finish. A
 restore measured before this rule saved at the login, so its numbers do not compare with one
-measured after (docs/log.md, 11-23).
+measured after (docs/log/2026-11-23-a-probe-saves-once-the-guests-boot-has.md).
 
 ## Boot charts
 

@@ -1,0 +1,13 @@
+{
+  "decision": "carried",
+  "order": 70,
+  "change": "QEMU 0001 (device creation in one memory transaction)",
+  "where": "qemu/patches",
+  "result": "restored +11.7 [+0.9, +19.3], running +6.8 [+1.2, +8.8]: a restore starts QEMU too; cold +0.2 [−8.7, +7.1]. With `pam.patch`, cold +11.5 [+6.7, +20.2] (group B, lab 44818953987)",
+  "evidence": "measured, 20 a side",
+  "source": "lab 44993254745",
+  "runs": [
+    44818953987,
+    44993254745
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "qmp",
+  "order": 50,
+  "date": "2026-11-21",
+  "change": "Smaller answers",
+  "result": "nothing large is on either path: `query-block` runs in 0.12 ms. The record's 125 KB answers left the restore's clock with `Resume(here)`",
+  "shape": "spin",
+  "source": "the same"
+}

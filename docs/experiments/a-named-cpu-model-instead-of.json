@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 20,
+  "date": "2026-11-21",
+  "change": "A named CPU model instead of `host`, for memories that resume on any host (`--cpu baseline`)",
+  "result": "the newest model a nested c8id runs is Cascadelake-Server-v5, not SapphireRapids or GraniteRapids; cold first login +27.2 [+13.0, +30.8], sshd accepting +23.1 [+9.7, +28.5], warm login and RSS unmoved; the cause is not measured. `host` with a pool's common features is the next candidate (spin-stack/spin#1417)",
+  "shape": "spin",
+  "source": "lab 44855890737",
+  "runs": [
+    44855890737
+  ]
+}

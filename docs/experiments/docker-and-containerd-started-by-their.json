@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 530,
+  "change": "docker and containerd started by their sockets, not at boot (deferred: the first `docker` command waits for them, docs/image.md)",
+  "where": "optimize-systemd.sh",
+  "result": "cold +13.9 [+11.4, +18.2], restored +55.7 [+12.0, +73.9], into prestarted +40.7 [+33.5, +59.0]",
+  "evidence": "measured",
+  "source": "lab 45034963004",
+  "runs": [
+    45034963004
+  ]
+}

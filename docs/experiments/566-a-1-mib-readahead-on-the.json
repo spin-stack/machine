@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 100,
+  "date": "2026-11-23",
+  "change": "A 1 MiB readahead on the root disk (`opt_io_size=524288` on virtio-blk), for fewer requests and so fewer notifications (#566)",
+  "result": "iowrite16 exits 895 → 927 (3 a side, lab 45098880914); first login +1.4 [−2.7, +8.0] at 40 a side. The boot's reads are not readahead-bound (inferred)",
+  "shape": "spin",
+  "source": "lab 45098879979, #592",
+  "issues": [
+    566
+  ],
+  "runs": [
+    45098879979,
+    45098880914
+  ]
+}

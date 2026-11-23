@@ -115,7 +115,8 @@ slower (7.6 s against 455 ms, lab 44848049631, 2026-11-21), and nothing chooses 
 | [docs/boot-time.md](docs/boot-time.md) | where the two goal numbers stand, where their time goes, and what was kept, rejected and is open |
 | [docs/measuring.md](docs/measuring.md) | how to measure a boot-time change: the steps, the rules a comparison follows, and the pitfalls |
 | [docs/releases.md](docs/releases.md) | each release's numbers, measured on the bench |
-| [docs/log.md](docs/log.md) | what was tried, when, why, and what it measured |
+| [docs/log](docs/log) | what was tried, when, why, and what it measured: one file an entry, `spin-machine-dev docs log` |
+| [docs/experiments](docs/experiments) | the rows of boot-time.md's tables, one record each, `spin-machine-dev docs tables` |
 | [docs/cli.md](docs/cli.md) | `spin-machine-dev`: building, verifying, measuring, releasing |
 | [docs/machine.md](docs/machine.md) | the definition: fixed slots, vmgenid, and the record a checkpoint is held to |
 | [docs/migration.md](docs/migration.md) | one VM moved to another host, and why the CPU model decides it |

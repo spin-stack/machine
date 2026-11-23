@@ -1,0 +1,9 @@
+---
+date: "2026-11-23"
+order: 440
+area: kernel
+title: 'the boot''s device-setup exits as one change: kernel 0021-0025 (#627, parts run 45256426877, labs 45260781177, 45261629539, this change)'
+issues: [590, 627, 645]
+runs: [45114405201, 45231943664, 45256426877, 45260781177, 45261629539]
+---
+*Why:* five patches each removed the VM exits their changelogs counted (#590, #591, #592), and none moved the first login alone; as a bound the five read −7.4 [−12.1, −2.8] at 60 a side (lab 45114405201). #627 asked whether "the boot's MMIO exits in device setup" is one change and, if so, for one arm at 120 a side, the set chosen before the run. *Changed:* the bound's five, from `archive/exp-batch2-bound`, as 0021-0025 after #645's 0014-0020; they apply to 7.3.6 with no fuzz. The build asserts each on its vmlinux (kernel/README.md); checkpatch `--strict` and sparse pass. 0022 keeps the risk #627 named: upstream a2f1e22390ac took out `pci_restore_state()`'s refusal of a state never saved, so its gate (AER, EEH, s390, Xen pcifront, `reset_root_port`) has to grow by hand with whatever calls error handlers next; it stayed in the set because the set was fixed before the run. *Measured* (bench, nested, spin's shape and login, against v20261123.07, interleaved): first login −9.4 [−14.2, −5.7], sshd accepting −9.5 [−14.4, −5.5], console prompt −10.4 [−14.2, −7.8], second login +0.3 [−0.1, +0.6], QEMU RSS −1.7 MiB [−1.8, −0.1], 120 a side (lab 45260781177). `restore-first`, 60 a side (lab 45261629539): restored login −0.4 [−2.0, +1.7] evicted and +0.2 [−6.6, +7.3] cached, the state +0.0 MiB [−0.1, +0.2], all within noise; its cold row −11.8 [−18.5, −3.2] evicted. The same set against v20261123.06 had read −9.2 [−12.2, −6.0] (lab 45231943664), before 7.3.6 and #645. *Status:* in place; reaches the goal number with the next release.

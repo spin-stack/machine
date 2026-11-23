@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 250,
+  "date": "2026-11-22",
+  "change": "Mask `sshd-socket-generator`, again on spin's path",
+  "result": "+0.8 [−4.0, +4.7] at 60 boots",
+  "shape": "spin",
+  "source": "the same"
+}

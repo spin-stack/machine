@@ -1,0 +1,14 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 130,
+  "date": "2026-11-22",
+  "change": "Root's manager cut to what a workspace could do without, a bound: both user generators, the PAM stack down to `pam_permit` and `pam_systemd`, `ssh-agent.socket` and `systemd-ask-password.socket` masked. Without the environment.d generator user services lose the bus's address (`10-user-sockets.conf`) and `/etc/environment`; without `pam_unix`, `pam_limits` and `pam_loginuid` the manager skips the account check, the limits and the audit login uid",
+  "result": "first login −9.6 [−13.3, −6.7] against v20261122.06, the ledger's ~10 ms of CPU for the same cuts. The XDG generator alone was carried; the rest is function",
+  "shape": "spin",
+  "source": "labs 45070150688, 45070208762",
+  "runs": [
+    45070150688,
+    45070208762
+  ]
+}

@@ -1,0 +1,9 @@
+---
+date: "2026-11-22"
+order: 180
+area: qemu, qboot, kernel
+title: 'every carried patch has a test that fails without it, and three are measured alone (labs 44993254745, 44993790452, 44993011539, 44993011448, #472, #481, #478)'
+prs: [478]
+runs: [44989641652, 44993011448, 44993011539, 44993254745, 44993790452]
+---
+A patch dropped at a bump, or rebased into applying and doing nothing, built and booted, and nothing said so: `patch --fuzz=0` refuses only a patch that no longer applies. *Built:* `verify args` asks the TCG QEMU what 0001-0004 do with no guest (`TestEachQEMUPatchDoesItsJob`): 163 flat views from QEMU's start to its first answer at spin's shape, a disk beyond `max_target` refused, a save's stop submitting one io_uring flush without `x-defer-disk-flush` and none with it, and `query-blockstats` without `parent` or `backing` under `x-flat`. `boot:patches`, which compat runs beside boot:record, asks a guest of spin's shape what only it sees: its SCSI host refuses a scan of target 16 (0002), the firmware enabled the MTRRs (qboot's `mtrr.patch`), and a guest restored 650 ms ahead of its new vCPU's TSC goes no more than 200 ms without a line (0005). On v20261122.01, before 0005, it went 625 ms (lab 44993011539); on v20261122.02, 12 ms (lab 44993011448). `kernel/Dockerfile` reads each kernel patch's effect in the vmlinux it built (#478). *Measured alone* (bench, spin's shape, `prestart`, against main's QEMU from parts run 44989641652): taking 0001 back read restored +11.7 [+0.9, +19.3] and cold +0.2 [−8.7, +7.1] (20 a side, lab 44993254745), so it earns on the restore. `pam.patch` read cold +3.9 [−3.4, +8.0] and `no-pci-walk.patch` +5.2 [−1.7, +9.2] (40 a side, lab 44993790452). Both are inside the noise with upper bounds over +5 ms, which rule 5 keeps. *Status:* every patch kept.

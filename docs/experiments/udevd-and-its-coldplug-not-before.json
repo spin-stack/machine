@@ -1,0 +1,13 @@
+{
+  "decision": "carried",
+  "order": 390,
+  "change": "udevd and its coldplug not before sysinit.target (copies of the units without that line), so basic.target does not wait for udevd's start at the lowest weight",
+  "where": "configure-system.sh",
+  "result": "cold −48.6 [−51.7, −42.6], restored −2.0 [−8.0, +4.7] p95 114 against 114, cached p95 126 against 128, with QEMU 0005, 30 a side; prestart cold −44.7 [−53.4, −39.4], restored into prestarted −1.3 [−4.1, +3.6] p95 98.8 against 101. Without 0005 the restored p95 is 539-548",
+  "evidence": "measured",
+  "source": "labs 44987412171, 44987412210",
+  "runs": [
+    44987412171,
+    44987412210
+  ]
+}

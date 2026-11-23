@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 40,
+  "date": "2026-09-07",
+  "change": "`cache=none` on disks",
+  "result": "breaks the shared base's caching, fails on tmpfs",
+  "shape": "-",
+  "source": "`8b7391a`"
+}

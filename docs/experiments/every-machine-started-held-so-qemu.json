@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 170,
+  "change": "Every machine started held, so QEMU can start ahead",
+  "where": "machine",
+  "result": "the \"QEMU started ahead\" rows: ~28 ms cold, ~25 restored",
+  "evidence": "measured",
+  "source": "report 44811347183",
+  "runs": [
+    44811347183
+  ]
+}

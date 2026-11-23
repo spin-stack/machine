@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 150,
+  "change": "ICH9 `sata=off`, `smbus=off`",
+  "where": "machine",
+  "result": "kernel to init 62.3 → 60.6 (09-08)",
+  "evidence": "laptop, 400 boots",
+  "source": "`fa1803f`"
+}

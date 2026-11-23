@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 210,
+  "change": "The read-ahead asked for by four goroutines, each every fourth 128 KiB piece",
+  "where": "machine",
+  "result": "restored −6.2 [−9.1, −4.3] evicted against one goroutine, cached −0.5 [−1.6, +1.9]",
+  "evidence": "measured, 30 a side",
+  "source": "lab 44976924478",
+  "runs": [
+    44976924478
+  ]
+}

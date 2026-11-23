@@ -1,0 +1,13 @@
+{
+  "decision": "carried",
+  "order": 400,
+  "change": "The boot's default target holds only what the first login needs (`spin-machine-login.target`), and `multi-user.target` starts once its units are up (`spin-machine-boot-rest.service`, `Type=idle`)",
+  "where": "image, docs/image.md \"The first login's target\"",
+  "result": "first login −21.5 [−26.4, −15.5], sshd accepting −10.0 [−16.2, −3.7], accept to login −10.7 [−12.9, −8.2], second login +0.0 [−0.8, +0.6]; restored +1.1 [−6.0, +5.2] evicted, +2.2 [−10.6, +12.9] cached. The console prompt +15.5 [+11.5, +19.0], since the getty now follows the login: nothing a workspace does waits for it. With spin's supervisor off `basic.target` (spin-stack/spin#1653) the first login −45.3 [−50.2, −39.4] but the second +43.7 [+41.1, +46.1]",
+  "evidence": "measured, v20261123.02, 40 a side",
+  "source": "labs 45098372930, 45098372897",
+  "runs": [
+    45098372897,
+    45098372930
+  ]
+}

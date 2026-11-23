@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 60,
+  "date": "2026-11-20",
+  "change": "16 multifd channels as the default",
+  "result": "−10.1 alone, but +3.2 [+1.1, +5.8] against 8 when 4 restore at once",
+  "shape": "spin",
+  "source": "lab 44792429636",
+  "runs": [
+    44792429636
+  ]
+}

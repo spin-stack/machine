@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 310,
+  "date": "2026-11-23",
+  "change": "virtio-pci's vendor capabilities walked once per device (#591 b, a kernel patch on branch `exp/591b-virtio-caps-once`)",
+  "result": "114 MMIO exits fewer (3 a side, lab 45113437048). The first login −5.8 [−8.2, −0.6] at 60 a side (lab 45114405201), three times what 114 exits can cost, and +0.9 [−1.8, +2.7] at 120 (lab 45115330128)",
+  "shape": "spin",
+  "source": "labs 45113437048, 45114405201, 45115330128",
+  "issues": [
+    591
+  ],
+  "runs": [
+    45113437048,
+    45114405201,
+    45115330128
+  ]
+}

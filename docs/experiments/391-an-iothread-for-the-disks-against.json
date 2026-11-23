@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "qmp",
+  "order": 80,
+  "date": "2026-11-23",
+  "change": "An `iothread=` for the disks, against QMP stalls beside a guest's synced writes on a busy host disk (#391)",
+  "result": "no stall to take off the monitor: 2,400 query-status round trips beside 4 KiB `oflag=dsync` writes, with the scratch NVMe idle, 99-100% busy with O_DIRECT writes and 100% busy through the page cache, never took more than 1.2 ms (p50 0.24-0.56 ms), while the guest's writes fell from ~115,000 to 1,500-3,100 in the row. The laptop's 175-950 ms was QEMU's main thread blocked in the host, by #402 in reclaim, the mmap lock or a cgroup throttle, which an iothread does not move",
+  "shape": "spin",
+  "source": "labs 45111443524, 45112573850, `stall` probe archived as `archive/qmp-stall-391`",
+  "issues": [
+    391,
+    402
+  ],
+  "runs": [
+    45111443524,
+    45112573850
+  ]
+}

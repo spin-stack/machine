@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 10,
+  "date": "2026-11-13",
+  "change": "mapped-ram with multifd ×4, 11-13",
+  "result": "not comparable by its own run's log; channels were measured again on 11-20 and kept",
+  "shape": "ladder",
+  "source": "#246, lab 43483852339",
+  "runs": [
+    43483852339
+  ]
+}

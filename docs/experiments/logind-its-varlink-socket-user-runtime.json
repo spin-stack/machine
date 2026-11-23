@@ -1,0 +1,13 @@
+{
+  "decision": "carried",
+  "order": 420,
+  "change": "logind, its Varlink socket, `user-runtime-dir@`, `user@` without default dependencies; `dbus.socket` without sysinit",
+  "where": "image drop-ins, configure-system.sh",
+  "result": "cold +16.5 [+9.8, +20.4], prestarted +11.0 [+6.2, +18.8], restored in noise; lane 478 → 402 (11-13)",
+  "evidence": "measured",
+  "source": "lab 45034963004, lab 43518915618",
+  "runs": [
+    43518915618,
+    45034963004
+  ]
+}

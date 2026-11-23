@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 210,
+  "date": "2026-11-20",
+  "change": "The bzImage's decompression made cheaper, in general",
+  "result": "~21 ms before the kernel's clock with the bzImage against PVH; most of it is the copy and relocation KASLR needs, and KASLR stays. No candidate left",
+  "shape": "spin",
+  "source": "lab 44787491631",
+  "runs": [
+    44787491631
+  ]
+}

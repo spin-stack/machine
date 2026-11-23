@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "memory",
+  "order": 50,
+  "date": "2026-10-01",
+  "change": "A second limit (`memory.high`)",
+  "result": "`memory.max` suffices",
+  "shape": "-",
+  "source": "docs/memory-and-disk.md"
+}

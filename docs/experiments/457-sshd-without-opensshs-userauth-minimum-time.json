@@ -1,0 +1,16 @@
+{
+  "decision": "carried",
+  "order": 490,
+  "change": "sshd without OpenSSH's userauth minimum time on a login: a request that authenticated, or a public key query answered with `PK_OK`, does not wait; a failure still does (#457)",
+  "where": "image/openssh",
+  "result": "restored −13.6 [−14.9, −9.8] evicted, −13.6 [−16.2, −11.4] cached; cold −9.4 [−15.8, −2.6], the second login −10.9 [−12.3, −9.0]",
+  "evidence": "measured, 30 a side",
+  "source": "labs 44983986606, 44983986575",
+  "issues": [
+    457
+  ],
+  "runs": [
+    44983986575,
+    44983986606
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 50,
+  "date": "2026-10-01",
+  "change": "Overlay O_DIRECT",
+  "result": "small reads 1490 vs 530 ms",
+  "shape": "runner",
+  "source": "docs/memory-and-disk.md"
+}

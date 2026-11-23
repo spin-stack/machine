@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 50,
+  "date": "2026-09-26",
+  "change": "19 udev rules masked; loop and 8250 counts as command-line parameters",
+  "result": "0 to the console prompt",
+  "shape": "runner",
+  "source": "`e2f6b8f`"
+}

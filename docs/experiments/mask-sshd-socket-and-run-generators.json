@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 140,
+  "date": "2026-11-13",
+  "change": "Mask sshd-socket- and run-generators",
+  "result": "login 489, no change",
+  "shape": "ladder",
+  "source": "lab 43483372488",
+  "runs": [
+    43483372488
+  ]
+}

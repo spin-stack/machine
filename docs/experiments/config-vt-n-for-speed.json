@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 80,
+  "date": "2026-09-26",
+  "change": "`CONFIG_VT=n` for speed",
+  "result": "0 to login; 0.31 ms of kernel",
+  "shape": "runner",
+  "source": "`e2f6b8f`, `9b5f0dd`"
+}

@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 100,
+  "date": "2026-09-26",
+  "change": "COMPACTION off",
+  "result": "impossible: virtio-mem needs CONTIG_ALLOC",
+  "shape": "-",
+  "source": "`cda04b1`"
+}

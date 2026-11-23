@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 270,
+  "change": "`quiet`, `loglevel=3`, `panic=1`, `net.ifnames=0`, `biosdevname=0`, cgroup v2, `memhp_default_state`",
+  "where": "machine/cmdline.go",
+  "result": "console, function",
+  "evidence": "-",
+  "source": "-"
+}

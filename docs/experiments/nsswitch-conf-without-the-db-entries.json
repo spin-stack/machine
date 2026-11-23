@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 310,
+  "date": "2026-11-22",
+  "change": "`nsswitch.conf` without the `db` entries libnss-db would serve (kept since 09, never measured); reverted to Ubuntu's",
+  "result": "taking it back +0.8 [−8.4, +5.2] cold, restored in noise",
+  "shape": "spin",
+  "source": "lab 45034963004",
+  "runs": [
+    45034963004
+  ]
+}

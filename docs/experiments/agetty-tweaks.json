@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 20,
+  "date": "2026-09-10",
+  "change": "agetty tweaks (TTYReset, --noissue, --delay 0, …)",
+  "result": "within the noise of agetty's sleep(1)",
+  "shape": "runner",
+  "source": "`80f984b`"
+}

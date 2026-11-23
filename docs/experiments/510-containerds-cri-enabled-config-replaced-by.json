@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 330,
+  "date": "2026-11-23",
+  "change": "containerd's CRI-enabled config replaced by containerd.io's own (#510); reverted to the package's",
+  "result": "first login −4.9 [−12.2, +1.6] at 20 boots, restored login −0.6 [−2.1, +1.5] evicted: containerd starts at the first docker command, after the login",
+  "shape": "spin",
+  "source": "labs 45111391250, 45112037022",
+  "issues": [
+    510
+  ],
+  "runs": [
+    45111391250,
+    45112037022
+  ]
+}

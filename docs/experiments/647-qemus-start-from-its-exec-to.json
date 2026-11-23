@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 110,
+  "date": "2026-11-23",
+  "change": "QEMU's start from its exec to its first trace event made cheaper (#647)",
+  "result": "9.7 ms on bench (lab 45177818419), no part of it over ~2 ms. The release's QEMU is static-pie on musl, so there is no dynamic loader to time (`LD_DEBUG` reads nothing): musl relocates its 59,700 relative relocations itself. On the laptop the phase read 4.7-5.4 ms p50, 40 starts each: a trivial static-pie binary's exec 0.23, QEMU's `-version` (exec, relocation, constructors, QOM type registration, the first options) 2.0, `-sandbox` dropped −0.7 to −0.9 (libseccomp builds its filter at run time), and the rest is option parsing, the trace's and the main loop's start and the machine object up to its first address space. perf over 200 `-version` runs: the relocation 7% of it, the kernel's page faults (copy-on-write, file fault-around, zeroing) ~15%, nothing else over 2%. From exec to held, malloc (musl's mallocng) is ~2.3 of 17 ms of the main thread's CPU. Candidates and their ceilings, each inferred at ~2× the laptop on bench: a filter compiled at build time as Firecracker's seccompiler does, ≤~1.5 ms; a non-PIE binary, no relocation and fewer copy-on-write faults, ≤~1 ms and it gives up ASLR of QEMU's image; DT_RELR, ≤~0.3 ms. Every one is under the ±4-5 ms that 60 boots a side resolve, so none was built. Another allocator is a lead across all of QEMU's start, not this phase (#669)",
+  "shape": "spin, laptop",
+  "source": "lab 45177818419, #647",
+  "issues": [
+    647,
+    669
+  ],
+  "runs": [
+    45177818419
+  ]
+}

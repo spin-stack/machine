@@ -1,0 +1,20 @@
+{
+  "decision": "carried",
+  "order": 30,
+  "change": "Kernel 0021-0025, the boot's device-setup exits as one change (#627): the IOAPIC table read once (#590), the state save at add only where error recovery can restore it (#591 a), virtio-pci's vendor capabilities walked once (#591 b), `queue_select` written only on a change and an unchanged MSI message not rewritten (#592). 0022's gate has to grow with whatever calls error handlers next (its changelog). Alone each was within noise (\"Measured and rejected\")",
+  "where": "kernel/patches",
+  "result": "against v20261123.07: first login −9.4 [−14.2, −5.7], sshd accepting −9.5 [−14.4, −5.5], 120 a side (lab 45260781177); restored −0.4 [−2.0, +1.7] evicted and +0.2 [−6.6, +7.3] cached, the state +0.0 MiB [−0.1, +0.2], 60 a side (lab 45261629539); 838 exits fewer, 366 of them MMIO (3 a side, lab 45114428660)",
+  "evidence": "measured",
+  "source": "labs 45260781177, 45261629539",
+  "issues": [
+    590,
+    591,
+    592,
+    627
+  ],
+  "runs": [
+    45114428660,
+    45260781177,
+    45261629539
+  ]
+}

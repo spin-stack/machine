@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 50,
+  "date": "2026-09-10",
+  "change": "`CONFIG_XFRM=n`",
+  "result": "moves BTF's 9 ms first parse elsewhere",
+  "shape": "runner",
+  "source": "`e285dec`"
+}

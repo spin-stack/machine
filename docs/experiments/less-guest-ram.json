@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 30,
+  "date": "2026-09-10",
+  "change": "Less guest RAM (512 MiB)",
+  "result": "1241 vs 1256 ms, nothing",
+  "shape": "runner",
+  "source": "`80f984b`"
+}

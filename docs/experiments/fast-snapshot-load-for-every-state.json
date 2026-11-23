@@ -1,0 +1,19 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 30,
+  "date": "2026-11-22",
+  "change": "Fast snapshot load for every state, the caller's choice (`LoadOptions.Fast`, spin's `fast_load`)",
+  "result": "login +394 [+388, +420] at 179 MiB of data, +103 at 1.2 GiB, −129 at 1.7 GiB, −2615 at 7.3 GiB. Replaced by the machine's choice above 1.5 GiB (#470)",
+  "shape": "spin, touched",
+  "source": "labs 45034868686, 45035462478, 45034881876, 45034881366",
+  "issues": [
+    470
+  ],
+  "runs": [
+    45034868686,
+    45034881366,
+    45034881876,
+    45035462478
+  ]
+}

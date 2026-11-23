@@ -1,0 +1,16 @@
+{
+  "decision": "carried",
+  "order": 460,
+  "change": "Root's manager without the XDG autostart generator, which turns a graphical session's `.desktop` files into user units (#527)",
+  "where": "optimize-systemd.sh",
+  "result": "first login −3.8 [−6.2, −0.7], accept to login −6.1 [−9.0, −0.3], 100 boots a side; restored −1.7 [−4.4, +2.2] evicted, in noise",
+  "evidence": "measured",
+  "source": "labs 45070150688, 45070973943",
+  "issues": [
+    527
+  ],
+  "runs": [
+    45070150688,
+    45070973943
+  ]
+}

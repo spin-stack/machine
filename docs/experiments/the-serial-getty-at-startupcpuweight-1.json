@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 110,
+  "date": "2026-11-22",
+  "change": "The serial getty at `StartupCPUWeight=1`, out of the first login's way",
+  "result": "+2.7 [−4.3, +7.9] at 60 boots",
+  "shape": "spin",
+  "source": "lab 44977226981",
+  "runs": [
+    44977226981
+  ]
+}

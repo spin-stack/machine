@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "memory",
+  "order": 20,
+  "date": "2026-10-01",
+  "change": "DAMON_RECLAIM, MGLRU eviction",
+  "result": "slower, or not selective",
+  "shape": "runner",
+  "source": "docs/memory-and-disk.md"
+}

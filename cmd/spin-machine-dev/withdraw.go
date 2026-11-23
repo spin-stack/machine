@@ -259,7 +259,7 @@ func openRegression(ctx context.Context, c *cobra.Command, r lab.Record, worse [
 	body := r.Release + "'s " + strings.Join(worse, "; ") + " against " + r.Against.Release + ", " + where + ". " +
 		"Each interval is wholly above 0: slower, beyond noise. That is a regression by docs/releasing.md, " +
 		"\"Withdrawing a release\".\n\n" +
-		"At 20 boots a side about 1 in 40 such flags of a number is noise, and a cost docs/log.md records as accepted " +
+		"At 20 boots a side about 1 in 40 such flags of a number is noise, and a cost the log (docs/log) records as accepted " +
 		"(a correctness change) is no regression. Decide which, and either close this saying why, or withdraw the release:\n\n" +
 		"```\ngh workflow run withdraw.yml -R " + repo + " -f tag=" + r.Release + " -f reason=\"...\" -f issue=THIS\n```\n\n" +
 		"A measurement again, if the flag may be noise: `gh workflow run report.yml -R " + repo + " -f versions=" + r.Release + "`.\n\n" +

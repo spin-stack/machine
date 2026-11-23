@@ -1,0 +1,14 @@
+{
+  "decision": "carried",
+  "order": 280,
+  "change": "systemd built from Ubuntu's source with the `stage1` profile",
+  "where": "image/systemd",
+  "result": "first login −47, −38, −47: no BPF verifier in PID 1",
+  "evidence": "ladder",
+  "source": "labs 44531842773, 44537549305, 44538877783",
+  "runs": [
+    44531842773,
+    44537549305,
+    44538877783
+  ]
+}

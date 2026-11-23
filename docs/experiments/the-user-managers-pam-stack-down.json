@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 110,
+  "date": "2026-11-22",
+  "change": "The user manager's PAM stack down to `pam_permit` and `pam_systemd`, a bound",
+  "result": "first login −3.5 [−11.4, +2.5] against class `user-early`",
+  "shape": "spin",
+  "source": "lab 45030778365",
+  "runs": [
+    45030778365
+  ]
+}

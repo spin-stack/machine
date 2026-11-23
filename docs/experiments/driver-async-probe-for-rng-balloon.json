@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 230,
+  "date": "2026-11-21",
+  "change": "`driver_async_probe` for rng, balloon and vsock; `rcupdate.rcu_expedited=1` (carried since 11-13 and 09-07)",
+  "result": "taken back −1.4 [−4.9, +3.1]: one vCPU has no second CPU to probe on. Deleted",
+  "shape": "spin",
+  "source": "lab 44818953987, #352",
+  "runs": [
+    44818953987
+  ]
+}

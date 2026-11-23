@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 220,
+  "date": "2026-11-22",
+  "change": "`spin-machine-sshd-keygen` and `systemd-udev-load-credentials` at `StartupCPUWeight=1` (#553)",
+  "result": "sshd accepting +22.6 [+15.9, +33.5], first login +3.4 [−3.2, +14.6] at 30 boots: ssh.service waits for the keygen, and the forwarder for ssh.service. With the arm above, first login +6.0 [+0.5, +15.1]",
+  "shape": "spin",
+  "source": "lab 45082870346",
+  "issues": [
+    553
+  ],
+  "runs": [
+    45082870346
+  ]
+}

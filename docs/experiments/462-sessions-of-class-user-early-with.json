@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 70,
+  "date": "2026-11-22",
+  "change": "Sessions of class `user-early` with the manager started inside the login (#462). Kept since with root lingering (#467, \"What the machine carries\")",
+  "result": "first login +36.2 [+32.0, +45.7], accept to login +39.5; restored +0.5 [−3.0, +3.8]",
+  "shape": "spin",
+  "source": "lab 44987167474, 44987167549",
+  "issues": [
+    462,
+    467
+  ],
+  "runs": [
+    44987167474,
+    44987167549
+  ]
+}

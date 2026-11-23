@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 60,
+  "change": "qboot instead of SeaBIOS",
+  "where": "qemu, `machine.DefaultBIOS`",
+  "result": "cold +68.5 [+62.7, +71.7]",
+  "evidence": "group F",
+  "source": "lab 44818953987",
+  "runs": [
+    44818953987
+  ]
+}

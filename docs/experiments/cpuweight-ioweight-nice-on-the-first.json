@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 30,
+  "date": "2026-11-13",
+  "change": "CPUWeight/IOWeight/Nice on the first login's lane",
+  "result": "−2 ms over the filtered coldplug; second login 63 vs 45",
+  "shape": "lane",
+  "source": "lab 43518915618",
+  "runs": [
+    43518915618
+  ]
+}

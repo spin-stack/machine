@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 90,
+  "change": "QEMU 0002, virtio-scsi `max_target`, which spin-machine passes",
+  "where": "qemu/patches, machine",
+  "result": "cold −8.9 [−15.5, −0.9] when it came in",
+  "evidence": "measured",
+  "source": "lab 44788216590",
+  "runs": [
+    44788216590
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 120,
+  "date": "2026-11-22",
+  "change": "Mask four varlink sockets nothing uses (factory-reset, mute-console, sysext, creds)",
+  "result": "−0.8 [−4.8, +4.3] at 60 boots",
+  "shape": "spin",
+  "source": "the same"
+}

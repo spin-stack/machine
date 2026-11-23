@@ -1,0 +1,9 @@
+{
+  "decision": "open",
+  "order": 40,
+  "change": "What functional items cost, last measured on another machine: BPF JIT and BTF (+21.4 ms to \"Freeing\", 09-07, a vmlinux through PVH, before the ftrace patches), lockdown at confidentiality (nothing told from noise, 10-01, a host at load 6-10)",
+  "number": "cold",
+  "phase": "a few ms each, unknown in spin's shape",
+  "decided_by": "`ssh-first` with a `--kernel` built without each, 20 boots",
+  "state": "open. They stay for function, so a number says what they cost and decides nothing"
+}

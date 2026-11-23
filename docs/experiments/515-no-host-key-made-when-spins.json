@@ -1,0 +1,16 @@
+{
+  "decision": "carried",
+  "order": 480,
+  "change": "No host key made when spin's handoff has placed its own at `/run/spin/ssh/ssh_host_ed25519_key` (#515)",
+  "where": "spin-machine-sshd-keygen.service",
+  "result": "first login −6.9 [−9.6, −2.4], sshd accepting −6.8 [−10.4, −1.8], 120 a side, both arms with `--edit spin-handoff`; restored in noise, 20 a side. Prior art: RHEL's cloud-init conditions `sshd-keygen@` off while it provisions the keys (git.centos.org rpms/cloud-init, `ci-Inhibit-sshd-keygen-.service-if-cloud-init-is-active.patch`), for function and unmeasured",
+  "evidence": "measured",
+  "source": "labs 45086250796, 45085877238",
+  "issues": [
+    515
+  ],
+  "runs": [
+    45085877238,
+    45086250796
+  ]
+}

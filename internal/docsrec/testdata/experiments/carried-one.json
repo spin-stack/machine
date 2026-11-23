@@ -1,0 +1,11 @@
+{
+  "decision": "carried",
+  "order": 10,
+  "change": "Kernel patch 0001 (#5)",
+  "where": "kernel/patches",
+  "result": "cold −7.0 [−9.0, −5.0]",
+  "evidence": "measured",
+  "source": "lab 45000000001",
+  "issues": [5],
+  "runs": [45000000001]
+}

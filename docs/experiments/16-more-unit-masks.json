@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 340,
+  "change": "16 more unit masks (journal-flush, fsck-root, modules-load, pstore, random-seed, four modprobe@, …)",
+  "where": "optimize-systemd.sh",
+  "result": "cold +57.5 [+49.0, +63.0]",
+  "evidence": "group C-masks",
+  "source": "lab 44818953987",
+  "runs": [
+    44818953987
+  ]
+}

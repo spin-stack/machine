@@ -1,0 +1,14 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 90,
+  "date": "2026-11-19",
+  "change": "QEMU copies the kernel's ELF segments on threads",
+  "result": "laptop QEMU start 30.9 → 21.6; nested it adds nothing",
+  "shape": "ladder",
+  "source": "labs 44580080420, 44581350077, #290",
+  "runs": [
+    44580080420,
+    44581350077
+  ]
+}

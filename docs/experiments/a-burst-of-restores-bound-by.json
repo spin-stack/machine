@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "memory",
+  "order": 80,
+  "date": "2026-11-21",
+  "change": "A burst of restores bound by host CPU0",
+  "result": "no: busy time, interrupts and QEMU's threads spread over all 16 CPUs, and irqbalance runs",
+  "shape": "spin",
+  "source": "lab 44817486118",
+  "runs": [
+    44817486118
+  ]
+}
