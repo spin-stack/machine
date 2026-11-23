@@ -367,10 +367,14 @@ func TestAVersionIsGivenOrTheNextOfToday(t *testing.T) {
 	}
 }
 
-// The traceable kernel's name is what the lab of a later commit asks an earlier release for, and
-// says lab-only to whoever reads the release's files.
+// The traceable kernel's names are what the lab of a later commit asks an earlier release for, and
+// say lab-only to whoever reads the release's files: the vmlinux a release publishes from #697 on,
+// and the bzImage the releases before it did.
 func TestTheTraceableKernelIsPublishedUnderAName(t *testing.T) {
-	if got, want := TraceableKernel("v20261123.01"), "spin-machine-v20261123.01-linux-x86_64.lab-only-traceable.bzImage"; got != want {
-		t.Errorf("TraceableKernel = %q, want %q", got, want)
+	if got, want := TraceableVmlinux("v20261123.08"), "spin-machine-v20261123.08-linux-x86_64.lab-only-traceable.vmlinux"; got != want {
+		t.Errorf("TraceableVmlinux = %q, want %q", got, want)
+	}
+	if got, want := TraceableBzImage("v20261123.01"), "spin-machine-v20261123.01-linux-x86_64.lab-only-traceable.bzImage"; got != want {
+		t.Errorf("TraceableBzImage = %q, want %q", got, want)
 	}
 }

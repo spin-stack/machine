@@ -16,6 +16,8 @@ import (
 	"time"
 
 	xssh "golang.org/x/crypto/ssh"
+
+	"github.com/spin-stack/machine/machine"
 )
 
 // ledgerName is the edit a tree carries to be accounted for, and the probe that accounts for it.
@@ -132,12 +134,12 @@ func (ledgerProbe) Needs(o Options) []Need {
 func (ledgerProbe) Metrics() []Metric {
 	return []Metric{
 		{"first_login", "ms", "the first login, /usr/bin/true, from the moment before QEMU is exec'd, with the trace running"},
-		{"kernel_zero", "ms", "where the kernel's clock read 0, from the same moment: QEMU, the firmware and the kernel's decompression"},
+		{"kernel_zero", "ms", "where the kernel's clock read 0, from the same moment: QEMU, the firmware and the kernel's entry"},
 		{"kernel_zero_error", "ms", "kernel_zero's uncertainty, half its narrowest bracket"},
 		{"monotonic_lag", "ms", "CLOCK_MONOTONIC, the trace's and the journal's clock, behind the kernel's sched clock: what it lost on jiffies"},
 		{"before_qemu", "ms", "kernel_zero's first part: spin-machine, from the same moment to its exec of QEMU"},
 		{"qemu_start", "ms", "kernel_zero's second part: QEMU's start and the held start, from its exec to the guest's first instruction"},
-		{"guest_to_zero", "ms", "kernel_zero's third part: the firmware, the bzImage's decompression and the kernel's setup, to the kernel's clock"},
+		{"guest_to_zero", "ms", "kernel_zero's third part: the firmware, the kernel's entry (through PVH, or a bzImage's decompression) and its setup, to the kernel's clock"},
 		{"qemu_exec_error", "ms", "before_qemu's uncertainty, half the bracket the host's polling put QEMU's exec in"},
 		{"pid1", "ms", "PID 1's exec of init, on the kernel's clock"},
 		{"handoff", "ms", "spin's handoff as login=spin stands in for it, from its exec as PID 1 to its exec of systemd; 0 on the lane"},
@@ -165,6 +167,10 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	}
 	if m.Keep == "" {
 		return fmt.Errorf("the ledger probe keeps its ledgers, and the experiment names no directory to keep them in")
+	}
+	kernel, err := m.Tree.Kernel()
+	if err != nil {
+		return err
 	}
 	overlay, err := m.Overlay("overlay.qcow2", m.Key.Edits()...)
 	if err != nil {
@@ -245,6 +251,7 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	if err != nil {
 		return Miss("no ledger, %d events dropped by the buffer: %v", dropped, err)
 	}
+	l.PVH = machine.PVH(kernel) == nil
 	b, err := json.MarshalIndent(l, "", "  ")
 	if err != nil {
 		return fmt.Errorf("writing the ledger: %w", err)

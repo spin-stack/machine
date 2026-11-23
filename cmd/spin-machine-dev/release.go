@@ -160,9 +160,11 @@ func releaseTraceableKernelCmd() *cobra.Command {
 		Long: `Build the release's kernel (as build kernel does, into _output) and a second one from the same
 source and config with lockdown forced to none instead of confidentiality, into _output/traceable,
 then hold the second's config to the first's: that one option swapped and every other as the
-release has it. Its bzImage is put in _output/release as the release's traceable kernel, to be
-signed and published beside the release for the lab's ledger, which reads a scheduler trace that
-lockdown takes away (kernel/README.md). It enters no tarball and nothing spin boots.`,
+release has it. Its vmlinux, which build verified as the release's (both Xen notes and a filled
+.data.reloc), is put in _output/release as the release's traceable kernel, to be signed and
+published beside the release for the lab's ledger, which reads a scheduler trace that lockdown
+takes away (kernel/README.md), and boots it through PVH as the release boots its own (#697). It
+enters no tarball and nothing spin boots.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			w, err := open()
@@ -188,11 +190,11 @@ lockdown takes away (kernel/README.md). It enters no tarball and nothing spin bo
 			if err := build.TraceableConfig(filepath.Join(o.Out, "kernel", "kernel-config"), filepath.Join(t.Out, "kernel", "kernel-config")); err != nil {
 				return couldNot(err)
 			}
-			to := filepath.Join(w.out, "release", release.TraceableKernel(version))
+			to := filepath.Join(w.out, "release", release.TraceableVmlinux(version))
 			if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 				return couldNot(fmt.Errorf("making %s: %w", filepath.Dir(to), err))
 			}
-			if err := copyFile(filepath.Join(t.Out, "kernel", "bzImage"), to); err != nil {
+			if err := copyFile(filepath.Join(t.Out, "kernel", "vmlinux"), to); err != nil {
 				return couldNot(err)
 			}
 			say(c, "✓ %s", to)
@@ -419,7 +421,7 @@ func sign(ctx context.Context, c *cobra.Command, dir, predicate, identity string
 			"--certificate-identity", identity, "--certificate-oidc-issuer", release.OIDCIssuer)
 	}
 	var files []string
-	for _, g := range []string{"*.tar.gz", "*.tar.gz.sha256", "machine.env", "*.cdx.json", release.TraceableKernel("*")} {
+	for _, g := range []string{"*.tar.gz", "*.tar.gz.sha256", "machine.env", "*.cdx.json", release.TraceableVmlinux("*")} {
 		found, _ := filepath.Glob(filepath.Join(dir, g))
 		files = append(files, found...)
 	}
@@ -451,7 +453,7 @@ func sign(ctx context.Context, c *cobra.Command, dir, predicate, identity string
 	}
 	for _, g := range []struct{ require, except []string }{
 		{[]string{"provenance"}, nil},
-		{[]string{"cdx"}, []string{"*.sha256", "machine.env", "*.cdx.json", release.TraceableKernel("*")}},
+		{[]string{"cdx"}, []string{"*.sha256", "machine.env", "*.cdx.json", release.TraceableVmlinux("*")}},
 	} {
 		missing, err := attestgate.Files(dir, g.require, g.except)
 		if err != nil {
