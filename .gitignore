@@ -6,3 +6,8 @@ coverage.html
 
 # Agent worktrees, made inside the repository by Claude Code.
 .claude/worktrees/
+
+# What a plain `go build ./cmd/...` leaves at the root; spin-machine-dev build puts them in _output/bin.
+/spin-machine-dev
+/spin-machine
+/spin-machine-pressure
