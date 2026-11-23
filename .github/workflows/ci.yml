@@ -38,34 +38,6 @@ env:
   GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
-  # What the machine parses from outside, a checkpoint's record and QMP's replies, fuzzed for a
-  # minute a target (task fuzz, #653). An input that fails is kept as the run's artifact: commit
-  # it under the package's testdata/fuzz with the fix, and go test runs it from then on.
-  fuzz:
-    name: Fuzz
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Fuzz each target
-        run: go tool task fuzz
-
-      - name: Keep the failing inputs
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: fuzz-failures
-          path: "**/testdata/fuzz/"
-          if-no-files-found: ignore
-
   gate:
     # The check main's ruleset requires, named Gate in every spin-stack repository.
     name: Gate

@@ -1,0 +1,77 @@
+name: Fuzz
+
+# What the machine parses from outside, a checkpoint's record and QMP's replies, fuzzed for a
+# minute a target (task fuzz, #653). Once a day on main, and by hand. Not on a pull request: it is
+# an exploration for inputs nobody has tried, ~4.5 minutes, and it ran on every pull request,
+# markdown ones too. An input that once failed is committed under the package's testdata/fuzz with
+# its fix, and go test, in ci.yml's gate, runs it on every pull request from then on. A failed run
+# keeps its failing inputs as the run's artifact and opens an issue, because a red scheduled run is
+# seen by nobody.
+
+on:
+  schedule:
+    - cron: "47 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz
+  cancel-in-progress: false
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Fuzz each target
+        run: go tool task fuzz
+
+      - name: Keep the failing inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-failures
+          path: "**/testdata/fuzz/"
+          if-no-files-found: ignore
+
+  # A failed day is an issue, opened once a day: the run's log and artifact say which input.
+  report:
+    needs: [fuzz]
+    if: ${{ failure() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Open an issue for the failed run
+        run: spin-machine-dev failed Fuzz --run "$RUN"

@@ -201,4 +201,4 @@ jobs:
         run: go tool task bin
 
       - name: Open an issue for the failed analysis
-        run: spin-machine-dev patched failed --run "$RUN"
+        run: spin-machine-dev failed CodeQL --run "$RUN"
