@@ -157,16 +157,17 @@ tasks:
       The pressure probe on a real guest: this checkout's sender in a disposable root, a guest of
       one vCPU put under each pressure in turn (its CPU short, the host's hogs on its vCPU's core,
       its disk, its memory, an OOM, then cpu.max, memory.high and io.max set on QEMU's cgroup),
-      and each phase checked for the Pressure that names it and Usage for counters that moved;
-      and the sender alone on this host, its CPU overloaded and a cgroup made to kill. Runs as
-      root through sudo, for the host's triggers and the cgroup QEMU runs in. Needs a built
+      and each phase checked for the Pressure that names it and Usage for counters that moved; a
+      machine adopted into a second listener's watch (Adopt) once the first is closed, checked for
+      the guest's CPU stall, the host's and cpu.max's Limited; and the sender alone on this host,
+      its CPU overloaded and a cgroup made to kill. Runs as root through sudo, for the host's triggers and the cgroup QEMU runs in. Needs a built
       release, /dev/kvm, /dev/vhost-vsock (task vsock), sudo, and OUTPUT_DIR on a block device,
       where io.max's disk is written. SPIN_PRESSURE_CORE= the host core the vCPU and the hogs
       share (default 3).
     cmds:
       - mkdir -p {{.OUTPUT_ABS}}/guest
       - CGO_ENABLED=0 go build -trimpath -o {{.OUTPUT_ABS}}/guest/spin-machine-pressure ./cmd/spin-machine-pressure
-      - SPIN_PRESSURE_TEST=1 SPIN_PRESSURE_SENDER={{.OUTPUT_ABS}}/guest/spin-machine-pressure SPIN_PRESSURE_DISK_DIR={{.OUTPUT_ABS}}/pressure go test ./machine/ ./cmd/spin-machine-pressure/ -exec 'sudo -n --preserve-env=SPIN_PRESSURE_TEST,SPIN_PRESSURE_SENDER,SPIN_PRESSURE_DISK_DIR,SPIN_PRESSURE_CORE,SPIN_MACHINE_OUTPUT' -run '^(TestThePressureProbeReportsEachPressure|TestTheSenderReportsTheHostsOwnPressure)$' -count=1 -v -timeout 5m
+      - SPIN_PRESSURE_TEST=1 SPIN_PRESSURE_SENDER={{.OUTPUT_ABS}}/guest/spin-machine-pressure SPIN_PRESSURE_DISK_DIR={{.OUTPUT_ABS}}/pressure go test ./machine/ ./cmd/spin-machine-pressure/ -exec 'sudo -n --preserve-env=SPIN_PRESSURE_TEST,SPIN_PRESSURE_SENDER,SPIN_PRESSURE_DISK_DIR,SPIN_PRESSURE_CORE,SPIN_MACHINE_OUTPUT' -run '^(TestThePressureProbeReportsEachPressure|TestAnAdoptedMachinesPressureIsHeard|TestTheSenderReportsTheHostsOwnPressure)$' -count=1 -v -timeout 10m
 
   overhead:
     desc: >-

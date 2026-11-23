@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -165,8 +166,13 @@ const (
 	slowFactor  = 4
 )
 
+// PressurePort is the host's vsock port the guest's pressure sender (cmd/spin-machine-pressure)
+// dials on the host's CID, 2, and PressureListener binds. A caller that keeps a list of the vsock
+// ports its guests use names this one by it, so a move here moves it there.
+const PressurePort = pressure.Port
+
 // PressureListener is the host's one listener for the guests' pressure senders, on vsock port
-// pressure.Port: a host port is bound once per host, so the listener is the caller's, made once
+// PressurePort: a host port is bound once per host, so the listener is the caller's, made once
 // and handed to every Start through a PressureWatch. It routes each connection by the CID the
 // host's kernel reports for its peer, which a guest cannot choose.
 type PressureListener struct {
@@ -185,13 +191,13 @@ func ListenPressure() (*PressureListener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("making a vsock socket for the guests' pressure: %w", err)
 	}
-	if err := unix.Bind(fd, &unix.SockaddrVM{CID: unix.VMADDR_CID_ANY, Port: pressure.Port}); err != nil {
+	if err := unix.Bind(fd, &unix.SockaddrVM{CID: unix.VMADDR_CID_ANY, Port: PressurePort}); err != nil {
 		_ = unix.Close(fd)
-		return nil, fmt.Errorf("binding vsock port %d for the guests' pressure: %w", pressure.Port, err)
+		return nil, fmt.Errorf("binding vsock port %d for the guests' pressure: %w", PressurePort, err)
 	}
 	if err := unix.Listen(fd, 64); err != nil {
 		_ = unix.Close(fd)
-		return nil, fmt.Errorf("listening on vsock port %d for the guests' pressure: %w", pressure.Port, err)
+		return nil, fmt.Errorf("listening on vsock port %d for the guests' pressure: %w", PressurePort, err)
 	}
 	l := &PressureListener{f: os.NewFile(uintptr(fd), "vsock-pressure"), byCID: map[uint32]*PressureWatch{}}
 	go l.accept()
@@ -213,7 +219,7 @@ func (l *PressureListener) Close() error {
 	return err
 }
 
-// Watch is one machine's watch, for StartOptions.Pressure. notify is told every Pressure the
+// Watch is one machine's watch, for StartOptions.Pressure or Adopt. notify is told every Pressure the
 // machine meets, from more than one goroutine, and must not block: the probe's readers wait for it.
 func (l *PressureListener) Watch(notify func(Pressure)) *PressureWatch {
 	return &PressureWatch{
@@ -224,7 +230,8 @@ func (l *PressureListener) Watch(notify func(Pressure)) *PressureWatch {
 }
 
 // PressureWatch is one machine's watch: its notify, and what it last heard of its guest. Start
-// registers it under the Spec's vsock CID and removes it once QEMU has exited; one Start may use it.
+// registers it under the Spec's vsock CID and removes it once QEMU has exited, and Adopt registers
+// it until its AdoptedWatch is closed; one Start or one Adopt may use it.
 type PressureWatch struct {
 	l      *PressureListener
 	notify func(Pressure)
@@ -258,7 +265,7 @@ func (w *PressureWatch) register(cid uint32) error {
 	w.l.mu.Lock()
 	defer w.l.mu.Unlock()
 	if w.cid != 0 {
-		return errors.New("the pressure watch is another machine's: one Start takes one watch")
+		return errors.New("the pressure watch is another machine's: one Start or Adopt takes one watch")
 	}
 	if w.notify == nil {
 		return errors.New("the pressure watch has nothing to tell")
@@ -271,15 +278,70 @@ func (w *PressureWatch) register(cid uint32) error {
 	return nil
 }
 
-// unregister is QEMU's exit: the CID is free for another machine, and the guest's connection,
-// which vhost-vsock resets as QEMU exits, ends as no GuestLost.
+// unregister is QEMU's exit, or an adopted machine let go: the CID is free for another machine,
+// and the guest's connection ends as no GuestLost. vhost-vsock resets it as QEMU exits, and one
+// let go while QEMU runs is closed here.
 func (w *PressureWatch) unregister() {
 	w.l.mu.Lock()
 	defer w.l.mu.Unlock()
 	if w.l.byCID[w.cid] == w {
 		delete(w.l.byCID, w.cid)
 		close(w.ended)
+		if w.conn != nil {
+			_ = w.conn.Close()
+		}
 	}
+}
+
+// AdoptedWatch is a PressureWatch on a QEMU that Start did not start, from Adopt: the CID it is
+// registered under and the triggers armed on QEMU's cgroup, until Close.
+type AdoptedWatch struct {
+	w    *PressureWatch
+	host *hostTriggers
+	once sync.Once
+}
+
+// Adopt watches the pressure of a QEMU that runs already and that this process did not start, as
+// a runner that restarted finds the machines its predecessor started: pid is QEMU's, and cid its
+// guest's vsock CID. The watch then hears what Start's would, but for the QMP commands Start's
+// monitor times and the DiskLimits it reads (docs/machine.md, "Pressure"). Adopt refuses what
+// Start refuses: no vsock CID, a QEMU in its caller's own cgroup, and triggers that cannot be
+// armed, as by a caller that is not root. Refused, it holds nothing.
+//
+// The watch is the caller's to Close when QEMU exits or when it lets the machine go: nothing here
+// waits on QEMU, which is not this process's child. pid is read once, here, and one freed before
+// may name another process: a caller holding QEMU's pidfd asks it after Adopt whether QEMU still
+// runs. The guest's sender dials again by itself, and
+// its first count after the adoption is the base, as a resumed guest's is: the kills before it
+// were the watch before's to report.
+// mutate-lane: TestAnAdoptedMachinesPressureIsHeard
+func (w *PressureWatch) Adopt(cid uint32, pid int) (*AdoptedWatch, error) {
+	if cid == 0 {
+		return nil, fmt.Errorf("adopting the pressure of QEMU %d: it has no vsock CID for its guest to report on", pid)
+	}
+	cgroup, err := ownCgroup(strconv.Itoa(pid))
+	if err != nil {
+		return nil, fmt.Errorf("adopting the pressure of QEMU %d: %w", pid, err)
+	}
+	if err := w.register(cid); err != nil {
+		return nil, fmt.Errorf("adopting the pressure of QEMU %d: %w", pid, err)
+	}
+	h, err := armHost(cgroup, w)
+	if err != nil {
+		w.unregister()
+		return nil, fmt.Errorf("adopting the pressure of QEMU %d: %w", pid, err)
+	}
+	return &AdoptedWatch{w: w, host: h}, nil
+}
+
+// Close frees the CID for another watch, ends the guest's connection and closes the triggers,
+// and returns once the triggers' watch has stopped. A second Close does nothing.
+// mutate-lane: TestAnAdoptedMachinesPressureIsHeard
+func (a *AdoptedWatch) Close() {
+	a.once.Do(func() {
+		a.w.unregister()
+		a.host.close()
+	})
 }
 
 // mutate-lane: TestThePressureProbeReportsEachPressure
@@ -613,6 +675,24 @@ func (h *hostTriggers) closeFiles() {
 	for _, t := range h.triggers {
 		_ = t.File.Close()
 	}
+}
+
+// ownCgroup is the cgroup process pid runs in, when it is not its caller's own: a cgroup QEMU
+// shares with its caller, and with every machine the caller started, says nothing of this one.
+// mutate-lane: TestThePressureProbeReportsEachPressure
+func ownCgroup(pid string) (string, error) {
+	qemu, err := cgroupOf(pid)
+	if err != nil {
+		return "", err
+	}
+	self, err := cgroupOf("self")
+	if err != nil {
+		return "", err
+	}
+	if qemu == self {
+		return "", fmt.Errorf("QEMU is in its caller's cgroup %s, which every machine it started shares", qemu)
+	}
+	return qemu, nil
 }
 
 // cgroupOf is the cgroup v2 directory process pid is in, under /sys/fs/cgroup.

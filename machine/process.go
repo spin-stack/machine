@@ -304,22 +304,14 @@ func (p *Process) wait(read <-chan struct{}) {
 	close(p.exited)
 }
 
-// findCgroup sets the cgroup QEMU runs in, when it is not its caller's own: a cgroup QEMU shares
-// with its caller, and with every machine the caller started, says nothing of this one.
+// findCgroup sets the cgroup QEMU runs in, when it is not its caller's own (ownCgroup).
 // mutate-lane: TestThePressureProbeReportsEachPressure
 func (p *Process) findCgroup() error {
-	qemu, err := cgroupOf(strconv.Itoa(p.cmd.Process.Pid))
+	cgroup, err := ownCgroup(strconv.Itoa(p.cmd.Process.Pid))
 	if err != nil {
 		return err
 	}
-	self, err := cgroupOf("self")
-	if err != nil {
-		return err
-	}
-	if qemu == self {
-		return fmt.Errorf("QEMU is in its caller's cgroup %s, which every machine it started shares", qemu)
-	}
-	p.cgroup = qemu
+	p.cgroup = cgroup
 	return nil
 }
 

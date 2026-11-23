@@ -213,7 +213,7 @@ func TestOneCIDOneWatchOneMachine(t *testing.T) {
 	if err := a.register(5); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.register(6); err == nil || !strings.Contains(err.Error(), "one Start takes one watch") {
+	if err := a.register(6); err == nil || !strings.Contains(err.Error(), "one Start or Adopt takes one watch") {
 		t.Errorf("a watch registered twice: %v", err)
 	}
 	if err := b.register(5); err == nil || !strings.Contains(err.Error(), "vsock CID 5 is watched") {
@@ -377,6 +377,113 @@ func TestStartRefusesAWatchItCannotKeep(t *testing.T) {
 	other.w.l.byCID[9] = other.w
 	if _, err := startFake(t, ctx(t), "obeys", s, StartOptions{Pressure: x.w.l.Watch(func(Pressure) {}), Files: []*os.File{vsock}}); err == nil || !strings.Contains(err.Error(), "vsock CID 9 is watched") {
 		t.Errorf("a CID another machine is watched by: %v", err)
+	}
+}
+
+// Adopt refuses what Start refuses, and a refused adoption holds no CID. A watch is one machine's.
+func TestAdoptRefusesAWatchItCannotKeep(t *testing.T) {
+	x := newTold(t)
+	free := func(cid uint32) {
+		t.Helper()
+		w := x.w.l.Watch(func(Pressure) {})
+		if err := w.register(cid); err != nil {
+			t.Errorf("a refused adoption still holds its CID: %v", err)
+		}
+		w.unregister()
+	}
+	if _, err := x.w.Adopt(0, os.Getpid()); err == nil || !strings.Contains(err.Error(), "no vsock CID") {
+		t.Errorf("a machine with no vsock: %v", err)
+	}
+	if _, err := x.w.Adopt(7, os.Getpid()); err == nil || !strings.Contains(err.Error(), "QEMU is in its caller's cgroup") {
+		t.Errorf("a QEMU in its caller's cgroup: %v", err)
+	}
+	free(7)
+	if _, err := x.w.Adopt(7, -1); err == nil || !strings.Contains(err.Error(), "reading the cgroup of process -1") {
+		t.Errorf("a QEMU that is not there: %v", err)
+	}
+	free(7)
+	used := x.w.l.Watch(func(Pressure) {})
+	if err := used.register(8); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := used.Adopt(7, 1); err == nil || !strings.Contains(err.Error(), "one Start or Adopt takes one watch") {
+		t.Errorf("a watch another machine holds: %v", err)
+	}
+	if _, err := x.w.Adopt(8, 1); err == nil || !strings.Contains(err.Error(), "vsock CID 8 is watched") {
+		t.Errorf("a CID another machine is watched by: %v", err)
+	}
+}
+
+// Triggers a caller cannot arm refuse the adoption, after its CID was registered: init's cgroup is
+// another than this test's, and its pressure files are root's to arm.
+func TestAdoptRefusesTriggersItCannotArm(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root arms the triggers on init's cgroup")
+	}
+	initCgroup, err := cgroupOf("1")
+	if err != nil {
+		t.Skipf("init's cgroup cannot be read here: %v", err)
+	}
+	if self, _ := cgroupOf("self"); self == initCgroup {
+		t.Skipf("this test runs in init's cgroup %s", self)
+	}
+	x := newTold(t)
+	if _, err := x.w.Adopt(7, 1); err == nil || !strings.Contains(err.Error(), "for a trigger") {
+		t.Errorf("triggers that cannot be armed: %v", err)
+	}
+	if err := x.w.l.Watch(func(Pressure) {}).register(7); err != nil {
+		t.Errorf("a refused adoption still holds its CID: %v", err)
+	}
+}
+
+// An adopted watch's Close frees its CID, ends its guest's connection without a GuestLost, and
+// stops its triggers' watch; a second Close does nothing.
+func TestClosingAnAdoptedWatchLetsTheMachineGo(t *testing.T) {
+	x := newTold(t)
+	cgroup := t.TempDir()
+	for _, r := range []string{"cpu", "memory", "io"} {
+		if err := os.WriteFile(filepath.Join(cgroup, r+".pressure"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := x.w.register(7); err != nil {
+		t.Fatal(err)
+	}
+	h, err := armHost(cgroup, x.w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &AdoptedWatch{w: x.w, host: h}
+	held, guest, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = guest.Close() }()
+	if x.w.l.take(7, held) != x.w {
+		t.Fatal("the adopted machine's CID routes to no watch")
+	}
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		x.w.l.serve(held, x.w)
+	}()
+	a.Close()
+	select {
+	case <-served:
+	case <-time.After(2 * answerWait):
+		t.Fatal("the guest's connection outlived the adopted watch's Close")
+	}
+	select {
+	case <-h.done:
+	default:
+		t.Error("the triggers' watch outlived the adopted watch's Close")
+	}
+	a.Close()
+	if got := x.pressures(); len(got) != 0 {
+		t.Errorf("a machine let go told %+v", got)
+	}
+	if err := x.w.l.Watch(func(Pressure) {}).register(7); err != nil {
+		t.Errorf("the CID of a machine let go: %v", err)
 	}
 }
 
