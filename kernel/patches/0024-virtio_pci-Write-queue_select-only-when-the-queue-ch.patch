@@ -28,7 +28,7 @@ blk and virtio-mem 1 each): 91 writes to queue_select by the end of
 probe, 23 with this patch, one per queue at setup and one per queue
 of a multiqueue device when the queues are enabled. Nested on the
 bench fleet an exit costs ~6.7 us, which puts the 68 removed at about
-0.45 ms, not yet measured.
+0.45 ms (91 -> 23 writes measured).
 
 The cost is that the driver now trusts the device to keep queue_select
 between two of its own accesses, however far apart, as the
@@ -36,6 +36,14 @@ specification says it does, where before it rewrote it a few
 instructions earlier. A device model that loses it without a reset,
 such as a VMM restoring a snapshot without that register, would have a
 later queue reset address the wrong queue.
+
+Measured on the bench fleet (nested KVM, Xeon 6975P-C, one vCPU, the
+workspace's shape), alone this patch moved the first SSH login by less
+than the noise. With the other four patches that remove exits from
+device setup (the IO-APIC table, the state save at add, virtio's
+capabilities, queue_select, the MSI message), the cold first login was
+9.2 ms faster, 95% interval [6.0, 12.2], over 120 interleaved boots a
+side (2026-11-23), and a restored guest's login did not move.
 
 Local patch for this machine. Not upstream.
 

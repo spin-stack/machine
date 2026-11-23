@@ -41,14 +41,22 @@ Remove the three passes that change nothing:
 The entries are still read: nothing assumes their reset state, which a
 kexec'd or crash kernel, or other firmware, does not leave. On the guest
 above the boot makes 96 accesses for the save and 96 for the single
-read in enable_IO_APIC(), 384 fewer exits (counted from the source, not
-yet measured). At ~6.7 us a nested exit that is ~2.6 ms of a nested
-cold boot (inferred).
+read in enable_IO_APIC(), 384 fewer exits (counted from the source;
+IO-APIC accesses measured 589 -> 205 a boot). At ~6.7 us a nested exit
+that is ~2.6 ms of a nested cold boot (inferred).
 
 The suspend and resume paths are unchanged: resume still restores every
 entry, since the IO-APIC lost them. Reboot, kexec and crash, which call
 clear_IO_APIC(), skip the write and the check on an entry already
 clear.
+
+Measured on the bench fleet (nested KVM, Xeon 6975P-C, one vCPU, the
+workspace's shape), alone this patch moved the first SSH login by less
+than the noise. With the other four patches that remove exits from
+device setup (the IO-APIC table, the state save at add, virtio's
+capabilities, queue_select, the MSI message), the cold first login was
+9.2 ms faster, 95% interval [6.0, 12.2], over 120 interleaved boots a
+side (2026-11-23), and a restored guest's login did not move.
 
 Local patch for this machine. Not upstream.
 
