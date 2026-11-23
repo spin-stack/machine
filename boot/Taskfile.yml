@@ -142,6 +142,17 @@ tasks:
     cmds:
       - SPIN_LOGIND_TEST=1 go test ./boot/ -run '^TestLogindSessions$' -count=1 -v -timeout 5m
 
+  seccomp:
+    desc: >-
+      Each of journald, logind and user@0 denies the system calls the release's does, with the same
+      answer: boot/seccompprobe as each unit's ExecStartPost= makes every call under the unit's
+      sandbox, and the table must be boot/testdata/seccomp-table.txt (#637). Logs each unit's
+      filter count. Without the file it fails with the tree's table, to be kept as the reference.
+      Needs a built release; uses KVM when available, otherwise TCG.
+    deps: [':tools']
+    cmds:
+      - SPIN_SECCOMP_TEST=1 go test ./boot/ -run '^TestSeccompDeniesWhatTheReleaseDenies$' -count=1 -v -timeout 5m
+
   workspace:
     desc: >-
       Check what a workspace expects of the image in a disposable guest: no failed unit, the journal,
