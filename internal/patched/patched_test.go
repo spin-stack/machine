@@ -283,3 +283,35 @@ func TestEveryPartHasThePatchesItNames(t *testing.T) {
 		}
 	}
 }
+
+func TestPruneTakesOutOnlyTheUntouchedCSources(t *testing.T) {
+	src := t.TempDir()
+	for _, f := range []string{"a.c", "b.c", "c.cc", "d.cpp", "e.cxx", "f.h", "g.S", "dir.c/h.h"} {
+		put(t, filepath.Join(src, f), "x\n")
+	}
+	if err := prune(src, []string{"a.c"}); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	_ = filepath.WalkDir(src, func(p string, d os.DirEntry, _ error) error {
+		if !d.IsDir() {
+			rel, _ := filepath.Rel(src, p)
+			left = append(left, rel)
+		}
+		return nil
+	})
+	if want := []string{"a.c", "dir.c/h.h", "f.h", "g.S"}; !slices.Equal(left, want) {
+		t.Errorf("left %v, want %v", left, want)
+	}
+	if os.Getuid() != 0 {
+		locked := filepath.Join(src, "locked")
+		put(t, filepath.Join(locked, "i.c"), "x\n")
+		if err := os.Chmod(locked, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+		if err := prune(src, nil); err == nil {
+			t.Error("a directory it cannot read is an error, not a tree pruned in part")
+		}
+	}
+}

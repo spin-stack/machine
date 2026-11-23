@@ -65,6 +65,9 @@ func Scope(ctx context.Context, dir string) ([]Finding, error) {
 		}
 		kept := []json.RawMessage{}
 		for _, r := range results {
+			if len(r.Locations) == 0 {
+				continue
+			}
 			file, first, last := r.where(src)
 			lines, ok := added[file]
 			if !ok {
@@ -120,9 +123,6 @@ func (r *result) UnmarshalJSON(b []byte) error {
 
 // where is the file a result is in, as a path in the tree, and its first and last lines.
 func (r result) where(src string) (string, int, int) {
-	if len(r.Locations) == 0 {
-		return "", 0, 0
-	}
 	l := r.Locations[0].Physical
 	file := strings.TrimPrefix(strings.TrimPrefix(l.Artifact.URI, "file://"), src+"/")
 	return file, l.Region.Start, max(l.Region.Start, l.Region.End)

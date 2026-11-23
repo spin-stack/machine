@@ -215,16 +215,12 @@ func keep(from, to string) error {
 // prune removes every C or C++ source file in src that the patches do not touch.
 func prune(src string, touched []string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
 		}
-		switch filepath.Ext(p) {
-		case ".c", ".cc", ".cpp", ".cxx":
-		default:
-			return nil
-		}
 		rel, _ := filepath.Rel(src, p)
-		if slices.Contains(touched, filepath.ToSlash(rel)) {
+		if !d.Type().IsRegular() || !slices.Contains([]string{".c", ".cc", ".cpp", ".cxx"}, filepath.Ext(p)) ||
+			slices.Contains(touched, filepath.ToSlash(rel)) {
 			return nil
 		}
 		return os.Remove(p)
