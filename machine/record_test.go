@@ -46,7 +46,7 @@ func spinsMachine() facts {
 	}
 }
 
-func (f facts) machine(t *testing.T) Hardware {
+func (f facts) machine(t testing.TB) Hardware {
 	t.Helper()
 	var exact []part
 	for n, v := range f.exact {
@@ -67,7 +67,7 @@ var spinsCPU = CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"av
 	Properties: map[string]string{"family": "6", "phys-bits": "46", "x-consistent-cache": "false"}}
 
 // target is a QEMU 11.2.0 machine of spin's shape, changed by edit.
-func target(t *testing.T, edit func(*Target, facts)) Target {
+func target(t testing.TB, edit func(*Target, facts)) Target {
 	t.Helper()
 	f := spinsMachine()
 	tg := Target{VMM: "qemu 11.2.0", Formats: []string{FormatMappedRAM, FormatStream}, CPU: spinsCPU}
@@ -283,7 +283,7 @@ func TestARecordHasOneForm(t *testing.T) {
 	if empty, _ := json.Marshal(Hardware{}); string(empty) != `{"exact":[]}` {
 		t.Errorf("an empty machine is %s, want one form", empty)
 	}
-	for _, bad := range []string{`{"exact":[{"name":"a","value":"1"},{"name":"a","value":"2"}]}`, `{"exact":"x"}`} {
+	for _, bad := range []string{`{"exact":[{"name":"a","value":"1"},{"name":"a","value":"2"}]}`, `{"exact":"x"}`, `{"exact":[{"value":"1"}]}`} {
 		if err := json.Unmarshal([]byte(bad), &read); err == nil || !strings.Contains(err.Error(), "machine record") {
 			t.Errorf("read %s: %v, want it refused", bad, err)
 		}

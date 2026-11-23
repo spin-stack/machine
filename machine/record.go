@@ -5,6 +5,7 @@ package machine
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -63,7 +64,8 @@ type count struct {
 }
 
 // newHardware sorts both lists by name, and refuses a name given twice or given in both lists: a
-// fact has one value and one rule.
+// fact has one value and one rule. It refuses an empty name too: a difference in a fact with none
+// would name nothing (FuzzCanResume, #653).
 func newHardware(exact []part, atLeast []count) (Hardware, error) {
 	exact, atLeast = slices.Clone(exact), slices.Clone(atLeast)
 	slices.SortFunc(exact, func(a, b part) int { return strings.Compare(a.Name, b.Name) })
@@ -77,6 +79,9 @@ func newHardware(exact []part, atLeast []count) (Hardware, error) {
 		names = append(names, c.Name)
 	}
 	for _, n := range names {
+		if n == "" {
+			return Hardware{}, errors.New("the machine names a fact with no name")
+		}
 		if seen[n] {
 			return Hardware{}, fmt.Errorf("the machine names %q twice", n)
 		}
