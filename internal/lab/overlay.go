@@ -215,6 +215,14 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryKeygenEdit, nil
 	case "login-first-bound":
 		return loginFirstBound, nil
+	case "login-first-idle":
+		return loginFirst(idleTrigger, true, ""), nil
+	case "login-first-timer":
+		return loginFirst(timerTrigger, true, ""), nil
+	case "login-first-pam":
+		return loginFirst(pamTrigger, true, pamSetup), nil
+	case "login-first-pam-today":
+		return loginFirst(pamTrigger, false, pamSetup), nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	case ledgerName:
