@@ -275,34 +275,51 @@ fetch qemu pulls. main's parts.yml runs it, with a docker login that can write p
 
 func changedCmd() *cobra.Command {
 	var base string
-	var pins []string
+	var parts, pins []string
 	c := &cobra.Command{
-		Use:    "changed --base <commit> --pins <entry,...> <path>...",
+		Use:    "changed --base <commit> (--part <part> | --pins <entry,...>)... [path...]",
 		Short:  "Say whether the commits since a base can change what a part builds",
 		Hidden: true,
-		Long: `Say whether the commits since --base can change what is built from the pins and paths named:
-true when anything under the paths changed or versions.yaml hands those pins other build arguments
-than it did at the base. A workflow's path filter cannot say which lines of versions.yaml moved; this
-can, so a bump of e2fsprogs does not rebuild QEMU and the kernel.
+		Long: `Say whether the commits since --base can change what the parts named build: true when
+anything under their paths, the parts they are made with, or the paths named changed, or when
+versions.yaml hands their pins other build arguments than it did at the base. The pins and paths
+are internal/build's, so a workflow names the part and only what it adds, and a part's pin added to
+internal/build reaches every workflow at once. --pins names entries for a check that is not a part
+(codeql.yml's patched trees). A workflow's path filter cannot say which lines of versions.yaml
+moved; this can, so a bump of e2fsprogs does not rebuild QEMU and the kernel.
 
 Prints build=true or build=false, and writes it to the step's outputs. It errs towards building: no
 base, a base this clone lacks, or a versions.yaml there it cannot read is true.`,
-		Args: cobra.MinimumNArgs(1),
-		RunE: func(c *cobra.Command, paths []string) error {
+		RunE: func(c *cobra.Command, extra []string) error {
 			w, err := open()
 			if err != nil {
 				return err
 			}
-			if len(pins) == 0 {
-				return couldNot(fmt.Errorf("--pins names none: say which versions.yaml entries the part is built from"))
+			if len(parts) == 0 && len(pins) == 0 {
+				return couldNot(fmt.Errorf("--part and --pins name none: say which parts (%s) or versions.yaml entries the change is to reach", strings.Join(build.Names(), ", ")))
 			}
-			touched := build.Touches(c.Context(), w.root, base, w.pins, pins, paths)
+			var paths []string
+			if len(parts) > 0 {
+				plan, err := build.Plan(parts)
+				if err != nil {
+					return couldNot(err)
+				}
+				for _, p := range plan {
+					pins = append(pins, p.Pins...)
+					paths = append(paths, p.Paths...)
+				}
+			}
+			if len(paths)+len(extra) == 0 {
+				return couldNot(fmt.Errorf("no paths: --pins needs the paths its check is made from"))
+			}
+			touched := build.Touches(c.Context(), w.root, base, w.pins, pins, append(paths, extra...))
 			_, _ = fmt.Fprintf(c.OutOrStdout(), "build=%t\n", touched)
 			return output("build", fmt.Sprint(touched))
 		},
 	}
 	c.Flags().StringVar(&base, "base", "", "the commit the change is to; none builds")
-	c.Flags().StringSliceVar(&pins, "pins", nil, "the versions.yaml entries the part's Dockerfile is handed")
+	c.Flags().StringSliceVar(&parts, "part", nil, "the parts whose pins and paths decide it, with the parts they are made with")
+	c.Flags().StringSliceVar(&pins, "pins", nil, "versions.yaml entries that decide it, for a check that is not a part")
 	return c
 }
 
