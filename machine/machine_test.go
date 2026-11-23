@@ -280,7 +280,7 @@ func TestTheCPUTakesAwayWhatAPoolDoesNotShare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := argValue(args, "-cpu"), "host,migratable=on,-vmx,-svm,x-consistent-cache=off,-avx512f,-sse4.1,-kvm-pv-eoi"; got != want {
+	if got, want := argValue(args, "-cpu"), "host,migratable=on,-vmx,-svm,x-consistent-cache=off,x-legacy-cpuid2-cache=off,-avx512f,-sse4.1,-kvm-pv-eoi"; got != want {
 		t.Errorf("-cpu %q, want %q", got, want)
 	}
 	if i := slices.Index(args, ""); i >= 0 {

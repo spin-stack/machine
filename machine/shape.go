@@ -63,15 +63,19 @@ func (s Spec) cpuArg() string {
 	cpu += ",-vmx,-svm"
 	// CPUID leaf 2 with QEMU's own cache descriptors, where QEMU's default answers 0xFF ("see
 	// leaf 4"). Every process glibc starts asks for its cache sizes 12 times, and each 0xFF sends
-	// it round leaf 4's subleaves, ~32 CPUID exits a process. Under host the two leaves do not
-	// agree: legacy-cache is on, so leaf 2 describes legacy_intel_cpuid2_cache_info, a 2 MiB 8-way
-	// L2, and leaf 4 legacy_intel_cache_info, 4 MiB 16-way, and glibc now reads the 2 MiB (QEMU
-	// 11.2.0-rc0's target/i386/cpu.c, read 2026-11-22, #586). The record holds the switch
-	// (cpuidProperties), so no checkpoint crosses it. On the bench (nested), spin's shape,
+	// it round leaf 4's subleaves, ~32 CPUID exits a process. On the bench (nested), spin's shape,
 	// v20261122.06: CPUID exits from boot to the first login 3727 → 2176, first login −10.3
-	// [−14.2, −4.0], 40 boots a side, restored login within noise (labs 45083473855, 45083473790, 45083754801, 2026-11-22, #565). It is an x- property, so a
-	// QEMU that renames it fails qemu_accepts_test, not a boot.
-	cpu += ",x-consistent-cache=off"
+	// [−14.2, −4.0], 40 boots a side, restored login within noise (labs 45083473855, 45083473790,
+	// 45083754801, 2026-11-22, #565).
+	//
+	// x-legacy-cpuid2-cache=off (qemu/patches/0006) makes leaf 2 describe the caches leaf 4 does.
+	// Under host legacy-cache is on, and x-consistent-cache=off alone describes
+	// legacy_intel_cpuid2_cache_info in leaf 2: the guest's glibc read a 2 MiB 8-way L2 where
+	// leaf 4 and the guest's kernel say 4 MiB 16-way (lab 45100482399, 2026-11-23, #586).
+	// legacy-cache=off, which would take both from the model, is refused under host, and
+	// host-cache-info=on passes the host's leaf 2 through, 0xFF again. Both are x- properties, so a
+	// QEMU that renames one fails qemu_accepts_test, not a boot.
+	cpu += ",x-consistent-cache=off,x-legacy-cpuid2-cache=off"
 	for _, f := range s.CPUWithout {
 		cpu += ",-" + f
 	}

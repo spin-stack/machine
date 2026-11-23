@@ -35,11 +35,12 @@ type CPU struct {
 // (host-cpu.c's host_cpu_max_instance_init, kvm-cpu.c's kvm_cpu_max_instance_init), with the
 // cache switches x-consistent-cache works with. Read in QEMU 11.2.0-rc0's target/i386 (#569):
 //
-//   - x-consistent-cache, l3-cache, legacy-cache, host-cache-info: which cache model leaves 2, 4
-//     and 0x80000005-6 describe. Under host, legacy-cache is on and x-consistent-cache=off makes
-//     leaf 2 describe legacy_intel_cpuid2_cache_info (a 2 MiB 8-way L2) where leaf 4 describes
-//     legacy_intel_cache_info (4 MiB 16-way), so a process glibc starts reads another L2 from
-//     either side of the switch. host-cache-info is only host's and max's, and a named model's
+//   - x-consistent-cache, x-legacy-cpuid2-cache, l3-cache, legacy-cache, host-cache-info: which
+//     cache model leaves 2, 4 and 0x80000005-6 describe. Under host, legacy-cache is on and
+//     x-consistent-cache=off alone makes leaf 2 describe legacy_intel_cpuid2_cache_info (a 2 MiB
+//     8-way L2) where leaf 4 describes legacy_intel_cache_info (4 MiB 16-way), so a process glibc
+//     starts reads another L2 from either side of each switch. x-legacy-cpuid2-cache is
+//     qemu/patches/0006's (#586). host-cache-info is only host's and max's, and a named model's
 //     vCPU has none to read.
 //   - family, model, stepping, model-id: leaf 1 and the brand string, the host's under host.
 //   - level, xlevel: the highest leaves, KVM's under host.
@@ -55,7 +56,7 @@ type CPU struct {
 // lmce) are not CPUID.
 var cpuidProperties = []string{
 	"family", "guest-phys-bits", "host-cache-info", "l3-cache", "legacy-cache", "level", "model",
-	"model-id", "phys-bits", "pmu", "stepping", "x-consistent-cache", "xlevel",
+	"model-id", "phys-bits", "pmu", "stepping", "x-consistent-cache", "x-legacy-cpuid2-cache", "xlevel",
 }
 
 // differences are the ways a guest shown saved would find here another CPU: its vendor, its model,
