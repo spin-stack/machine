@@ -404,6 +404,29 @@ RUN k=/tmp/bzImage-stub && head -c 3072 /dev/zero > "$k" && \
     kill $pid 2>/dev/null; wait $pid 2>/dev/null; rm -f "$k"; \
     [ $mapped = 0 ] || { echo "ERROR: QEMU read the kernel into a buffer: qemu/patches/0007 is lost"; exit 1; }
 
+# qemu/patches/0009 copies an ELF kernel into guest RAM in a thread beside the main loop, and a
+# QEMU that copies it on the main thread boots the same guest. So a stub ELF with a PVH entry note
+# and one 256 MiB PT_LOAD of zeros, long enough to copy that the thread is seen, is loaded into a
+# held machine with its threads named, and the thread must appear. Every p_align is set: QEMU
+# 11.2's load_elf divides by a note's (#705). #698.
+RUN k=/tmp/vmlinux-stub && truncate -s 257M "$k" && \
+    w() { printf "$2" | dd of="$k" bs=1 seek=$(($1)) conv=notrunc 2>/dev/null; } && \
+    w 0 '\177ELF\002\001\001' && w 16 '\002\000\076\000\001' && w 24 '\000\000\000\001' && \
+    w 32 '\100' && w 52 '\100\000\070\000\002' && \
+    w 64 '\001\000\000\000\007' && w 72 '\000\020' && w 80 '\000\000\000\001' && \
+    w 88 '\000\000\000\001' && w 96 '\000\000\000\020' && w 104 '\000\000\000\020' && w 112 '\000\020' && \
+    w 120 '\004\000\000\000\004' && w 128 '\000\002' && w 152 '\024' && w 160 '\024' && w 168 '\004' && \
+    w 512 '\004\000\000\000\004\000\000\000\022\000\000\000Xen\000\000\000\000\001' && \
+    { /opt/qemu-tcg/bin/qemu-system-x86_64 -machine q35 -accel tcg -m 1G -nodefaults -display none -S \
+        -name stub,debug-threads=on -L /build/pc-bios -kernel "$k" & } && pid=$! && \
+    seen=1; for i in $(seq 500); do \
+        grep -qx rom-copy /proc/$pid/task/*/comm 2>/dev/null && { seen=0; break; }; \
+        kill -0 $pid 2>/dev/null || break; \
+        sleep 0.01; \
+    done; \
+    kill $pid 2>/dev/null; wait $pid 2>/dev/null; rm -f "$k"; \
+    [ $seen = 0 ] || { echo "ERROR: QEMU copied the ELF kernel on its main thread: qemu/patches/0009 is lost"; exit 1; }
+
 # qcow2 is the base image's format and the overlay's, and raw is the extras disk's.
 # Both are configure flags with no device to hold them up,
 # so a build that dropped one produces a VM that dies at start-up with
