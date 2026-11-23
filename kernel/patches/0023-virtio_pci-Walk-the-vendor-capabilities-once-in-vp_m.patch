@@ -37,7 +37,7 @@ workspace's shape), alone this patch moved the first SSH login by less
 than the noise. With the other four patches that remove exits from
 device setup (the IO-APIC table, the state save at add, virtio's
 capabilities, queue_select, the MSI message), the cold first login was
-9.2 ms faster, 95% interval [6.0, 12.2], over 120 interleaved boots a
+9.4 ms faster, 95% interval [5.7, 14.2], over 120 interleaved boots a
 side (2026-11-23), and a restored guest's login did not move.
 
 Local patch for this machine. Not upstream.
