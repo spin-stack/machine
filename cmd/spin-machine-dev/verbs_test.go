@@ -198,15 +198,13 @@ mkdir -p "$dest/bin" "$dest/e2fsprogs"; : > "$dest/e2fsprogs/mke2fs.conf"
 for b in mkfs.ext4 e2fsck dumpe2fs debugfs; do printf '#!/bin/sh\necho mke2fs ` + version + `\n' > "$dest/bin/$b"; chmod +x "$dest/bin/$b"; done`
 }
 
-// kernelDocker is a docker whose kernel build writes a bzImage and vmlinux that verify, and the
+// kernelDocker is a docker whose kernel build writes a vmlinux that verifies, and the
 // config they were built with: lockdown as KERNEL_LOCKDOWN asks, and extra in the one built with
 // none.
 func kernelDocker(extra string) string {
 	return `dest=""; lockdown=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; KERNEL_LOCKDOWN=*) lockdown=${a#KERNEL_LOCKDOWN=};; esac; done
 [ -n "$dest" ] || exit 0
-mkdir -p "$dest/kernel"; head -c 1024 /dev/zero > "$dest/kernel/bzImage"
-printf HdrS | dd of="$dest/kernel/bzImage" bs=1 seek=514 conv=notrunc 2>/dev/null
-printf '\001' | dd of="$dest/kernel/bzImage" bs=1 seek=564 conv=notrunc 2>/dev/null
+mkdir -p "$dest/kernel"
 printf '` + printfEscaped(vmlinuxFixture()) + `' > "$dest/kernel/vmlinux"
 if [ "$lockdown" = none ]; then
 	printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"
