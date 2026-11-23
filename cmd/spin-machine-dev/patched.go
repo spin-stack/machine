@@ -38,10 +38,28 @@ in <out>/patched/<part>. Parts: ` + strings.Join(patched.Names(), ", ") + `.`,
 			return nil
 		},
 	}, &cobra.Command{
+		Use:   "prepare <part>",
+		Short: "Build what compiling a part's touched C files needs, before an analysis traces the compiler",
+		Long: `Build in <out>/patched/<part>/src, which tree made, what compile needs, so that only the touched
+files are compiled under CodeQL's tracer: the kernel configured from kernel/, with its bzImage when
+a touched file is one only the bzImage builds. codeql.yml runs it before the tracer starts.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			w, p, dir, err := patchedPart(args[0])
+			if err != nil {
+				return err
+			}
+			if err := patched.Prepare(c.Context(), w.root, p, dir, c.ErrOrStderr()); err != nil {
+				return couldNot(err)
+			}
+			say(c, "%s: prepared", p.Name)
+			return nil
+		},
+	}, &cobra.Command{
 		Use:   "compile <part>",
 		Short: "Compile the C files a part's patches touch in its tree, for an analysis tracing the compiler",
-		Long: `Compile the C files the part's patches touch in <out>/patched/<part>/src, which tree made, as
-the part's build would: the kernel from its configuration in kernel/, QEMU for x86_64-softmmu.
+		Long: `Compile the C files the part's patches touch in <out>/patched/<part>/src, which prepare readied,
+as the part's build would: the kernel from its configuration in kernel/, QEMU for x86_64-softmmu.
 codeql.yml runs it under CodeQL's tracer for the parts whose files include headers only their
 builds generate. Parts that have it: ` + strings.Join(traced(), ", ") + `.`,
 		Args: cobra.ExactArgs(1),

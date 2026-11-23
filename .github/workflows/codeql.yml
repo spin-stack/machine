@@ -72,6 +72,17 @@ jobs:
       - name: Make the patched tree
         run: spin-machine-dev patched tree ${{ matrix.part }}
 
+      - name: What a traced build needs
+        if: ${{ matrix.build-mode == 'manual' }}
+        run: go tool task patched-build-deps
+
+      # Before the tracer starts: what is built here is not extracted, and the analysis reads only
+      # what the step under it compiles (the kernel's bzImage, built here when a touched file is one
+      # only it builds, would be the whole kernel).
+      - name: Build what compiling the touched files needs, untraced
+        if: ${{ matrix.build-mode == 'manual' }}
+        run: spin-machine-dev patched prepare ${{ matrix.part }}
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
@@ -79,10 +90,6 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           source-root: _output/patched/${{ matrix.part }}/src
           queries: security-extended
-
-      - name: What a traced build needs
-        if: ${{ matrix.build-mode == 'manual' }}
-        run: go tool task patched-build-deps
 
       - name: Compile what the patches touch, traced
         if: ${{ matrix.build-mode == 'manual' }}

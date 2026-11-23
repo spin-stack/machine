@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spin-stack/go-tools/versions"
 )
@@ -341,7 +342,7 @@ func TestTheKernelIsCompiledWithoutNamedAddressSpacesOrNotAtAll(t *testing.T) {
 	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config CC_HAS_NAMED_AS\n\tbool\n")
 	root := t.TempDir()
 	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
-	if err := compileKernel(context.Background(), root, src, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "no longer says") {
+	if err := prepareKernel(context.Background(), root, src, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "no longer says") {
 		t.Errorf("a Kconfig that turns __seg_gs on some other way: %v", err)
 	}
 }
@@ -368,7 +369,7 @@ func TestTheKernelIsCompiledFromItsConfigurationWithoutNamedAddressSpaces(t *tes
 	src, root := t.TempDir(), t.TempDir()
 	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config A\n\tbool\n\nconfig CC_HAS_NAMED_AS\n\tdef_bool $(success,echo x | $(CC))\n\tdepends on CC_IS_GCC\n")
 	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
-	if err := compileKernel(context.Background(), root, src, []string{"lib/a.c", "kernel/b.c"}, io.Discard); err != nil {
+	if err := prepareKernel(context.Background(), root, src, []string{"lib/a.c"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, filepath.Join(src, "arch/x86/Kconfig")); got != "config A\n\tbool\n\nconfig CC_HAS_NAMED_AS\n\tdef_bool n\n\tdepends on CC_IS_GCC\n" {
@@ -378,16 +379,68 @@ func TestTheKernelIsCompiledFromItsConfigurationWithoutNamedAddressSpaces(t *tes
 		t.Errorf(".config = %q, want the series' configuration", got)
 	}
 	got := read(t, calls)
-	for _, want := range []string{"make -C " + src + " ARCH=x86_64 olddefconfig\n", " prepare\n", " lib/a.o kernel/b.o\n"} {
+	for _, want := range []string{"make -C " + src + " ARCH=x86_64 olddefconfig\n", " prepare\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("calls:\n%s\nwant %q in them", got, want)
 		}
 	}
+	if strings.Contains(got, "lib/a.o") || strings.Contains(got, "bzImage") {
+		t.Errorf("calls:\n%s\nprepare compiled a touched file, which the tracer would then not see", got)
+	}
 
 	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config CC_HAS_NAMED_AS\n\tdef_bool $(x)\n")
 	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_CC_HAS_NAMED_AS=y\n")
-	if err := compileKernel(context.Background(), root, src, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "CONFIG_CC_HAS_NAMED_AS=y") {
+	if err := prepareKernel(context.Background(), root, src, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "CONFIG_CC_HAS_NAMED_AS=y") {
 		t.Errorf("a configuration that kept named address spaces: %v", err)
+	}
+}
+
+// The decompressor and the host tools are built only through the bzImage, with flags of their
+// own: prepare builds it untraced, and compile again over each touched file.
+func TestTheKernelsBzImageOnlyFilesAreBuiltThroughTheBzImage(t *testing.T) {
+	calls := fakeTools(t, "")
+	src, root := t.TempDir(), t.TempDir()
+	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config CC_HAS_NAMED_AS\n\tdef_bool y\n")
+	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
+	touched := []string{"lib/a.c", "arch/x86/boot/compressed/misc.c", "kernel/b.c", "arch/x86/tools/relocs.c"}
+	if err := prepareKernel(context.Background(), root, src, touched, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, calls); !strings.HasSuffix(got, " bzImage\n") {
+		t.Errorf("prepare's calls:\n%s\nwant the bzImage last", got)
+	}
+}
+
+// compile makes each touched file's object, after touching it: a file prepare already built is
+// compiled again, under the tracer, or the analysis would not have read it.
+func TestTheKernelCompilesEachTouchedFileAgain(t *testing.T) {
+	calls := fakeTools(t, "")
+	src := t.TempDir()
+	touched := []string{"lib/a.c", "arch/x86/boot/compressed/misc.c", "kernel/b.c", "arch/x86/tools/relocs.c"}
+	if err := compileKernel(context.Background(), "", src, touched, io.Discard); err == nil || !strings.Contains(err.Error(), "prepare it first") {
+		t.Errorf("an unprepared tree: %v", err)
+	}
+	put(t, filepath.Join(src, ".config"), "CONFIG_X86_64=y\n")
+	old := time.Now().Add(-time.Hour)
+	for _, f := range touched {
+		put(t, filepath.Join(src, f), "int x;\n")
+		if err := os.Chtimes(filepath.Join(src, f), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := compileKernel(context.Background(), "", src, touched, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, calls); !strings.HasSuffix(got, " lib/a.o kernel/b.o\nmake -C "+src+" ARCH=x86_64 -j"+jobs()+" bzImage\n") {
+		t.Errorf("calls:\n%s\nwant each object, and the bzImage for the files only it builds", got)
+	}
+	for _, f := range touched {
+		if fi, err := os.Stat(filepath.Join(src, f)); err != nil || !fi.ModTime().After(old) {
+			t.Errorf("%s was not touched: make would not compile it again", f)
+		}
+	}
+	if err := compileKernel(context.Background(), "", src, []string{"lib/gone.c"}, io.Discard); err == nil || !strings.Contains(err.Error(), "touching lib/gone.c") {
+		t.Errorf("a touched file that is not there: %v", err)
 	}
 }
 
@@ -432,5 +485,19 @@ func TestCompileHandsThePartOnlyTheTouchedCFiles(t *testing.T) {
 	p.compile = func(context.Context, string, string, []string, io.Writer) error { return errors.New("make failed") }
 	if err := Compile(context.Background(), t.TempDir(), p, dir, io.Discard); err == nil || err.Error() != "x: make failed" {
 		t.Errorf("a failed compile: %v", err)
+	}
+	if err := Prepare(context.Background(), t.TempDir(), p, dir, io.Discard); err != nil {
+		t.Errorf("a part with nothing to build before its compile: %v", err)
+	}
+	p.prepare = p.compile
+	if err := Prepare(context.Background(), t.TempDir(), p, dir, io.Discard); err == nil || err.Error() != "x: make failed" {
+		t.Errorf("a failed prepare: %v", err)
+	}
+	if err := Prepare(context.Background(), t.TempDir(), p, t.TempDir(), io.Discard); err == nil || !strings.Contains(err.Error(), "make the tree first") {
+		t.Errorf("no tree: %v", err)
+	}
+	qboot, _ := Find("qboot")
+	if err := Prepare(context.Background(), t.TempDir(), qboot, dir, io.Discard); err == nil || !strings.Contains(err.Error(), "nothing to prepare") {
+		t.Errorf("qboot: %v", err)
 	}
 }
