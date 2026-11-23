@@ -215,16 +215,12 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryKeygenEdit, nil
 	case "spin-handoff":
 		return spinHandoffEdit, nil
-	case "keygen":
-		return keygenEdit(checkout)
-	case "keygen-unwanted":
-		return keygenUnwantedEdit, nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	case ledgerName:
 		return ledgerEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, spin-handoff, keygen, keygen-unwanted, bootchart, ledger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, spin-handoff, bootchart, ledger", name)
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
@@ -359,29 +355,6 @@ exec /sbin/init
 install -d -m 0700 "$MNT/usr/local/lib/spin-lab"
 rm -f "$MNT/usr/local/lib/spin-lab/ssh_host_ed25519_key" "$MNT/usr/local/lib/spin-lab/ssh_host_ed25519_key.pub"
 ssh-keygen -q -t ed25519 -N "" -C "" -f "$MNT/usr/local/lib/spin-lab/ssh_host_ed25519_key"
-`,
-}
-
-// keygenEdit is the image's host-key generation as this checkout builds it, put into a published
-// release's overlays: its unit, in /etc so that it shadows the release's in /usr/lib. A release
-// whose unit is this checkout's already is refused, rather than measured twice.
-func keygenEdit(checkout string) (Edit, error) {
-	const unit = "/usr/lib/systemd/system/spin-machine-sshd-keygen.service"
-	b, err := os.ReadFile(filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", unit))
-	if err != nil {
-		return Edit{}, fmt.Errorf("reading the keygen unit from this checkout: %w", err)
-	}
-	return Edit{
-		Files: map[string]string{"/etc/systemd/system/spin-machine-sshd-keygen.service": string(b)},
-		Setup: `! cmp -s "$MNT` + unit + `" "$MNT/etc/systemd/system/spin-machine-sshd-keygen.service" || { echo "the release's keygen unit is this checkout's" >&2; exit 1; }
-`,
-	}, nil
-}
-
-// keygenUnwantedEdit takes away the image's ssh.service.wants link to the keygen unit, which
-// sysinit.target's want starts in every boot already (#515). A release without it is refused.
-var keygenUnwantedEdit = Edit{
-	Setup: `rm "$MNT/etc/systemd/system/ssh.service.wants/spin-machine-sshd-keygen.service"
 `,
 }
 

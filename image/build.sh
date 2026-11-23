@@ -249,6 +249,10 @@ stat_in_image /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.
         grep -qx 'DefaultDependencies=no' || {
     echo "ERROR: spin-machine-sshd-keygen.service has default dependencies; it starts after sysinit.target" >&2
     exit 1; }
+"$bin/debugfs" -R "cat /usr/lib/systemd/system/spin-machine-sshd-keygen.service" /work/base.raw 2>/dev/null |
+        grep -qx 'ConditionPathExists=!/run/spin/ssh/ssh_host_ed25519_key' || {
+    echo "ERROR: spin-machine-sshd-keygen.service runs when spin has handed over its host key" >&2
+    exit 1; }
 "$bin/debugfs" -R "dump -p /usr/libexec/spin-machine-pressure /work/pressure.bin" /work/base.raw 2>/dev/null
 cmp -s /work/pressure.bin /out/guest/spin-machine-pressure && test -x /work/pressure.bin || {
     echo "ERROR: /usr/libexec/spin-machine-pressure is not in the image as built" >&2

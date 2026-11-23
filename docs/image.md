@@ -290,7 +290,8 @@ perfectly valid empty ext4, and the failure would be a VM that boots and finds n
   login without failing anything. The lane's units without default dependencies must still stop at
   shutdown. The ML-KEM drop-in is read back because without it OpenSSH's own list, with three
   classical exchanges, still logs in. The keygen unit needs both its link and
-  `DefaultDependencies=no`, or it waits for the `sysinit.target` that wants it.
+  `DefaultDependencies=no`, or it waits for the `sysinit.target` that wants it, and its condition on
+  spin's key, or spin's path pays for a key nothing loads.
 - **The timers** are asserted separately from the unit masks, because a package upgrade re-running
   a unit's `[Install]` brings them back, and what they cost is an apt lock under a workload's own
   install. fstrim must be enabled and hourly.
@@ -356,7 +357,7 @@ security reason, not boot time), *unmeasured*. A Δ is the Δp50 of taking the c
 | `systemd-firstboot.service` masked | identity | Every boot is a first boot (empty machine-id), so it would run every boot. Identity comes from whoever runs the VM. | function | No first-boot prompt for locale, time zone or root password. |
 | `systemd-machine-id-commit.service` masked | identity | It writes the transient machine ID to disk, which would make a VM's ID survive into its overlay's next boot. | function | Nothing. |
 | `systemd-random-seed.service` masked | identity, removed | A saved seed in the base would be shared. virtio-rng seeds the kernel's RNG, and a restored guest reseeds through vmgenid. | function; one of group C-masks | Nothing. |
-| `spin-machine-sshd-keygen.service`, `sysinit.target.wants/spin-machine-sshd-keygen.service`, `ssh.service.wants/spin-machine-sshd-keygen.service`, `sshd@.service.d/keygen.conf` | added, reordered | Host keys are identity, so the image ships none. Ubuntu's `sshd-keygen.service` carries `ConditionFirstBoot=yes`, which never holds in time here, so without this unit `ssh.service` fails. It makes an Ed25519 key only, from the boot's first dispatch (`DefaultDependencies=no`), so the key is made beside the rest of the boot and not inside the first login. Every sshd, including the per-connection `sshd@` for vsock, waits for it. | Ed25519 only: measured, −5.0 [−8.3, −1.8] (lab 44979726719). From the first dispatch: lane 489 → 468 (lab 43483372488); in spin's shape, taken back: −0.8 [−10.5, +3.5], not a gain (lab 45034963004; kept pending #515). | No ECDSA or RSA host key. A client that accepts only those cannot connect. |
+| `spin-machine-sshd-keygen.service`, `sysinit.target.wants/spin-machine-sshd-keygen.service`, `sshd@.service.d/keygen.conf` | added, reordered | Host keys are identity, so the image ships none. Ubuntu's `sshd-keygen.service` carries `ConditionFirstBoot=yes`, which never holds in time here, so without this unit `ssh.service` fails. It makes an Ed25519 key only, from the boot's first dispatch (`DefaultDependencies=no`), so the key is made beside the rest of the boot and not inside the first login. Every sshd, including the per-connection `sshd@` for vsock, waits for it. It does not run when spin's handoff has placed spin's key at `/run/spin/ssh/ssh_host_ed25519_key` (#515). | Ed25519 only: measured, −5.0 [−8.3, −1.8] (lab 44979726719). From the first dispatch: lane 489 → 468 (lab 43483372488); in spin's shape, taken back: −0.8 [−10.5, +3.5], not a gain (lab 45034963004). Skipped on spin's path: −6.9 [−9.6, −2.4] (lab 45086250796, #515). | No ECDSA or RSA host key. A client that accepts only those cannot connect. |
 
 ## Packages
 
@@ -651,6 +652,20 @@ repeated too quickly"). Every boot here is a first boot, so keys live exactly as
   for Ed25519). sshd skips a default host key that is not there, and every client since OpenSSH 6.5
   (2014) takes Ed25519. ECDSA went too: −5.0 [−8.3, −1.8] ms, sshd accepting −4.4 [−6.9, −1.9] (60
   boots each, lab 44979726719, 2026-11-22).
+- **Not when spin hands over its key** (`ConditionPathExists=!/run/spin/ssh/ssh_host_ed25519_key`,
+  #515). spin makes the workspace's key itself and pins it: its vminitd makes an Ed25519 key, the
+  launch claim carries the public half, and spin connects with that key fixed. Before it execs
+  systemd, vminitd writes the key to that path, with `sshd_config.d/00-spin-host-key.conf` naming
+  it as sshd's only `HostKey` (spin-stack/spin at 1bd3414, `internal/guest/vminit/handoff`). A key
+  made here would never be loaded, and ssh.service would wait for it. The path is spin's contract
+  with the image (spin-stack/spin#1650). The cold first login came −6.9 [−9.6, −2.4] ms, sshd
+  accepting −6.8 [−10.4, −1.8], 120 boots a side on the bench, spin's shape and login, both arms with
+  spin's handoff standing in (lab 45086250796, 2026-11-22). Restored, in noise (lab 45085877238).
+  The lab's `login=spin` does not hand over a key unless asked (#575).
+- **Wanted by sysinit.target alone.** `ssh.service.wants/spin-machine-sshd-keygen.service`, a
+  symlink checked in with `2df3dbf`, wanted the unit a second time in the same transaction, and
+  was removed (#515): taken away, the first login read −1.6 [−3.7, +4.3], 120 a side (lab
+  45086250796).
 - **Ubuntu's sshd-keygen without default dependencies** (`sshd-keygen.service.d/10-lane.conf`). Its
   condition never holds here, but a job waits for its ordering before its condition is checked: with
   its default dependencies it held ssh.service until basic.target (laptop, v20261120.03,
@@ -834,7 +849,7 @@ positive means the change earns it. The rule is AGENTS.md's: a gain only when th
 | docker and containerd by socket | `carry-docker` | +13.9 [+11.4, +18.2] | +55.7 [+12.0, +73.9]; into prestarted +40.7 [+33.5, +59.0] | kept, deferred |
 | The manager's timeouts and watchdogs (`fast-boot.conf`) | `carry-timeouts` | +0.3 [−5.2, +3.3] | in noise | reverted: systemd's defaults |
 | logind, its socket, the user units and the bus without default dependencies | `carry-lane-logind` | +16.5 [+9.8, +20.4] (prestarted +11.0 [+6.2, +18.8]) | in noise | kept, now measured in spin's shape |
-| Host keys from the boot's first dispatch | `carry-keygen` | −0.8 [−10.5, +3.5] | in noise | not a gain; kept pending #515 |
+| Host keys from the boot's first dispatch | `carry-keygen` | −0.8 [−10.5, +3.5] | in noise | kept for the lane; on spin's path no key is made since #515 |
 
 Reverted means gone from the image: what earns nothing is a difference to explain for nothing. A
 workspace now gets Ubuntu's `nsswitch.conf` and systemd's 90 s start and stop timeouts, so a
