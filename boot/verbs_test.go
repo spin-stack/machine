@@ -74,6 +74,9 @@ func TestTheMachineSaysHowItEnded(t *testing.T) {
 			case <-time.After(30 * time.Second):
 				t.Fatalf("QEMU did not end:\n%s", tail([]byte(g.said()), 2000))
 			}
+			if strings.Contains(g.said(), "Out of memory") {
+				t.Errorf("the guest ran its OOM killer:\n%s", tail([]byte(g.said()), 4000))
+			}
 			end, said := g.End()
 			t.Logf("End: %+v, %v", end, said)
 			if !said || end != tc.want {
