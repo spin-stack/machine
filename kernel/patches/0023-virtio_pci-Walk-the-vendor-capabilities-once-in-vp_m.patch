@@ -1,0 +1,176 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 01:25:02 -0300
+Subject: [PATCH] virtio_pci: Walk the vendor capabilities once in
+ vp_modern_probe()
+
+vp_modern_probe() looks for four structures - common, ISR, notify and
+device configuration - and walks the device's vendor-specific
+capabilities from the start for each one, reading every capability's
+cfg_type and BAR until the one it wants. QEMU lists a modern device's
+capabilities in the reverse of the order it adds them: PCI
+configuration access, notify, device, ISR, common. The search for the
+common structure, which comes first, reads all five capabilities, and
+the four searches read 28 bytes of configuration space between them.
+
+Walk the list once, keep the first usable capability of each of the
+four types, and stop once all four are found. A capability's BAR is
+read only when its type is still wanted. The result is the same: for
+each type, the first capability of that type whose BAR is in use, and
+the BARs of those capabilities in modern_bars. On QEMU the walk reads 9
+bytes instead of 28, the PCI configuration access capability's type
+and the type and BAR of the other four.
+
+Under a hypervisor every configuration read is a trap. On this
+machine's QEMU q35 with six virtio-pci devices it is 114 reads fewer
+per boot, out of the 258 that vp_modern_probe() and
+vp_modern_map_capability() make (counted from the source and QEMU's
+capability order; the 258 were measured with the function tracer). At
+about 6.7 us a nested exit, that is ~0.8 ms on the boot's path.
+
+It costs nothing at run time. The capabilities are read as before,
+fewer times; vp_modern_map_capability() still reads each structure's
+BAR again before it maps it.
+
+Local patch for this machine. Not upstream.
+
+Assisted-by: LLM
+---
+ drivers/virtio/virtio_pci_modern_dev.c | 74 ++++++++++++++------------
+ 1 file changed, 39 insertions(+), 35 deletions(-)
+
+diff --git a/drivers/virtio/virtio_pci_modern_dev.c b/drivers/virtio/virtio_pci_modern_dev.c
+index 413a8c353..03430963b 100644
+--- a/drivers/virtio/virtio_pci_modern_dev.c
++++ b/drivers/virtio/virtio_pci_modern_dev.c
+@@ -103,27 +103,36 @@ vp_modern_map_capability(struct virtio_pci_modern_device *mdev, int off,
+ }
+ 
+ /**
+- * virtio_pci_find_capability - walk capabilities to find device info.
++ * virtio_pci_find_capabilities - walk capabilities once to find device info.
+  * @dev: the pci device
+- * @cfg_type: the VIRTIO_PCI_CAP_* value we seek
++ * @pos: offsets found, indexed by VIRTIO_PCI_CAP_* value, 0 where none is
+  * @ioresource_types: IORESOURCE_MEM and/or IORESOURCE_IO.
+- * @bars: the bitmask of BARs
++ * @bars: the bitmask of BARs the capabilities found use
+  *
+- * Returns offset of the capability, or 0.
++ * Takes, for each structure type from VIRTIO_PCI_CAP_COMMON_CFG to
++ * VIRTIO_PCI_CAP_DEVICE_CFG, the first capability of that type whose BAR
++ * is in use. A BAR is read only for a capability whose type is still
++ * wanted.
+  */
+-static inline int virtio_pci_find_capability(struct pci_dev *dev, u8 cfg_type,
+-					     u32 ioresource_types, int *bars)
++static void virtio_pci_find_capabilities(struct pci_dev *dev,
++					 int pos[VIRTIO_PCI_CAP_DEVICE_CFG + 1],
++					 u32 ioresource_types, int *bars)
+ {
+-	int pos;
++	int cap, missing = VIRTIO_PCI_CAP_DEVICE_CFG;
+ 
+-	for (pos = pci_find_capability(dev, PCI_CAP_ID_VNDR);
+-	     pos > 0;
+-	     pos = pci_find_next_capability(dev, pos, PCI_CAP_ID_VNDR)) {
++	for (cap = pci_find_capability(dev, PCI_CAP_ID_VNDR);
++	     cap > 0 && missing;
++	     cap = pci_find_next_capability(dev, cap, PCI_CAP_ID_VNDR)) {
+ 		u8 type, bar;
+-		pci_read_config_byte(dev, pos + offsetof(struct virtio_pci_cap,
++
++		pci_read_config_byte(dev, cap + offsetof(struct virtio_pci_cap,
+ 							 cfg_type),
+ 				     &type);
+-		pci_read_config_byte(dev, pos + offsetof(struct virtio_pci_cap,
++		if (type < VIRTIO_PCI_CAP_COMMON_CFG ||
++		    type > VIRTIO_PCI_CAP_DEVICE_CFG || pos[type])
++			continue;
++
++		pci_read_config_byte(dev, cap + offsetof(struct virtio_pci_cap,
+ 							 bar),
+ 				     &bar);
+ 
+@@ -131,15 +140,13 @@ static inline int virtio_pci_find_capability(struct pci_dev *dev, u8 cfg_type,
+ 		if (bar >= PCI_STD_NUM_BARS)
+ 			continue;
+ 
+-		if (type == cfg_type) {
+-			if (pci_resource_len(dev, bar) &&
+-			    pci_resource_flags(dev, bar) & ioresource_types) {
+-				*bars |= (1 << bar);
+-				return pos;
+-			}
++		if (pci_resource_len(dev, bar) &&
++		    pci_resource_flags(dev, bar) & ioresource_types) {
++			*bars |= (1 << bar);
++			pos[type] = cap;
++			missing--;
+ 		}
+ 	}
+-	return 0;
+ }
+ 
+ /* This is part of the ABI.  Don't screw with it. */
+@@ -223,7 +230,9 @@ static inline void check_offsets(void)
+ int vp_modern_probe(struct virtio_pci_modern_device *mdev)
+ {
+ 	struct pci_dev *pci_dev = mdev->pci_dev;
++	int pos[VIRTIO_PCI_CAP_DEVICE_CFG + 1] = {};
+ 	int err, common, isr, notify, device;
++	int bars = 0;
+ 	u32 notify_length;
+ 	u32 notify_offset;
+ 	int devid;
+@@ -252,23 +261,25 @@ int vp_modern_probe(struct virtio_pci_modern_device *mdev)
+ 	}
+ 	mdev->id.vendor = pci_dev->subsystem_vendor;
+ 
++	virtio_pci_find_capabilities(pci_dev, pos,
++				     IORESOURCE_IO | IORESOURCE_MEM, &bars);
++	common = pos[VIRTIO_PCI_CAP_COMMON_CFG];
++	isr = pos[VIRTIO_PCI_CAP_ISR_CFG];
++	notify = pos[VIRTIO_PCI_CAP_NOTIFY_CFG];
++	/* Device capability is only mandatory for devices that have
++	 * device-specific configuration.
++	 */
++	device = pos[VIRTIO_PCI_CAP_DEVICE_CFG];
++
+ 	/* check for a common config: if not, use legacy mode (bar 0). */
+-	common = virtio_pci_find_capability(pci_dev, VIRTIO_PCI_CAP_COMMON_CFG,
+-					    IORESOURCE_IO | IORESOURCE_MEM,
+-					    &mdev->modern_bars);
+ 	if (!common) {
+ 		dev_info(&pci_dev->dev,
+ 			 "virtio_pci: leaving for legacy driver\n");
+ 		return -ENODEV;
+ 	}
++	mdev->modern_bars |= bars;
+ 
+ 	/* If common is there, these should be too... */
+-	isr = virtio_pci_find_capability(pci_dev, VIRTIO_PCI_CAP_ISR_CFG,
+-					 IORESOURCE_IO | IORESOURCE_MEM,
+-					 &mdev->modern_bars);
+-	notify = virtio_pci_find_capability(pci_dev, VIRTIO_PCI_CAP_NOTIFY_CFG,
+-					    IORESOURCE_IO | IORESOURCE_MEM,
+-					    &mdev->modern_bars);
+ 	if (!isr || !notify) {
+ 		dev_err(&pci_dev->dev,
+ 			"virtio_pci: missing capabilities %i/%i/%i\n",
+@@ -284,13 +295,6 @@ int vp_modern_probe(struct virtio_pci_modern_device *mdev)
+ 	if (err)
+ 		dev_warn(&pci_dev->dev, "Failed to enable 64-bit or 32-bit DMA.  Trying to continue, but this might not work.\n");
+ 
+-	/* Device capability is only mandatory for devices that have
+-	 * device-specific configuration.
+-	 */
+-	device = virtio_pci_find_capability(pci_dev, VIRTIO_PCI_CAP_DEVICE_CFG,
+-					    IORESOURCE_IO | IORESOURCE_MEM,
+-					    &mdev->modern_bars);
+-
+ 	err = pci_request_selected_regions(pci_dev, mdev->modern_bars,
+ 					   "virtio-pci-modern");
+ 	if (err)
+-- 
+2.53.0
+

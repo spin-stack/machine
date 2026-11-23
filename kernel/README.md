@@ -139,6 +139,11 @@ every kernel bump.
 | 0010 | `early_quirks` calls `kvm_para_available` before its scan |
 | 0012 | `btf_vmlinux_defer` is in the vmlinux, and the compiled `kernel/bpf/btf.c` defers registrations through it |
 | 0013 | the compiled `kernel/bpf/verifier.c` asks for vmlinux BTF through `need_btf_vmlinux(env)` |
+| 0021 | `enable_IO_APIC` does not call `clear_IO_APIC`: each pin is cleared from the read its ExtINT search made |
+| 0022 | `pci_bus_add_device` calls `pci_find_host_bridge`, the gate on its state save |
+| 0023 | `vp_modern_probe` calls `pci_find_capability` once |
+| 0024 | the compiled `drivers/virtio/virtio_pci_modern_dev.c` writes `queue_select` only when `selected_queue` differs |
+| 0025 | the compiled `arch/x86/kernel/apic/msi.c` compares the vector and the destination before the message write |
 
 None of them is a guest check. What the patches save is CPU and VM exits, which a guest cannot
 count, and the format files 0003 defers are behind lockdown. What 0012 and 0013 save is a parse of

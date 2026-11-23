@@ -461,7 +461,8 @@ RUN <<EOT
     dis() { objdump -d --no-show-raw-insn --disassemble="$1" vmlinux; }
     lost() { echo "ERROR: patches/$1 is not in this vmlinux: $2"; failed=1; }
     for f in vfs_read ftrace_check_for_weak_functions trace_eval_init trace_format_open \
-            raw_pci_read raw_pci_write pci_setup_device early_quirks btf_vmlinux_defer; do
+            raw_pci_read raw_pci_write pci_setup_device early_quirks btf_vmlinux_defer \
+            enable_IO_APIC pci_bus_add_device vp_modern_probe; do
         dis "$f" | grep -q "<$f>:" || { echo "ERROR: no function $f in vmlinux; the check that names it reads nothing"; failed=1; }
     done
 
@@ -512,6 +513,30 @@ RUN <<EOT
     # cgroup device or skb program does not parse it. The helper may be inlined, so the source
     # that was compiled is read.
     grep -qF 'need_btf_vmlinux(env)' kernel/bpf/verifier.c || lost 0013 "bpf_check parses vmlinux BTF for every program"
+
+    # 0021: enable_IO_APIC() clears each pin from the read its ExtINT search made, so it no
+    # longer reads the whole redirection table again through clear_IO_APIC().
+    ! dis enable_IO_APIC | grep -q '<clear_IO_APIC>' || lost 0021 "enable_IO_APIC still reads every pin again through clear_IO_APIC"
+
+    # 0022: a device's state is saved at add only where something can restore it unsaved; the
+    # check of the root bus's host bridge is the gate's, and the call is there only with it.
+    dis pci_bus_add_device | grep -q '<pci_find_host_bridge>' || lost 0022 "pci_bus_add_device saves every device's state"
+
+    # 0023: virtio-pci's vendor capabilities are walked once, not once for each of four types,
+    # so vp_modern_probe starts one walk.
+    [ "$(dis vp_modern_probe | grep -c '<pci_find_capability>')" = 1 ] ||
+        lost 0023 "vp_modern_probe walks the vendor capabilities once for each type"
+
+    # 0024: queue_select is written only when the queue changes. The helper is static and
+    # inlined into every accessor, so the source that was compiled is read.
+    grep -qF 'mdev->selected_queue == index' drivers/virtio/virtio_pci_modern_dev.c ||
+        lost 0024 "virtio-pci writes queue_select before every queue field"
+
+    # 0025: msi_set_affinity() returns before the message write when the vector and the
+    # destination did not change. A comparison in its machine code looks like any other, so the
+    # source that was compiled is read.
+    grep -qF 'cfg->dest_apicid == old_cfg.dest_apicid' arch/x86/kernel/apic/msi.c ||
+        lost 0025 "msi_set_affinity writes an unchanged message"
 
     [ "$failed" = 0 ] || exit 1
     echo "kernel patches: each is in this vmlinux"
