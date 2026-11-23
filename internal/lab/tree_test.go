@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,7 +72,7 @@ func src(t *testing.T) Sources {
 
 func TestATreeIsItsBaseLinkedAndSaysWhereEachPartCameFrom(t *testing.T) {
 	base := fakeRelease(t, "k1")
-	tr, err := MakeTree(filepath.Join(t.TempDir(), "t"), TreeSpec{Name: "t", From: base, Append: "quiet x=1", Boot: []string{"--cpu=Skylake-Server-v4"}}, src(t))
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "t"), TreeSpec{Name: "t", From: base, Append: "quiet x=1", Boot: []string{"--cpu=Skylake-Server-v4"}, Options: []string{"memory=2048", "plugged=0"}}, src(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +80,12 @@ func TestATreeIsItsBaseLinkedAndSaysWhereEachPartCameFrom(t *testing.T) {
 		t.Errorf("name %q, cmdline %q", tr.Name(), tr.Cmdline("/sbin/init"))
 	}
 	// Read back from the manifest on disk, as a measurement opens it.
-	if again, err := OpenTree(tr.Dir); err != nil || !slices.Equal(again.Manifest.Boot, []string{"--cpu=Skylake-Server-v4"}) {
-		t.Errorf("the tree's boot flags, reopened: %v, %v", again, err)
+	if again, err := OpenTree(tr.Dir); err != nil || !slices.Equal(again.Manifest.Boot, []string{"--cpu=Skylake-Server-v4"}) ||
+		!maps.Equal(again.Manifest.Options, Options{"memory": "2048", "plugged": "0"}) {
+		t.Errorf("the tree's boot flags and options, reopened: %v, %v", again, err)
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), TreeSpec{Name: "t", From: base, Options: []string{"plugged"}}, src(t)); err == nil || !strings.Contains(err.Error(), "NAME=VALUE") {
+		t.Errorf("an option with no value made a tree: %v", err)
 	}
 	for name := range partFiles {
 		if got := tr.Manifest.Parts[name].Source; got != base {

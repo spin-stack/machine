@@ -18,12 +18,13 @@ import (
 )
 
 func TestATreeSpecIsANameAndLabTreesFlags(t *testing.T) {
-	s, err := parseTreeSpec(` kaslr = --kernel run:44584704610 --append "quiet x=1" --edit lane --edit lane --spin-machine here --boot --cpu=Skylake-Server-v4`)
+	s, err := parseTreeSpec(` kaslr = --kernel run:44584704610 --append "quiet x=1" --edit lane --edit lane --spin-machine here --boot --cpu=Skylake-Server-v4 --opt memory=2048 --opt plugged=0`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s.Name != "kaslr" || s.Kernel != "run:44584704610" || s.Append != "quiet x=1" || !slices.Equal(s.Edits, []string{"lane", "lane"}) ||
-		s.SpinMachine != "here" || s.From != "release" || !slices.Equal(s.Boot, []string{"--cpu=Skylake-Server-v4"}) {
+		s.SpinMachine != "here" || s.From != "release" || !slices.Equal(s.Boot, []string{"--cpu=Skylake-Server-v4"}) ||
+		!slices.Equal(s.Options, []string{"memory=2048", "plugged=0"}) {
 		t.Errorf("parsed %+v", s)
 	}
 	for bad, says := range map[string]string{

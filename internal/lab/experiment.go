@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -42,10 +44,16 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	treeOpts := map[*Tree]Options{}
 	for _, t := range e.Trees {
-		if err := CanRun(e.Probe, opts, t); err != nil {
+		o, err := optionsOf(e.Probe, opts, t)
+		if err != nil {
+			return nil, err
+		}
+		if err := CanRun(e.Probe, o, t); err != nil {
 			return nil, fmt.Errorf("tree %s cannot run %s: %w", t.Name(), e.Probe.Name(), err)
 		}
+		treeOpts[t] = o
 	}
 	key, err := NewKey()
 	if err != nil {
@@ -82,7 +90,7 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		m := &Measurement{Tree: t, Row: row, Rep: rep, Options: opts, Dir: dir, Socks: socks, Keep: e.Keep, Key: key,
+		m := &Measurement{Tree: t, Row: row, Rep: rep, Options: treeOpts[t], Dir: dir, Socks: socks, Keep: e.Keep, Key: key,
 			values: map[string]float64{}, detail: map[string]float64{}, log: e.Log}
 		m.Cleanup(removeAll(dir))
 		m.Cleanup(removeAll(socks))
@@ -165,6 +173,38 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 	}
 	r.Finished = time.Now().UTC()
 	return r, nil
+}
+
+// optionsOf is the options tree t boots with: the run's, with the tree's own shape options in their
+// place. Only the shape: the rows and the login are the run's, one for every tree, since a table
+// compares the trees row by row and one key logs into every machine.
+func optionsOf(p Probe, run Options, t *Tree) (Options, error) {
+	if len(t.Manifest.Options) == 0 {
+		return run, nil
+	}
+	o := maps.Clone(run)
+	for _, name := range slices.Sorted(maps.Keys(t.Manifest.Options)) {
+		if name == "login" || !slices.ContainsFunc(shape, func(s Option) bool { return s.Name == name }) {
+			return nil, fmt.Errorf("tree %s: %s is not a shape option a tree can set; a tree sets %s", t.Name(), name, treeOptionNames())
+		}
+		o[name] = t.Manifest.Options[name]
+	}
+	o, err := settle(p, o)
+	if err != nil {
+		return nil, fmt.Errorf("tree %s: %w", t.Name(), err)
+	}
+	return o, nil
+}
+
+// treeOptionNames are the options a tree can set: the shape's, but the login.
+func treeOptionNames() string {
+	var names []string
+	for _, s := range shape {
+		if s.Name != "login" {
+			names = append(names, s.Name)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // Scratch is where an experiment's overlays and states go, and the device that is: TMPDIR when it
