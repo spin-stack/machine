@@ -183,15 +183,22 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      contents: read
       issues: write
     env:
-      GH_REPO: ${{ github.repository }}
       RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
       - name: Open an issue for the failed analysis
-        run: |
-          title="CodeQL failed on main $(date -u +%F)"
-          if gh issue list --state all --search "\"$title\" in:title" --json title -q '.[].title' | grep -qxF "$title"; then
-            echo "$title: already open"; exit 0
-          fi
-          gh issue create --title "$title" --body "The daily CodeQL run failed: $RUN. A result on a line a patch added, a touched file the analysis did not read, or a Go result of medium severity or above (codeql.yml's header). Fix it or, for a Go result that is safe, suppress it in the source with its reason (#653)."
+        run: spin-machine-dev patched failed --run "$RUN"
