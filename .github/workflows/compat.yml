@@ -4,8 +4,9 @@ name: Compat
 # machine's record still refuses what QEMU loads silently and accepts the machine's own checkpoint
 # (boot:compat, boot:record): on every pull request and push to main that changes what a resumed
 # guest is loaded into - the machine's definition, QEMU, the kernel, the firmware and their pins -
-# and before every release. And whether that kernel, booted, is locked down (boot:lockdown), and
-# whether a guest checkpointed and continued still grows (boot:cpu-plug).
+# and before every release. And whether that kernel, booted, is locked down (boot:lockdown) and at
+# a random base every boot (boot:kaslr), and whether a guest checkpointed and continued still grows
+# (boot:cpu-plug).
 #
 # How long a checkpoint stops the guest (boot:checkpoint-pause) is a bound, not compatibility: it
 # runs on the bench, on each release (release.yml's pause) and at a QEMU bump (versions.yaml).
@@ -197,6 +198,14 @@ jobs:
       # was built.
       - name: The kernel is locked down
         run: go tool task boot:lockdown
+
+      # The same kernel across ten boots: its virtual base, its physical base and the regions
+      # RANDOMIZE_MEMORY moves each take more than one value and never the unrandomized one. One
+      # boot cannot tell a random address from a fixed one, and the vmlinux the machine enters
+      # through PVH is randomized by kernel/patches/0014-0020 and qemu/patches/0008, none of which
+      # anything else here would miss (#645).
+      - name: The kernel is somewhere else every boot
+        run: go tool task boot:kaslr
 
   # The run passed, or the change does not reach the machine: the one check of this workflow a
   # ruleset can require. A `resume` that failed or was cancelled, or a `changed` that could not
