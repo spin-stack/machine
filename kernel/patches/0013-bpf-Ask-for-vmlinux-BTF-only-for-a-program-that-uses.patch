@@ -1,0 +1,177 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 01:26:27 -0300
+Subject: [PATCH] bpf: Ask for vmlinux BTF only for a program that uses a
+ kernel type
+
+bpf_check() asks for vmlinux BTF for every program it verifies, and with
+vmlinux BTF parsed on first use that parses it, 4.6 MB of it, for the
+first program of the boot whatever that program is. systemd loads cgroup
+device and cgroup skb programs for a unit's DeviceAllow= and
+IPAddressDeny=, journald's among them, and none of them has BTF, calls a
+kfunc or touches a kernel type.
+
+Ask for it where a kernel type first enters a program instead:
+
+- a program with its own BTF (func and line info, CO-RE relocations,
+  global function arguments, which are checked against kernel context
+  types), or with a BTF-typed attach point (tracing, LSM, struct_ops,
+  extension, an attach BTF or a target program), before the first
+  instruction is checked;
+- the first kfunc call;
+- a BTF id loaded through ld_imm64 from vmlinux;
+- an access through a map pointer, typed by vmlinux BTF;
+- a helper argument checked against a PTR_TO_BTF_ID register, a helper
+  returning a vmlinux type, and bpf_find_vma()'s callback.
+
+Every other read of btf_vmlinux in the verifier is on a path one of
+these has already taken in the same verification: the kfunc paths
+behind the first kfunc call, and the context and argument checks behind
+the program's BTF or attach point. A program that takes none of them
+leaves the parse to the first that does.
+
+The parse fails only when gcc, pahole or the kernel is broken. A program
+that needs vmlinux BTF fails then, with the same message as before. A
+program that does not, which was refused too, now loads, as it would on
+a kernel without CONFIG_DEBUG_INFO_BTF.
+
+On an x86_64 KVM guest with one vCPU, nested, the parse is about 7 ms,
+and journald's programs are the first of the boot.
+
+Assisted-by: LLM
+---
+ kernel/bpf/verifier.c | 59 ++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 50 insertions(+), 9 deletions(-)
+
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index ed4eaeefa..7447a5f81 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -328,6 +328,24 @@ __printf(2, 3) static void verbose(void *private_data, const char *fmt, ...)
+ 	va_end(args);
+ }
+ 
++/*
++ * Make vmlinux BTF available to what reads btf_vmlinux next: called before
++ * a program's first use of a kernel type, so a program that uses none, like
++ * a cgroup device or skb program without BTF, does not parse it. Afterwards
++ * btf_vmlinux is the parsed BTF, or NULL without CONFIG_DEBUG_INFO_BTF.
++ */
++static int need_btf_vmlinux(struct bpf_verifier_env *env)
++{
++	struct btf *btf = bpf_get_btf_vmlinux();
++
++	if (IS_ERR(btf)) {
++		/* Either gcc or pahole or kernel are broken. */
++		verbose(env, "in-kernel BTF is malformed\n");
++		return PTR_ERR(btf);
++	}
++	return 0;
++}
++
+ static void verbose_invalid_scalar(struct bpf_verifier_env *env,
+ 				   struct bpf_reg_state *reg,
+ 				   struct bpf_retval_range range, const char *ctx,
+@@ -2822,6 +2840,9 @@ int bpf_add_kfunc_call(struct bpf_verifier_env *env, u32 func_id, u16 offset)
+ 	tab = prog_aux->kfunc_tab;
+ 	btf_tab = prog_aux->kfunc_btf_tab;
+ 	if (!tab) {
++		err = need_btf_vmlinux(env);
++		if (err)
++			return err;
+ 		if (!btf_vmlinux) {
+ 			verbose(env, "calling kernel function is not supported without CONFIG_DEBUG_INFO_BTF\n");
+ 			return -ENOTSUPP;
+@@ -6172,6 +6193,9 @@ static int check_ptr_to_map_access(struct bpf_verifier_env *env,
+ 	u32 btf_id;
+ 	int ret;
+ 
++	ret = need_btf_vmlinux(env);
++	if (ret)
++		return ret;
+ 	if (!btf_vmlinux) {
+ 		verbose(env, "map_ptr access not supported without CONFIG_DEBUG_INFO_BTF\n");
+ 		return -ENOTSUPP;
+@@ -8433,6 +8457,9 @@ static int check_reg_type(struct bpf_verifier_env *env, struct bpf_reg_state *re
+ 			if (err)
+ 				return err;
+ 
++			err = need_btf_vmlinux(env);
++			if (err)
++				return err;
+ 			if (!btf_struct_ids_match(&env->log, reg->btf, reg->btf_id,
+ 						  reg->var_off.value, btf_vmlinux, *arg_btf_id,
+ 						  strict_type_match, !type_is_alloc(reg->type))) {
+@@ -10182,6 +10209,10 @@ static int set_find_vma_callback_state(struct bpf_verifier_env *env,
+ 	 * (callback_fn)(struct task_struct *task,
+ 	 *               struct vm_area_struct *vma, void *callback_ctx);
+ 	 */
++	int err = need_btf_vmlinux(env);
++
++	if (err)
++		return err;
+ 	callee->regs[BPF_REG_1] = caller->regs[BPF_REG_1];
+ 
+ 	callee->regs[BPF_REG_2].type = PTR_TO_BTF_ID;
+@@ -11231,6 +11262,9 @@ static int check_helper_call(struct bpf_verifier_env *env, struct bpf_insn *insn
+ 					     func_id_name(func_id));
+ 				return -EFAULT;
+ 			}
++			err = need_btf_vmlinux(env);
++			if (err)
++				return err;
+ 			ret_btf = btf_vmlinux;
+ 			ret_btf_id = *fn->ret_btf_id;
+ 		}
+@@ -18794,6 +18828,9 @@ static int check_pseudo_btf_id(struct bpf_verifier_env *env,
+ 			return -EINVAL;
+ 		}
+ 	} else {
++		err = need_btf_vmlinux(env);
++		if (err)
++			return err;
+ 		if (!btf_vmlinux) {
+ 			verbose(env, "kernel is missing BTF, make sure CONFIG_DEBUG_INFO_BTF=y is specified in Kconfig.\n");
+ 			return -EINVAL;
+@@ -21305,8 +21342,6 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr,
+ 	if (ret)
+ 		goto err_prep;
+ 
+-	bpf_get_btf_vmlinux();
+-
+ 	/* Serialize verification of unprivileged programs. */
+ 	if (!is_priv)
+ 		mutex_lock(&bpf_verifier_lock);
+@@ -21326,13 +21361,6 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr,
+ 
+ 	mark_verifier_state_clean(env);
+ 
+-	if (IS_ERR(btf_vmlinux)) {
+-		/* Either gcc or pahole or kernel are broken. */
+-		verbose(env, "in-kernel BTF is malformed\n");
+-		ret = PTR_ERR(btf_vmlinux);
+-		goto skip_full_check;
+-	}
+-
+ 	env->strict_alignment = !!(attr->prog_flags & BPF_F_STRICT_ALIGNMENT);
+ 	if (!IS_ENABLED(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS))
+ 		env->strict_alignment = true;
+@@ -21359,6 +21387,19 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr,
+ 	if (ret < 0)
+ 		goto skip_full_check;
+ 
++	/*
++	 * The program's own BTF is checked against kernel types (context
++	 * types, argument tags, CO-RE), and so is what a BTF-typed attach
++	 * point gives it, before any instruction asks for one.
++	 */
++	if (env->prog->aux->btf || env->prog->aux->attach_btf || env->prog->aux->dst_prog ||
++	    env->prog->type == BPF_PROG_TYPE_TRACING || env->prog->type == BPF_PROG_TYPE_LSM ||
++	    env->prog->type == BPF_PROG_TYPE_EXT || env->prog->type == BPF_PROG_TYPE_STRUCT_OPS) {
++		ret = need_btf_vmlinux(env);
++		if (ret)
++			goto skip_full_check;
++	}
++
+ 	/* Apply CO-RE before validating the program's instruction layout. */
+ 	ret = bpf_check_core_relo(env, attr, uattr);
+ 	if (ret < 0)
