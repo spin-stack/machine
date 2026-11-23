@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -161,6 +162,22 @@ func TestASignedFileIsTheOneAskedForOnceItsSignatureIsTheReleases(t *testing.T) 
 	github(t, pub, "", "exit 1")
 	if _, err := Signed(context.Background(), pins(t), "v1", dir, "r.cdx.json"); err == nil || !strings.Contains(err.Error(), "r.cdx.json's signature is not") {
 		t.Errorf("Signed with a signature not the release's: %v", err)
+	}
+}
+
+// A release's files are the names GitHub lists for it, and a listing that fails says which release.
+func TestAReleasesAssetsAreTheNamesItPublished(t *testing.T) {
+	calls := github(t, "", "echo a.vmlinux; echo a.vmlinux.sigstore.json", "")
+	got, err := Assets(context.Background(), "v1")
+	if err != nil || !slices.Equal(got, []string{"a.vmlinux", "a.vmlinux.sigstore.json"}) {
+		t.Errorf("Assets = %q, %v", got, err)
+	}
+	if asked := read(t, calls); asked != "gh release view v1 -R spin-stack/machine --json assets -q .assets[].name\n" {
+		t.Errorf("asked %s", asked)
+	}
+	github(t, "", "echo no such release >&2; exit 1", "")
+	if _, err := Assets(context.Background(), "v9"); err == nil || !strings.Contains(err.Error(), "listing release v9's files") || !strings.Contains(err.Error(), "no such release") {
+		t.Errorf("Assets with gh failing: %v", err)
 	}
 }
 

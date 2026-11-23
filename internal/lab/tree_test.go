@@ -478,6 +478,10 @@ d=""; while [ $# -gt 0 ]; do case "$1" in -D) d=$2;; -p) [ -f "` + pub + `/$tag/
 		t.Errorf("v2's tree boots %s: %+v", booted, tr.Manifest.Parts["kernel"])
 	}
 
+	spec.Kernel = "traceable:v4"
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err == nil || !strings.Contains(err.Error(), "listing release v4's files") {
+		t.Errorf("a release GitHub has not: %v", err)
+	}
 	spec.Kernel = "traceable:v3"
 	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err == nil || !strings.Contains(err.Error(), "publishes no traceable kernel") {
 		t.Errorf("a release with none: %v", err)
