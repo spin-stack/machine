@@ -432,6 +432,7 @@ built.
 | Smaller answers | nothing large is on either path: `query-block` runs in 0.12 ms. The record's 125 KB answers left the restore's clock with `Resume(here)` | spin | the same | 11-21 |
 | QMP over vsock, SEQPACKET, ivshmem, virtio-serial, gRPC or protobuf framing | QMP does not ride vsock: it is a Unix socket between the host and QEMU. vsock carries the login, and a login is 10 round trips of 47.8 µs (57.5 through the forwarder), 0.6 ms of a 32.8 ms warm login. Every vsock change shares that ceiling | spin | the same | 11-21 |
 | `kvm.halt_poll_ns`, CPU pinning, for vsock | bounded by the same 0.6 ms a login. What they do to the boot's other wake-ups is a different question, not measured here | spin | the same | 11-21 |
+| An `iothread=` for the disks, against QMP stalls beside a guest's synced writes on a busy host disk (#391) | no stall to take off the monitor: 2,400 query-status round trips beside 4 KiB `oflag=dsync` writes, with the scratch NVMe idle, 99-100% busy with O_DIRECT writes and 100% busy through the page cache, never took more than 1.2 ms (p50 0.24-0.56 ms), while the guest's writes fell from ~115,000 to 1,500-3,100 in the row. The laptop's 175-950 ms was QEMU's main thread blocked in the host, by #402 in reclaim, the mmap lock or a cgroup throttle, which an iothread does not move | spin | labs 45111443524, 45112573850, `stall` probe archived as `archive/qmp-stall-391` | 11-23 |
 
 ### Memory and the host
 
