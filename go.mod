@@ -7,7 +7,7 @@ toolchain go1.27.3
 require (
 	github.com/CycloneDX/cyclonedx-go v0.12.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/spin-stack/go-tools v0.20261122.6
 	golang.org/x/crypto v0.59.0
 	golang.org/x/sys v0.50.0
