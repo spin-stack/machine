@@ -443,17 +443,59 @@ func TestVerifySaysWhatIsMissingAndAsksQEMUForTheArguments(t *testing.T) {
 }
 
 func TestChangedSaysWhetherAPartBuilds(t *testing.T) {
-	checkout(t)
-	stdout, _, status := verb(t, "changed", "--pins", "e2fsprogs", "e2fsprogs")
+	dir := checkout(t)
+	stdout, _, status := verb(t, "changed", "--part", "e2fsprogs")
 	if status != 0 || stdout != "build=true\n" || read(t, os.Getenv("GITHUB_OUTPUT")) != "build=true\n" {
 		t.Errorf("no base: exit %d, %q, %q", status, stdout, read(t, os.Getenv("GITHUB_OUTPUT")))
 	}
-	if _, stderr, status := verb(t, "changed", "e2fsprogs"); status != 2 || !strings.Contains(stderr, "--pins") {
-		t.Errorf("no pins: exit %d, %q", status, stderr)
+	if _, stderr, status := verb(t, "changed", "e2fsprogs"); status != 2 || !strings.Contains(stderr, "--part") {
+		t.Errorf("no part: exit %d, %q", status, stderr)
+	}
+	if _, stderr, status := verb(t, "changed", "--part", "nope"); status != 2 || !strings.Contains(stderr, "nope") {
+		t.Errorf("a part that is not one: exit %d, %q", status, stderr)
 	}
 	if _, _, status := verb(t, "changed", "--pins", "e2fsprogs"); status == 0 {
-		t.Error("no paths was taken")
+		t.Error("--pins with no paths was taken")
 	}
+
+	// A part's pins and paths are internal/build's, with those of the parts it is made with: a
+	// bump of a package only the image installs, and a change to the e2fsprogs the image is made
+	// with, each reach the image and not the kernel.
+	gitRepo(t, dir)
+	base := strings.TrimSpace(gitOut(t, dir, "rev-parse", "HEAD"))
+	changes := map[string]func(){
+		"docker-ce bumped": func() {
+			raw := read(t, filepath.Join(dir, "versions.yaml"))
+			before, entry, _ := strings.Cut(raw, "- name: docker-ce\n")
+			pin, rest, _ := strings.Cut(entry, "  pin: ")
+			entry = pin + "  pin: " + strings.Repeat("0", 64) + rest[64:]
+			put(t, filepath.Join(dir, "versions.yaml"), before+"- name: docker-ce\n"+entry, 0o644)
+		},
+		"e2fsprogs changed": func() { put(t, filepath.Join(dir, "e2fsprogs", "Dockerfile"), "x\n", 0o644) },
+	}
+	for name, change := range changes {
+		gitOut(t, dir, "reset", "-q", "--hard", base)
+		change()
+		gitOut(t, dir, "add", "-A")
+		gitOut(t, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", name)
+		for part, want := range map[string]string{"image": "build=true\n", "kernel": "build=false\n"} {
+			if stdout, stderr, status := verb(t, "changed", "--base", base, "--part", part); status != 0 || stdout != want {
+				t.Errorf("%s, --part %s: exit %d, %q, %q", name, part, status, stdout, stderr)
+			}
+		}
+	}
+}
+
+// gitOut runs git in dir and is its output.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+	return string(out)
 }
 
 // gitRepo makes dir a repository with one commit, tagged with tags.

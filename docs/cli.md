@@ -116,14 +116,14 @@ PATH. Under `go run`, a step would exit 1 whatever the verb's status. taskgate
 ci.yml       task lint ; task test ; task coverage ; task mutate ; task bin ;
              spin-machine-dev build spin-machine ; spin-machine-dev fetch qemu ;
              spin-machine-dev vsock ; spin-machine-dev verify args
-parts.yml    changed: spin-machine-dev changed --base $BASE --pins ... <paths>, once a part
+parts.yml    changed: spin-machine-dev changed --base $BASE --part <part> <paths>, once a part
              qemu:    spin-machine-dev build qemu --cache-registry ; vsock ; verify args ;
                       publish qemu (main)
              kernel:  spin-machine-dev build kernel --cache-registry ;
                       release traceable-kernel --cache-registry
              image:   spin-machine-dev build e2fsprogs ; spin-machine-dev build image
              parts:   spin-machine-dev needs
-compat.yml   changed: spin-machine-dev changed --base $BASE --pins ... <paths>, for the machine,
+compat.yml   changed: spin-machine-dev changed --base $BASE --part <part> <paths>, for the machine,
                       QEMU and the kernel
              resume:  (when the change reaches the machine) spin-machine-dev vsock ;
                       spin-machine-dev build qemu, or fetch qemu when the change does not reach it ;
