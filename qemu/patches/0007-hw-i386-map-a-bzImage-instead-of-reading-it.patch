@@ -20,9 +20,11 @@ A file truncated in place while QEMU runs now faults QEMU instead of
 leaving it a stale copy; a release's kernel is replaced by rename,
 which leaves the mapping on the old inode.
 ---
+diff --git a/hw/i386/x86-common.c b/hw/i386/x86-common.c
+index dcd4fa8..f98f20b 100644
 --- a/hw/i386/x86-common.c
 +++ b/hw/i386/x86-common.c
-@@ -913,16 +913,41 @@
+@@ -913,16 +913,41 @@ void x86_load_linux(X86MachineState *x86ms,
      }
  
      setup  = g_malloc(setup_size);
