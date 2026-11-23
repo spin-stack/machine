@@ -213,12 +213,14 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLaneLogindEdit, nil
 	case "carry-keygen":
 		return carryKeygenEdit, nil
+	case "packages-512":
+		return packages512Edit, nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	case ledgerName:
 		return ledgerEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, bootchart, ledger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, packages-512, bootchart, ledger", name)
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
@@ -299,6 +301,26 @@ ln -sf /usr/lib/systemd/system/docker.socket "$MNT/etc/systemd/system/sockets.ta
 mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
 ln -s /usr/lib/systemd/system/docker.service "$MNT/etc/systemd/system/multi-user.target.wants/docker.service"
 ln -s /usr/lib/systemd/system/containerd.service "$MNT/etc/systemd/system/multi-user.target.wants/containerd.service"
+`,
+}
+
+// packages512Edit is #512's change in a release's overlay: tzdata, e2fsprogs and fuse3 installed
+// by the image's own apt from resolute's main, with the lists and the archives kept out of it.
+// Experiment only.
+var packages512Edit = Edit{
+	Setup: `cp /etc/resolv.conf "$MNT/etc/resolv.conf"
+mount --bind /dev "$MNT/dev"
+mount -t proc proc "$MNT/proc"
+trap 'umount "$MNT/proc" "$MNT/dev"; rm -f "$MNT/etc/resolv.conf"; rm -rf "$MNT/var/tmp/apt512"' EXIT
+mkdir -p "$MNT/var/tmp/apt512/lists/partial" "$MNT/var/tmp/apt512/archives/partial"
+printf '%s\n' 'deb http://archive.ubuntu.com/ubuntu resolute main' 'deb http://archive.ubuntu.com/ubuntu resolute-updates main' \
+	'deb http://security.ubuntu.com/ubuntu resolute-security main' > "$MNT/var/tmp/apt512/sources.list"
+o="-o Dir::Etc::SourceList=/var/tmp/apt512/sources.list -o Dir::Etc::SourceParts=- -o Dir::State::Lists=/var/tmp/apt512/lists -o Dir::Cache::Archives=/var/tmp/apt512/archives -o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache="
+chroot "$MNT" env DEBIAN_FRONTEND=noninteractive apt-get $o update
+chroot "$MNT" env DEBIAN_FRONTEND=noninteractive apt-get $o install -y --no-install-recommends tzdata e2fsprogs fuse3
+test -L "$MNT/etc/localtime"
+test -x "$MNT/usr/sbin/mkfs.ext4"
+test -x "$MNT/usr/bin/fusermount3"
 `,
 }
 
