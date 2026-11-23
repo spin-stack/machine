@@ -29,7 +29,7 @@ import (
 // next command. After the cold boot's login, the probe times query-status on the machine's
 // monitor, a one-byte echo over vsock, the same echo through a hop like spin's forwarder (vsock to
 // TCP on the guest's loopback), and a warm login, counting the login's round trips. Then the
-// machine is saved and, in the second phase, restored into a traced QEMU and logged into, as
+// machine finishes its boot (bootFinished), is saved and, in the second phase, restored into a traced QEMU and logged into, as
 // restore-first does it.
 type transport struct{}
 
@@ -140,6 +140,9 @@ func transportCold(m *Measurement) error {
 			return err
 		}
 		m.Record(metric, micros(rtt))
+	}
+	if err := bootFinished(m, c.cid); err != nil {
+		return err
 	}
 	// The echoes end with the machine: save checkpoints them, and nothing restores them.
 	if err := m.SpinMachine("save", "--qmp", sock, "--to", c.state); err != nil {
