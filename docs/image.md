@@ -141,7 +141,10 @@ fixes are Ubuntu's. What changes is the build:
   now works them out once per name. First login −6.5 ms [−9.9, −1.3], 100 boots a side against
   systemd rebuilt without it, and PID 1's CPU before the login 56.0 → 52.4 ms, p50 of 5 ledgers
   (labs 45090299768, 45090326943, 2026-11-23). The Dockerfile fails when the patch no longer
-  applies, and when its function is not in the source it built. A release ships the patch as
+  applies, and when its function is not in the source it built. After the build it compiles and
+  runs systemd's own `test-engine` and `test-load-fragment`, the two that load units and their
+  drop-ins through the patched code, and `tests-passed.py` fails the build unless meson's log
+  says both passed (#653). A release ships the patch as
   `usr/share/spin-stack/systemd/`.
 
 Measured on the bench fleet, 20 boots of each interleaved, the first SSH login: stage1 −47, −38
