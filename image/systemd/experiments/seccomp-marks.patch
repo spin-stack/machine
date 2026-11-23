@@ -160,10 +160,19 @@ index 0543e39..e3b559b 100644
  
          /* The execve() failed, let's undo the marking as hot */
 diff --git a/src/shared/seccomp-util.c b/src/shared/seccomp-util.c
-index 3359e91..897c3df 100644
+index 3359e91..cbcf479 100644
 --- a/src/shared/seccomp-util.c
 +++ b/src/shared/seccomp-util.c
-@@ -1316,7 +1316,11 @@ int seccomp_load_syscall_filter_set_raw(uint32_t default_action, Hashmap* filter
+@@ -27,6 +27,8 @@
+ #include "parse-util.h"
+ #include "process-util.h"
+ #include "seccomp-util.h"
++#include "time-util.h"
++#include <time.h>
+ #include "set.h"
+ #include "string-util.h"
+ #include "strv.h"
+@@ -1316,7 +1318,11 @@ int seccomp_load_syscall_filter_set_raw(uint32_t default_action, Hashmap* filter
                          log_warning_errno(r, "Failed to set SCMP_FLTATR_CTL_OPTIMIZE, ignoring: %m");
  #endif
  
