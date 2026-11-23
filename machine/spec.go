@@ -697,7 +697,7 @@ func (s Spec) appendDisks(args []string) ([]string, error) {
 			return nil, fmt.Errorf("encoding disk %d's node: %w", i, err)
 		}
 		args = append(args, "-blockdev", string(empty), "-blockdev", string(raw), "-device",
-			fmt.Sprintf("virtio-blk-pci,id=%s,drive=%s,serial=%s,%s,addr=0x%x",
+			fmt.Sprintf("virtio-blk-pci,id=%s,drive=%s,serial=%s,opt_io_size=524288,%s,addr=0x%x",
 				slotDevice(i), slotNodePrefix+fmt.Sprint(i), d.Serial, virtioModern, slotDiskBase+i))
 	}
 	return args, nil
