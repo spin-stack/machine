@@ -1,0 +1,32 @@
+diff --git a/src/core/exec-invoke.c b/src/core/exec-invoke.c
+index 0543e39..8dff482 100644
+--- a/src/core/exec-invoke.c
++++ b/src/core/exec-invoke.c
+@@ -6282,6 +6282,14 @@ int exec_invoke(
+                         }
+ 
+ #if HAVE_SECCOMP
++                /* First, so that every filter below is built and loaded for the architectures that
++                 * remain: a filter for an architecture this one blocks never decides a system call. */
++                r = apply_syscall_archs(context, params);
++                if (r < 0) {
++                        *exit_status = EXIT_SECCOMP;
++                        return log_error_errno(r, "Failed to apply syscall architecture restrictions: %m");
++                }
++
+                 r = apply_address_families(context, params);
+                 if (r < 0) {
+                         *exit_status = EXIT_ADDRESS_FAMILIES;
+@@ -6342,12 +6350,6 @@ int exec_invoke(
+                         return log_error_errno(r, "Failed to set up private devices: %m");
+                 }
+ 
+-                r = apply_syscall_archs(context, params);
+-                if (r < 0) {
+-                        *exit_status = EXIT_SECCOMP;
+-                        return log_error_errno(r, "Failed to apply syscall architecture restrictions: %m");
+-                }
+-
+                 r = apply_lock_personality(context, params);
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;

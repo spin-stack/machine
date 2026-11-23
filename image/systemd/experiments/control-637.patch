@@ -1,0 +1,12 @@
+diff --git a/src/core/exec-invoke.c b/src/core/exec-invoke.c
+index 0543e39..268b509 100644
+--- a/src/core/exec-invoke.c
++++ b/src/core/exec-invoke.c
+@@ -6282,6 +6282,7 @@ int exec_invoke(
+                         }
+ 
+ #if HAVE_SECCOMP
++                /* #637's control: systemd rebuilt with this comment and no code changed. */
+                 r = apply_address_families(context, params);
+                 if (r < 0) {
+                         *exit_status = EXIT_ADDRESS_FAMILIES;
