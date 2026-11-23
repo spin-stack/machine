@@ -1,0 +1,142 @@
+{
+  "release": "v20261123.07",
+  "measured": "2026-11-23T19:33:07Z",
+  "host": "c8id.4xlarge, nested",
+  "shape": "1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login",
+  "reps": 20,
+  "run": "https://github.com/spin-stack/machine/actions/runs/45241645340",
+  "numbers": {
+    "cold": {
+      "p50": 369.6,
+      "p95": 379.2
+    },
+    "cold-ahead": {
+      "p50": 324.3,
+      "p95": 347.4
+    },
+    "floor": {
+      "p50": 202.5,
+      "p95": 212.1
+    },
+    "floor-lane": {
+      "p50": 357,
+      "p95": 368.1
+    },
+    "kernel-ms": {
+      "p50": 78.3,
+      "p95": 81.2
+    },
+    "qemu-rss-mib": {
+      "p50": 212,
+      "p95": 214.3
+    },
+    "restore": {
+      "p50": 69.7,
+      "p95": 71.6
+    },
+    "restore-ahead": {
+      "p50": 63.1,
+      "p95": 65.8
+    },
+    "save-ms": {
+      "p50": 113.9,
+      "p95": 117.4
+    },
+    "state-mib": {
+      "p50": 153,
+      "p95": 153.6
+    }
+  },
+  "against": {
+    "release": "v20261123.06",
+    "numbers": {
+      "cold": {
+        "p50": 373.1,
+        "p95": 399.8
+      },
+      "cold-ahead": {
+        "p50": 354.6,
+        "p95": 369.2
+      },
+      "kernel-ms": {
+        "p50": 77.2,
+        "p95": 78.7
+      },
+      "qemu-rss-mib": {
+        "p50": 226,
+        "p95": 228.2
+      },
+      "restore": {
+        "p50": 73.6,
+        "p95": 77.7
+      },
+      "restore-ahead": {
+        "p50": 70.3,
+        "p95": 72.5
+      },
+      "save-ms": {
+        "p50": 129.4,
+        "p95": 133.2
+      },
+      "state-mib": {
+        "p50": 184.7,
+        "p95": 185.3
+      }
+    },
+    "delta": {
+      "cold": {
+        "p50": -3.5,
+        "lo": -12.9,
+        "hi": 2.9
+      },
+      "cold-ahead": {
+        "p50": -30.2,
+        "lo": -38.6,
+        "hi": -19.8
+      },
+      "kernel-ms": {
+        "p50": 1.1,
+        "lo": -0,
+        "hi": 2.3
+      },
+      "qemu-rss-mib": {
+        "p50": -14.1,
+        "lo": -15.9,
+        "hi": -12.3
+      },
+      "restore": {
+        "p50": -3.8,
+        "lo": -4.8,
+        "hi": -1.9
+      },
+      "restore-ahead": {
+        "p50": -7.1,
+        "lo": -8.4,
+        "hi": -5.5
+      },
+      "save-ms": {
+        "p50": -15.5,
+        "lo": -18.3,
+        "hi": -11.8
+      },
+      "state-mib": {
+        "p50": -31.7,
+        "lo": -31.9,
+        "hi": -31.4
+      }
+    }
+  },
+  "bounds": {
+    "floor": {
+      "p50": -154.5,
+      "lo": -160.5,
+      "hi": -147.9
+    }
+  },
+  "bootchart": "v20261123.07-bootchart.svg",
+  "plot": "v20261123.07-plot.svg",
+  "ledger": "v20261123.07-ledger.txt",
+  "chain": "v20261123.07-chain.txt",
+  "order": "v20261123.07-order.dot",
+  "graph": "v20261123.07-order.svg"
+}

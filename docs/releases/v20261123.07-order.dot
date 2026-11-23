@@ -1,0 +1,25 @@
+digraph systemd {
+	"spin-supervisor.service"->"ssh.service" [color="green"];
+	"spin-supervisor.service"->"systemd-journald.socket" [color="green"];
+	"spin-supervisor.service"->"sysinit.target" [color="green"];
+	"user-runtime-dir@0.service"->"systemd-logind.service" [color="green"];
+	"user-runtime-dir@0.service"->"systemd-journald.socket" [color="green"];
+	"systemd-logind.service"->"systemd-logind-varlink.socket" [color="green"];
+	"systemd-logind.service"->"-.mount" [color="green"];
+	"systemd-logind.service"->"systemd-journald.socket" [color="green"];
+	"ssh.service"->"-.mount" [color="green"];
+	"ssh.service"->"systemd-journald.socket" [color="green"];
+	"systemd-journald.socket"->"-.mount" [color="green"];
+	"sysinit.target"->"systemd-tmpfiles-setup.service" [color="green"];
+	"sysinit.target"->"systemd-journald.service" [color="green"];
+	"-.mount"->"-.slice" [color="green"];
+	"user@0.service"->"systemd-journald.socket" [color="green"];
+	"user@0.service"->"user-runtime-dir@0.service" [color="green"];
+	"user@0.service"->"systemd-logind.service" [color="green"];
+	"systemd-journald.service"->"systemd-journald.socket" [color="green"];
+	"systemd-journald.service"->"-.mount" [color="green"];
+	"systemd-tmpfiles-setup.service"->"systemd-journald.socket" [color="green"];
+	"systemd-tmpfiles-setup.service"->"systemd-journald.service" [color="green"];
+	"systemd-logind-varlink.socket"->"-.mount" [color="green"];
+	"systemd-logind-varlink.socket"->"systemd-journald.socket" [color="green"];
+}
