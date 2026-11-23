@@ -471,9 +471,13 @@ const (
 
 // packagesEdit is the edit that replaces the overlay's packages with those in debs that it has
 // installed: each package's files that the new one no longer has are removed first, /etc is the
-// image's, and rebuilt checks the overlay afterwards.
+// image's, and rebuilt checks the overlay afterwards. /usr keeps its mtime: tar gives it the
+// package's, and the image's update stamps hold /usr's (#513), so a newer one would run
+// ldconfig, sysusers, the hwdb and the catalog in every boot, ~260 ms before the first login on
+// both arms of a comparison (lab 45229454155, #637).
 func packagesEdit(debs, rebuilt string) Edit {
 	return Edit{Setup: `debs=` + debs + `
+usr_mtime=$(stat -c %.9Y "$MNT/usr")
 replaced=0
 for deb in "$debs"/*.deb; do
 	pkg=$(dpkg-deb -f "$deb" Package)
@@ -489,6 +493,8 @@ for deb in "$debs"/*.deb; do
 	dpkg-deb --fsys-tarfile "$deb" | tar -x -C "$MNT" --exclude=./etc
 	replaced=$((replaced + 1))
 done
+touch -m -d "@$usr_mtime" "$MNT/usr"
+test "$(stat -c %.9Y "$MNT/usr")" = "$usr_mtime"
 test "$replaced" -gt 0
 ` + rebuilt + `
 `}
