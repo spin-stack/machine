@@ -1,6 +1,6 @@
 # A guest short of CPU until the host ends it, for TestAnAdoptedMachinesPressureIsHeard.
 set -u
-# Its timer starts it 10 s after the boot.
+# It starts with the boot's rest, after multi-user.target's first units.
 for i in $(seq 200); do
     systemctl is-active --quiet spin-machine-pressure.service && break
     sleep 0.1

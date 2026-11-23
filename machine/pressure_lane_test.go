@@ -431,7 +431,7 @@ func TestAnAdoptedMachinesPressureIsHeard(t *testing.T) {
 }
 
 // newPressureRoot is a private raw copy of the release's root with this checkout's sender
-// (SPIN_PRESSURE_SENDER) and its units, and check, a script run once multi-user.target is reached,
+// (SPIN_PRESSURE_SENDER) and its unit, wanted by multi-user.target, and check, a script run once multi-user.target is reached,
 // its output on the console. OOMPolicy=continue: by default systemd stops a service one of whose
 // processes the OOM killer killed, and a check would end at its oom phase.
 func newPressureRoot(t *testing.T, out, base, check string) *guestRoot {
@@ -443,15 +443,14 @@ func newPressureRoot(t *testing.T, out, base, check string) *guestRoot {
 	}
 	root.write("/usr/libexec/spin-machine-pressure", string(sender))
 	root.debugfs("set_inode_field /usr/libexec/spin-machine-pressure mode 0100755")
-	for _, unit := range []string{"spin-machine-pressure.service", "spin-machine-pressure.timer"} {
-		path := "/usr/lib/systemd/system/" + unit
-		text, err := os.ReadFile(filepath.Join("..", "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", path))
-		if err != nil {
-			t.Fatal(err)
-		}
-		root.write(path, string(text))
+	unit := "/usr/lib/systemd/system/spin-machine-pressure.service"
+	text, err := os.ReadFile(filepath.Join("..", "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", unit))
+	if err != nil {
+		t.Fatal(err)
 	}
-	root.debugfs("symlink /etc/systemd/system/timers.target.wants/spin-machine-pressure.timer /usr/lib/systemd/system/spin-machine-pressure.timer")
+	root.write(unit, string(text))
+	// The release's image wants it already, as image/build.sh checks: a release before it did not.
+	root.debugfs("symlink /etc/systemd/system/multi-user.target.wants/spin-machine-pressure.service " + unit)
 	root.write("/pressure-check.sh", check)
 	root.write("/etc/systemd/system/pressure-check.service", "[Unit]\nAfter=multi-user.target\n[Service]\nType=oneshot\n"+
 		"OOMPolicy=continue\nExecStart=/bin/sh /pressure-check.sh\nStandardOutput=journal+console\nStandardError=journal+console\n")
