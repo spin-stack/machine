@@ -190,9 +190,10 @@ bench fleet, where a number decides something (AGENTS.md, "The goal"). Its code 
 A tree starts from a release (`--from release`, `--from release:v20261119.01`) or from a directory
 laid out as one (`--from _output`). It replaces what its flags ask for:
 
-- `--kernel run:N`: a parts.yml run's bzImage, or a Kernel workflow run's from before parts.yml. A
-  run from before 2026-11-19 has none, and the lab refuses it by name. `--kernel` also takes the
-  path of a bzImage.
+- `--kernel run:N`: a parts.yml run's kernel, or a Kernel workflow run's from before parts.yml: its
+  vmlinux when it randomizes itself, entered through PVH, otherwise its bzImage. A run from #660 on
+  has no bzImage, and one from before 2026-11-19 has neither, which the lab refuses by name.
+  `--kernel` also takes the path of either.
 - `--kernel traceable:TAG`: the lab-only kernel published beside release TAG, its kernel with
   lockdown forced to none, once its signature is release.yml's (kernel/README.md). Releases from
   before #536 have none.
