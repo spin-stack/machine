@@ -140,8 +140,9 @@ mkdir -p /etc/systemd/system/timers.target.wants
 ln -sf /usr/lib/systemd/system/spin-machine-pressure.timer \
     /etc/systemd/system/timers.target.wants/spin-machine-pressure.timer
 
-log "Setting default target to multi-user..."
-ln -sf /lib/systemd/system/multi-user.target /etc/systemd/system/default.target
+# docs/image.md, "The first login's target"
+log "Setting default target to the first login's..."
+ln -sf /usr/lib/systemd/system/spin-machine-login.target /etc/systemd/system/default.target
 
 log "Pre-warming caches..."
 ldconfig || true

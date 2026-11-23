@@ -253,6 +253,18 @@ stat_in_image /etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.
         grep -qx 'ConditionPathExists=!/run/spin/ssh/ssh_host_ed25519_key' || {
     echo "ERROR: spin-machine-sshd-keygen.service runs when spin has handed over its host key" >&2
     exit 1; }
+stat_in_image /etc/systemd/system/default.target |
+        grep -qF '/usr/lib/systemd/system/spin-machine-login.target' || {
+    echo "ERROR: the default target is not spin-machine-login.target; the whole boot runs before the first login" >&2
+    exit 1; }
+"$bin/debugfs" -R "cat /usr/lib/systemd/system/spin-machine-login.target" /work/base.raw 2>/dev/null |
+        grep -qx 'Wants=spin-machine-boot-rest.service' || {
+    echo "ERROR: spin-machine-login.target does not start the rest of the boot" >&2
+    exit 1; }
+"$bin/debugfs" -R "cat /usr/lib/systemd/system/spin-machine-boot-rest.service" /work/base.raw 2>/dev/null |
+        grep -qx 'ExecStart=/usr/bin/systemctl --no-block start multi-user.target' || {
+    echo "ERROR: spin-machine-boot-rest.service does not start multi-user.target" >&2
+    exit 1; }
 "$bin/debugfs" -R "dump -p /usr/libexec/spin-machine-pressure /work/pressure.bin" /work/base.raw 2>/dev/null
 cmp -s /work/pressure.bin /out/guest/spin-machine-pressure && test -x /work/pressure.bin || {
     echo "ERROR: /usr/libexec/spin-machine-pressure is not in the image as built" >&2
