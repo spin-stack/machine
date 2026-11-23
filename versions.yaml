@@ -330,7 +330,7 @@
   kind: download
   source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-compose-plugin_{version}-1~ubuntu.26.04~resolute_amd64.deb
   version: 5.8.0
-  pin: 0c4d949aa8508ddcebcbe62614c4879887d472c7031c8eb254b7439a6ec6c16f
+  pin: 0c4d949aa8508ddcebcbe62614c4879887d472c7031c8eb254b7439a6ec6c160
   track: tags https://github.com/docker/compose.git
   note: Docker's compose, pinned as docker-ce is. After the bump, `spin-machine-dev build image`.
 
