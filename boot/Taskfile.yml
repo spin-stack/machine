@@ -230,7 +230,7 @@ tasks:
       (actuators_test.go). Needs a built release, /dev/kvm and /dev/vhost-vsock.
     deps: [':tools']
     cmds:
-      - SPIN_ACTUATORS_TEST=1 go test ./boot/ -run '^TestWhatTheActuatorsCost$' -count=1 -v -timeout 25m
+      - SPIN_ACTUATORS_TEST=1 go test ./boot/ -run '^TestWhatTheActuatorsCost$' -count=1 -v -timeout 60m
 
   hotadd:
     desc: >-

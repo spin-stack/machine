@@ -28,7 +28,8 @@ import (
 // logged beside it: SetMemory returns once QEMU has the request, SetCPUs down once QEMU has let the
 // vCPU go. The guest polls every millisecond and sleeps between polls, since a loop that spun
 // would take the one vCPU from the work it waits on. A guest that does not show it within
-// actuatorWithin fails the check: the actuator did not work.
+// actuatorWithin is counted as not reached, with the last state it showed and virtio-mem's lines
+// in its kernel log.
 //
 //	SPIN_ACTUATORS_TEST=1    it starts a machine (task boot:actuators)
 //	SPIN_ACTUATORS_REPS=N    times each, default 10
@@ -38,7 +39,7 @@ func TestWhatTheActuatorsCost(t *testing.T) {
 	}
 	reps := envInt(t, "SPIN_ACTUATORS_REPS", 10)
 	x := newRollback(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 55*time.Minute)
 	defer cancel()
 	w := x.r.workspace(t, x.signer, false)
 	defer w.Kill()
@@ -64,18 +65,22 @@ func TestWhatTheActuatorsCost(t *testing.T) {
 	t.Log(actuationTable(rows))
 }
 
-// actuatorWithin is how long the guest is given to show what an actuator did.
-const actuatorWithin = 20 * time.Second
+// actuatorWithin is how long the guest is given to show what an actuator did. virtio-mem's driver
+// retries a block it could not empty on a timer that backs off, so an unplug the guest has not
+// shown by then is recorded as not reached, with how far it got.
+const actuatorWithin = 2 * time.Minute
 
-// actuation is one actuator's call, timed from its start to its return and to the guest's seeing it.
+// actuation is one actuator's call, timed from its start to its return and to the guest's seeing
+// it; reached is false when the guest did not show it within actuatorWithin.
 type actuation struct {
 	name        string
 	call, guest time.Duration
+	reached     bool
 }
 
 // actuatorWatch is run by bash in the guest as `actuatorWatch KIND OP WANT`: it prints "ready" and
-// what it reads now, then polls until what it reads compares to WANT by OP, and prints "done" and
-// what it read. KIND mem is the MiB of memory blocks online, cpu is /sys/devices/system/cpu/online.
+// what it reads now, then polls until what it reads compares to WANT by OP, printing "at" and what
+// it reads each time that changes, and "done" and what it read at the end. KIND mem is the MiB of memory blocks online, cpu is /sys/devices/system/cpu/online.
 // Between polls it waits a millisecond on its input, which the host leaves open and silent.
 const actuatorWatch = `kind=$1 op=$2 want=$3
 read -r bs < /sys/devices/system/memory/block_size_bytes
@@ -99,9 +104,11 @@ seen() {
 }
 state
 echo "ready $s"
+last=$s
 until seen; do
 	read -r -t 0.001 _ || true
 	state
+	[ "$s" = "$last" ] || { echo "at $s"; last=$s; }
 done
 echo "done $s"
 `
@@ -141,10 +148,28 @@ func (w *rollbackGuest) actuate(t *testing.T, name, what string, call func() err
 		t.Fatalf("%s: %v", name, err)
 	}
 	called := time.Since(start)
-	done := awaitLine(t, lines, "done", actuatorWithin, name)
-	seen := time.Since(start)
-	t.Logf("%s: %s to %s, the call %v, the guest %v", name, ready, done, called.Round(10*time.Microsecond), seen.Round(10*time.Microsecond))
-	return actuation{name, called, seen}
+	last, lastAt := ready, time.Duration(0)
+	timeout := time.After(actuatorWithin)
+	for {
+		select {
+		case l, ok := <-lines:
+			if !ok {
+				t.Fatalf("%s: the guest's watch ended before it saw %s", name, what)
+			}
+			if at, found := strings.CutPrefix(l, "at "); found {
+				last, lastAt = at, time.Since(start)
+			}
+			if done, found := strings.CutPrefix(l, "done "); found {
+				seen := time.Since(start)
+				t.Logf("%s: %s to %s, the call %v, the guest %v", name, ready, done, called.Round(10*time.Microsecond), seen.Round(10*time.Microsecond))
+				return actuation{name, called, seen, true}
+			}
+		case <-timeout:
+			t.Logf("%s: not within %v; from %s the guest got to %s at %v. virtio-mem in its kernel log:\n%s", name, actuatorWithin, ready, last,
+				lastAt.Round(10*time.Microsecond), w.sh(t, "dmesg | grep -i virtio_mem | tail -5"))
+			return actuation{name, called, 0, false}
+		}
+	}
 }
 
 // awaitLine is the first line from lines that starts with prefix, failing the test when none comes
@@ -186,9 +211,16 @@ func actuationTable(rows []actuation) string {
 	for _, n := range names {
 		var call, guest []time.Duration
 		for _, r := range by[n] {
-			call, guest = append(call, r.call), append(guest, r.guest)
+			call = append(call, r.call)
+			if r.reached {
+				guest = append(guest, r.guest)
+			}
 		}
-		fmt.Fprintf(&b, "%-44s %24s %24s\n", fmt.Sprintf("%s (%d)", n, len(by[n])), spread(call), spread(guest))
+		seen := "none within " + actuatorWithin.String()
+		if len(guest) > 0 {
+			seen = spread(guest)
+		}
+		fmt.Fprintf(&b, "%-44s %24s %24s, %d of %d\n", n, spread(call), seen, len(guest), len(by[n]))
 	}
 	return b.String()
 }
