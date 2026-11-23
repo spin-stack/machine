@@ -99,7 +99,7 @@ var Parts = []Part{
 	// The image is made with the e2fsprogs above and installs the systemd and OpenSSH above, and
 	// the pressure probe's guest half, compiled from this tree.
 	{Name: "image", Needs: []string{"e2fsprogs", "systemd", "openssh"}, Paths: []string{"image", "cmd/spin-machine-pressure", "internal/pressure", "go.mod", "go.sum"},
-		Pins: strings.Fields("ubuntu mkosi task git-lfs buildkit"), make: makeImage, check: verifyImage},
+		Pins: strings.Fields("ubuntu mkosi task git-lfs buildkit docker-ce docker-ce-cli docker-ce-rootless-extras containerd-io docker-buildx-plugin docker-compose-plugin"), make: makeImage, check: verifyImage},
 }
 
 // Names is every part's name, in Parts' order.
