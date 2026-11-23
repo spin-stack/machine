@@ -240,6 +240,18 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # The lab's traceable kernel, as release.yml's traceable job builds it once a release is out:
+      # the release kernel again, from the step above's builder, and a second with lockdown forced
+      # to none, held to the first's config less that option. Here, a change that breaks it fails
+      # before it is released and not after, when the release has no traceable kernel and no
+      # ledger (#558). Its own cache tag, written by main as the release kernel's is, keeps
+      # release.yml's job warm. ~10 min more cold (parts run 45071066129); the version only names
+      # the bzImage, which nothing here publishes.
+      - name: Build the traceable kernel
+        env:
+          CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: spin-machine-dev release traceable-kernel --version "$GITHUB_SHA" --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+
   # The base image: ~1.5 GB of apt against a live archive. The build runs `docker run --cap-add
   # SYS_ADMIN` and not `docker buildx build`, because mkosi assembles a root filesystem by
   # unsharing a user and mount namespace and BuildKit forbids it. See image/Dockerfile — the

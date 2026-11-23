@@ -386,8 +386,13 @@ func Verify(o Options, plan []Part) error {
 	return errors.Join(errs...)
 }
 
-// cacheFlags are a part's BuildKit cache, read and, when o.Export, written.
+// cacheFlags are a part's BuildKit cache, read and, when o.Export, written. The traceable kernel's
+// is a tag of its own: every layer from its config on differs from the release kernel's, and one
+// tag written by both builds keeps only the build that wrote it last, so each would start cold.
 func cacheFlags(o Options, part string) []string {
+	if o.Traceable {
+		part += "-traceable"
+	}
 	from := "type=local,src=" + filepath.Join(o.Root, ".cache", "buildkit", part)
 	to := "type=local,dest=" + filepath.Join(o.Root, ".cache", "buildkit", part) + ",mode=max,compression=zstd"
 	if o.Registry {
