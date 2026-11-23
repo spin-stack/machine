@@ -139,9 +139,28 @@ func Compile(ctx context.Context, root string, p Part, dir string, out io.Writer
 	return nil
 }
 
-// compileKernel configures the tree as kernel/Dockerfile does, from the series' configuration,
-// and makes the touched files' objects.
+// namedAddressSpaces is how arch/x86/Kconfig turns on per-CPU access through GCC's __seg_gs, and
+// what compileKernel turns it off with. CodeQL's C front end cannot parse __seg_gs: with it, every
+// file that reached a per-CPU accessor (this_cpu_inc, raw_cpu_ptr) failed to extract, ten of the
+// fourteen the patches touch (codeql.yml run 45216274329, 2026-11-23). Without it the kernel takes
+// its other, upstream-supported path, the one a compiler without named address spaces builds.
+const namedAddressSpaces = "config USE_X86_SEG_SUPPORT\n\tdef_bool CC_HAS_NAMED_AS\n"
+
+// compileKernel configures the tree as kernel/Dockerfile does, from the series' configuration
+// but without named address spaces, and makes the touched files' objects.
 func compileKernel(ctx context.Context, root, src string, touched []string, out io.Writer) error {
+	kconfig := filepath.Join(src, "arch", "x86", "Kconfig")
+	k, err := os.ReadFile(kconfig)
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(k, []byte(namedAddressSpaces)) {
+		return fmt.Errorf("%s no longer says %q: see how it turns on __seg_gs now", kconfig, namedAddressSpaces)
+	}
+	k = bytes.Replace(k, []byte(namedAddressSpaces), []byte("config USE_X86_SEG_SUPPORT\n\tdef_bool n\n"), 1)
+	if err := os.WriteFile(kconfig, k, 0o644); err != nil {
+		return err
+	}
 	configs, _ := filepath.Glob(filepath.Join(root, "kernel", "config-*-x86_64"))
 	if len(configs) != 1 {
 		return fmt.Errorf("want one kernel/config-*-x86_64, found %d", len(configs))
@@ -157,7 +176,17 @@ func compileKernel(ctx context.Context, root, src string, touched []string, out 
 	for _, f := range touched {
 		objects = append(objects, strings.TrimSuffix(f, filepath.Ext(f))+".o")
 	}
-	for _, args := range [][]string{{"ARCH=x86_64", "olddefconfig"}, {"ARCH=x86_64", "-j" + jobs(), "prepare"}, objects} {
+	if err := shown(ctx, out, "", "make", "-C", src, "ARCH=x86_64", "olddefconfig"); err != nil {
+		return err
+	}
+	config, err := os.ReadFile(filepath.Join(src, ".config"))
+	if err != nil {
+		return err
+	}
+	if bytes.Contains(config, []byte("CONFIG_USE_X86_SEG_SUPPORT=y")) {
+		return errors.New("olddefconfig kept CONFIG_USE_X86_SEG_SUPPORT=y: the analysis would not parse per-CPU access")
+	}
+	for _, args := range [][]string{{"ARCH=x86_64", "-j" + jobs(), "prepare"}, objects} {
 		if err := shown(ctx, out, "", "make", append([]string{"-C", src}, args...)...); err != nil {
 			return err
 		}

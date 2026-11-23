@@ -334,3 +334,13 @@ func TestCompileRefusesAPartWithoutABuildOrATree(t *testing.T) {
 		t.Errorf("no tree: %v", err)
 	}
 }
+
+func TestTheKernelIsCompiledWithoutNamedAddressSpacesOrNotAtAll(t *testing.T) {
+	src := t.TempDir()
+	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config USE_X86_SEG_SUPPORT\n\tdef_bool y\n")
+	root := t.TempDir()
+	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
+	if err := compileKernel(context.Background(), root, src, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "no longer says") {
+		t.Errorf("a Kconfig that turns __seg_gs on some other way: %v", err)
+	}
+}
