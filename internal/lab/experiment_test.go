@@ -209,12 +209,12 @@ func TestAnOptionIsOneTheProbeTakesAndOfItsKind(t *testing.T) {
 	}
 }
 
-// A tree's own shape options replace the run's for its boots alone, so that two shapes are two
+// A tree's own options replace the run's for its boots alone, so that two shapes are two
 // trees of one interleaved run (#561). The rows and the login stay the run's.
 func TestATreesShapeOptionsReplaceTheRunsForItsBoots(t *testing.T) {
 	p := &shapes{recorder: recorder{phases: 1, rows: []string{"x"}}, seen: map[string]Options{}}
 	ts := trees("plug", "start")
-	ts[1].Manifest.Options = Options{"memory": "2048", "plugged": "0"}
+	ts[1].Manifest.Options = Options{"memory": "2048", "plugged": "0", "n": "7"}
 	r, err := Experiment{Probe: p, Trees: ts, Reps: 1, Options: Options{"cpus": "2"}, Scratch: t.TempDir(), Log: io.Discard}.Run(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -222,17 +222,18 @@ func TestATreesShapeOptionsReplaceTheRunsForItsBoots(t *testing.T) {
 	if o := p.seen["plug"]; o["memory"] != "128" || o["plugged"] != "2048" || o["cpus"] != "2" {
 		t.Errorf("the tree without options booted %v", o)
 	}
-	if o := p.seen["start"]; o["memory"] != "2048" || o["plugged"] != "0" || o["cpus"] != "2" {
+	if o := p.seen["start"]; o["memory"] != "2048" || o["plugged"] != "0" || o["n"] != "7" || o["cpus"] != "2" {
 		t.Errorf("the tree with memory=2048 plugged=0 booted %v", o)
 	}
-	if r.Options["memory"] != "128" || !strings.Contains(r.Table(), "start: kernel release v1; qemu ; image ; spin-machine ; memory=2048; plugged=0;") {
+	if r.Options["memory"] != "128" || !strings.Contains(r.Table(), "start: kernel release v1; qemu ; image ; spin-machine ; memory=2048; n=7; plugged=0;") {
 		t.Errorf("the run's options %v, table:\n%s", r.Options, r.Table())
 	}
-	for opts, says := range map[string]string{"login": "not a shape option", "n": "not a shape option", "memory": "is a number"} {
+	for o, says := range map[string]string{"login=lane": "login is the run's", "on=true": "a table compares the trees row by row", "memory=lane": "is a number", "nope=1": "takes no option"} {
+		name, value, _ := strings.Cut(o, "=")
 		ts := trees("A")
-		ts[0].Manifest.Options = Options{opts: "lane"}
+		ts[0].Manifest.Options = Options{name: value}
 		if _, err := (Experiment{Probe: p, Trees: ts, Reps: 1, Scratch: t.TempDir(), Log: io.Discard}).Run(t.Context()); err == nil || !strings.Contains(err.Error(), says) {
-			t.Errorf("a tree setting %s=lane: %v, want an error saying %q", opts, err, says)
+			t.Errorf("a tree setting %s: %v, want an error saying %q", o, err, says)
 		}
 	}
 }
