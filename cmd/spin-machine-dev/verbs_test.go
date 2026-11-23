@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spin-stack/go-tools/versions"
 
 	"github.com/spin-stack/machine/internal/build"
 	"github.com/spin-stack/machine/internal/release"
@@ -510,7 +511,19 @@ func packed(t *testing.T, dir string) string {
 		"kernel/patches/0001-k.patch", "image/rootfs.qcow2", "licenses.txt"} {
 		put(t, filepath.Join(out, f), f, 0o644)
 	}
-	put(t, filepath.Join(out, "packages.txt"), "bash 5.2-1 amd64\n", 0o644)
+	// And Docker's packages as dpkg records those versions.yaml pins: release pack refuses an image without them.
+	list := "bash 5.2-1 amd64\n"
+	v, err := versions.Load(versions.File) // checkout's copy, in the working directory
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range v.Entries {
+		if file := filepath.Base(e.URL()); strings.HasSuffix(file, ".deb") {
+			f := strings.Split(strings.TrimSuffix(file, ".deb"), "_")
+			list += f[0] + " " + f[1] + " " + f[2] + "\n"
+		}
+	}
+	put(t, filepath.Join(out, "packages.txt"), list, 0o644)
 	apk := func(only string) string {
 		var b strings.Builder
 		for _, p := range strings.Split(only, ",") {

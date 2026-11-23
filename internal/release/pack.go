@@ -320,6 +320,9 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := fromTheirRepositories(o.Pins, image); err != nil {
+		return nil, err
+	}
 	parts = append(parts, sbom.New(subject("base-image", o.Version), image, nil, o.Epoch))
 	// QEMU, qboot, the kernel, systemd and OpenSSH are built with this repository's patches: each is in its
 	// component's pedigree, so the SBOM does not say upstream's source is what was compiled.
@@ -393,6 +396,46 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		return nil, fmt.Errorf("the release's SBOM: %w", err)
 	}
 	return b, nil
+}
+
+// debRepositories are the apt repositories versions.yaml pins a .deb from, each with the vendor a
+// package URL names for it.
+var debRepositories = map[string]string{"https://download.docker.com/linux/ubuntu": "docker"}
+
+// fromTheirRepositories names each package versions.yaml pins as a .deb by the repository it was
+// downloaded from rather than as Ubuntu's: Docker's six (#609) as pkg:deb/docker, with that
+// repository's URL and the .deb's SHA-256. Named pkg:deb/ubuntu, a scanner looks for them in
+// Ubuntu's advisories, where they are not, and misses Docker's (#621). A pinned .deb the image
+// did not record, or recorded at another version, is an image that did not install what
+// versions.yaml says it did.
+func fromTheirRepositories(v *versions.Versions, image []cdx.Component) error {
+	for _, e := range v.Entries {
+		file := filepath.Base(e.URL())
+		if e.Kind != versions.Download || !strings.HasSuffix(file, ".deb") {
+			continue
+		}
+		repository, _, _ := strings.Cut(e.URL(), "/dists/")
+		vendor, ok := debRepositories[repository]
+		if !ok {
+			return fmt.Errorf("%s: %s is from no apt repository the SBOM knows a vendor for", e.Name, e.URL())
+		}
+		pkg, _, _ := strings.Cut(file, "_")
+		i := slices.IndexFunc(image, func(c cdx.Component) bool { return c.Name == pkg })
+		if i < 0 {
+			return fmt.Errorf("%s: versions.yaml pins %s, and the image's package list does not have it", e.Name, pkg)
+		}
+		c := &image[i]
+		// dpkg's version is the pinned one between an epoch and Docker's -1~ubuntu suffix.
+		rest, ok := strings.CutPrefix(c.Version[strings.Index(c.Version, ":")+1:], e.Version)
+		if !ok || !(rest == "" || rest[0] == '-' || rest[0] == '~') {
+			return fmt.Errorf("%s: versions.yaml pins %s %s, and the image has %s", e.Name, pkg, e.Version, c.Version)
+		}
+		_, arch, _ := strings.Cut(c.PackageURL, "?arch=")
+		c.PackageURL = "pkg:deb/" + vendor + "/" + pkg + "@" + c.Version + "?arch=" + arch + "&repository_url=" + repository
+		c.Hashes = &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: e.Pin}}
+		c.ExternalReferences = &[]cdx.ExternalReference{{Type: cdx.ERTypeDistribution, URL: e.URL()}}
+	}
+	return nil
 }
 
 // subject is a BOM's subject as go-tools' sbom command names one.
