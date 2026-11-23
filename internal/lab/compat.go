@@ -57,7 +57,7 @@ func Compat(here string, tags []string, src Sources, resume func(previous, previ
 		if err != nil {
 			return nil, err
 		}
-		if !fileExists(filepath.Join(dir, partFiles["kernel"])) {
+		if !fileExists(filepath.Join(dir, "kernel", "bzImage")) {
 			rows = append(rows, CompatRow{Release: tag, NoBzImage: true})
 			break
 		}
