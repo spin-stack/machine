@@ -92,6 +92,22 @@ type Record struct {
 	// login, from a scheduler trace, taken in the record's run (the ledger probe): read as the
 	// charts are (docs/measuring.md, "The ledger").
 	Ledger string `json:"ledger,omitempty"`
+	// Withdrawn is set when the release was withdrawn (releases withdraw): nobody is to adopt it,
+	// and the release after it is measured against the newest one before it that was not.
+	// Everything it published stays, and its checkpoints resume as before.
+	Withdrawn *Withdrawn `json:"withdrawn,omitempty"`
+}
+
+// Withdrawn is why a release was withdrawn, the issue that decided it, and when.
+type Withdrawn struct {
+	Reason string `json:"reason"`
+	Issue  int    `json:"issue"`
+	Date   string `json:"date"`
+}
+
+// String is w as the page and a record's header say it.
+func (w Withdrawn) String() string {
+	return fmt.Sprintf("withdrawn %s, #%d: %s", w.Date, w.Issue, w.Reason)
 }
 
 // Against is the release a record was measured interleaved with: that release's numbers from the
@@ -291,6 +307,11 @@ type table struct {
 const alone = " A release with no Δ was measured with no release before it in its run, and spin-machine-dev " +
 	"releases measure measures it again with the one before it."
 
+// withdrawn says what a release marked withdrawn is. No code in it: the site writes it as text.
+const withdrawn = " A release marked withdrawn regressed and is not to be adopted (docs/releasing.md, \"Withdrawing a " +
+	"release\"): the release after it is measured against the newest release before it that was not withdrawn, as its " +
+	"against column says, and its checkpoints resume as every release's do."
+
 // keptFile is a cell naming file, a file beside the records, as text, linked to kept/file when kept
 // is not empty; blank when there is no file.
 func keptFile(text, file, kept string) entry {
@@ -313,6 +334,9 @@ func tables(records []Record, kept string) []table {
 			"in the same run, and its [95% interval]: within noise when the interval includes 0.", Head: []string{"release"}}
 	if slices.ContainsFunc(records, func(r Record) bool { return r.Against == nil }) {
 		goal.Before += alone
+	}
+	if slices.ContainsFunc(records, func(r Record) bool { return r.Withdrawn != nil }) {
+		goal.Before += withdrawn
 	}
 	diags := table{Title: "Diagnostics",
 		Before: "Not targets: what moves behind the goal's numbers (AGENTS.md, \"The goal\"). p50.", Head: []string{"release"}}
@@ -340,7 +364,11 @@ func tables(records []Record, kept string) []table {
 	where := table{Title: "Where each was measured",
 		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run", "bootchart", "units", "ledger"}}
 	for _, r := range records {
-		g, d, bd := []entry{{Text: r.Release}}, []entry{{Text: r.Release}}, []entry{{Text: r.Release}}
+		named := entry{Text: r.Release}
+		if r.Withdrawn != nil {
+			named.Text += " (" + r.Withdrawn.String() + ")"
+		}
+		g, d, bd := []entry{named}, []entry{{Text: r.Release}}, []entry{{Text: r.Release}}
 		for _, n := range numbers {
 			v, ok := r.Numbers[n.key]
 			switch n.kind {
@@ -381,8 +409,9 @@ func tables(records []Record, kept string) []table {
 		where.Rows = append(where.Rows, []entry{release, {Text: r.Measured.Format(time.DateOnly)}, {Text: r.Host},
 			{Text: r.shape()}, {Text: itoa(r.Reps)}, against, run, chart, plot, ledger})
 	}
-	if len(records) > 0 {
-		newest := records[len(records)-1]
+	if adopted := slices.DeleteFunc(slices.Clone(records), func(r Record) bool { return r.Withdrawn != nil }); len(adopted) > 0 {
+		// The newest release a consumer may adopt: a withdrawn one's gap to the goal is nobody's.
+		newest := adopted[len(adopted)-1]
 		var gaps []string
 		for _, n := range numbers {
 			if v, ok := newest.Numbers[n.key]; ok && n.kind == goalNumber {
@@ -399,6 +428,22 @@ func tables(records []Record, kept string) []table {
 		return []table{goal, diags, bounds, where}
 	}
 	return []table{goal, diags, where}
+}
+
+// Regressions are r's goal numbers that regressed against the release measured with it, each
+// with its Δ: a Δp50 whose 95% interval is wholly above 0, slower beyond noise
+// (docs/releasing.md, "Withdrawing a release"). None when r was measured alone.
+func (r Record) Regressions() []string {
+	var worse []string
+	for _, n := range numbers {
+		if r.Against == nil || n.kind != goalNumber {
+			continue
+		}
+		if d, ok := r.Against.Delta[n.key]; ok && d.Lo > 0 {
+			worse = append(worse, n.title+" "+d.String())
+		}
+	}
+	return worse
 }
 
 // delta is r's Δ for the number key against the release measured with it, as a table cell: blank
@@ -488,7 +533,11 @@ func (r Record) header() string {
 	if r.Run != "" {
 		line += " (" + r.Run + ")"
 	}
-	return line + "."
+	line += "."
+	if r.Withdrawn != nil {
+		line += fmt.Sprintf(" Withdrawn %s, #%d: %s.", r.Withdrawn.Date, r.Withdrawn.Issue, r.Withdrawn.Reason)
+	}
+	return line
 }
 
 // Table is r's numbers: each p50 / p95, and why it has not the others.

@@ -210,3 +210,17 @@ func TestTheFloorIsTheNewestRecordsBound(t *testing.T) {
 		t.Errorf("a floor that lost every boot: %q, %+v", r.Cannot["floor"], r.Bounds)
 	}
 }
+
+// A release is measured against the newest release before it that was not withdrawn; a withdrawn
+// one asked for by name is measured all the same, against the same.
+func TestAWithdrawnReleaseIsNeverTheOneMeasuredAgainst(t *testing.T) {
+	published := []Published{{Tag: "v4"}, {Tag: "v3", Withdrawn: true}, {Tag: "v2"}, {Tag: "v1"}}
+	for newest, want := range map[string][]string{"v4": {"v2", "v4"}, "v3": {"v2", "v3"}, "v2": {"v1", "v2"}} {
+		if got, err := LadderReleases(Adopted(published, newest), newest, 2); err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s measured with %v, %v; want %v", newest, got, err, want)
+		}
+	}
+	if got := Tags(published); !reflect.DeepEqual(got, []string{"v4", "v3", "v2", "v1"}) {
+		t.Errorf("Tags = %v", got)
+	}
+}

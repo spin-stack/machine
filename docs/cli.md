@@ -139,8 +139,11 @@ release.yml  compat.yml ; spin-machine-dev release version ; release ; release n
 refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|openssh|builders
 report.yml   task bin ; task vsock ; spin-machine-dev releases measure TAG... ; then in main's
              checkout: task bin ; spin-machine-dev releases record LADDER_JSON... ;
+             spin-machine-dev releases flag LADDER_JSON... ;
              spin-machine-dev releases schema TAG... ; task git:app ;
              spin-machine-dev releases propose
+withdraw.yml task bin ; spin-machine-dev releases withdraw|restore TAG ; task git:app ;
+             spin-machine-dev releases propose --branch --title
 osv.yml      spin-machine-dev osv --issues ; spin-machine-dev cves
 lab.yml      task vsock ; task lab:ci
 pages.yml    task bin ; spin-machine-dev releases site --out _site
@@ -306,10 +309,14 @@ spin-machine-dev releases compare A B                             two records si
 spin-machine-dev releases doc [--check]                           docs/releases.md and .svg from the records; --check exits 1 when either differs
 spin-machine-dev releases site --out OUT                          the same as a web page, OUT/index.html, each record beside it in OUT/releases
 spin-machine-dev releases schema TAG...                           each release's QEMU's query-qmp-schema, in internal/qmpdef/testdata/released, which go test holds the machine package to
-spin-machine-dev releases propose                                 the records and schemas this checkout wrote, as a pull request against main
+spin-machine-dev releases propose [--branch B] [--title T]        the records and schemas this checkout wrote, as a pull request against main
+spin-machine-dev releases flag LADDER_JSON... [--run URL]         an issue for each ladder's newest release whose goal number regressed
+spin-machine-dev releases withdraw TAG --reason TEXT --issue N    mark a release withdrawn on GitHub and in its record, so nothing adopts it
+spin-machine-dev releases restore TAG                             undo withdraw
 ```
 
-`measure` runs a ladder of two for each release: the published release before it, and the release.
+`measure` runs a ladder of two for each release: the newest published release before it that was
+not withdrawn, and the release.
 report.yml does the same when a release is published. `measure` keeps each ladder.json in
 `_output/lab/measured/TAG` (`lab show` reads that directory), and `record` writes the record from
 it. They are two verbs because report.yml runs them at two commits: it measures at the release's
@@ -330,6 +337,17 @@ writes one HTML file that fetches nothing, from the same rows as the page's tabl
 inline so its points' tooltips show. `pages.yml` runs `site` on every merge to main that changes a
 record, and deploys the file to GitHub Pages. Every verb takes `--dir` for the records' directory
 (default `docs/releases`), with the page and its chart beside it as `DIR.md` and `DIR.svg`.
+
+`flag` reads ladders as `record` does. It opens an issue when the newest release's Δp50 of either
+goal number has its interval wholly above 0, with the Δs, the run and the commits between the two
+releases. It opens one issue for each pair and withdraws nothing. `withdraw` makes the release a
+prerelease titled "(withdrawn)", opens its notes with the reason and the issue, makes the newest
+release not withdrawn GitHub's latest, and marks the record (`withdrawn`) and the page. It refuses
+a reason without an issue, an issue that does not exist and a release that does not exist.
+Running it again changes nothing. `restore` gives the release back its published title and notes.
+`propose --branch --title` proposes a withdrawal under a name of its own, because the release's
+own name was its measurement's. docs/releasing.md, "Withdrawing a release", says what counts as a
+regression and what skips a withdrawn release.
 
 `lab compat` resumes a checkpoint of each release here (`lab.ResumeHere`), newest first, and `task boot:compat` is
 `lab compat` over a built release. It checks that a host that skipped releases still resumes their

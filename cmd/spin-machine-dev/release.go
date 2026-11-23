@@ -306,9 +306,10 @@ func notesOf(ctx context.Context, w workspace, version string) (string, error) {
 		return "", fmt.Errorf("reading the release's manifest: %w", err)
 	}
 	// The newest published release that is not this one, so a re-run of a version that already
-	// published compares against its predecessor. A listing that fails fails: read as "no
-	// releases", it would announce a first release that is not one.
-	listed, err := gh(ctx, "release", "list", "--limit", "30", "--json", "tagName", "-q", ".[].tagName")
+	// published compares against its predecessor, and not withdrawn (releases withdraw): what
+	// changed is said against what a consumer has, and none has a withdrawn release. A listing
+	// that fails fails: read as "no releases", it would announce a first release that is not one.
+	listed, err := gh(ctx, "release", "list", "--exclude-pre-releases", "--limit", "30", "--json", "tagName", "-q", ".[].tagName")
 	if err != nil {
 		return "", err
 	}

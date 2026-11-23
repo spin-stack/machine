@@ -21,13 +21,19 @@ import (
 // drawn again is its own or 2 ms more, both often enough to be inside the 95%.
 func ladderOf(t *testing.T, first float64, releases ...string) string {
 	t.Helper()
+	return ladderStepping(t, first, 10, releases...)
+}
+
+// ladderStepping is ladderOf with each release's cold boot step ms after the one before it's.
+func ladderStepping(t *testing.T, first, step float64, releases ...string) string {
+	t.Helper()
 	r := &lab.Result{Probe: "ssh-first", Reps: 2, Host: lab.Host{Instance: "c8id.4xlarge", Nested: true},
 		Started: time.Date(2026, 11, 20, 0, 25, 22, 0, time.UTC),
 		Options: lab.Options{"cpus": "1", "max-cpus": "16", "memory": "128", "max-memory": "8192", "hotplug-disks": "4"}}
 	for i, rel := range releases {
 		for rep := range 2 {
 			r.Samples = append(r.Samples, lab.Sample{Tree: rel, Row: "boot", Rep: rep + 1,
-				Values: map[string]float64{"first_login": first + 10*float64(i) + 2*float64(rep)}})
+				Values: map[string]float64{"first_login": first + step*float64(i) + 2*float64(rep)}})
 		}
 	}
 	path := filepath.Join(t.TempDir(), "ladder.json")
@@ -256,16 +262,19 @@ func TestReleasesSiteWritesThePageAndItsRecords(t *testing.T) {
 	}
 }
 
+// A withdrawn release is published all the same, and owes its record as every release does.
 func TestReleasesMissingListsThePublishedWithNoRecord(t *testing.T) {
 	checkout(t)
 	verb(t, "releases", "record", ladderOf(t, 300, "v2"))
-	fakes(t, map[string]string{"gh": "printf 'v3\\nv2\\nv1\\n'"})
+	fakes(t, map[string]string{"gh": `echo '[{"tagName":"v3","isPrerelease":true},{"tagName":"v2"},{"tagName":"v1"}]'`})
 	if out, stderr, status := verb(t, "releases", "missing"); status != 0 || out != "v1\nv3\n" {
 		t.Errorf("missing: exit %d, %q, %s", status, out, stderr)
 	}
-	fakes(t, map[string]string{"gh": "exit 1"})
-	if _, _, status := verb(t, "releases", "missing"); status != 2 {
-		t.Errorf("a GitHub that did not answer: exit %d", status)
+	for name, body := range map[string]string{"a GitHub that did not answer": "exit 1", "an answer that is not JSON": "echo v1"} {
+		fakes(t, map[string]string{"gh": body})
+		if _, _, status := verb(t, "releases", "missing"); status != 2 {
+			t.Errorf("%s: exit %d", name, status)
+		}
 	}
 }
 

@@ -282,3 +282,55 @@ func TestTheCommittedPageIsTheRecords(t *testing.T) {
 		}
 	}
 }
+
+// A withdrawn release is named so on the page and the site, with why, the issue and when; the page
+// says what that means; and the gap to the goal is the newest release's that was not withdrawn.
+func TestTheDocNamesAWithdrawnRelease(t *testing.T) {
+	records := docRecords()
+	records[1].Withdrawn = &Withdrawn{Reason: "the cold boot, 12 ms slower", Issue: 7, Date: "2026-11-22"}
+	doc := Doc(records, "kept")
+	for _, want := range []string{
+		"| v2 (withdrawn 2026-11-22, #7: the cold boot, 12 ms slower) | 321 / 321 |",
+		"A release marked withdrawn regressed and is not to be adopted",
+		"v1 against the goal: cold +240 ms.",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("no %q in:\n%s", want, doc)
+		}
+	}
+	if strings.Contains(Doc(docRecords(), "kept"), "marked withdrawn") {
+		t.Error("a page with no release withdrawn says what one is")
+	}
+	if site, err := Site(records); err != nil || !strings.Contains(site, "v2 (withdrawn 2026-11-22, #7: the cold boot, 12 ms slower)") {
+		t.Errorf("the site does not name v2 withdrawn: %v", err)
+	}
+	if h := records[1].Table(); !strings.Contains(h, ". Withdrawn 2026-11-22, #7: the cold boot, 12 ms slower.\n") {
+		t.Errorf("v2's record:\n%s", h)
+	}
+	records[0].Withdrawn = records[1].Withdrawn
+	if all := Doc(records, "kept"); strings.Contains(all, "against the goal") {
+		t.Errorf("every release withdrawn, and a gap to the goal:\n%s", all)
+	}
+}
+
+// A goal number regressed when its Δ's interval is wholly above 0; one faster, within noise, not a
+// goal number, or measured alone did not.
+func TestARegressionIsAGoalNumberSlowerBeyondNoise(t *testing.T) {
+	r := Record{Release: "v2", Against: &Against{Release: "v1", Delta: map[string]Delta{
+		"cold":       {P50: 6.8, Lo: 0.1, Hi: 13.6},
+		"restore":    {P50: 5, Lo: 0, Hi: 9},
+		"save-ms":    {P50: 20, Lo: 10, Hi: 30},
+		"cold-ahead": {P50: 20, Lo: 10, Hi: 30},
+	}}}
+	if got := r.Regressions(); len(got) != 1 || got[0] != "cold boot to first login +6.8 [+0.1, +13.6]" {
+		t.Errorf("Regressions = %q", got)
+	}
+	r.Against.Delta["restore"] = Delta{P50: 2, Lo: 0.1, Hi: 4}
+	r.Against.Delta["cold"] = Delta{P50: -8, Lo: -12, Hi: -3}
+	if got := r.Regressions(); len(got) != 1 || !strings.HasPrefix(got[0], "restore to first login +2.0") {
+		t.Errorf("Regressions = %q", got)
+	}
+	if got := (Record{Release: "v1"}).Regressions(); got != nil {
+		t.Errorf("a release measured alone regressed: %q", got)
+	}
+}

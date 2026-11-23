@@ -49,7 +49,7 @@ same change.
 | `task lint test coverage mutate`, the schema checks among the tests, `verify args` | `ci.yml` | every pull request and push to main |
 | QEMU, the kernel and the image, built and verified | `parts.yml` | a change that reaches the part |
 | a checkpoint of each release resumes, `boot:record`, `boot:cpu-plug`, `boot:lockdown` | `compat.yml`, KVM fleet | a change that reaches the machine, and every release before it is built |
-| the goal's two numbers, the no-systemd floor beside them, and one boot drawn | `report.yml`, bench | every release, once published |
+| the goal's two numbers, the no-systemd floor beside them, and one boot drawn; an issue when either regressed | `report.yml`, bench | every release, once published |
 | `boot:checkpoint-pause`, the pause a checkpoint stops the guest for | `release.yml`'s `pause`, bench | every release, once published, and a QEMU bump (versions.yaml) |
 | `boot:finish-migrate` | by hand, on a busy host | a QEMU bump (versions.yaml) |
 
@@ -114,8 +114,8 @@ not made with. `gates/attest_test.go` holds every workflow to attesting before i
 
 A release also says what it costs. After the release publishes, release.yml's `report` job
 measures it on the bench fleet (spin-stack/ci: a c8id.4xlarge, nested, the host the goal is
-measured on). The job boots it interleaved with the release before it, in the shape spin boots a
-workspace in, twenty boots of each (`spin-machine-dev releases measure`, docs/cli.md). It measures
+measured on). The job boots it interleaved with the release before it, the newest one not
+withdrawn ([Withdrawing a release](#withdrawing-a-release)), in the shape spin boots a workspace in, twenty boots of each (`spin-machine-dev releases measure`, docs/cli.md). It measures
 the two goal numbers, a cold boot and a restore, each to the first SSH login, and both again into a
 QEMU started ahead. Save, state, the kernel's time and QEMU's resident memory are beside them as
 diagnostics. The release is booted again beside its no-systemd floor, both logging in by the lane:
@@ -167,6 +167,62 @@ change after the tag. v20261120.04's proposal failed that way (#350), after #342
 
 [Measure releases from before records](#measure-releases-from-before-records) says how to
 backfill them.
+
+## Withdrawing a release
+
+A release whose measured performance regressed is withdrawn, so nobody adopts it, and nothing it
+published is lost. Releases come several times a day, so the next one usually fixes it. The
+withdrawn one stays a release that a host may already run and hold checkpoints of.
+
+**What counts as a regression.** Either goal number, the cold boot to the first login or the
+restore to the first login, against the release before it in the same run (report.yml), with a
+Δp50 whose 95% interval is wholly above 0: slower, beyond noise. A failed functional check counts
+too: `boot:logind` or `boot:workspace` in release.yml's `pause` job, or compat. Compat runs before a
+release is built, so a release that fails it is never published. A cost that docs/log.md records
+as accepted is no regression: a correctness change, as #505 was for v20261122.04's +6.8
+[+0.1, +13.6]. With 20 boots a side and a 95% interval, about 1 in 40 flags of each number is
+noise. Detection flags, and a person decides.
+
+**Detection.** Once a release is measured, report.yml runs `spin-machine-dev releases flag` over
+its ladder. When the rule trips, it opens an issue named `RELEASE regressed against BEFORE`. The
+issue holds the Δs, the run, and the commits from the one release to the other, which are where
+the cause is. It opens one issue for each pair, and withdraws nothing. A failed functional check is
+the release run's `pause` job, red (#595).
+
+**Withdrawing.** A person runs `withdraw.yml` with the release, the reason and the issue that
+decided it (`spin-machine-dev releases withdraw TAG --reason TEXT --issue N`, docs/cli.md). A
+withdrawal marks the release and deletes nothing:
+
+- On GitHub, the release becomes a prerelease. Its title ends in "(withdrawn)", and its notes open
+  with the reason and the issue, followed by the notes it was published with. The newest release
+  not withdrawn is made GitHub's latest.
+- Its record, `docs/releases/RELEASE.json`, gets `withdrawn: {reason, issue, date}`, and
+  docs/releases.md names it withdrawn in the ladder. The workflow proposes both as a pull request.
+- The tarball, `SOURCES`, the signatures, the provenance, the SBOM, the record and its charts stay.
+  So do the GPL obligations a release answers ([What a release owes](#what-a-release-owes)).
+- Compat goes on resuming its checkpoints (`lab compat` lists the withdrawn releases too). A
+  withdrawal says nobody should adopt the release. It says nothing about what resumes, which is
+  the machine's record's to decide.
+
+A release withdrawn before report.yml's pull request with its record has merged has no record on
+main to mark. The verb says so, and running it again once the record is on main marks it.
+
+`releases restore TAG` undoes it (`withdraw.yml` with `restore`): the title and notes as published,
+a release again, and the record's mark cleared. Both are idempotent.
+
+**What skips a withdrawn release.** Everything that takes "the newest release" reads GitHub's
+latest release or leaves prereleases out, so none of it takes a withdrawn one:
+
+- spin's `versions.yaml` tracks the machine with go-tools' `github-release` track, which reads
+  GitHub's `/releases/latest`. That is never a prerelease.
+- ship-it, which dispatches spin's machine proposal, lists releases without drafts and prereleases.
+  It wakes as soon as a release is published, before report.yml measures it, so a release
+  withdrawn later may already have a proposal open in spin. Close that proposal by hand.
+- Here, `releases measure` measures the next release against the newest release not withdrawn, and
+  the record's `against` names it. `lab ladder`, the lab's default release (`--from release`),
+  `release notes`' "what changed since" and `osv` skip withdrawn releases. `releases missing` and
+  `lab compat` list them, because a withdrawn release still owes its record, and its checkpoints
+  still resume.
 
 ## What a release owes
 

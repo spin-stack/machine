@@ -23,6 +23,9 @@ name: Report
 # because it boots: GitHub's runners have no /dev/kvm, and the goal is measured on the bench
 # fleet's nested c8id.
 #
+# A release whose goal number regressed against the release before it is flagged as an issue
+# (releases flag), and withdrawn only by a person (withdraw.yml).
+#
 # release.yml calls it with record once a release is out. By hand, it measures past releases one
 # after another, each with its own predecessor, and proposes them together: what releases missing
 # lists, to take the page back in time, and the records measured alone, to give them a Δ.
@@ -55,6 +58,10 @@ jobs:
   report:
     runs-on: runs-on/fleet=bench/env=production
     timeout-minutes: 360
+    permissions:
+      contents: read
+      # The issue releases flag opens for a release that regressed.
+      issues: write
     env:
       GH_TOKEN: ${{ github.token }}
       VERSIONS: ${{ inputs.versions }}
@@ -129,6 +136,15 @@ jobs:
         if: ${{ inputs.record && !cancelled() }}
         working-directory: main
         run: spin-machine-dev releases record ../_output/lab/measured/*/ladder.json --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      # An issue for each release whose goal number regressed against the release before it, beyond
+      # noise, with the commits between them: a person decides whether to withdraw it
+      # (docs/releasing.md, "Withdrawing a release"). Main's code, as the record is: the release's tag
+      # may be older than the verb.
+      - name: Flag a regression
+        if: ${{ inputs.record && !cancelled() }}
+        working-directory: main
+        run: spin-machine-dev releases flag ../_output/lab/measured/*/ladder.json --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       # Each release's QEMU's query-qmp-schema, which go test holds the machine package to
       # (internal/qmpdef/testdata/released): proposed with the record, so the next change is checked

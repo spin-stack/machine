@@ -113,8 +113,8 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 	if err != nil || tag == "" {
 		t.Fatalf("LatestRelease = %q, %v", tag, err)
 	}
-	if tags, err := gh.Releases(3); err != nil || len(tags) == 0 || tags[0] != tag {
-		t.Fatalf("Releases(3) = %v, %v; want the newest, %s, first", tags, err, tag)
+	if tags, err := gh.Releases(3); err != nil || len(tags) == 0 || Adopted(tags, "")[0] != tag {
+		t.Fatalf("Releases(3) = %v, %v; want the newest not withdrawn, %s, first", tags, err, tag)
 	}
 	src := Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), GitHub: gh}
 	// The release itself, unpacked: 385 MB, so only when asked for.

@@ -57,16 +57,49 @@ func (g *GitHub) LatestRelease() (string, error) {
 	return tag, nil
 }
 
-// Releases are the tags of the newest n published releases, newest first.
+// Published is a release on GitHub: its tag, and whether it was withdrawn (releases withdraw).
+// GitHub shows a withdrawn release as a prerelease, and its "latest release", which go-tools'
+// github-release track, ship-it and LatestRelease read, never is one: so nothing adopts it.
+type Published struct {
+	Tag       string `json:"tagName"`
+	Withdrawn bool   `json:"isPrerelease"`
+}
+
+// Releases are the newest n published releases, newest first, the withdrawn among them.
 //
 // mutate-lane: TestTheLabTalksToGitHub
-func (g *GitHub) Releases(n int) ([]string, error) {
-	out, err := g.gh("release", "list", "-R", g.Repo, "--exclude-drafts", "--exclude-pre-releases",
-		"--limit", fmt.Sprint(n), "--json", "tagName", "-q", ".[].tagName")
+func (g *GitHub) Releases(n int) ([]Published, error) {
+	out, err := g.gh("release", "list", "-R", g.Repo, "--exclude-drafts", "--limit", fmt.Sprint(n), "--json", "tagName,isPrerelease")
 	if err != nil {
 		return nil, err
 	}
-	return strings.Fields(string(out)), nil
+	var ps []Published
+	if err := json.Unmarshal(out, &ps); err != nil {
+		return nil, fmt.Errorf("reading %s's releases: %w", g.Repo, err)
+	}
+	return ps, nil
+}
+
+// Tags are ps's tags, in ps's order.
+func Tags(ps []Published) []string {
+	var tags []string
+	for _, p := range ps {
+		tags = append(tags, p.Tag)
+	}
+	return tags
+}
+
+// Adopted are the tags of ps that were not withdrawn, in ps's order, and keep's, withdrawn or
+// not: a release is measured against the newest release before it that was not withdrawn, and
+// a withdrawn one is measured when it is asked for by name.
+func Adopted(ps []Published, keep string) []string {
+	var tags []string
+	for _, p := range ps {
+		if !p.Withdrawn || p.Tag == keep {
+			tags = append(tags, p.Tag)
+		}
+	}
+	return tags
 }
 
 // DownloadRun puts the artifacts of run id whose names match pattern in dir.
