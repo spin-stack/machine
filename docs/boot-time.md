@@ -86,6 +86,16 @@ spends 78.7 ms on them against 48.3 on metal. Removing 1541 CPUID exits moved th
 −10.3 ms, ~6.7 µs an exit. EC2 gives the L1 EPT, VMCS shadowing and APICv, all on, so no L1
 setting is left to turn. Every exit removed counts at ~5-15 µs nested. #565 ranks the levers.
 
+**The EPT violations are half guest RAM first touched, half MMIO first touched** (#568, `exits`,
+v20261123.04, lab 45111606645, 3 boots, the same counts in each). Of 171 at ~110 µs each nested
+(18.9 ms), 52 land in the 128 MiB base and 6 just above it, 48-51 in the memory virtio-mem plugs
+from 4 GiB, and ~65 at MMIO addresses, where KVM's first fault on a page installs the entry that
+every later access exits through as EPT_MISCONFIG: 39 in the PCIe ECAM at 2.75 GiB, 9 below 4 GiB
+(the IOAPIC, the local APIC, the flash), 17 in the 64-bit BARs at 12 GiB. Prefaulting the base
+in a QEMU started ahead could win at most the base's ~58 × 110 µs, ~6 ms, of `prestart` alone,
+since `ssh-first`'s clock starts before QEMU's exec. That is under the noise and off both goal
+numbers, so it was not built.
+
 ## Where the time goes
 
 Each table splits one number into phases, in spin's shape, and gives each phase a source. A phase
