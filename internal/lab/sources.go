@@ -155,6 +155,21 @@ func (s Sources) placeKernel(what, dir string) (string, error) {
 			return "", err
 		}
 		source = "release " + tag + "'s traceable kernel"
+	} else if id, ok := strings.CutPrefix(what, "pvh:run:"); ok {
+		// exp/645-pvh-bound only: the run's vmlinux, entered through its PVH notes and pvh.bin
+		// with no decompressor and so no KASLR, put where the machine looks for its kernel.
+		d, err := s.run(id, "vmlinux-*")
+		if err != nil {
+			return "", err
+		}
+		v, err := one(d, "vmlinux")
+		if err != nil {
+			return "", fmt.Errorf("kernel run %s: %w", id, err)
+		}
+		if err := replace(v, filepath.Join(dir, "kernel", "bzImage"), 0o644); err != nil {
+			return "", err
+		}
+		return "run " + id + "'s vmlinux, through PVH", nil
 	} else if id, ok := strings.CutPrefix(what, "run:"); ok {
 		d, err := s.run(id, "vmlinux-*")
 		if err != nil {

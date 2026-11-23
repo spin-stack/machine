@@ -97,6 +97,10 @@ func isBzImage(path string) error {
 	}
 	defer func() { _ = f.Close() }()
 	magic := make([]byte, 4)
+	// exp/645-pvh-bound only: an ELF vmlinux, which QEMU enters through its PVH notes.
+	if _, err := f.ReadAt(magic, 0); err == nil && string(magic) == "\x7fELF" {
+		return nil
+	}
 	if _, err := f.ReadAt(magic, 0x202); err != nil || string(magic) != "HdrS" {
 		return fmt.Errorf("%s is not a bzImage (no HdrS at 0x202): the machine boots a bzImage, and nothing enters a vmlinux", path)
 	}
