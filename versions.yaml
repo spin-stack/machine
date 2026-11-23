@@ -183,8 +183,10 @@
   note: >-
     image/systemd/Dockerfile: Ubuntu's systemd source package as resolute publishes it, by its
     .dsc, which holds the tarballs' checksums dpkg-source checks; rebuilt with the stage1 profile
-    and installed in place of the archive's. The archive serves only the current version, so the
-    build fails once Ubuntu moves it, and `spin-machine-dev refresh systemd` proposes the new one. After the
+    and installed in place of the archive's, with image/systemd/*.patch applied without fuzz. The
+    archive serves only the current version, so the build fails once Ubuntu moves it, and
+    `spin-machine-dev refresh systemd` proposes the new one. A bump to systemd 262 or later drops
+    0001-dropin-derive-candidate-names-once.patch, which is upstream there. After the
     bump: `spin-machine-dev build image` (its checks: the meson options taken, the packages held), then
     `task boot:ssh-first` and `task boot:lockdown`.
 

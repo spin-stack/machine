@@ -68,7 +68,7 @@ func everything(t *testing.T, dir string) string {
 	put(t, filepath.Join(fixture, "openssh/openssh-server_1_amd64.deb"), "", 0o644)
 	_ = os.Remove(filepath.Join(fixture, "bin/spin-machine"))
 	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/a.patch", "qemu/patches/0001-a.patch",
-		"qemu/Dockerfile", "kernel/config", "e2fsprogs/Dockerfile", "image/systemd/Dockerfile", "image/openssh/Dockerfile", "image/openssh/a.patch", "image/Dockerfile",
+		"qemu/Dockerfile", "kernel/config", "e2fsprogs/Dockerfile", "image/systemd/Dockerfile", "image/openssh/Dockerfile", "image/openssh/a.patch", "image/systemd/s.patch", "image/Dockerfile",
 		"cmd/spin-machine-pressure/main.go", "internal/pressure/pressure.go", "go.mod", "go.sum"} {
 		put(t, filepath.Join(dir, f), f, 0o644)
 	}

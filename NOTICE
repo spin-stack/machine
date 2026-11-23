@@ -61,6 +61,9 @@ almost entirely other people's software under other people's licences:
       Its OpenSSH (BSD-style licences, usr/share/spin-stack/licenses.txt) is
       modified: Ubuntu's source package with usr/share/spin-stack/openssh/*.patch
       applied, each saying what it changes.
+      Its systemd (LGPL-2.1-or-later and GPL-2.0-or-later, the same file) is
+      modified: Ubuntu's source package with usr/share/spin-stack/systemd/*.patch
+      applied, each saying what it changes.
 
 Distributing a release therefore carries obligations this licence does not
 discharge — GPL-2.0 section 3 in particular, and section 6 of the LGPL for the

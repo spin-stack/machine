@@ -23,9 +23,12 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
     apt-get install -y --no-install-recommends libpcre2-dev
 
 COPY image/systemd/meson-took.py /build/meson-took.py
+COPY image/systemd/*.patch /build/patches/
+WORKDIR /build/src
+RUN for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
+    grep -q 'unit_file_expand_dropin_names' src/shared/dropin.c
 ARG SYSTEMD_EXPERIMENT=""
 COPY image/systemd/experiments/ /build/experiments/
-WORKDIR /build/src
 RUN if [ -n "${SYSTEMD_EXPERIMENT}" ]; then \
         patch -p1 --fuzz=0 < "/build/experiments/${SYSTEMD_EXPERIMENT}.patch"; \
     fi
@@ -34,7 +37,7 @@ RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false
     sed -i 's/-Dselinux=enabled/-Dselinux=disabled/' debian/rules && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "${SYSTEMD_SOURCE_VERSION}+spin1" --distribution resolute \
-            "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}." && \
+            "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}, $(cd /build/patches && echo *.patch)." && \
     CONFFLAGS_UPSTREAM="${extra}" dpkg-buildpackage -b -uc -us -j"${JOBS}" && \
     meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra}
 
