@@ -6,9 +6,33 @@ within the series builds from the same config. The kernel is here because a kern
 machine that boots it are released together. A new kernel does not strand checkpoints: a
 resumed guest runs the kernel in its saved memory until it reboots, and boots this one then
 (the machine's record, `machine.QEMU.Target`, leaves the kernel out). `spin-machine-dev build kernel`
-builds it. `spin-machine-dev verify kernel` reads the setup header of the bzImage the machine boots
-(relocatable, so KASLR can move it), and checks that the stripped vmlinux beside it opens as an
-ELF.
+builds it. `spin-machine-dev verify kernel` asserts that the stripped vmlinux, which the machine
+enters through PVH, carries the two Xen notes QEMU enters and places it by and a filled relocation
+table, and reads the setup header of the bzImage beside it (relocatable).
+
+## KASLR with no decompressor
+
+The machine enters the vmlinux through PVH (#645). A bzImage's KASLR happens in its decompressor,
+which PVH skips, and until 2026-11-19 the kernel entered that way ran where it was linked at every
+boot. Now each half is chosen where the decompressor chose it before:
+
+- **The virtual base**, by the kernel at `startup_64` (0017), from a relocation table the relocs
+  tool writes into `.data.reloc` at link time (0014-0016). The slot rule is the decompressor's
+  (2 MiB slots below 1 GiB, ~480 of them), and so are the seed's sources once 0020 reads RDRAND
+  and the TSC from the CPUID registers that hold them: the RFC reads them swapped, so it drew the
+  base from the i8254 and a hash of `boot_params` alone. The decompressor also hashes the build
+  string, which is public.
+- **The physical base**, by QEMU (`qemu/patches/0008`), from `XEN_ELFNOTE_PHYS32_RELOC`, among the
+  2 MiB slots of low memory below the initrd and the ACPI data, drawn from the host's `getrandom`.
+- **The direct map, vmalloc and vmemmap** (`RANDOMIZE_MEMORY`), by the kernel as before, once 0019
+  sets `KASLR_FLAG`, which only the decompressor set.
+
+`CONFIG_RELOCATION_TABLE_SIZE` reserves the table, 1 MiB here (the RFC's Kconfig defaults to 2 MiB
+and its help says 1 MB "should be ok in most cases"). A table
+that does not fit fails the link: the relocs tool dies naming the size it needs, and the build
+prints what this kernel uses of it. At boot the table cannot overflow: it is part of the image.
+`boot:kaslr` boots the kernel ten times and requires each of the four to move.
+
 
 ## Memory that moves
 
@@ -139,6 +163,11 @@ every kernel bump.
 | 0010 | `early_quirks` calls `kvm_para_available` before its scan |
 | 0012 | `btf_vmlinux_defer` is in the vmlinux, and the compiled `kernel/bpf/btf.c` defers registrations through it |
 | 0013 | the compiled `kernel/bpf/verifier.c` asks for vmlinux BTF through `need_btf_vmlinux(env)` |
+| 0014-0016 | `.data.reloc` holds a table the relocs tool filled; how much of the reserve it uses is printed |
+| 0017 | `startup_64` calls `__pi___relocate_kernel`, and the object it is built in (`arch/x86/boot/startup/kaslr.o`, with `lib/kaslr.c` and `lib/cmdline.c` included) has no `__fentry__`, KASAN, KCOV, UBSAN or stack-protector call and no GOT relocation: it runs before the kernel has moved (virt-pvm/linux#11 is the failure a `__fentry__` call through the GOT made) |
+| 0018 | the compiled decompressor reads its relocations from `.data.reloc` |
+| 0019 | the compiled `arch/x86/boot/startup/kaslr.c` sets `KASLR_FLAG` |
+| 0020 | the compiled `arch/x86/boot/startup/kaslr.c` reads RDRAND from CPUID leaf 1's ECX |
 
 None of them is a guest check. What the patches save is CPU and VM exits, which a guest cannot
 count, and the format files 0003 defers are behind lockdown. What 0012 and 0013 save is a parse of

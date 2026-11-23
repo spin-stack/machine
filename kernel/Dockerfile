@@ -133,16 +133,19 @@ COPY kernel/patches/ /usr/src/patches/
 
 # That claim, checked, with the checkpatch.pl, spelling.txt and const_structs.checkpatch of the
 # tree the patches apply to, already here and pinned with it: nothing fetched, so nothing to
-# rate-limit a build (raw.githubusercontent.com answered one with 429, job 137831193347). Three
+# rate-limit a build (raw.githubusercontent.com answered one with 429, job 137831193347). Four
 # things are left out, each by name. --no-signoff and the Assisted-by: trailer removed before the
 # check, because checkpatch knows no Assisted-by: and the missing Signed-off-by is the rule
-# above. UNKNOWN_COMMIT_ID, because a tarball has no history to find a cited commit in. Each
+# above. UNKNOWN_COMMIT_ID, because a tarball has no history to find a cited commit in.
+# FILE_PATH_CHANGES, "does MAINTAINERS need updating?" for a patch that adds a file (0016,
+# 0017), because no patch here goes upstream until it has run in production, and MAINTAINERS
+# is upstream's to change then. Each
 # patch must come out "has no obvious style problems", read from the output rather than trusted
 # from the exit status.
 RUN cd /usr/src/linux && \
     failed=0 && \
     for p in /usr/src/patches/*.patch; do \
-        out=$(grep -v '^Assisted-by: ' "$p" | perl scripts/checkpatch.pl --strict --no-signoff --ignore UNKNOWN_COMMIT_ID \
+        out=$(grep -v '^Assisted-by: ' "$p" | perl scripts/checkpatch.pl --strict --no-signoff --ignore UNKNOWN_COMMIT_ID,FILE_PATH_CHANGES \
             --root=/usr/src/linux --summary-file --patch - 2>&1) || true; \
         case "$out" in \
             *"has no obvious style problems"*) echo "checkpatch: ${p##*/}: clean" ;; \

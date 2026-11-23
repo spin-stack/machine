@@ -27,7 +27,7 @@ diff --git a/arch/x86/boot/startup/kaslr.c b/arch/x86/boot/startup/kaslr.c
 index fb07c31e2..308384701 100644
 --- a/arch/x86/boot/startup/kaslr.c
 +++ b/arch/x86/boot/startup/kaslr.c
-@@ -100,6 +100,10 @@ void __init __relocate_kernel(unsigned long p2v_offset, struct boot_params *bp)
+@@ -104,6 +104,10 @@ void __init __relocate_kernel(unsigned long p2v_offset, struct boot_params *bp)
  	if (cmdline_find_option_bool((char *)cmd_line_ptr, "nokaslr"))
  		return;
  
@@ -38,7 +38,7 @@ index fb07c31e2..308384701 100644
  	boot_params_ptr = bp;
  	virt_addr = find_random_virt_addr(LOAD_PHYSICAL_ADDR, image_size);
  	delta = virt_addr - LOAD_PHYSICAL_ADDR;
-@@ -113,4 +117,11 @@ void __init __relocate_kernel(unsigned long p2v_offset, struct boot_params *bp)
+@@ -117,4 +121,11 @@ void __init __relocate_kernel(unsigned long p2v_offset, struct boot_params *bp)
  		ptr = (unsigned long)(*reloc + p2v_offset);
  		*(uint64_t *)ptr += delta;
  	}

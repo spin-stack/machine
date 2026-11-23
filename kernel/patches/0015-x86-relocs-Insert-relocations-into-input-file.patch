@@ -8,6 +8,10 @@ relocation of the uncompressed kernel and is same as the implementation
 in MIPS.
 
 Signed-off-by: Hou Wenlong <houwenlong.hwl@antgroup.com>
+[ spin-stack/machine: forward-ported to 7.3.5 for #645, and made
+  checkpatch --strict clean: no line continuations
+  inside die()'s arguments. ]
+Assisted-by: LLM
 ---
  arch/x86/tools/relocs.c        | 56 ++++++++++++++++++++++++++++++----
  arch/x86/tools/relocs.h        |  1 +
@@ -65,8 +69,8 @@ index 4d3d53391..33ef98701 100644
 +			size_needed += (1 + relocs64.count) * sizeof(uint32_t);
 +#endif
 +			if (size_needed > sec_reloc->shdr.sh_size)
-+				die("Relocations overflow available space!\n" \
-+				    "Please adjust CONFIG_RELOCATION_TABLE_SIZE " \
++				die("Relocations overflow available space!\n"
++				    "Please adjust CONFIG_RELOCATION_TABLE_SIZE "
 +				    "to at least 0x%08x\n", (size_needed + 0x1000) & ~0xFFF);
 +
 +			/*
@@ -141,7 +145,7 @@ index ee8a9fafc..66a9a83b7 100644
  static void usage(void)
  {
 -	die("relocs [--abs-syms|--abs-relocs|--reloc-info|--text|--realmode]" \
-+	die("relocs [--abs-syms|--abs-relocs|--reloc-info|--text|--realmode|--keep]" \
++	die("relocs [--abs-syms|--abs-relocs|--reloc-info|--text|--realmode|--keep]"
  	    " vmlinux\n");
  }
  
