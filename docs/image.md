@@ -332,11 +332,17 @@ On 2026-11-22 the list had 120 lines, and 118 once `nsswitch.conf` and the manag
 went back to Ubuntu's ("Measured in this review"). A file a maintainer script makes on every
 Ubuntu (the accounts, `ld.so.cache`, systemd's own three enables) is not a deviation and the
 script says which it skips. A unit Ubuntu itself ships disabled or masked, such as `systemd-gpt-auto-generator`, is
-not one either. One blind spot follows: a path a package lists that the image makes itself is not
-seen. `/etc/systemd/system-generators/systemd-gpt-auto-generator` is in `systemd.list`, but the
-installed package leaves no link there: an image built without the image's own link had none, and
-the derived list gained `deleted /etc/systemd/system-generators/` (image build on #517,
-2026-11-22). The image's mask is what turns that generator off, and it is in the generator table.
+not one either, and the inventory sees that mask as Ubuntu's because it is. Ubuntu's `debian/rules`
+links `/etc/systemd/system-generators/systemd-gpt-auto-generator` to `/dev/null` with `dh_link`,
+and the archive's `systemd_259.9-0ubuntu0.1_amd64.deb` carries the link in its data, which is why
+dpkg lists it in `systemd.list` (`dpkg-deb -c`, read 2026-11-23). mkosi then deletes it: 27.1's
+`mkosi/installer/apt.py` unlinks that path after every install, "to make sure it is enabled by
+default in our images". An image built without the image's own link
+had none, and the derived list gained `deleted /etc/systemd/system-generators/` (image build on
+#517, 2026-11-22): the inventory saw the deletion, as the directory it was taken from. The image's
+link puts back what Ubuntu ships, so it is no line of the list. A `.list` file is the package's
+data member, so a path dpkg lists is a path the package shipped; telling the two apart by md5sums
+or the `.deb`'s contents (#518) would find nothing more.
 `optimize-systemd.sh` also re-made Ubuntu's own `sockets.target.wants/ssh.socket` and removed an
 `ssh.service` enable nothing makes; those two changed nothing and were deleted (2026-11-22).
 
@@ -463,7 +469,7 @@ The group counted the 8 generators below.
 | `systemd-debug-generator` | removed | It implements `systemd.mask=`, `systemd.wants=` and the debug shell from the command line. | Those command-line switches do nothing. The lab masks with links for this reason. |
 | `systemd-sysv-generator`, `systemd-rc-local-generator` | removed | No SysV init scripts and no `rc.local` in the image. | An init script or `/etc/rc.local` added in a workspace does not run. |
 | `systemd-hibernate-resume-generator`, `systemd-system-update-generator`, `systemd-factory-reset-generator` | removed | No hibernation, no offline updates, no EFI. | Nothing. |
-| `systemd-gpt-auto-generator` | removed | The root is a partitionless filesystem named on the command line; there is no GPT and no EFI to discover partitions from. | Nothing. |
+| `systemd-gpt-auto-generator` | removed | Ubuntu masks it too, and mkosi deletes Ubuntu's mask ("The inventory"), so the image makes the link again. The root is a partitionless filesystem named on the command line; there is no GPT and no EFI to discover partitions from. Not a line of `image/deviations.txt`. Group C-generators took the image's link away, which runs the generator Ubuntu does not, so the group's number includes a cost Ubuntu's image does not pay. | Nothing. |
 | `/etc/systemd/user-generators/systemd-xdg-autostart-generator` | removed | It turns the XDG autostart `.desktop` files of a graphical session into user units, in every user manager's start. Root's manager starts in the boot and the first login waits for it, so the generator was on the login's clock: 1.6 ms of CPU (lab 45062836688). Not in group C-generators: measured alone, first login −3.8 [−6.2, −0.7], accept to login −6.1 [−9.0, −0.3], 100 a side (bench, spin's shape and login, against v20261122.06, lab 45070150688, #527). | A `.desktop` file in `/etc/xdg/autostart` or `~/.config/autostart` starts nothing. A workspace has no graphical session to start one in. |
 | `systemd-pstore.conf`, `systemd-network.conf`, `x11.conf` (tmpfiles) | removed | No pstore, no networkd, no X11. | Nothing. |
 | `systemd-nologin.conf` (tmpfiles) | reordered | It writes `/run/nologin` at boot, and `systemd-user-sessions` removes it late in the boot. Until then `pam_nologin` refuses every user, and the first login arrives before that ("Access denied for user spin by PAM account configuration"). Shutting down still writes it. | lane: part of 478 → 402 (lab 43518915618) | Nothing: logins are refused at shutdown as before. |
