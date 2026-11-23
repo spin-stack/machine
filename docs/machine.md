@@ -527,7 +527,8 @@ such as a NIC's MTU or `ICH9-LPC.disable_s3`. The record names each of them. It 
   a `-cpu` option that is neither a feature nor held. A record from before they were held
   (#569) has none, and is refused by each, `cpu x-consistent-cache: checkpoint none, here false
   (same)` among them: nothing in it says which side of `x-consistent-cache=off` it was taken on,
-  since v20261122.06 and v20261122.07 run the same QEMU.
+  since v20261122.07 (switch on) and v20261123.01 (off) run the same QEMU. `task boot:compat`
+  refuses v20261122.07's checkpoints by that switch.
 - the machine: its **versioned** type (`machine.Type`, `pc-q35-11.1`), the accelerator,
   each `-machine` option, `-smp` and `-m`, as QEMU reads them back.
 - every device the machine was started with. A device on the root complex is named by its slot

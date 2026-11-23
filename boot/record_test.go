@@ -108,7 +108,7 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 			t.Errorf("the record's x-consistent-cache is %q, want false as -cpu gives it, among %v", got, base.CPU.Properties)
 		}
 	})
-	// A machine of v20261122.06, before -cpu set x-consistent-cache=off; and a checkpoint a
+	// A machine of v20261122.07, before -cpu set x-consistent-cache=off; and a checkpoint a
 	// spin-machine wrote before the record held the vCPU's properties (#569).
 	leaf2FF := base
 	leaf2FF.CPU.Properties = maps.Clone(base.CPU.Properties)
