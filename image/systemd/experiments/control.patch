@@ -1,0 +1,10 @@
+--- a/src/shared/dropin.c	2026-11-22 21:36:45.261275676 -0300
++++ b/src/shared/dropin.c	2026-11-22 21:36:45.263299387 -0300
+@@ -140,6 +140,7 @@
+         return 0;
+ }
+ 
++/* spin-machine: the control arm of #574's drop-in experiment, a rebuild that changes no code. */
+ static int unit_file_find_dirs(
+                 const char *original_root,
+                 Set *unit_path_cache,

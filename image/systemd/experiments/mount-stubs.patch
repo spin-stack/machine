@@ -1,0 +1,18 @@
+--- a/src/core/unit.c	2026-11-22 21:37:15.431923704 -0300
++++ b/src/core/unit.c	2026-11-22 21:37:15.443726627 -0300
+@@ -1553,6 +1553,15 @@
+ 
+                                 m = manager_get_unit(u->manager, p);
+                                 if (!m) {
++                                        /* No unit file of this name, so there is nothing to load: a
++                                         * mount that appears at this path later becomes a unit then, and
++                                         * mount_add_mount_dependencies() adds the dependencies on it to
++                                         * every unit needing it. Loading it here would only make a
++                                         * not-found unit to collect. */
++                                        if (u->manager->unit_id_map &&
++                                            !hashmap_contains(u->manager->unit_id_map, p))
++                                                continue;
++
+                                         /* Make sure to load the mount unit if it exists. If so the
+                                          * dependencies on this unit will be added later during the loading
+                                          * of the mount unit. */
