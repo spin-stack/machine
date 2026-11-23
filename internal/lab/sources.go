@@ -11,11 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spin-stack/go-tools/versions"
 
 	"github.com/spin-stack/machine/internal/release"
+	"github.com/spin-stack/machine/machine"
 )
 
 // from is the tree a spec starts from and how a manifest names it.
@@ -114,15 +116,27 @@ func one(dir, suffix string) (string, error) {
 	return found[0], nil
 }
 
-// traceable is release tag's traceable kernel (release.TraceableKernel), downloaded and its
-// signature checked the first time it is asked for, in Cache/traceable/TAG.
+// traceable is release tag's traceable kernel, downloaded and its signature checked the first time
+// it is asked for, in Cache/traceable/TAG: the vmlinux a release publishes from #697 on
+// (release.TraceableVmlinux), or the bzImage one published before it (release.TraceableBzImage).
+// A release publishes one of the two, so whichever the cache holds is the release's.
 //
 // mutate-lane: TestTheLabTalksToGitHub, with SPIN_LAB_TRACEABLE set to a release that has one.
 func (s Sources) traceable(tag string) (string, error) {
 	dir := filepath.Join(s.Cache, "traceable", tag)
-	bz := filepath.Join(dir, release.TraceableKernel(tag))
-	if fileExists(bz) {
-		return bz, nil
+	names := []string{release.TraceableVmlinux(tag), release.TraceableBzImage(tag)}
+	for _, n := range names {
+		if p := filepath.Join(dir, n); fileExists(p) {
+			return p, nil
+		}
+	}
+	published, err := release.Assets(context.Background(), tag)
+	if err != nil {
+		return "", err
+	}
+	i := slices.IndexFunc(names, func(n string) bool { return slices.Contains(published, n) })
+	if i < 0 {
+		return "", fmt.Errorf("release %s publishes no traceable kernel, neither %s nor %s (published beside releases from #536 on)", tag, names[0], names[1])
 	}
 	pins, err := versions.Load(filepath.Join(s.Checkout, versions.File))
 	if err != nil {
@@ -134,36 +148,61 @@ func (s Sources) traceable(tag string) (string, error) {
 	if err := os.MkdirAll(dir+".part", 0o755); err != nil {
 		return "", fmt.Errorf("making %s.part: %w", dir, err)
 	}
-	if _, err := release.Signed(context.Background(), pins, tag, dir+".part", release.TraceableKernel(tag)); err != nil {
-		return "", fmt.Errorf("release %s's traceable kernel (published beside releases from #536 on): %w", tag, err)
+	if _, err := release.Signed(context.Background(), pins, tag, dir+".part", names[i]); err != nil {
+		return "", fmt.Errorf("release %s's traceable kernel: %w", tag, err)
 	}
 	if err := os.Rename(dir+".part", dir); err != nil {
 		return "", fmt.Errorf("keeping release %s's traceable kernel: %w", tag, err)
 	}
-	return bz, nil
+	return filepath.Join(dir, names[i]), nil
 }
 
-// placeKernel puts the kernel what names into the tree at dir and says where it came from.
+// placeKernel puts the kernel what names into the tree at dir and says where it came from and how
+// the machine enters it.
 //
-// A bzImage, always, which is what the machine boots. A Kernel run from before 2026-11-19
-// uploaded none, and is refused by name.
+// A vmlinux that randomizes itself (machine.PVH) is entered through PVH, as a release's is from
+// v20261123.07 on (#645): it is put at kernel/vmlinux and the tree's bzImage is removed, which
+// would be another kernel. Otherwise the kernel is a bzImage, entered through its decompressor,
+// with the vmlinux beside it when there is one, for what reads symbols. A run's artifact or a
+// path given may hold both, and the vmlinux is what the machine boots then (machine.OpenRelease).
+// A Kernel run from before 2026-11-19 built neither, and is refused by name.
 func (s Sources) placeKernel(what, dir string) (string, error) {
-	bz, source := what, what
-	if tag, ok := strings.CutPrefix(what, "traceable:"); ok {
-		var err error
-		if bz, err = s.traceable(tag); err != nil {
+	var bz, vmlinux string
+	source := what
+	switch {
+	case strings.HasPrefix(what, "traceable:"):
+		tag := strings.TrimPrefix(what, "traceable:")
+		k, err := s.traceable(tag)
+		if err != nil {
 			return "", err
 		}
-		source = "release " + tag + "'s traceable kernel"
-	} else if id, ok := strings.CutPrefix(what, "run:"); ok {
+		bz, vmlinux, source = k, k, "release "+tag+"'s traceable kernel"
+	case strings.HasPrefix(what, "run:"):
+		id := strings.TrimPrefix(what, "run:")
 		d, err := s.run(id, "vmlinux-*")
 		if err != nil {
 			return "", err
 		}
-		if bz, err = one(d, "bzImage"); err != nil {
-			return "", fmt.Errorf("kernel run %s: %w (a run from before 2026-11-19 built no bzImage)", id, err)
+		vmlinux, _ = one(d, "vmlinux")
+		if bz, err = one(d, "bzImage"); err != nil && machine.PVH(vmlinux) != nil {
+			return "", fmt.Errorf("kernel run %s: %w, and no vmlinux the machine enters through PVH (a run from before 2026-11-19 built neither)", id, err)
 		}
 		source = "run " + id
+	default:
+		bz, vmlinux = what, filepath.Join(filepath.Dir(what), "vmlinux")
+		if machine.PVH(what) == nil {
+			vmlinux = what
+		}
+	}
+	tree := filepath.Join(dir, "kernel", "vmlinux")
+	if machine.PVH(vmlinux) == nil {
+		if err := replace(vmlinux, tree, 0o644); err != nil {
+			return "", err
+		}
+		if err := removeIfThere(filepath.Join(dir, "kernel", "bzImage")); err != nil {
+			return "", err
+		}
+		return source + ", a vmlinux entered through PVH", nil
 	}
 	if err := isBzImage(bz); err != nil {
 		return "", err
@@ -171,18 +210,24 @@ func (s Sources) placeKernel(what, dir string) (string, error) {
 	if err := replace(bz, filepath.Join(dir, "kernel", "bzImage"), 0o644); err != nil {
 		return "", err
 	}
-	// The vmlinux beside it when there is one, for what reads symbols; without one the release's
-	// would be left describing another kernel.
-	vmlinux := filepath.Join(dir, "kernel", "vmlinux")
-	if err := os.Remove(vmlinux); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("removing %s: %w", vmlinux, err)
+	// Without a vmlinux of its own, the release's would be left describing another kernel.
+	if err := removeIfThere(tree); err != nil {
+		return "", err
 	}
-	if v := filepath.Join(filepath.Dir(bz), "vmlinux"); fileExists(v) {
-		if err := replace(v, vmlinux, 0o644); err != nil {
+	if fileExists(vmlinux) && vmlinux != bz {
+		if err := replace(vmlinux, tree, 0o644); err != nil {
 			return "", err
 		}
 	}
-	return source, nil
+	return source + ", a bzImage entered through its decompressor", nil
+}
+
+// removeIfThere removes path, and is content when there is nothing to remove.
+func removeIfThere(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("removing %s: %w", path, err)
+	}
+	return nil
 }
 
 // placeQEMU puts QEMU and the firmware beside it - a QEMU run's artifact, or a directory holding
@@ -382,7 +427,7 @@ func isBzImage(path string) error {
 	defer func() { _ = f.Close() }()
 	magic := make([]byte, 4)
 	if _, err := f.ReadAt(magic, 0x202); err != nil || string(magic) != "HdrS" {
-		return fmt.Errorf("%s is not a bzImage (no HdrS at 0x202): the machine boots a bzImage, and nothing enters a vmlinux", path)
+		return fmt.Errorf("%s is not a bzImage (no HdrS at 0x202), nor a vmlinux the machine enters through PVH: the machine boots one of the two", path)
 	}
 	return nil
 }

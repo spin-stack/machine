@@ -49,7 +49,7 @@ func probeNames(probes map[string]lab.Probe) string {
 // treeFlags are a tree spec's flags, the same for lab tree and inside a --tree NAME=SPEC.
 func treeFlags(fs *pflag.FlagSet, s *lab.TreeSpec) {
 	fs.StringVar(&s.From, "from", "release", "what the tree starts from: release, release:vYYYYMMDD.NN, or a directory laid out as one (_output)")
-	fs.StringVar(&s.Kernel, "kernel", "", "the kernel instead: run:N (a parts.yml run), traceable:TAG (the lab-only kernel published beside release TAG, lockdown forced to none) or a bzImage")
+	fs.StringVar(&s.Kernel, "kernel", "", "the kernel instead: run:N (a parts.yml run), traceable:TAG (the lab-only kernel published beside release TAG, lockdown forced to none), or a vmlinux that randomizes itself or a bzImage")
 	fs.StringVar(&s.QEMU, "qemu", "", "QEMU and its firmware instead: run:N (a parts.yml run) or a directory with bin/ and qemu/")
 	fs.StringVar(&s.SpinMachine, "spin-machine", "", "here: built from this checkout; release: built from the commit the --from release was made from, the machine it defined; commit:SHA: built from that commit; left out, the --from tree's own when it has one, else this checkout's (a release ships none)")
 	fs.StringVar(&s.Append, "append", "", "added to the kernel command line of every boot")
