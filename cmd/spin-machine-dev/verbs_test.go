@@ -444,7 +444,8 @@ func TestVerifySaysWhatIsMissingAndAsksQEMUForTheArguments(t *testing.T) {
 
 func TestChangedSaysWhetherAPartBuilds(t *testing.T) {
 	dir := checkout(t)
-	stdout, _, status := verb(t, "changed", "--part", "e2fsprogs")
+	// A part's own path and one the workflow adds.
+	stdout, _, status := verb(t, "changed", "--part", "e2fsprogs", "go.mod")
 	if status != 0 || stdout != "build=true\n" || read(t, os.Getenv("GITHUB_OUTPUT")) != "build=true\n" {
 		t.Errorf("no base: exit %d, %q, %q", status, stdout, read(t, os.Getenv("GITHUB_OUTPUT")))
 	}
