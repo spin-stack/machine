@@ -66,6 +66,7 @@ var fakeMachine = map[string]string{
 		{"name": "sse2", "type": "bool", "value": true}, {"name": "avx512f", "type": "bool", "value": true},
 		{"name": "vmx", "type": "bool", "value": false}, {"name": "sse4-1", "type": "bool", "value": true},
 		{"name": "migratable", "type": "bool", "value": true}, {"name": "x-consistent-cache", "type": "bool", "value": false},
+		{"name": "x-legacy-cpuid2-cache", "type": "bool", "value": false},
 		{"name": "l3-cache", "type": "bool", "value": true}, {"name": "phys-bits", "type": "uint32", "value": 46},
 		{"name": "model-id", "type": "string", "value": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz"}]`,
 }
@@ -161,7 +162,7 @@ func TestTargetIsWhatTheMachineRuns(t *testing.T) {
 		Formats: []string{FormatMappedRAM, FormatStream},
 		CPU: CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx512f", "sse2"}, Properties: map[string]string{
 			"family": "6", "l3-cache": "true", "model-id": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz", "phys-bits": "46",
-			"x-consistent-cache": "false",
+			"x-consistent-cache": "false", "x-legacy-cpuid2-cache": "false",
 		}},
 		Hardware: Hardware{exact: wantExact, atLeast: []count{{"device 1a.0 max_target", 15}}},
 	}
