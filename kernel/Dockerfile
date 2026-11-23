@@ -650,7 +650,12 @@ EOT
 # moves a warning is not one that adds it. A touched file that is not a C or header file (0001's
 # Kconfig) keeps its patched text in both, or the build reconfigures between the two. Each
 # side must show make checking every file, or a file that stopped building would compare
-# empty with empty.
+# empty with empty. A file a patch adds (0017's arch/x86/boot/startup/kaslr.c) has no upstream
+# side, so every warning in it is new. Two places are left out, by name, because kbuild cannot
+# build their files as one object: arch/x86/tools, host programs, which C= never checks; and the
+# decompressor, arch/x86/boot/compressed, built with flags of its own and only through the
+# bzImage (`make C=2 arch/x86/boot/compressed/misc.o` compiles it with vmlinux's and fails, job
+# 137873298240).
 #
 # sparse itself is built from versions.yaml's `sparse`, not taken from trixie: the kernel's
 # scripts/checker-valid.sh asks the checker to parse __typeof_unqual__, which trixie's 0.6.4
@@ -670,15 +675,18 @@ RUN git clone --quiet --branch "${SPARSE_VERSION}" https://git.kernel.org/pub/sc
 RUN <<EOT
     set -eu
     cd /usr/src/linux
-    files=$(sed -n 's|^+++ b/\(.*\.c\)$|\1|p' /usr/src/patches/*.patch | sort -u)
+    files=$(sed -n 's|^+++ b/\(.*\.c\)$|\1|p' /usr/src/patches/*.patch | sort -u |
+        grep -v -e '^arch/x86/tools/' -e '^arch/x86/boot/compressed/')
     others=$(sed -n 's|^+++ b/\(.*\)$|\1|p' /usr/src/patches/*.patch | grep -v '\.[ch]$' | sort -u)
     sparse_of() {
         : > "/tmp/sparse-$1.log"
         for f in $files; do
+            [ "$1" = upstream ] && [ ! -e "$f" ] && continue
             make ARCH=${KERNEL_ARCH} C=2 "${f%.c}.o" >> "/tmp/sparse-$1.log" 2>&1 || {
                 cat "/tmp/sparse-$1.log"; echo "ERROR: make C=2 ${f%.c}.o failed ($1)"; exit 1; }
         done
         for f in $files; do
+            [ "$1" = upstream ] && [ ! -e "$f" ] && continue
             grep -q "^  CHECK  *$f\$" "/tmp/sparse-$1.log" || {
                 cat "/tmp/sparse-$1.log"; echo "ERROR: sparse did not check $f ($1)"; exit 1; }
         done
