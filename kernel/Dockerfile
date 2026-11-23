@@ -297,8 +297,8 @@ RUN <<EOT
     # off moved the bill to the next registrant. patches/0012 keeps the registrations made
     # before the parse on a list for the first bpf_get_btf_vmlinux(), and patches/0013 has
     # the verifier ask for the BTF only where a kernel type enters a program, so neither the
-    # boot nor journald's cgroup device and skb programs parse it: the first login -10.0
-    # [-12.7, -3.3] ms, 60 boots each (lab 45114405201, 2026-11-23). The first program that
+    # boot nor journald's cgroup device and skb programs parse it: the first login -6.4
+    # [-9.4, -1.0] ms, 60 boots each (lab 45118194310, 2026-11-23). The first program that
     # uses a kernel type pays for the parse when it is loaded.
     grep -q "CONFIG_FUNCTION_TRACER=y" .config || (echo "ERROR: CONFIG_FUNCTION_TRACER not enabled (fentry/fexit cannot attach)!" ; exit 1)
     # What it cost a boot, and what is left of that: 21.9 ms measured 2026-09-29 against a
