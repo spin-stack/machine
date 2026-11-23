@@ -66,6 +66,9 @@ func TestSeccompDeniesWhatTheReleaseDenies(t *testing.T) {
 	}
 	oneshotAtBoot(t, root, "seccomp-check", "seccomp-check.sh", "")
 	console := checkOnConsole(t, rel, root, "SECCOMP_CHECK_OK", "SECCOMP_CHECK_FAILED")
+	for _, m := range regexp.MustCompile(`SECCOMP-MARK [^\r\n]*`).FindAllString(console, -1) {
+		t.Log(m)
+	}
 	for _, m := range regexp.MustCompile(`SECCOMP-FILTERS \S+ main=\d+ probe=\d+`).FindAllString(console, -1) {
 		t.Log(m)
 	}
