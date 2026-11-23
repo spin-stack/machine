@@ -221,6 +221,17 @@ tasks:
     cmds:
       - SPIN_CPUPLUG_TEST=1 go test ./boot/ -run '^TestAWorkspaceCheckpointedAndContinuedGrows$' -count=1 -v -timeout 10m
 
+  actuators:
+    desc: >-
+      What the actuators cost inside a running workspace (docs/machine.md, "Actuators"; #549):
+      spin's shape booted to systemd at 2048 MiB, given SetMemory down to 1024 MiB idle and with
+      the page cache full, and SetCPUs +1 and -1, timed until /sys/devices/system/memory and
+      /sys/devices/system/cpu/online show it, SPIN_ACTUATORS_REPS times each (default 10)
+      (actuators_test.go). Needs a built release, /dev/kvm and /dev/vhost-vsock.
+    deps: [':tools']
+    cmds:
+      - SPIN_ACTUATORS_TEST=1 go test ./boot/ -run '^TestWhatTheActuatorsCost$' -count=1 -v -timeout 25m
+
   hotadd:
     desc: >-
       Check a core attached while an init of the consumer's is PID 1, before systemd and its

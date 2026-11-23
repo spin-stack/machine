@@ -44,6 +44,7 @@ on:
           - check:rollback
           - check:checkpoint-pause
           - check:cpu-plug
+          - check:actuators
           - check:sshd-delay
           - check:shell
           - check:logind
