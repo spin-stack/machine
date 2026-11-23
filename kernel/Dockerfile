@@ -151,7 +151,7 @@ RUN <<EOT
 
     case "${KERNEL_LOCKDOWN}" in
     confidentiality) ;;
-    none) sed -i 's/^CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y$/CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y/' .config ;;
+    none) sed -i -e 's/^CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y$/CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y/' -e 's/^CONFIG_IKCONFIG=y$/# CONFIG_IKCONFIG is not set/' .config ;;
     *) echo "ERROR: KERNEL_LOCKDOWN is confidentiality or none, not '${KERNEL_LOCKDOWN}'"; exit 1 ;;
     esac
     make ARCH=${KERNEL_ARCH} olddefconfig
