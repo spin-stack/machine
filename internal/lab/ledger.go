@@ -19,11 +19,12 @@ import (
 // boot and the login change hands. It is a diagnostic and never a goal number (docs/measuring.md,
 // "The ledger").
 //
-// One clock carries all of it: the kernel's CLOCK_MONOTONIC, which the trace is put on
-// (trace_clock=mono), the journal stamps its lines with, and /proc/uptime reads. The host's clock
-// meets it through markers the guest writes into the trace on the host's request (Trip): the
-// kernel's 0 lies between each request's send, less the marker's time, and its answer's arrival,
-// less the same.
+// One clock carries all of it: the kernel's sched clock, kvm-clock less what it read in
+// kvm_sched_clock_init, whose 0 is the kernel's 0. The trace (trace_clock=mono) and the journal are
+// on CLOCK_MONOTONIC, which runs behind it by MonotonicLag, and the ledger moves both forward by
+// that. The host's clock meets the sched clock through markers the guest writes into the trace on
+// the host's request (Trip): the kernel's 0 lies between each request's send, less the marker's
+// time, and its answer's arrival, less the same.
 
 // Ledger is what ledger.json holds, in ms. Times on the kernel's clock are from its 0; FirstLogin
 // and KernelZero are from the moment before QEMU is exec'd.
@@ -35,14 +36,20 @@ type Ledger struct {
 	// kernel's decompression, which no clock in the guest sees.
 	KernelZero      float64 `json:"kernel_zero"`
 	KernelZeroError float64 `json:"kernel_zero_error"`
+	// MonotonicLag is how far CLOCK_MONOTONIC runs behind the kernel's clock once both run on
+	// kvm-clock: what it did not count while it ran on jiffies, from timekeeping_init until the
+	// switch to kvm-clock at fs_initcall. It is 18-21 ms nested and 11-14 on metal, and without it
+	// the kernel's 0 read that much late (#644).
+	MonotonicLag float64 `json:"monotonic_lag"`
 	// QEMUExec is where spin-machine exec'd QEMU, and QEMUExecError half the bracket the host's
 	// polling put it in: before it is spin-machine's own start.
 	QEMUExec      float64 `json:"qemu_exec"`
 	QEMUExecError float64 `json:"qemu_exec_error"`
-	// Running is where the machine went to running and its vCPU ran the guest's first instruction:
-	// KernelZero less the kvm-clock the kernel read as it made kvm-clock the scheduler's clock, which
-	// QEMU zeroed at that moment (schedOffset). From QEMUExec to Running is QEMU's start and the held
-	// start's monitor; from Running to KernelZero, the firmware, the bzImage's decompression and the
+	// Running is kvm-clock's 0: KernelZero less the kvm-clock the kernel read as it made kvm-clock
+	// the scheduler's clock (schedOffset). QEMU zeroes kvm-clock as the machine goes to running, but
+	// KVM bases that 0 on its master clock's last update, so Running lies 2-5 ms before QEMU's
+	// KVM_SET_CLOCK (#611, #665). From QEMUExec to Running is QEMU's start and the held start's
+	// monitor; from Running to KernelZero, the firmware, the bzImage's decompression and the
 	// kernel's setup until its clock runs.
 	Running float64 `json:"running"`
 	// LoginEnd is the login's command's exit on the kernel's clock: where the trace's account ends.
@@ -136,6 +143,13 @@ func newLedger(in ledgerInput) (Ledger, error) {
 	if err != nil {
 		return Ledger{}, err
 	}
+	lag, err := monotonicLag(in.Journal)
+	if err != nil {
+		return Ledger{}, err
+	}
+	for i := range events {
+		events[i].at += lag
+	}
 	b := replay(events)
 	zero, zeroErr, err := b.kernelZero(in.Trips)
 	if err != nil {
@@ -154,9 +168,9 @@ func newLedger(in ledgerInput) (Ledger, error) {
 		return Ledger{}, err
 	}
 	owner := b.owners(parseUnits(in.Units))
-	l := Ledger{FirstLogin: in.FirstLogin, KernelZero: zero, KernelZeroError: zeroErr,
+	l := Ledger{FirstLogin: in.FirstLogin, KernelZero: zero, KernelZeroError: zeroErr, MonotonicLag: lag,
 		QEMUExec: exec, QEMUExecError: execErr, Running: running, LoginEnd: end,
-		Residue: in.FirstLogin - zero - end, Breaks: b.breaks, Marks: loginMarks(in.Journal)}
+		Residue: in.FirstLogin - zero - end, Breaks: b.breaks, Marks: loginMarks(in.Journal, lag)}
 	for i, c := range cuts {
 		to := end
 		if i+1 < len(cuts) {
@@ -395,9 +409,9 @@ func (b *boot) kernelZero(trips []Trip) (zero, halfWidth float64, err error) {
 // schedOffset is the kvm-clock the kernel read as it made kvm-clock the scheduler's clock, in ms:
 // QEMU zeroes kvm-clock as the machine goes to running (hw/i386/kvm/clock.c,
 // kvmclock_vm_state_change, KVM_SET_CLOCK with the 0 a machine never run has), and the kernel's
-// clock, CLOCK_MONOTONIC's 0 included, starts from that reading (arch/x86/kernel/kvmclock.c,
-// kvm_sched_clock_init, which prints it in ns despite the word; timekeeping_init's boot offset is
-// local_clock()). boot:firmware-stages places the kernel's clock on QEMU's trace by the same line.
+// sched clock starts from that reading (arch/x86/kernel/kvmclock.c, kvm_sched_clock_init, which
+// prints it in ns despite the word). boot:firmware-stages places the kernel's clock on QEMU's
+// trace by the same line.
 func schedOffset(journal string) (float64, error) {
 	m := reSchedOffset.FindStringSubmatch(journal)
 	if m == nil {
@@ -408,6 +422,27 @@ func schedOffset(journal string) (float64, error) {
 }
 
 var reSchedOffset = regexp.MustCompile(`kvm-clock: using sched offset of (\d+) cycles`)
+
+// monotonicLag is how far CLOCK_MONOTONIC is behind the kernel's sched clock once both run on
+// kvm-clock, in ms. CLOCK_MONOTONIC starts at the sched clock in timekeeping_init, then runs on
+// jiffies until the switch to kvm-clock at fs_initcall, and the ticks it misses are lost for good.
+// At late_initcall the kernel prints both clocks as one tick read them (kernel/sched/clock.c,
+// __set_sched_clock_stable: "Marking stable (ktime_get_ns, __gtod_offset)->(sched_clock,
+// __sched_clock_offset)"). With it, the ledger's kernel_zero lands 0.02-0.15 ms after a port
+// write at the sched clock's 0, against 11.6-20.9 ms without (labs 45177818419, 45177817516, #644).
+// dmesg's own clock is neither: from that line on it is the sched clock plus
+// __sched_clock_offset.
+func monotonicLag(journal string) (float64, error) {
+	m := reSchedStable.FindStringSubmatch(journal)
+	if m == nil {
+		return 0, fmt.Errorf("the journal has no \"sched_clock: Marking stable\" line: without it nothing says how far CLOCK_MONOTONIC, the trace's clock, is behind the kernel's sched clock")
+	}
+	gtod, _ := strconv.ParseFloat(m[1], 64) // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
+	raw, _ := strconv.ParseFloat(m[2], 64)  // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
+	return (raw - gtod) / 1e6, nil
+}
+
+var reSchedStable = regexp.MustCompile(`sched_clock: Marking stable \((\d+), -?\d+\)->\((\d+), -?\d+\)`)
 
 // The windows the ledger probe records by name.
 const (
@@ -659,15 +694,16 @@ var loginPhases = []struct{ name, text string }{
 	{"the command started", "Starting session: command"},
 }
 
-// loginMarks are the first journal line of each login phase, in the order they came.
-func loginMarks(journal string) []Mark {
+// loginMarks are the first journal line of each login phase, in the order they came, moved by lag
+// from the journal's CLOCK_MONOTONIC to the kernel's clock.
+func loginMarks(journal string, lag float64) []Mark {
 	var marks []Mark
 	for _, p := range loginPhases {
 		for line := range strings.Lines(journal) {
 			m := journalLine.FindStringSubmatch(strings.TrimRight(line, "\n"))
 			if m != nil && strings.Contains(m[2], p.text) {
 				s, _ := strconv.ParseFloat(m[1], 64) // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
-				marks = append(marks, Mark{p.name, s * 1000, m[2]})
+				marks = append(marks, Mark{p.name, s*1000 + lag, m[2]})
 				break
 			}
 		}
