@@ -10,18 +10,23 @@ compressed kernel image. To simplify, follow the MIPS implementation to
 reserve a section to store the relocation table.
 
 Signed-off-by: Hou Wenlong <houwenlong.hwl@antgroup.com>
+[ spin-stack/machine: forward-ported to 7.3.5 for #645, and made
+  checkpatch --strict clean: a four-line help for
+  RELOCATABLE_UNCOMPRESSED_KERNEL, and the postlink targets in another
+  order, which checkpatch read as a repeated word. ]
+Assisted-by: LLM
 ---
- arch/x86/Kconfig              | 20 ++++++++++++++++++++
+ arch/x86/Kconfig              | 22 ++++++++++++++++++++++
  arch/x86/Makefile.postlink    | 33 +++++++++++++++++++++++++++++++++
  arch/x86/kernel/vmlinux.lds.S | 20 ++++++++++++++++++++
- 3 files changed, 73 insertions(+)
+ 3 files changed, 75 insertions(+)
  create mode 100644 arch/x86/Makefile.postlink
 
 diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
 index 15fd9ec5e..cbb0d7927 100644
 --- a/arch/x86/Kconfig
 +++ b/arch/x86/Kconfig
-@@ -2086,6 +2086,26 @@ config RANDOMIZE_BASE
+@@ -2086,6 +2086,28 @@ config RANDOMIZE_BASE
  
  	  If unsure, say Y.
  
@@ -30,7 +35,9 @@ index 15fd9ec5e..cbb0d7927 100644
 +	depends on RANDOMIZE_BASE && X86_64
 +	help
 +	  A table of relocation data will be appended to the uncompressed
-+	  kernel binary and parsed at boot to do relocation.
++	  kernel binary and parsed at boot to do relocation. This lets a
++	  vmlinux entered directly, as through PVH, with no decompressor,
++	  randomize its own virtual base at startup_64.
 +
 +config RELOCATION_TABLE_SIZE
 +	hex "Relocation table size"
@@ -73,7 +80,7 @@ index 000000000..46497c47b
 +
 +# `@true` prevents complaint when there is nothing to be done
 +
-+vmlinux vmlinux.unstripped: FORCE
++vmlinux.unstripped vmlinux: FORCE
 +	@true
 +ifeq ($(CONFIG_RELOCATABLE_UNCOMPRESSED_KERNEL),y)
 +	$(call if_changed,relocs)
