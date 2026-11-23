@@ -389,3 +389,6 @@ Each of these made a number say something it did not measure.
   - `modprobe` on a module-less kernel (`5a70721`, `213cd07`);
   - BuildKit comparing a file with itself (`b9d1985`);
   - a tree whose QEMU predates an argument main's spin-machine passes, refused at boot.
+  - a package put into an overlay with a newer `/usr` mtime than the image's update stamps: every
+    boot of a `--systemd` tree ran ldconfig, sysusers, the hwdb and the catalog before the login,
+    ~250 ms on both arms (lab 45229454155, #637).
