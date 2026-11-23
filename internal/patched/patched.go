@@ -139,12 +139,13 @@ func Compile(ctx context.Context, root string, p Part, dir string, out io.Writer
 	return nil
 }
 
-// namedAddressSpaces is how arch/x86/Kconfig turns on per-CPU access through GCC's __seg_gs, and
-// what compileKernel turns it off with. CodeQL's C front end cannot parse __seg_gs: with it, every
-// file that reached a per-CPU accessor (this_cpu_inc, raw_cpu_ptr) failed to extract, ten of the
-// fourteen the patches touch (codeql.yml run 45216274329, 2026-11-23). Without it the kernel takes
-// its other, upstream-supported path, the one a compiler without named address spaces builds.
-const namedAddressSpaces = "config USE_X86_SEG_SUPPORT\n\tdef_bool CC_HAS_NAMED_AS\n"
+// namedAddressSpaces is the symbol arch/x86/Kconfig sets when GCC has named address spaces, which
+// makes per-CPU access go through __seg_gs, and which compileKernel turns off. CodeQL's C front end
+// cannot parse __seg_gs: with it, every file that reached a per-CPU accessor (this_cpu_inc,
+// raw_cpu_ptr) failed to extract, ten of the fourteen the patches touch (codeql.yml run
+// 45216274329, 2026-11-23). Without it the kernel takes its other, upstream-supported path, the
+// one a compiler without named address spaces builds.
+const namedAddressSpaces = "config CC_HAS_NAMED_AS\n\tdef_bool "
 
 // compileKernel configures the tree as kernel/Dockerfile does, from the series' configuration
 // but without named address spaces, and makes the touched files' objects.
@@ -154,10 +155,12 @@ func compileKernel(ctx context.Context, root, src string, touched []string, out 
 	if err != nil {
 		return err
 	}
-	if !bytes.Contains(k, []byte(namedAddressSpaces)) {
+	before, after, found := bytes.Cut(k, []byte(namedAddressSpaces))
+	if !found {
 		return fmt.Errorf("%s no longer says %q: see how it turns on __seg_gs now", kconfig, namedAddressSpaces)
 	}
-	k = bytes.Replace(k, []byte(namedAddressSpaces), []byte("config USE_X86_SEG_SUPPORT\n\tdef_bool n\n"), 1)
+	_, rest, _ := bytes.Cut(after, []byte("\n"))
+	k = slices.Concat(before, []byte(namedAddressSpaces+"n\n"), rest)
 	if err := os.WriteFile(kconfig, k, 0o644); err != nil {
 		return err
 	}
@@ -183,8 +186,8 @@ func compileKernel(ctx context.Context, root, src string, touched []string, out 
 	if err != nil {
 		return err
 	}
-	if bytes.Contains(config, []byte("CONFIG_USE_X86_SEG_SUPPORT=y")) {
-		return errors.New("olddefconfig kept CONFIG_USE_X86_SEG_SUPPORT=y: the analysis would not parse per-CPU access")
+	if bytes.Contains(config, []byte("CONFIG_CC_HAS_NAMED_AS=y")) {
+		return errors.New("olddefconfig kept CONFIG_CC_HAS_NAMED_AS=y: the analysis would not parse per-CPU access")
 	}
 	for _, args := range [][]string{{"ARCH=x86_64", "-j" + jobs(), "prepare"}, objects} {
 		if err := shown(ctx, out, "", "make", append([]string{"-C", src}, args...)...); err != nil {
