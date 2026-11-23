@@ -172,8 +172,14 @@ for a request that fails, and skips it for one that authenticated or for a publi
 answered with `PK_OK`, which had told the client its outcome already (#457). Bench, spin's shape,
 30 a side against v20261122.01: restored login −13.6 [−14.9, −9.8], cold −9.4 [−15.8, −2.6] (labs
 44983986606, 44983986575, 2026-11-22). No udebs and no `ssh-askpass-gnome` (it would pull GTK
-into the build), and `nocheck`, because the regression suite starts sshds on the build host's
-ports. The source moves as systemd's does (`spin-machine-dev refresh openssh`). The build checks
+into the build). The regression suite (`make t-exec`) runs after the build, as an unprivileged
+user with passwordless `sudo`, the way it runs sshd as root, and with a random password set for
+that user and written where `password.sh` reads it, so password logins succeed and an empty one
+fails through the patched path. `regress-ran.sh` fails the build unless the tests that exercise
+userauth ran and none of them was skipped: `connect`, `connect-privsep`, `cert-userkey`,
+`multipubkey`, `keys-command`, `principals-command`, `authinfo`, `limit-keytype`,
+`allow-deny-users`, `key-options`, `penalty` and `password` (#653). The other skips are the
+suite's own (hostbased, SSHFP, PKCS#11, gdb) and touch nothing the patch changes. The source moves as systemd's does (`spin-machine-dev refresh openssh`). The build checks
 that `sshd-auth`, the process that runs userauth, says it is this build in the version it sends
 every client.
 

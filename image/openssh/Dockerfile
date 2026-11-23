@@ -36,7 +36,10 @@ RUN apt-get install -y --no-install-recommends sudo && \
     useradd --create-home regress && \
     echo 'regress ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/regress && \
     mkdir -p -m 0755 /run/sshd && \
-    chown -R regress /build/src && \
+    pw=$(head -c 24 /dev/urandom | base64) && echo "regress:${pw}" | chpasswd && \
+    mkdir -p /build/src/debian/build-deb/regress && \
+    printf '%s\n' "${pw}" > /build/src/debian/build-deb/regress/password && \
+    chown -R regress /build/src && chmod 0600 /build/src/debian/build-deb/regress/password && \
     su regress -c 'make -C /build/src/debian/build-deb t-exec SUDO=sudo' 2>&1 | tee /build/t-exec.log && \
     /build/regress-ran.sh /build/t-exec.log \
         connect connect-privsep cert-userkey multipubkey keys-command principals-command \
