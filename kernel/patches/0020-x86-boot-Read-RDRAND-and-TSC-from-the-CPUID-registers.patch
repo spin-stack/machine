@@ -1,0 +1,45 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 13:58:23 -0300
+Subject: [PATCH] x86/boot: Read RDRAND and TSC from the CPUID registers that
+ hold them
+
+has_cpuflag() in the self-relocating kernel's KASLR reads
+X86_FEATURE_RDRAND from CPUID leaf 1's EDX and X86_FEATURE_TSC from its
+ECX. The two are the other way round: RDRAND is ECX bit 30 (capability
+word 4) and TSC is EDX bit 4 (word 0). So the test for RDRAND reads a
+reserved bit, and the test for TSC reads DS-CPL, which KVM does not
+expose. kaslr_get_random_long() then mixes neither RDRAND nor RDTSC into
+the virtual base, only the i8254 counter and a hash of boot_params,
+where the decompressor's KASLR, from which this code was taken, mixes
+both.
+
+Read each flag from the register that holds it.  The virtual base is
+then drawn from the decompressor's sources again, less its hash of the
+build string, which is public.  The cost is one RDRAND and one RDTSC at
+boot.
+
+Carried by spin-stack/machine for #645 on top of Hou Wenlong's RFC
+(lore cover.1769434279.git.houwenlong.hwl@antgroup.com, 2026-01-26),
+whose 3/5 has the registers swapped.
+
+Assisted-by: LLM
+---
+ arch/x86/boot/startup/kaslr.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/boot/startup/kaslr.c b/arch/x86/boot/startup/kaslr.c
+index 3083847..8114422 100644
+--- a/arch/x86/boot/startup/kaslr.c
++++ b/arch/x86/boot/startup/kaslr.c
+@@ -24,9 +24,9 @@ static inline bool has_cpuflag(int flag)
+ 
+ 	if (level >= 0x00000001) {
+ 		if (flag == X86_FEATURE_RDRAND)
+-			reg = native_cpuid_edx(0x1);
+-		else if (flag == X86_FEATURE_TSC)
+ 			reg = native_cpuid_ecx(0x1);
++		else if (flag == X86_FEATURE_TSC)
++			reg = native_cpuid_edx(0x1);
+ 	}
+ 
+ 	return test_bit(flag & 31, (unsigned long *)&reg);
