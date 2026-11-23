@@ -104,13 +104,16 @@ func ledgerFixture(t *testing.T) ledgerInput {
 		t.Fatal(err)
 	}
 	return ledgerInput{
-		// The run's journal kept only the login's lines; the kernel's kvm-clock line is as its
-		// kernel prints it, with an offset that puts the machine's running at 70.0215.
-		Trace: string(trace), Journal: "[    0.000000] localhost kernel: kvm-clock: using sched offset of 30000000 cycles\n" + string(journal),
+		// The run's journal kept only the login's lines; the kernel's two lines are as its kernel
+		// prints them, with an offset that puts the machine's running at 50.0215, and
+		// CLOCK_MONOTONIC 20 ms behind the sched clock.
+		Trace: string(trace), Journal: "[    0.000000] localhost kernel: kvm-clock: using sched offset of 30000000 cycles\n" +
+			"[    0.000000] localhost kernel: sched_clock: Marking stable (60000000, 5000000)->(80000000, -15000000)\n" + string(journal),
 		// sshd (ssh.service), logind, journald, PID 1 and root's manager, as ledger-units prints them.
 		Units: "1 /init.scope\n61 /system.slice/systemd-journald.service\n68 /system.slice/systemd-logind.service\n77 /system.slice/ssh.service\n97 /user.slice/user-0.slice/user@0.service/init.scope\n",
-		// The markers are at 357.045, 357.297 and 357.412 ms on the kernel's clock: these put its 0
-		// in [99.955, 100.055], [99.953, 100.103] and [99.988, 100.088] on the host's.
+		// The markers are at 357.045, 357.297 and 357.412 ms on CLOCK_MONOTONIC, 20 more on the
+		// kernel's clock: these put its 0 in [79.955, 80.055], [79.953, 80.103] and [79.988, 80.088]
+		// on the host's.
 		Trips:      []Trip{{1, 457.000, 457.100}, {2, 457.250, 457.400}, {3, 457.400, 457.500}},
 		FirstLogin: 420,
 		QEMUExecLo: 17.9, QEMUExecHi: 18.1,
@@ -120,9 +123,9 @@ func ledgerFixture(t *testing.T) ledgerInput {
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-6 }
 
 // A real boot's ledger: its windows tile the kernel's clock from 0 to the command's exit, cut
-// where the trace shows the boot and the login change hands; on its one vCPU each window's CPU
-// adds up to its length; and the host's clock, the kernel's and the residue add up to the first
-// login the host measured.
+// where the trace shows the boot and the login change hands, each the trace's time moved forward
+// by CLOCK_MONOTONIC's lag; on its one vCPU each window's CPU adds up to its length; and the
+// host's clock, the kernel's and the residue add up to the first login the host measured.
 func TestARealBootsLedgerAddsUp(t *testing.T) {
 	l, err := newLedger(ledgerFixture(t))
 	if err != nil {
@@ -131,12 +134,12 @@ func TestARealBootsLedgerAddsUp(t *testing.T) {
 	// The cuts, read from the trace by hand: PID 1's exec of /sbin/init, sshd-session's exec,
 	// sshd-auth's exec and exit, the fork of the login's process, its exec of bash and of
 	// /usr/bin/true, and true's exit.
-	want := []float64{0, 83.224, 252.151, 266.672, 296.796, 310.239, 312.642, 318.157}
+	want := []float64{0, 103.224, 272.151, 286.672, 316.796, 330.239, 332.642, 338.157}
 	if len(l.Windows) != len(want) {
 		t.Fatalf("%d windows; want %d: %+v", len(l.Windows), len(want), l.Windows)
 	}
 	for i, w := range l.Windows {
-		end := 318.820
+		end := 338.820
 		if i+1 < len(want) {
 			end = want[i+1]
 		}
@@ -151,13 +154,13 @@ func TestARealBootsLedgerAddsUp(t *testing.T) {
 			t.Errorf("window %q: its CPU adds up to %v of its %v", w.Name, sum, w.End-w.Start)
 		}
 	}
-	if !near(l.KernelZero, 100.0215) || !near(l.KernelZeroError, 0.0335) || !near(l.LoginEnd, 318.82) || !near(l.Residue, 420-100.0215-318.82) || l.Breaks != 0 {
-		t.Errorf("kernel's 0 %v ± %v, login end %v, residue %v, breaks %d", l.KernelZero, l.KernelZeroError, l.LoginEnd, l.Residue, l.Breaks)
+	if !near(l.KernelZero, 80.0215) || !near(l.KernelZeroError, 0.0335) || !near(l.MonotonicLag, 20) || !near(l.LoginEnd, 338.82) || !near(l.Residue, 420-80.0215-338.82) || l.Breaks != 0 {
+		t.Errorf("kernel's 0 %v ± %v, lag %v, login end %v, residue %v, breaks %d", l.KernelZero, l.KernelZeroError, l.MonotonicLag, l.LoginEnd, l.Residue, l.Breaks)
 	}
 	// The span before the kernel's clock splits at QEMU's exec, the host's bracket's middle, and at
 	// the machine's running, the kernel's 0 less its sched offset; the three parts add up to it.
 	before, qemu, guest := l.QEMUExec, l.Running-l.QEMUExec, l.KernelZero-l.Running
-	if !near(before, 18) || !near(l.QEMUExecError, 0.1) || !near(qemu, 52.0215) || !near(guest, 30) {
+	if !near(before, 18) || !near(l.QEMUExecError, 0.1) || !near(qemu, 32.0215) || !near(guest, 30) {
 		t.Errorf("before QEMU %v ± %v, QEMU to the guest %v, the guest to the kernel's 0 %v", before, l.QEMUExecError, qemu, guest)
 	}
 	if sum := before + qemu + guest; math.Abs(sum-l.KernelZero) > 0.15 {
@@ -210,15 +213,15 @@ func TestARealBootsLedgerAddsUp(t *testing.T) {
 	for _, m := range l.Marks {
 		marks[m.Name] = m.At
 	}
-	if !near(marks["logind's session"], 299.931) || !near(marks["connection"], 264.765) || len(marks) != len(loginPhases) {
+	if !near(marks["logind's session"], 319.931) || !near(marks["connection"], 284.765) || len(marks) != len(loginPhases) {
 		t.Errorf("marks: %+v", l.Marks)
 	}
 	text := l.Text("release, boot 1")
 	for _, line := range []string{
-		"   318.2    318.8      0.7  the login's command, to its exit\n",
-		"100.0 before the kernel's clock + 318.8 to the command's exit + 1.2 residue = 420.0, the first login the host measured",
+		"   338.2    338.8      0.7  the login's command, to its exit\n",
+		"80.0 before the kernel's clock + 338.8 to the command's exit + 1.2 residue = 420.0, the first login the host measured",
 		"others under 0.5 ms each",
-		"  299.9  logind's session: systemd-logind[68]: New session '2'",
+		"  319.9  logind's session: systemd-logind[68]: New session '2'",
 	} {
 		if !strings.Contains(text, line) {
 			t.Errorf("the ledger's text has no %q:\n%s", line, text)
@@ -390,8 +393,8 @@ func TestSpinsHandoffHasAWindowOfItsOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(l.Windows) != len(lane.Windows)+1 || l.Windows[1].Name != windowHandoff || !near(l.Windows[1].Start, 83.224) ||
-		!near(l.Windows[2].Start, 83.972) || !near(l.Windows[1].End, 83.972) {
+	if len(l.Windows) != len(lane.Windows)+1 || l.Windows[1].Name != windowHandoff || !near(l.Windows[1].Start, 103.224) ||
+		!near(l.Windows[2].Start, 103.972) || !near(l.Windows[1].End, 103.972) {
 		t.Fatalf("windows: %+v", l.Windows[:3])
 	}
 	if h := l.window(windowHandoff); !near(h.End-h.Start, 0.748) {
@@ -409,7 +412,7 @@ func TestSpinsHandoffHasAWindowOfItsOwn(t *testing.T) {
 	if h := other.window(windowHandoff); len(other.Windows) != len(lane.Windows) || h.End-h.Start != 0 {
 		t.Errorf("another init read as the handoff: %+v", other.Windows[:2])
 	}
-	if !near(l.window(windowConnection).Start, 252.151) || !near(lane.window(windowConnection).Start, 252.151) {
+	if !near(l.window(windowConnection).Start, 272.151) || !near(lane.window(windowConnection).Start, 272.151) {
 		t.Errorf("the connection: %v and %v", l.window(windowConnection), lane.window(windowConnection))
 	}
 }
@@ -468,22 +471,31 @@ func TestPIDZeroIsTheKernelUntilTheFirstSwitch(t *testing.T) {
 	}
 }
 
-// A journal with no kvm-clock line has nothing to place the machine's running by, and an offset
-// that puts it before QEMU's exec is an alignment that is wrong: both refuse the ledger.
+// A journal with no kvm-clock line has nothing to place the machine's running by, one with no
+// "Marking stable" line nothing to put the trace's clock on the kernel's by, and an offset that
+// puts the running before QEMU's exec is an alignment that is wrong: each refuses the ledger.
 func TestTheSplitBeforeTheKernelsClockIsRefusedWhenItCannotHold(t *testing.T) {
-	in := ledgerFixture(t)
-	in.Journal = in.Journal[strings.Index(in.Journal, "\n")+1:]
-	if _, err := newLedger(in); err == nil || !strings.Contains(err.Error(), "sched offset") {
-		t.Errorf("no kvm-clock line: %v", err)
+	for _, line := range []string{"sched offset", "Marking stable"} {
+		in := ledgerFixture(t)
+		var kept []string
+		for l := range strings.Lines(in.Journal) {
+			if !strings.Contains(l, line) {
+				kept = append(kept, l)
+			}
+		}
+		in.Journal = strings.Join(kept, "")
+		if _, err := newLedger(in); err == nil || !strings.Contains(err.Error(), line) {
+			t.Errorf("no %q line: %v", line, err)
+		}
 	}
-	// The machine ran at 70.0215 ± 0.0335: a bracket of QEMU's exec that starts inside that is
+	// The machine ran at 50.0215 ± 0.0335: a bracket of QEMU's exec that starts inside that is
 	// taken, and one that starts after it is refused.
-	in = ledgerFixture(t)
-	in.QEMUExecLo, in.QEMUExecHi = 70.05, 70.2
+	in := ledgerFixture(t)
+	in.QEMUExecLo, in.QEMUExecHi = 50.05, 50.2
 	if _, err := newLedger(in); err != nil {
 		t.Errorf("QEMU exec'd within the kernel's 0's uncertainty of the machine's running: %v", err)
 	}
-	in.QEMUExecLo = 70.06
+	in.QEMUExecLo = 50.06
 	if _, err := newLedger(in); err == nil || !strings.Contains(err.Error(), "before QEMU's exec") {
 		t.Errorf("QEMU exec'd after the machine ran: %v", err)
 	}
