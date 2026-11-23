@@ -21,6 +21,7 @@ func TestEveryUploadIsAttested(t *testing.T) {
 		UploadTasks: []string{"spin-machine-dev publish qemu", "spin-machine-dev refresh builders"},
 		AttestTasks: []string{"spin-machine-dev release sign"},
 		NotPublished: map[string]string{
+			"ci.yml/fuzz/Keep the failing inputs":                                              "the inputs a fuzz target failed on, for a person to commit with the fix",
 			"ci.yml/gate/Upload Go coverage HTML":                                              "a coverage page for a person, kept seven days",
 			"codeql.yml/analyze/Keep upstream's results in the touched files":                  "upstream's analysis results, for a person to read; nothing installs or verifies them",
 			"codeql.yml/analyze/Keep the SARIF":                                                "a failed scope's SARIF, for a person to read why; nothing installs or verifies it",
