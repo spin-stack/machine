@@ -455,8 +455,8 @@ func TestChangedSaysWhetherAPartBuilds(t *testing.T) {
 	if _, stderr, status := verb(t, "changed", "--part", "nope"); status != 2 || !strings.Contains(stderr, "nope") {
 		t.Errorf("a part that is not one: exit %d, %q", status, stderr)
 	}
-	if _, _, status := verb(t, "changed", "--pins", "e2fsprogs"); status == 0 {
-		t.Error("--pins with no paths was taken")
+	if _, _, status := verb(t, "changed", "--pins", "e2fsprogs", "go.mod"); status == 0 {
+		t.Error("--pins, which internal/build's parts replaced, was taken")
 	}
 
 	// A part's pins and paths are internal/build's, with those of the parts it is made with: a
