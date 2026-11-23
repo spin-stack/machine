@@ -228,7 +228,7 @@ them for boot time.
 | sshd without OpenSSH's userauth minimum time on a login: a request that authenticated, or a public key query answered with `PK_OK`, does not wait; a failure still does (#457) | image/openssh | restored −13.6 [−14.9, −9.8] evicted, −13.6 [−16.2, −11.4] cached; cold −9.4 [−15.8, −2.6], the second login −10.9 [−12.3, −9.0] | measured, 30 a side | labs 44983986606, 44983986575 |
 | An Ed25519 host key only, no ECDSA | spin-machine-sshd-keygen.service | −5.0 [−8.3, −1.8], sshd accepting −4.4 [−6.9, −1.9], 60 boots a side | measured | lab 44979726719 |
 | MOTD and `pam_motd` off; `mlkem768x25519-sha256` alone | configure-system.sh | −12 on the first login; 104 → 40 a login against sntrup761 | ladder, mechanism: a root login runs the same PAM and kex | #240, lab 43479854381 |
-| journald volatile, 4 MB, its flush masked | optimize-systemd.sh | cold +6.1 [+2.3, +15.8], prestarted +6.5 [+3.1, +13.1], restored in noise | measured | lab 45034963004 |
+| journald volatile, 8 MB, its flush masked | optimize-systemd.sh | cold +6.1 [+2.3, +15.8], prestarted +6.5 [+3.1, +13.1], restored in noise; 8 MB against 4 MB, first login −2.2 [−12.1, +6.4], 20 a side | measured | labs 45034963004, 45121159504 |
 | docker and containerd started by their sockets, not at boot (deferred: the first `docker` command waits for them, docs/image.md) | optimize-systemd.sh | cold +13.9 [+11.4, +18.2], restored +55.7 [+12.0, +73.9], into prestarted +40.7 [+33.5, +59.0] | measured | lab 45034963004 |
 | timedated, firstboot, machine-id-commit masked | optimize-systemd.sh | function: time from the host, no first-boot prompt, no identity | - | - |
 | `10-seats.conf`, the getty's TERM, `/tmp`'s size | image drop-ins | function | - | - |
