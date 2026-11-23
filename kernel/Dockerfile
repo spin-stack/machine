@@ -617,7 +617,7 @@ RUN <<EOT
         done
         for f in $files; do
             grep -q "^  CHECK  *$f\$" "/tmp/sparse-$1.log" || {
-                echo "ERROR: sparse did not check $f ($1)"; exit 1; }
+                cat "/tmp/sparse-$1.log"; echo "ERROR: sparse did not check $f ($1)"; exit 1; }
         done
         grep -E '^[^ :]+:[0-9]+:[0-9]+: (warning|error): ' "/tmp/sparse-$1.log" \
             | sed -E 's/:[0-9]+:[0-9]+: /: /' | sort | uniq -c > "/tmp/sparse-$1"
