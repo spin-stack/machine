@@ -15,7 +15,8 @@ var stampsEdit = Edit{Setup: `for u in ldconfig.service systemd-sysusers.service
 	rm "$MNT/etc/systemd/system/$u"
 done
 test ! -e "$MNT/etc/.updated" && test ! -e "$MNT/var/.updated"
-ns=$(expr "$(stat -c %Y "$MNT/usr")$(stat -c %.9Y "$MNT/usr" | cut -d. -f2)" + 0)
+ns=$(stat -c %.9Y "$MNT/usr" | tr -d . | sed 's/^0*//')
+ns=${ns:-0}
 for d in etc var; do
 	printf 'TIMESTAMP_NSEC=%s\n' "$ns" > "$MNT/$d/.updated"
 	touch -r "$MNT/usr" "$MNT/$d/.updated"
