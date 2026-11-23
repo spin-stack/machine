@@ -486,6 +486,7 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 | `systemd-logind-varlink.socket.d/10-seats.conf` | configuration | Makes `/run/systemd/seats` before logind is reached. Without it, a login that arrives before logind has run gets no session, `XDG_RUNTIME_DIR` unset, and no error (2026-09-12). | function; `boot:logind` | Nothing. |
 | `sshd-vsock.socket.d/10-lane.conf`, `sshd@.service.d/10-lane.conf` | reordered | The image's own vsock login, `login=lane` in the probes. spin's path does not use it. | lane | Nothing. |
 | `ssh.service.d/20-no-config-test.conf` | removed | Ubuntu's ssh.service runs `sshd -t` before it starts. The check stays on reload. | measured: −3.2 [−7.2, −0.8], 60 a side (lab 44977044826) | A broken `sshd_config` fails at start rather than in a pre-check; the error is sshd's own. |
+| `default.target` → `spin-machine-login.target`, `spin-machine-boot-rest.service` | reordered, deferred | The boot's default target holds only what the first login needs. `multi-user.target`, and with it `sysinit.target`, `basic.target`, udev, tmpfiles, sysctl, the sockets, the timers and the getty, starts once those units are up. See "The first login's target". | measured: cold −17.7 [−26.2, −11.7] with spin's supervisor as spin orders it today, −42.6 [−50.2, −38.4] with it off `basic.target` (lab 45091658603, 40 a side); restored +3.1 [+0.9, +5.4] evicted, +2.2 [−1.6, +5.4] cached (lab 45091658388) | Deferred: everything outside the target runs right after its units are up, not before them. A device udev prepares, `/run/utmp`, sysctls and docker's socket come tens of ms later. |
 
 ## Login
 
@@ -631,6 +632,37 @@ explains it.
   two 334 ms timeouts (a terminfo query and a terminal reset) to a serial port with a file behind it;
   with it, 855 ms became 163-207 for the whole boot (`b5f361f`). `linux` and
   `vt220` are what systemd picks for a virtual console and a serial line when nothing says otherwise.
+
+### The first login's target
+
+`spin-machine-login.target` is the boot's default target. It wants the units a workspace's first
+login needs: `ssh.socket`, `ssh.service` and its keygen, the image's vsock socket, journald,
+logind with its Varlink socket, the system bus, `/tmp`, and spin's supervisor by its name
+(`spin-supervisor.service`, spin-stack/spin's `deploy/guest/extension/supervisor`). Each of those
+starts without default dependencies, so the target pulls in neither `sysinit.target` nor
+`basic.target`, and PID 1 loads only what the target reaches before the login.
+`spin-machine-boot-rest.service`, wanted by the target, starts `multi-user.target` once the boot's
+first jobs are done (`Type=idle`, at most 5 s later): every unit still runs, after the login's.
+
+- **Why.** On one vCPU, every unit started before the first login is on its clock (#553, #564).
+  A bound with the rest started 3 s later read −55.5 [−63.0, −51.6] (lab 45089584596, 20 a side),
+  and PID 1's CPU before the login 55 → 38 ms (lab 45089584735). Prior art: Kata's
+  `kata-containers.target`, Sony's critical target (LPC 2024), Axis's targets (ASG 2025), none
+  timed against a login (#574).
+- **Why after the boot's first jobs.** Three triggers were measured with spin's supervisor off
+  `basic.target` (lab 45090246267, 20 a side): `Type=idle` −59.2 [−69.1, −47.4], a timer 2 s after
+  the boot −66.5 [−75.2, −56.1], sshd's PAM stack starting it at the first session −52.0
+  [−61.6, −37.4]. The timer starts the rest at an arbitrary time whatever the login, and docker's
+  socket waits for it; the PAM trigger ran beside the login's last steps (accept to login +15.3).
+- **spin's supervisor.** spin's unit has default dependencies and `WantedBy=multi-user.target`. The
+  target wants it by name, so spin's login does not wait for the rest; its default dependencies
+  still pull `sysinit.target` and `basic.target` in before the login, which is most of the
+  difference between −17.7 and −42.6 (spin-stack/spin#1653).
+- **logind's Varlink socket.** systemd refuses to start a socket whose service already runs, so it
+  starts with logind or not at all. Without it in the target, `boot:logind` failed (lab 45090950033).
+- **The restore.** restore-first saves right after the cold login, while the rest of the boot is
+  still running, and the restored login reads +3.1 [+0.9, +5.4] evicted. That is the open question
+  of this change (#578).
 
 ### The host keys
 
