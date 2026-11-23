@@ -265,16 +265,32 @@ trace lost events. A switch away from a task the CPU was not running counts as a
 - *The kernel's 0 on the host's clock.* The host asks the guest for 20 markers in the trace,
   50 ms apart. Each marker was written after its request left and before its answer arrived, so
   each puts the kernel's 0 in a bracket. The brackets agree only if the two clocks run at one rate.
-  Spread over a second they met within ±0.15 ms (lab 45062836688). `kernel_zero` is that 0.
+  Spread over a second they met within ±0.15 ms (lab 45062836688).
+- *The trace's clock against the kernel's.* The trace and the journal are on CLOCK_MONOTONIC,
+  and the kernel's 0 is its sched clock's, read from kvm-clock in `kvm_sched_clock_init`.
+  CLOCK_MONOTONIC starts level with the sched clock, then runs on jiffies until the switch to
+  kvm-clock at fs_initcall, and every tick it misses is lost for good. At late_initcall the
+  kernel prints both clocks as one tick read them ("sched_clock: Marking stable (MONO,
+  …)->(SCHED, …)", in ns). Their difference is `monotonic_lag`, 18-25 ms nested and 11-14 on
+  metal. The ledger moves the trace and the journal forward by it, and refuses a journal without
+  the line. `kernel_zero` is the markers' 0 less the lag. A kernel that writes a port at the
+  sched clock's 0 checked it: `kernel_zero` lands 0.03 to 0.14 ms before QEMU's trace stamps that
+  write, in 10 boots on bench and 10 on metal (labs 45229897350 and 45230233764), and 11.6 to
+  20.9 ms after it without the lag (labs 45177818419 and 45177817516; all v20261123.04 with the
+  marker kernel, spin's shape, #644). The first window, the kernel to PID 1's exec, is the one the lag lands
+  in, and the ledger gives it to the kernel. dmesg is on neither clock: from that line on,
+  printk's clock is the sched clock less 11-15 ms (#666).
 - *QEMU's exec on the host's clock.* No clock in the guest sees it, and /proc stamps a process's
   start in 10 ms ticks, so the host watches spin-machine's children from its own exec until one
   is QEMU. The exec is between the last look that did not see it and the first that did:
   `qemu_exec_error` is half that bracket, 0.11 to 0.14 ms in six boots.
 - *The guest's first instruction.* QEMU zeroes kvm-clock as the machine goes to running, and the
   kernel prints the kvm-clock it read as it made it the scheduler's clock ("kvm-clock: using
-  sched offset of N cycles", in ns). The kernel's clock, CLOCK_MONOTONIC's 0 included, starts from
-  that reading, so the machine ran at `kernel_zero` less N. `boot:firmware-stages` places the
-  kernel's clock on QEMU's trace by the same line.
+  sched offset of N cycles", in ns). The kernel's sched clock starts from that reading, so
+  kvm-clock read 0 at `kernel_zero` less N. That 0 lies 2.1-3.8 ms (bench) and 4.4-5.0 ms (metal)
+  before QEMU's KVM_SET_CLOCK, because KVM bases it on its master clock's last update. So
+  `qemu_start` reads that much short and `guest_to_zero` as much long (#665). `boot:firmware-stages`
+  places the kernel's clock on QEMU's trace at KVM_SET_CLOCK plus N, which is late by the same.
 - *The residue.* That is `first_login` less `kernel_zero` and the command's exit on the kernel's
   clock: sshd's answer crossing vsock and the client reading it. It read 0.4 to 1.2 ms in six
   boots. A residue that is negative or large says the alignment is wrong.
@@ -284,21 +300,21 @@ construction: `before_qemu`, spin-machine to its exec of QEMU; `qemu_start`, QEM
 held start's monitor to the guest's first instruction; and `guest_to_zero`, the firmware, the
 bzImage's decompression and the kernel's setup until its clock runs. A sched offset that puts the
 machine's running before QEMU's exec refuses the ledger, as a journal without the line does.
-`kernel_zero` read 97 to 114 ms in six boots, the first the longest (lab 45110630795, bench,
-spin's shape, v20261123.04, 2026-11-23):
+`kernel_zero` read 77 to 95 ms in six boots, the first the longest (lab 45110630795, bench,
+spin's shape, v20261123.04, 2026-11-23, recomputed from the run's journals with the lag):
 
 | part | p50 | range |
 |---|---|---|
-| `before_qemu`, spin-machine to QEMU's exec | 2.1 | 1.9 to 2.5 |
-| `qemu_start`, QEMU's exec to the guest's first instruction | 49.4 | 48.3 to 50.8 |
-| `guest_to_zero`, the guest's first instruction to the kernel's clock | 47.4 | 46.4 to 63.2 |
+| `before_qemu`, spin-machine to QEMU's exec | 2.1 | 1.9 to 2.4 |
+| `qemu_start`, QEMU's exec to kvm-clock's 0 | 29.3 | 28.2 to 31.1 |
+| `guest_to_zero`, kvm-clock's 0 to the kernel's clock | 47.4 | 46.4 to 63.2 |
 
-The first boot's extra ~15 ms is all in `guest_to_zero`. `boot:firmware-stages` read 73.7 ms from
-QEMU's exec to the kernel's clock (lab 45062836494), ~23 less than the ledger's ~97. The ~20 ms
-the ledger had over it were read as spin-machine's start and the held start before QEMU. Measured,
-spin-machine is 2 ms of them, and the rest is after QEMU's exec. firmware-stages boots a machine
-of its own, without the disks, the vsock and the hotplug ports a workspace's machine carries,
-and with no held start (#611).
+The first boot's extra ~15 ms is all in `guest_to_zero`. Without the lag the run read
+`kernel_zero` 97 to 114 and `qemu_start` 49.4. QEMU's exec to the kernel's clock is 78.4 here, and
+73.4 [72.2, 81.1] in 12 untraced boots of lab 45177818419 (68.7 on metal, lab 45177817516).
+`boot:firmware-stages` read 73.7 (lab 45062836494) on a machine of its own, without the disks,
+the vsock and the hotplug ports a workspace's machine carries, and with no held start. Its anchor
+is ~2.8 ms late on bench (#665), so its own number is ~71.
 
 **What it costs.** The trace and sshd's DEBUG1 run on the guest's vCPU beside the boot they
 record. In spin's shape, 20 a side, interleaved (lab 45063070048, bench, v20261122.05):

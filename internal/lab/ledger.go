@@ -38,7 +38,7 @@ type Ledger struct {
 	KernelZeroError float64 `json:"kernel_zero_error"`
 	// MonotonicLag is how far CLOCK_MONOTONIC runs behind the kernel's clock once both run on
 	// kvm-clock: what it did not count while it ran on jiffies, from timekeeping_init until the
-	// switch to kvm-clock at fs_initcall. It is 18-21 ms nested and 11-14 on metal, and without it
+	// switch to kvm-clock at fs_initcall. It is 18-25 ms nested and 11-14 on metal, and without it
 	// the kernel's 0 read that much late (#644).
 	MonotonicLag float64 `json:"monotonic_lag"`
 	// QEMUExec is where spin-machine exec'd QEMU, and QEMUExecError half the bracket the host's
@@ -428,8 +428,9 @@ var reSchedOffset = regexp.MustCompile(`kvm-clock: using sched offset of (\d+) c
 // jiffies until the switch to kvm-clock at fs_initcall, and the ticks it misses are lost for good.
 // At late_initcall the kernel prints both clocks as one tick read them (kernel/sched/clock.c,
 // __set_sched_clock_stable: "Marking stable (ktime_get_ns, __gtod_offset)->(sched_clock,
-// __sched_clock_offset)"). With it, the ledger's kernel_zero lands 0.02-0.15 ms after a port
-// write at the sched clock's 0, against 11.6-20.9 ms without (labs 45177818419, 45177817516, #644).
+// __sched_clock_offset)"). With it, the ledger's kernel_zero lands 0.03-0.14 ms before QEMU's
+// trace stamps a port write at the sched clock's 0, against 11.6-20.9 ms after it without (labs
+// 45229897350 and 45230233764 against 45177818419 and 45177817516, #644).
 // dmesg's own clock is neither: from that line on it is the sched clock plus
 // __sched_clock_offset.
 func monotonicLag(journal string) (float64, error) {
