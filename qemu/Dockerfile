@@ -352,7 +352,7 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
 RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/cache/qemu \
     tree="$(sh /build/qemu-source.sh)" && \
     mkdir -p /build/pc-bios && \
-    for f in bios.bin bios-256k.bin linuxboot_dma.bin kvmvapic.bin efi-virtio.rom; do \
+    for f in bios.bin bios-256k.bin linuxboot_dma.bin pvh.bin kvmvapic.bin efi-virtio.rom; do \
         install -m 0644 "$tree/pc-bios/$f" "/build/pc-bios/$f"; \
     done
 
