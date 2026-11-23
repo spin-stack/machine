@@ -182,6 +182,10 @@ Comments here are longer than usual, on purpose. These rules are what make them 
   that owns it (spin-stack/machine or spin-stack/spin), with its evidence and how to settle it.
   A comment, a PR body or `docs/log.md` cites the issue and never stands in for it: a comment is
   read only by whoever opens that file, and an issue is where the next person looks for work.
+  An issue closed because its proposal was decided against carries the label `rejected`, and a
+  finding that does not apply to this machine (an osv CVE, an upstream bug) carries `not-affected`,
+  whatever reason GitHub's close records: most rejected experiments were closed as completed, and
+  `label:rejected` is how the next person finds what was already decided against.
 - **The image explains itself in `docs/image.md`, not in `image/`.** Why a unit is masked,
   reordered or added, why a package is in or out, what measured it and what a workspace gives
   up: all of it is a row or a note in `docs/image.md`. A script, Dockerfile or drop-in under
