@@ -1,0 +1,161 @@
+diff --git a/src/core/exec-invoke.c b/src/core/exec-invoke.c
+index 0543e39..1f1f13b 100644
+--- a/src/core/exec-invoke.c
++++ b/src/core/exec-invoke.c
+@@ -70,6 +70,20 @@
+ #include "random-util.h"
+ #include "rlimit-util.h"
+ #include "seccomp-util.h"
++
++/* #637's instrument: the thread CPU each sandbox step takes in the executor, logged once a step ran. */
++static usec_t spin_cpu_now(void) {
++        struct timespec ts;
++        assert_se(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) == 0);
++        return timespec_load(&ts);
++}
++#define SPIN_MARK(name, expr) ({                                                \
++                usec_t _t0 = spin_cpu_now();                                    \
++                int _r = (expr);                                                \
++                log_info("spin-seccomp-mark %s %s %" PRIu64 "us r=%i",          \
++                         params->unit_id ?: "?", name, spin_cpu_now() - _t0, _r); \
++                _r;                                                             \
++        })
+ #include "selinux-util.h"
+ #include "set.h"
+ #include "signal-util.h"
+@@ -4745,6 +4759,7 @@ static int setup_delegated_namespaces(
+             exec_namespace_is_delegated(context, params, have_cap_sys_admin, CLONE_NEWNS) == delegate) {
+                 _cleanup_free_ char *error_path = NULL;
+ 
++                usec_t spin_ns_t0 = spin_cpu_now();
+                 r = apply_mount_namespace(command->flags,
+                                           context,
+                                           params,
+@@ -4764,11 +4779,12 @@ static int setup_delegated_namespaces(
+                 }
+ 
+                 log_debug("Set up %smount namespace", delegate ? "delegated " : "");
++                log_info("spin-seccomp-mark %s mount_namespace %" PRIu64 "us r=%i", params->unit_id ?: "?", spin_cpu_now() - spin_ns_t0, r);
+         }
+ 
+         if (needs_sandboxing &&
+             exec_namespace_is_delegated(context, params, have_cap_sys_admin, CLONE_NEWUTS) == delegate) {
+-                r = apply_protect_hostname(context, params, reterr_exit_status);
++                r = SPIN_MARK("protect_hostname", apply_protect_hostname(context, params, reterr_exit_status));
+                 if (r < 0)
+                         return r;
+                 if (r > 0)
+@@ -6282,79 +6298,79 @@ int exec_invoke(
+                         }
+ 
+ #if HAVE_SECCOMP
+-                r = apply_address_families(context, params);
++                r = SPIN_MARK("address_families", apply_address_families(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_ADDRESS_FAMILIES;
+                         return log_error_errno(r, "Failed to restrict address families: %m");
+                 }
+ 
+-                r = apply_memory_deny_write_execute(context, params);
++                r = SPIN_MARK("memory_deny_write_execute", apply_memory_deny_write_execute(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to disable writing to executable memory: %m");
+                 }
+ 
+-                r = apply_restrict_realtime(context, params);
++                r = SPIN_MARK("restrict_realtime", apply_restrict_realtime(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply realtime restrictions: %m");
+                 }
+ 
+-                r = apply_restrict_suid_sgid(context, params);
++                r = SPIN_MARK("restrict_suid_sgid", apply_restrict_suid_sgid(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply SUID/SGID restrictions: %m");
+                 }
+ 
+-                r = apply_restrict_namespaces(context, params);
++                r = SPIN_MARK("restrict_namespaces", apply_restrict_namespaces(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply namespace restrictions: %m");
+                 }
+ 
+-                r = apply_protect_sysctl(context, params);
++                r = SPIN_MARK("protect_sysctl", apply_protect_sysctl(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply sysctl restrictions: %m");
+                 }
+ 
+-                r = apply_protect_kernel_modules(context, params);
++                r = SPIN_MARK("protect_kernel_modules", apply_protect_kernel_modules(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply module loading restrictions: %m");
+                 }
+ 
+-                r = apply_protect_kernel_logs(context, params);
++                r = SPIN_MARK("protect_kernel_logs", apply_protect_kernel_logs(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply kernel log restrictions: %m");
+                 }
+ 
+-                r = apply_protect_clock(context, params);
++                r = SPIN_MARK("protect_clock", apply_protect_clock(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply clock restrictions: %m");
+                 }
+ 
+-                r = apply_private_devices(context, params);
++                r = SPIN_MARK("private_devices", apply_private_devices(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to set up private devices: %m");
+                 }
+ 
+-                r = apply_syscall_archs(context, params);
++                r = SPIN_MARK("syscall_archs", apply_syscall_archs(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply syscall architecture restrictions: %m");
+                 }
+ 
+-                r = apply_lock_personality(context, params);
++                r = SPIN_MARK("lock_personality", apply_lock_personality(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to lock personalities: %m");
+                 }
+ 
+-                r = apply_syscall_log(context, params);
++                r = SPIN_MARK("syscall_log", apply_syscall_log(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply system call log filters: %m");
+@@ -6372,7 +6388,7 @@ int exec_invoke(
+ #if HAVE_SECCOMP
+                 /* This really should remain as close to the execve() as possible, to make sure our own code is affected
+                  * by the filter as little as possible. */
+-                r = apply_syscall_filter(context, params);
++                r = SPIN_MARK("syscall_filter", apply_syscall_filter(context, params));
+                 if (r < 0) {
+                         *exit_status = EXIT_SECCOMP;
+                         return log_error_errno(r, "Failed to apply system call filters: %m");
+@@ -6504,6 +6520,11 @@ int exec_invoke(
+          * have O_CLOEXEC set, and the execve() below will thus automatically close them. In fact, for
+          * exec_fd this is pretty much the whole raison d'etre. */
+ 
++        {
++                struct timespec spin_ts;
++                assert_se(clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &spin_ts) == 0);
++                log_info("spin-seccomp-mark %s executor_total %" PRIu64 "us r=0", params->unit_id ?: "?", timespec_load(&spin_ts));
++        }
+         r = fexecve_or_execve(executable_fd, executable, final_argv, accum_env);
+ 
+         /* The execve() failed, let's undo the marking as hot */
