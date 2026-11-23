@@ -85,24 +85,28 @@ func TestDisarmingUndoesEveryTriggerArmingAdds(t *testing.T) {
 }
 
 // The detail lists each reason's count, time and time an exit for every tree, the counters that
-// are not zero, and the files kept for the boots that were not lost.
+// are not zero, the guest functions some tree made 5 exits or more in, and the files kept for the
+// boots that were not lost.
 func TestTheExitsDetailIsEachReasonByTree(t *testing.T) {
 	r := &Result{Trees: []Manifest{{Name: "release"}, {Name: "arm"}}, Samples: []Sample{
-		{Tree: "release", Rep: 1, Detail: map[string]float64{"exit\x00CPUID": 3800, "exit_us\x00CPUID": 7600, "kvm\x00vcpu/exits": 10000, "kvm\x00vcpu/nmi_injections": 0}},
+		{Tree: "release", Rep: 1, Detail: map[string]float64{"exit\x00CPUID": 3800, "exit_us\x00CPUID": 7600, "kvm\x00vcpu/exits": 10000, "kvm\x00vcpu/nmi_injections": 0,
+			"site\x00EPT_MISCONFIG pci_mmcfg_read": 876, "site\x00EPT_MISCONFIG rare_one": 4, "site\x00EPT_MISCONFIG five_here": 5, "site\x00IO_INSTRUCTION arm_only": 1}},
 		{Tree: "release", Rep: 2, Detail: map[string]float64{"exit\x00HLT": 300, "exit_us\x00HLT": 9000}},
-		{Tree: "arm", Rep: 1, Detail: map[string]float64{"exit\x00CPUID": 2200, "exit_us\x00CPUID": 4400, "kvm\x00vcpu/exits": 8500, "kvm\x00vcpu/nmi_injections": 0}},
+		{Tree: "arm", Rep: 1, Detail: map[string]float64{"exit\x00CPUID": 2200, "exit_us\x00CPUID": 4400, "kvm\x00vcpu/exits": 8500, "kvm\x00vcpu/nmi_injections": 0,
+			"site\x00EPT_MISCONFIG pci_mmcfg_read": 400, "site\x00EPT_MISCONFIG rare_one": 4, "site\x00IO_INSTRUCTION arm_only": 9}},
 		{Tree: "arm", Rep: 2, Missed: "never logged into"},
 	}}
 	d := exitsProbe{}.Detail(r)
 	if !strings.Contains(d, "HLT                          300       9000   30.00                            -") {
 		t.Errorf("a reason one tree did not make is not shown as such:\n%s", d)
 	}
-	for _, want := range []string{"CPUID", "3800       7600    2.00", "2200       4400    2.00", "vcpu/exits", "release-1.exits.txt", "arm-1.exits.txt"} {
+	for _, want := range []string{"CPUID", "3800       7600    2.00", "2200       4400    2.00", "vcpu/exits", "release-1.exits.txt", "arm-1.exits.txt",
+		"EPT_MISCONFIG pci_mmcfg_read", "EPT_MISCONFIG five_here", "IO_INSTRUCTION arm_only"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("no %q in:\n%s", want, d)
 		}
 	}
-	for _, unwanted := range []string{"nmi_injections", "arm-2.exits.txt"} {
+	for _, unwanted := range []string{"nmi_injections", "arm-2.exits.txt", "rare_one"} {
 		if strings.Contains(d, unwanted) {
 			t.Errorf("%q in:\n%s", unwanted, d)
 		}
@@ -126,6 +130,7 @@ ffffffff81003000 D some_data
 { exit_reason:         49, guest_rip: 18446744071578853384 } hitcount:        915
 { exit_reason:         49, guest_rip: 18446744071578849350 } hitcount:         48
 { exit_reason:         30, guest_rip: 1048576 } hitcount:         60
+{ exit_reason:         49, guest_rip: 18446744071578845192 } hitcount:          7
 `
 	got := exitSites(hist, syms)
 	want := []exitSite{
@@ -133,11 +138,12 @@ ffffffff81003000 D some_data
 		{"EPT_MISCONFIG", "native_io_apic_read", 300},
 		{"IO_INSTRUCTION", "below the kernel", 60},
 		{"EPT_MISCONFIG", "clear_IO_APIC_pin", 48},
+		{"EPT_MISCONFIG", "_stext", 7},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("sites:\n got %v\nwant %v", got, want)
 	}
-	if got := exitSites(hist, nil); len(got) != 5 || got[0].Function != "0xffffffff81002008" {
+	if got := exitSites(hist, nil); len(got) != 6 || got[0].Function != "0xffffffff81002008" {
 		t.Errorf("without symbols, an exit is its address: %v", got)
 	}
 }
