@@ -14,60 +14,29 @@ name: CodeQL
 # security severity or above fails it (spin-machine-dev patched severe), unless a codeql[<rule>]
 # comment in the source suppresses it and says why.
 #
-# The patched trees on a change that reaches one, on main, and weekly, for the queries CodeQL adds.
+# Once a day on main, and by hand. Not on a pull request: the analysis cost every PR 2 minutes and
+# one that reached a patch 5-10 more, and a patch is already held on its PR by checkpatch and
+# sparse in its build (kernel/Dockerfile, #656). So a result on a patch line is found the day after
+# its merge, not before it. A failed run opens an issue, as release.yml's pause job does, because a
+# red scheduled run is seen by nobody.
 
 on:
-  # No paths: the analysis of this repository's own Go and workflows runs on every change, as
-  # default setup would, and `changed` below says whether a patched tree can differ.
-  pull_request:
-  push:
-    branches: [main]
   schedule:
-    - cron: "41 4 * * 1"
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: codeql-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: ${{ github.ref_name != 'main' }}
+  group: codeql
+  cancel-in-progress: false
 
 env:
   GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
-  # Whether the change can reach a patched tree: a patch, a pin a tree is made from, or how the
-  # trees are made and scoped. No base (the schedule, a dispatch) is true.
-  changed:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      patched: ${{ steps.patched.outputs.build }}
-    env:
-      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: spin-machine-dev
-        run: go tool task bin
-
-      - name: Does the change reach a patched tree
-        id: patched
-        run: spin-machine-dev changed --base "$BASE" --pins kernel,qemu,qboot,systemd-source,openssh-source kernel/patches 'kernel/config-*' qemu/patches qemu/qboot image/systemd image/openssh internal/patched cmd/spin-machine-dev/patched.go .github/workflows/codeql.yml
-
   analyze:
-    needs: changed
-    if: ${{ needs.changed.outputs.patched == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -206,3 +175,23 @@ jobs:
       - name: Fail on a result of medium security severity or above
         if: ${{ matrix.language == 'go' }}
         run: spin-machine-dev patched severe _output/codeql/go
+
+  # A failed day is an issue, opened once a day: the run's log says which job and why.
+  report:
+    needs: [analyze, own]
+    if: ${{ failure() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open an issue for the failed analysis
+        run: |
+          title="CodeQL failed on main $(date -u +%F)"
+          if gh issue list --state all --search "\"$title\" in:title" --json title -q '.[].title' | grep -qxF "$title"; then
+            echo "$title: already open"; exit 0
+          fi
+          gh issue create --title "$title" --body "The daily CodeQL run failed: $RUN. A result on a line a patch added, a touched file the analysis did not read, or a Go result of medium severity or above (codeql.yml's header). Fix it or, for a Go result that is safe, suppress it in the source with its reason (#653)."
