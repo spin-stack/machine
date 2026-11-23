@@ -14,12 +14,18 @@ import (
 
 // KASLR moves three things, and a kernel that boots says nothing when one of them stays put: the
 // kernel's virtual base (_text), its physical base ("Kernel code" in /proc/iomem), and with
-// RANDOMIZE_MEMORY the direct map, vmalloc and vmemmap regions, seen here through the first
-// vmalloc address. Each is read in SPIN_KASLR_BOOTS guests (default 10) of spin's base shape,
-// 1 vCPU and 128 MiB, the least memory the physical base is chosen in, and each must take more
-// than one value. One boot cannot tell a fixed address from a random one (lockdown-check.sh
-// asks only that _text is not the linked address), and a vmlinux entered through PVH moved
+// RANDOMIZE_MEMORY the direct map, vmalloc and vmemmap regions. Each is read in SPIN_KASLR_BOOTS
+// guests (default 10) of spin's base shape, 1 vCPU and 128 MiB, the least memory the physical
+// base is chosen in, and each must take more than one value and never the one it has unrandomized.
+// One boot cannot tell a fixed address from a random one, and a vmlinux entered through PVH moved
 // neither base nor the regions, with CONFIG_RANDOMIZE_BASE and RANDOMIZE_MEMORY both =y (#645).
+//
+// The regions are seen through the lowest vmalloc address and the lowest unix socket, a direct
+// map object, each rounded down to the 1 GiB that kernel_randomize_memory aligns a region to.
+// Unrandomized they sit at the region's fixed base whatever the boot allocated. A %p hash, which
+// an earlier version of this check compared, differs every boot whatever the layout, and is
+// refused as not a kernel address. vmemmap moves with the other two or not at all: one test of
+// KASLR_FLAG gates all three (kernel/patches/0019).
 func TestTheKernelMovesEveryBoot(t *testing.T) {
 	if os.Getenv("SPIN_KASLR_TEST") != "1" {
 		t.Skip("set SPIN_KASLR_TEST=1 to boot a built release repeatedly and compare where its kernel is")
@@ -40,8 +46,18 @@ func TestTheKernelMovesEveryBoot(t *testing.T) {
 	root := newRawRoot(t, out, base)
 	oneshotAtBoot(t, root, "kaslr-check", "kaslr-check.sh", "")
 
-	line := regexp.MustCompile(`KASLR text=([0-9a-f]+) phys=([0-9a-f]+) vmalloc=([0-9a-fx]+)`)
-	seen := map[string]map[string]bool{"text": {}, "phys": {}, "vmalloc": {}}
+	line := regexp.MustCompile(`KASLR text=([0-9a-f]+) phys=([0-9a-f]+) vmalloc=([0-9a-f]+) directmap=([0-9a-f]+)`)
+	// Where each would be unrandomized, with 4-level paging and with 5-level.
+	fixed := map[string][]uint64{
+		"text":      {0xffffffff81000000},
+		"phys":      {0x1000000},
+		"vmalloc":   {0xffffc90000000000, 0xffa0000000000000},
+		"directmap": {0xffff888000000000, 0xff11000000000000},
+	}
+	seen := map[string]map[uint64]bool{}
+	for what := range fixed {
+		seen[what] = map[uint64]bool{}
+	}
 	for i := range boots {
 		console := checkGuest(t, rel, root, "KASLR_CHECK_OK", "KASLR_CHECK_FAILED", func(s *machine.Spec) {
 			s.BootCPUs = 1
@@ -51,17 +67,29 @@ func TestTheKernelMovesEveryBoot(t *testing.T) {
 		if m == nil {
 			t.Fatalf("boot %d: no KASLR line on the console:\n%s", i+1, console)
 		}
-		t.Logf("boot %d: _text %s, Kernel code at %s, first vmalloc %s", i+1, m[1], m[2], m[3])
-		seen["text"][m[1]] = true
-		seen["phys"][m[2]] = true
-		seen["vmalloc"][m[3]] = true
+		t.Logf("boot %d: _text %s, Kernel code at %s, lowest vmalloc %s, lowest unix socket %s", i+1, m[1], m[2], m[3], m[4])
+		for j, what := range []string{"text", "phys", "vmalloc", "directmap"} {
+			v, err := strconv.ParseUint(m[j+1], 16, 64)
+			if err != nil {
+				t.Fatalf("boot %d: %s %q: %v", i+1, what, m[j+1], err)
+			}
+			if what == "vmalloc" || what == "directmap" {
+				if v < 0xff00000000000000 {
+					t.Fatalf("boot %d: %s %#x is not a kernel address: a hash, or a pointer kptr_restrict hid", i+1, what, v)
+				}
+				v &^= 1<<30 - 1
+			}
+			seen[what][v] = true
+		}
 	}
-	if seen["text"]["ffffffff81000000"] {
-		t.Error("_text was the linked address, ffffffff81000000, in a boot")
-	}
-	for _, what := range []string{"text", "phys", "vmalloc"} {
+	for what, at := range fixed {
+		for _, a := range at {
+			if seen[what][a] {
+				t.Errorf("%s was at %#x, where it is unrandomized, in a boot", what, a)
+			}
+		}
 		if len(seen[what]) < 2 {
-			t.Errorf("%s took one value in %d boots: %v", what, boots, seen[what])
+			t.Errorf("%s took one value in %d boots (the boots above)", what, boots)
 		}
 	}
 }
