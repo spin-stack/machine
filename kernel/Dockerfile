@@ -651,11 +651,15 @@ EOT
 # Kconfig) keeps its patched text in both, or the build reconfigures between the two. Each
 # side must show make checking every file, or a file that stopped building would compare
 # empty with empty. A file a patch adds (0017's arch/x86/boot/startup/kaslr.c) has no upstream
-# side, so every warning in it is new. Two places are left out, by name, because kbuild cannot
-# build their files as one object: arch/x86/tools, host programs, which C= never checks; and the
-# decompressor, arch/x86/boot/compressed, built with flags of its own and only through the
-# bzImage (`make C=2 arch/x86/boot/compressed/misc.o` compiles it with vmlinux's and fails, job
-# 137873298240).
+# side, so every warning in it is new.
+#
+# The decompressor's files (0018's arch/x86/boot/compressed/misc.c) are built only through the
+# bzImage, with flags of their own: `make C=2 arch/x86/boot/compressed/misc.o` compiles one with
+# vmlinux's and fails (job 137873298240). So the patched side rebuilds them through the bzImage
+# with V=1, which prints the sparse command kbuild ran for each, and both sides run that command.
+# The upstream side cannot rebuild the bzImage: its vmlinux would link through 0016's postlink
+# with 0015's relocs taken out. arch/x86/tools is left out by name: host programs, which C=
+# never checks.
 #
 # sparse itself is built from versions.yaml's `sparse`, not taken from trixie: the kernel's
 # scripts/checker-valid.sh asks the checker to parse __typeof_unqual__, which trixie's 0.6.4
@@ -675,11 +679,27 @@ RUN git clone --quiet --branch "${SPARSE_VERSION}" https://git.kernel.org/pub/sc
 RUN <<EOT
     set -eu
     cd /usr/src/linux
-    files=$(sed -n 's|^+++ b/\(.*\.c\)$|\1|p' /usr/src/patches/*.patch | sort -u |
-        grep -v -e '^arch/x86/tools/' -e '^arch/x86/boot/compressed/')
+    touched=$(sed -n 's|^+++ b/\(.*\.c\)$|\1|p' /usr/src/patches/*.patch | sort -u | grep -v '^arch/x86/tools/')
+    files=$(printf '%s\n' $touched | grep -v '^arch/x86/boot/compressed/' || true)
+    boot=$(printf '%s\n' $touched | grep '^arch/x86/boot/compressed/' || true)
     others=$(sed -n 's|^+++ b/\(.*\)$|\1|p' /usr/src/patches/*.patch | grep -v '\.[ch]$' | sort -u)
+    if [ -n "$boot" ]; then
+        touch $boot
+        make ARCH=${KERNEL_ARCH} V=1 C=1 bzImage > /tmp/sparse-bzimage.log 2>&1 || {
+            cat /tmp/sparse-bzimage.log; echo "ERROR: make V=1 C=1 bzImage failed"; exit 1; }
+        for f in $boot; do
+            grep -E "^ *sparse .* $f\$" /tmp/sparse-bzimage.log | tail -1 > "/tmp/sparse-cmd-$(echo "$f" | tr / _)"
+            [ -s "/tmp/sparse-cmd-$(echo "$f" | tr / _)" ] || {
+                echo "ERROR: the bzImage's build ran no sparse over $f"; exit 1; }
+        done
+    fi
     sparse_of() {
         : > "/tmp/sparse-$1.log"
+        for f in $boot; do
+            [ "$1" = upstream ] && [ ! -e "$f" ] && continue
+            sh "/tmp/sparse-cmd-$(echo "$f" | tr / _)" >> "/tmp/sparse-$1.log" 2>&1 || true
+            echo "  CHECK   $f" >> "/tmp/sparse-$1.log"
+        done
         for f in $files; do
             [ "$1" = upstream ] && [ ! -e "$f" ] && continue
             make ARCH=${KERNEL_ARCH} C=2 "${f%.c}.o" >> "/tmp/sparse-$1.log" 2>&1 || {
@@ -698,7 +718,7 @@ RUN <<EOT
     for p in $(ls -r /usr/src/patches/*.patch); do patch -R -p1 --fuzz=0 < "$p" > /dev/null; done
     for f in $others; do mv "$f.patched" "$f"; done
     sparse_of upstream
-    echo "sparse: $(wc -l < /tmp/sparse-upstream) distinct upstream warnings in $(echo $files | wc -w) files"
+    echo "sparse: $(wc -l < /tmp/sparse-upstream) distinct upstream warnings in $(echo $files $boot | wc -w) files"
     awk '
         NR == FNR { n = $1; $1 = ""; base[$0] = n; next }
         { n = $1; $1 = ""; if (n > base[$0] + 0) { print "ERROR: sparse, new with the patches:" $0; bad = 1 } }
