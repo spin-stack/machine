@@ -120,7 +120,7 @@ tasks:
       - sudo apt-get install -y -q graphviz
 
   patched-build-deps:
-    desc: What `spin-machine-dev patched compile` needs to compile the kernel's and QEMU's touched files (codeql.yml runs it by this name).
+    desc: What `spin-machine-dev patched prepare` and `compile` need to compile the kernel's and QEMU's touched files (codeql.yml runs it by this name).
     cmds:
       - sudo apt-get update -q
       - sudo apt-get install -y -q --no-install-recommends bc bison flex libelf-dev libssl-dev dwarves ninja-build libglib2.0-dev libpixman-1-dev python3-venv

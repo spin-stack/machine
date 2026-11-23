@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spin-stack/go-tools/versions"
 	"github.com/spin-stack/go-tools/versions/upstream"
@@ -38,14 +39,17 @@ import (
 // failed every compilation of a touched kernel file it was given and three of QEMU's (codeql.yml
 // run 45214602230, 2026-11-23). A part without it is analysed from a tree with every C file it
 // does not touch taken out (build-mode none).
+//
+// prepare, when a part has it, builds what compile needs before the tracer starts, so that only
+// the touched files are compiled, and extracted, under it.
 type Part struct {
 	Name, Pin, Patches string
-	compile            func(ctx context.Context, root, src string, touched []string, out io.Writer) error
+	prepare, compile   func(ctx context.Context, root, src string, touched []string, out io.Writer) error
 }
 
 // Parts is every part with C patches, where AGENTS.md says each part's patches are kept.
 var Parts = []Part{
-	{Name: "kernel", Pin: "kernel", Patches: "kernel/patches/*.patch", compile: compileKernel},
+	{Name: "kernel", Pin: "kernel", Patches: "kernel/patches/*.patch", prepare: prepareKernel, compile: compileKernel},
 	{Name: "qemu", Pin: "qemu", Patches: "qemu/patches/*.patch", compile: compileQEMU},
 	{Name: "qboot", Pin: "qboot", Patches: "qemu/qboot/*.patch"},
 	{Name: "systemd", Pin: "systemd-source", Patches: "image/systemd/*.patch"},
@@ -117,15 +121,32 @@ func Tree(ctx context.Context, root string, pins *versions.Versions, p Part, dir
 // Traced is whether p is analysed by tracing Compile rather than without a build.
 func (p Part) Traced() bool { return p.compile != nil }
 
-// Compile compiles the C files the patches touch in p's tree in dir, which Tree made, for an
+// Prepare builds, in p's tree in dir, which Tree made, what compiling its touched C files needs,
+// before an analysis starts tracing the compiler. A part without it needs nothing.
+func Prepare(ctx context.Context, root string, p Part, dir string, out io.Writer) error {
+	if p.compile == nil {
+		return fmt.Errorf("%s is analysed without a build: it has nothing to prepare", p.Name)
+	}
+	return p.build(ctx, root, p.prepare, dir, out)
+}
+
+// Compile compiles the C files the patches touch in p's tree in dir, which Prepare readied, for an
 // analysis tracing the compiler, writing what the build prints to out. root is the checkout.
 func Compile(ctx context.Context, root string, p Part, dir string, out io.Writer) error {
 	if p.compile == nil {
 		return fmt.Errorf("%s is analysed without a build: it has nothing to compile", p.Name)
 	}
+	return p.build(ctx, root, p.compile, dir, out)
+}
+
+// build hands step the C files the patches touch in p's tree in dir.
+func (p Part) build(ctx context.Context, root string, step func(ctx context.Context, root, src string, touched []string, out io.Writer) error, dir string, out io.Writer) error {
 	raw, err := os.ReadFile(filepath.Join(dir, "touched"))
 	if err != nil {
 		return fmt.Errorf("reading the touched files (make the tree first): %w", err)
+	}
+	if step == nil {
+		return nil
 	}
 	var touched []string
 	for _, f := range strings.Fields(string(raw)) {
@@ -133,23 +154,33 @@ func Compile(ctx context.Context, root string, p Part, dir string, out io.Writer
 			touched = append(touched, f)
 		}
 	}
-	if err := p.compile(ctx, root, filepath.Join(dir, "src"), touched, out); err != nil {
+	if err := step(ctx, root, filepath.Join(dir, "src"), touched, out); err != nil {
 		return fmt.Errorf("%s: %w", p.Name, err)
 	}
 	return nil
 }
 
 // namedAddressSpaces is the symbol arch/x86/Kconfig sets when GCC has named address spaces, which
-// makes per-CPU access go through __seg_gs, and which compileKernel turns off. CodeQL's C front end
+// makes per-CPU access go through __seg_gs, and which prepareKernel turns off. CodeQL's C front end
 // cannot parse __seg_gs: with it, every file that reached a per-CPU accessor (this_cpu_inc,
 // raw_cpu_ptr) failed to extract, ten of the fourteen the patches touch (codeql.yml run
 // 45216274329, 2026-11-23). Without it the kernel takes its other, upstream-supported path, the
 // one a compiler without named address spaces builds.
 const namedAddressSpaces = "config CC_HAS_NAMED_AS\n\tdef_bool "
 
-// compileKernel configures the tree as kernel/Dockerfile does, from the series' configuration
-// but without named address spaces, and makes the touched files' objects.
-func compileKernel(ctx context.Context, root, src string, touched []string, out io.Writer) error {
+// bzImageOnly are the directories whose files only the bzImage's build compiles, each with flags
+// of its own: the decompressor, after vmlinux, whose symbols misc.c includes as ../voffset.h, and
+// the host tools vmlinux is post-processed with (relocs). Made as objects of vmlinux, misc.o found
+// no voffset.h and relocs.o failed on vmlinux's -Werror (codeql.yml job 137883774299,
+// 2026-11-23), so a touched file there makes the bzImage, which compiles each the way it is built.
+var bzImageOnly = []string{"arch/x86/boot/compressed/", "arch/x86/tools/"}
+
+// prepareKernel configures the tree as kernel/Dockerfile does, from the series' configuration but
+// without named address spaces, and makes what the touched files are compiled with: the headers
+// every object needs, and the bzImage when a touched file is one only it builds. Built here,
+// untraced, the kernel is not extracted whole: the analysis reads only what compileKernel then
+// rebuilds.
+func prepareKernel(ctx context.Context, root, src string, touched []string, out io.Writer) error {
 	kconfig := filepath.Join(src, "arch", "x86", "Kconfig")
 	k, err := os.ReadFile(kconfig)
 	if err != nil {
@@ -175,10 +206,6 @@ func compileKernel(ctx context.Context, root, src string, touched []string, out 
 	if err := os.WriteFile(filepath.Join(src, ".config"), raw, 0o644); err != nil {
 		return err
 	}
-	objects := []string{"ARCH=x86_64", "-j" + jobs()}
-	for _, f := range touched {
-		objects = append(objects, strings.TrimSuffix(f, filepath.Ext(f))+".o")
-	}
 	if err := shown(ctx, out, "", "make", "-C", src, "ARCH=x86_64", "olddefconfig"); err != nil {
 		return err
 	}
@@ -189,12 +216,54 @@ func compileKernel(ctx context.Context, root, src string, touched []string, out 
 	if bytes.Contains(config, []byte("CONFIG_CC_HAS_NAMED_AS=y")) {
 		return errors.New("olddefconfig kept CONFIG_CC_HAS_NAMED_AS=y: the analysis would not parse per-CPU access")
 	}
-	for _, args := range [][]string{{"ARCH=x86_64", "-j" + jobs(), "prepare"}, objects} {
-		if err := shown(ctx, out, "", "make", append([]string{"-C", src}, args...)...); err != nil {
+	goal := "prepare"
+	if _, ok := kernelObjects(touched); ok {
+		goal = "bzImage"
+	}
+	return shown(ctx, out, "", "make", "-C", src, "ARCH=x86_64", "-j"+jobs(), goal)
+}
+
+// compileKernel makes the touched files' objects in the tree prepareKernel built, each touched
+// first so that make compiles it again, under the tracer, whatever it built before.
+func compileKernel(ctx context.Context, _, src string, touched []string, out io.Writer) error {
+	if _, err := os.Stat(filepath.Join(src, ".config")); err != nil {
+		return fmt.Errorf("the tree is not configured (prepare it first): %w", err)
+	}
+	now := time.Now()
+	for _, f := range touched {
+		if err := os.Chtimes(filepath.Join(src, f), now, now); err != nil {
+			return fmt.Errorf("touching %s: %w", f, err)
+		}
+	}
+	objects, bzImage := kernelObjects(touched)
+	// The objects first, and the bzImage on its own after them: asked for together, make built one
+	// object twice at once, as an object and as part of vmlinux, and fixdep lost its .d file
+	// (2026-11-23).
+	goals := [][]string{objects}
+	if bzImage {
+		goals = append(goals, []string{"bzImage"})
+	}
+	for _, g := range goals {
+		if err := shown(ctx, out, "", "make", append([]string{"-C", src, "ARCH=x86_64", "-j" + jobs()}, g...)...); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// kernelObjects is the objects of the touched files make builds as objects, and whether a touched
+// file is one only the bzImage builds.
+func kernelObjects(touched []string) ([]string, bool) {
+	var objects []string
+	bzImage := false
+	for _, f := range touched {
+		if slices.ContainsFunc(bzImageOnly, func(dir string) bool { return strings.HasPrefix(f, dir) }) {
+			bzImage = true
+			continue
+		}
+		objects = append(objects, strings.TrimSuffix(f, filepath.Ext(f))+".o")
+	}
+	return objects, bzImage
 }
 
 // compileQEMU configures the tree for the one target the machine builds and makes the
