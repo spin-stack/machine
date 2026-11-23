@@ -1,0 +1,15 @@
+# docs/image.md, "The first login's target"
+#
+# The rest of the boot: multi-user.target, started once the first login's units are up. Type=idle
+# holds the start until PID 1's queue of the boot's first jobs is empty, at most 5 s.
+[Unit]
+Description=The rest of the boot, after the first login's units
+Documentation=https://github.com/spin-stack/machine/blob/main/docs/image.md
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=idle
+RemainAfterExit=yes
+ExecStart=/usr/bin/systemctl --no-block start multi-user.target

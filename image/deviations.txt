@@ -96,6 +96,8 @@ added /etc/udev/rules.d/40-spin-hotadd.rules
 deleted /etc/update-motd.d/00-header
 deleted /etc/update-motd.d/10-help-text
 deleted /etc/update-motd.d/50-motd-news
+added /usr/lib/systemd/system/spin-machine-boot-rest.service
+added /usr/lib/systemd/system/spin-machine-login.target
 added /usr/lib/systemd/system/spin-machine-pressure.service
 added /usr/lib/systemd/system/spin-machine-pressure.timer
 added /usr/lib/systemd/system/spin-machine-sshd-keygen.service
