@@ -7,7 +7,7 @@ ARG OPENSSH_SOURCE_SHA256
 ARG JOBS=8
 ENV DEBIAN_FRONTEND=noninteractive \
     DEB_BUILD_PROFILES="noudeb pkg.openssh.nognome nocheck" \
-    DEB_BUILD_OPTIONS="nocheck nodoc noautodbgsym"
+    DEB_BUILD_OPTIONS="nodoc noautodbgsym"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -29,6 +29,17 @@ RUN for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
         dch --newversion "1:${OPENSSH_SOURCE_VERSION}+spin1" --distribution resolute \
             "Rebuilt by spin-machine with $(cd /build/patches && echo *.patch)." && \
     dpkg-buildpackage -b -uc -us -j"${JOBS}"
+
+COPY image/openssh/regress-ran.sh /build/regress-ran.sh
+RUN apt-get install -y --no-install-recommends sudo && \
+    useradd --create-home regress && \
+    echo 'regress ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/regress && \
+    mkdir -p -m 0755 /run/sshd && \
+    chown -R regress /build/src && \
+    su regress -c 'make -C /build/src/debian/build-deb t-exec SUDO=sudo' 2>&1 | tee /build/t-exec.log && \
+    /build/regress-ran.sh /build/t-exec.log \
+        connect connect-privsep cert-userkey multipubkey keys-command principals-command \
+        authinfo limit-keytype allow-deny-users key-options penalty password
 
 RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
     for p in openssh-server openssh-client openssh-sftp-server; do \
