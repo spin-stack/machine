@@ -295,6 +295,14 @@ none when they run. A test keeps its state in a directory of its own, never in t
 tests writing there fail each other and refuse edits CI lets survive (#413). `task test` fails
 on a test that makes `_output` in a checkout that had none.
 
+**Check whether `/tmp` is a tmpfs before writing to it** (`findmnt -no FSTYPE /tmp`). On a tmpfs,
+what is written there is RAM: a scratch tree, a worktree, an unpacked release or a build's objects
+in it are memory gone, and a full one had the OOM killer take `task lint` (2026-11-23: 20 GiB of
+agents' scratch filled a 23 GiB `/tmp` to 94%). Write scratch to a directory on disk,
+`/var/tmp/<name>`, and point `TMPDIR` at it for the tools that make their own (`go`, `docker`,
+`git`). `/tmp` is the last resort, for what is small by nature: a socket in a short directory of
+its own (see "Trying the machine") is a few bytes. Remove scratch once its question is answered.
+
 ## Licence and third-party source
 
 Apache-2.0. New Go files carry `// SPDX-License-Identifier: Apache-2.0`.
