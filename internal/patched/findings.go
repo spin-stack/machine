@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -28,6 +30,10 @@ func (f Finding) String() string {
 // results in the files the patches touch to dir/scoped.sarif, which is what code scanning is
 // given, and answers those on a line the patches added. A result anywhere else in a touched file
 // is upstream's: it goes to code scanning and decides nothing here.
+//
+// No result says nothing about a file the extractor did not compile, and CodeQL's analysis exits
+// 0 without it. So Scope also fails, naming each, on a touched C file the SARIF does not report
+// extracted, or reports a failed compilation of: the analysis read none of it, or only part.
 func Scope(ctx context.Context, dir string) ([]Finding, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "touched"))
 	if err != nil {
@@ -92,7 +98,80 @@ func Scope(ctx context.Context, dir string) ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
-	return findings, os.WriteFile(filepath.Join(dir, "scoped.sarif"), out, 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "scoped.sarif"), out, 0o644); err != nil {
+		return nil, err
+	}
+	unread, err := notExtracted(log.Runs, src, slices.Collect(maps.Keys(added)))
+	if err != nil {
+		return findings, fmt.Errorf("reading %s's extraction diagnostics: %w", sarifs[0], err)
+	}
+	if len(unread) > 0 {
+		return findings, fmt.Errorf("the analysis did not read every C file the patches touch: %s", strings.Join(unread, "; "))
+	}
+	return findings, nil
+}
+
+// The diagnostics CodeQL's C/C++ extractor writes into the SARIF: a file each compilation read
+// without an error, and, without a build (build-mode none), each compilation that failed.
+const (
+	extractedDiagnostic = "cpp/diagnostics/successfully-extracted-files"
+	buildlessDiagnostic = "cpp/bmn/extraction-information"
+)
+
+// notExtracted is each touched C file the runs do not report extracted, or report a failed
+// compilation of, with why, sorted.
+func notExtracted(runs []map[string]json.RawMessage, src string, touched []string) ([]string, error) {
+	extracted, failed := map[string]bool{}, map[string]bool{}
+	for _, run := range runs {
+		var invocations []struct {
+			Notifications []struct {
+				Descriptor struct {
+					ID string `json:"id"`
+				} `json:"descriptor"`
+				Locations  []location `json:"locations"`
+				Properties struct {
+					Attributes struct {
+						Errors []struct {
+							Args []string `json:"error_args"`
+						} `json:"extraction_errors"`
+					} `json:"attributes"`
+				} `json:"properties"`
+			} `json:"toolExecutionNotifications"`
+		}
+		if raw := run["invocations"]; raw != nil {
+			if err := json.Unmarshal(raw, &invocations); err != nil {
+				return nil, err
+			}
+		}
+		for _, inv := range invocations {
+			for _, n := range inv.Notifications {
+				switch n.Descriptor.ID {
+				case extractedDiagnostic:
+					for _, l := range n.Locations {
+						extracted[l.file(src)] = true
+					}
+				case buildlessDiagnostic:
+					for _, e := range n.Properties.Attributes.Errors {
+						if len(e.Args) > 0 {
+							failed[inTree(e.Args[len(e.Args)-1], src)] = true
+						}
+					}
+				}
+			}
+		}
+	}
+	var unread []string
+	for _, f := range touched {
+		switch {
+		case !slices.Contains(cSources, filepath.Ext(f)):
+		case failed[f]:
+			unread = append(unread, f+" (its compilation failed)")
+		case !extracted[f]:
+			unread = append(unread, f+" (not extracted)")
+		}
+	}
+	slices.Sort(unread)
+	return unread, nil
 }
 
 // result is a SARIF result: what this reads of it, and all of it to write back.
@@ -102,17 +181,30 @@ type result struct {
 	Message struct {
 		Text string `json:"text"`
 	} `json:"message"`
-	Locations []struct {
-		Physical struct {
-			Artifact struct {
-				URI string `json:"uri"`
-			} `json:"artifactLocation"`
-			Region struct {
-				Start int `json:"startLine"`
-				End   int `json:"endLine"`
-			} `json:"region"`
-		} `json:"physicalLocation"`
-	} `json:"locations"`
+	Locations []location `json:"locations"`
+}
+
+// location is a SARIF location: what this reads of it.
+type location struct {
+	Physical struct {
+		Artifact struct {
+			URI string `json:"uri"`
+		} `json:"artifactLocation"`
+		Region struct {
+			Start int `json:"startLine"`
+			End   int `json:"endLine"`
+		} `json:"region"`
+	} `json:"physicalLocation"`
+}
+
+// file is the file a location is in, as a path in the tree whose root is src.
+func (l location) file(src string) string {
+	return inTree(l.Physical.Artifact.URI, src)
+}
+
+// inTree is a file the SARIF names, by URI or absolute path, as a path in the tree at src.
+func inTree(uri, src string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(uri, "file://"), src+"/")
 }
 
 func (r *result) UnmarshalJSON(b []byte) error {
@@ -123,9 +215,8 @@ func (r *result) UnmarshalJSON(b []byte) error {
 
 // where is the file a result is in, as a path in the tree, and its first and last lines.
 func (r result) where(src string) (string, int, int) {
-	l := r.Locations[0].Physical
-	file := strings.TrimPrefix(strings.TrimPrefix(l.Artifact.URI, "file://"), src+"/")
-	return file, l.Region.Start, max(l.Region.Start, l.Region.End)
+	l := r.Locations[0]
+	return l.file(src), l.Physical.Region.Start, max(l.Physical.Region.Start, l.Physical.Region.End)
 }
 
 // addedLines is every line of now that the patches added or changed against was: the new side

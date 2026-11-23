@@ -117,7 +117,8 @@ func TestTreeFromATarballAppliesThePatchesAndKeepsOnlyTheCFilesTheyTouch(t *test
 	dir := t.TempDir()
 	put(t, filepath.Join(dir, "src/stale.c"), "from an earlier tree\n")
 	put(t, filepath.Join(dir, "upstream/stale.c"), "from an earlier tree\n")
-	if err := Tree(context.Background(), checkout(t, patchA, patchNew), v, Parts[0], dir); err != nil {
+	buildless := Part{Name: "kernel", Pin: "kernel", Patches: "kernel/patches/*.patch"}
+	if err := Tree(context.Background(), checkout(t, patchA, patchNew), v, buildless, dir); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, filepath.Join(dir, "src/lib/a.c")); got != "one\nTWO\nthree\nfour\n" {
@@ -141,6 +142,13 @@ func TestTreeFromATarballAppliesThePatchesAndKeepsOnlyTheCFilesTheyTouch(t *test
 		if _, err := os.Stat(filepath.Join(dir, kept)); err != nil {
 			t.Errorf("%s: %v", kept, err)
 		}
+	}
+
+	if err := Tree(context.Background(), checkout(t, patchA, patchNew), v, Parts[0], dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "src/lib/b.c")); err != nil {
+		t.Errorf("the kernel's tree, which its analysis compiles, lost a file its build needs: %v", err)
 	}
 }
 
@@ -313,5 +321,15 @@ func TestPruneTakesOutOnlyTheUntouchedCSources(t *testing.T) {
 		if err := prune(src, nil); err == nil {
 			t.Error("a directory it cannot read is an error, not a tree pruned in part")
 		}
+	}
+}
+
+func TestCompileRefusesAPartWithoutABuildOrATree(t *testing.T) {
+	qboot, _ := Find("qboot")
+	if err := Compile(context.Background(), t.TempDir(), qboot, t.TempDir()); err == nil || !strings.Contains(err.Error(), "without a build") {
+		t.Errorf("qboot: %v", err)
+	}
+	if err := Compile(context.Background(), t.TempDir(), Parts[0], t.TempDir()); err == nil || !strings.Contains(err.Error(), "make the tree first") {
+		t.Errorf("no tree: %v", err)
 	}
 }
