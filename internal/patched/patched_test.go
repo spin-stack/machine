@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -326,10 +327,10 @@ func TestPruneTakesOutOnlyTheUntouchedCSources(t *testing.T) {
 
 func TestCompileRefusesAPartWithoutABuildOrATree(t *testing.T) {
 	qboot, _ := Find("qboot")
-	if err := Compile(context.Background(), t.TempDir(), qboot, t.TempDir()); err == nil || !strings.Contains(err.Error(), "without a build") {
+	if err := Compile(context.Background(), t.TempDir(), qboot, t.TempDir(), io.Discard); err == nil || !strings.Contains(err.Error(), "without a build") {
 		t.Errorf("qboot: %v", err)
 	}
-	if err := Compile(context.Background(), t.TempDir(), Parts[0], t.TempDir()); err == nil || !strings.Contains(err.Error(), "make the tree first") {
+	if err := Compile(context.Background(), t.TempDir(), Parts[0], t.TempDir(), io.Discard); err == nil || !strings.Contains(err.Error(), "make the tree first") {
 		t.Errorf("no tree: %v", err)
 	}
 }

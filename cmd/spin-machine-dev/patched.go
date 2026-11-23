@@ -48,7 +48,7 @@ builds generate. Parts that have it: ` + strings.Join(traced(), ", ") + `.`,
 			if err != nil {
 				return err
 			}
-			if err := patched.Compile(c.Context(), w.root, p, dir); err != nil {
+			if err := patched.Compile(c.Context(), w.root, p, dir, c.ErrOrStderr()); err != nil {
 				return couldNot(err)
 			}
 			say(c, "%s: compiled what the patches touch", p.Name)

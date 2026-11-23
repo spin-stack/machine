@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -39,7 +40,7 @@ import (
 // does not touch taken out (build-mode none).
 type Part struct {
 	Name, Pin, Patches string
-	compile            func(ctx context.Context, root, src string, touched []string) error
+	compile            func(ctx context.Context, root, src string, touched []string, out io.Writer) error
 }
 
 // Parts is every part with C patches, where AGENTS.md says each part's patches are kept.
@@ -117,8 +118,8 @@ func Tree(ctx context.Context, root string, pins *versions.Versions, p Part, dir
 func (p Part) Traced() bool { return p.compile != nil }
 
 // Compile compiles the C files the patches touch in p's tree in dir, which Tree made, for an
-// analysis tracing the compiler. root is the checkout.
-func Compile(ctx context.Context, root string, p Part, dir string) error {
+// analysis tracing the compiler, writing what the build prints to out. root is the checkout.
+func Compile(ctx context.Context, root string, p Part, dir string, out io.Writer) error {
 	if p.compile == nil {
 		return fmt.Errorf("%s is analysed without a build: it has nothing to compile", p.Name)
 	}
@@ -132,7 +133,7 @@ func Compile(ctx context.Context, root string, p Part, dir string) error {
 			touched = append(touched, f)
 		}
 	}
-	if err := p.compile(ctx, root, filepath.Join(dir, "src"), touched); err != nil {
+	if err := p.compile(ctx, root, filepath.Join(dir, "src"), touched, out); err != nil {
 		return fmt.Errorf("%s: %w", p.Name, err)
 	}
 	return nil
@@ -140,7 +141,7 @@ func Compile(ctx context.Context, root string, p Part, dir string) error {
 
 // compileKernel configures the tree as kernel/Dockerfile does, from the series' configuration,
 // and makes the touched files' objects.
-func compileKernel(ctx context.Context, root, src string, touched []string) error {
+func compileKernel(ctx context.Context, root, src string, touched []string, out io.Writer) error {
 	configs, _ := filepath.Glob(filepath.Join(root, "kernel", "config-*-x86_64"))
 	if len(configs) != 1 {
 		return fmt.Errorf("want one kernel/config-*-x86_64, found %d", len(configs))
@@ -157,8 +158,8 @@ func compileKernel(ctx context.Context, root, src string, touched []string) erro
 		objects = append(objects, strings.TrimSuffix(f, filepath.Ext(f))+".o")
 	}
 	for _, args := range [][]string{{"ARCH=x86_64", "olddefconfig"}, {"ARCH=x86_64", "-j" + jobs(), "prepare"}, objects} {
-		if out, err := run(ctx, "make", append([]string{"-C", src}, args...)...); err != nil {
-			return fmt.Errorf("make %s: %w\n%s", strings.Join(args, " "), err, tail(out))
+		if err := shown(ctx, out, "", "make", append([]string{"-C", src}, args...)...); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -166,25 +167,23 @@ func compileKernel(ctx context.Context, root, src string, touched []string) erro
 
 // compileQEMU configures the tree for the one target the machine builds and makes the
 // touched files' objects, which ninja names after the file's path.
-func compileQEMU(ctx context.Context, root, src string, touched []string) error {
+func compileQEMU(ctx context.Context, root, src string, touched []string, out io.Writer) error {
 	build := filepath.Join(src, "build")
 	if err := os.MkdirAll(build, 0o755); err != nil {
 		return err
 	}
-	configure := exec.CommandContext(ctx, filepath.Join(src, "configure"), "--target-list=x86_64-softmmu", "--enable-kvm", "--disable-docs", "--disable-werror")
-	configure.Dir = build
-	if out, err := configure.CombinedOutput(); err != nil {
-		return fmt.Errorf("configure: %w\n%s", err, tail(out))
+	if err := shown(ctx, out, build, filepath.Join(src, "configure"), "--target-list=x86_64-softmmu", "--enable-kvm", "--disable-docs", "--disable-werror"); err != nil {
+		return err
 	}
-	out, err := run(ctx, "ninja", "-C", build, "-t", "targets", "all")
+	all, err := run(ctx, "ninja", "-C", build, "-t", "targets", "all")
 	if err != nil {
-		return fmt.Errorf("ninja -t targets: %w\n%s", err, tail(out))
+		return fmt.Errorf("ninja -t targets: %w\n%s", err, all)
 	}
 	var targets []string
 	for _, f := range touched {
 		object := "/" + strings.ReplaceAll(f, "/", "_") + ".o:"
 		var found []string
-		for line := range strings.Lines(string(out)) {
+		for line := range strings.Lines(string(all)) {
 			if strings.Contains(line, object) {
 				found = append(found, strings.TrimSuffix(strings.Fields(line)[0], ":"))
 			}
@@ -194,19 +193,21 @@ func compileQEMU(ctx context.Context, root, src string, touched []string) error 
 		}
 		targets = append(targets, found...)
 	}
-	if out, err := run(ctx, "ninja", append([]string{"-C", build}, targets...)...); err != nil {
-		return fmt.Errorf("ninja %s: %w\n%s", strings.Join(targets, " "), err, tail(out))
-	}
-	return nil
+	return shown(ctx, out, build, "ninja", append([]string{"-C", build}, targets...)...)
 }
 
 // jobs is how many compilations make runs at once: one a CPU.
 func jobs() string { return strconv.Itoa(runtime.NumCPU()) }
 
-// tail is the last lines of a command's output, where its error is.
-func tail(out []byte) string {
-	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
-	return strings.Join(lines[max(0, len(lines)-40):], "\n")
+// shown runs a command in dir with its output to out, where a person reading the job sees what
+// was compiled and why it failed.
+func shown(ctx context.Context, out io.Writer, dir, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, out, out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return nil
 }
 
 // unpack puts e's source in src: a git entry cloned at its commit, a Debian source package
