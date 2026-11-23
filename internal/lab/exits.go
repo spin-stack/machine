@@ -91,6 +91,9 @@ const (
 	// The MMIO and port exits by the guest's instruction, which the guest's own kallsyms names
 	// (exitSites): the code that made them, where the MMIO histogram says only the address (#566).
 	exitsBySite = "hist:keys=exit_reason,guest_rip:sort=hitcount.descending if exit_reason == 49 || exit_reason == 30"
+	// The EPT violations by the guest-physical address they faulted, in 128 MiB buckets: which land
+	// in the base memory the machine boots with and which in what virtio-mem plugs above it (#568).
+	exitsByFault = "hist:keys=fault_address.buckets=134217728:sort=fault_address"
 )
 
 // exitsTriggers are the files the triggers go in, in the order they are armed.
@@ -106,6 +109,7 @@ var exitsTriggers = []struct{ file, trigger string }{
 	{"events/kvm/kvm_exit/trigger", exitsInKernel},
 	{"events/kvm/kvm_exit/trigger", exitsInUser},
 	{"events/kvm/kvm_exit/trigger", exitsBySite},
+	{"events/kvm/kvm_page_fault/trigger", exitsByFault},
 }
 
 // exitsHists are the histograms kept, by the name they are kept under.
@@ -116,6 +120,7 @@ var exitsHists = []struct{ name, file string }{
 	{"MMIO (type 0 read unsatisfied, 1 read, 2 write)", "events/kvm/kvm_mmio/hist"},
 	{"CPUID leaves", "events/kvm/kvm_cpuid/hist"},
 	{"exits from the guest's kernel, then from below it (userspace, firmware, decompressor), then MMIO and ports by guest_rip", "events/kvm/kvm_exit/hist"},
+	{"EPT violations by guest-physical address, 128 MiB buckets", "events/kvm/kvm_page_fault/hist"},
 }
 
 // exitsScript arms (or, with disarm, removes) the host's triggers, as root. Disarming ignores
