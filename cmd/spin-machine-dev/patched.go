@@ -40,8 +40,8 @@ in <out>/patched/<part>. Parts: ` + strings.Join(patched.Names(), ", ") + `.`,
 		Use:   "prepare <part>",
 		Short: "Build what compiling a part's touched C files needs, before an analysis traces the compiler",
 		Long: `Build in <out>/patched/<part>/src, which tree made, what compile needs, so that only the touched
-files are compiled under CodeQL's tracer: the kernel configured from kernel/, with its bzImage when
-a touched file is one only the bzImage builds. codeql.yml runs it before the tracer starts.`,
+files are compiled under CodeQL's tracer: the kernel configured from kernel/, with vmlinux when
+a touched file is a host tool only vmlinux's build compiles. codeql.yml runs it before the tracer starts.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			w, p, dir, err := patchedPart(args[0])

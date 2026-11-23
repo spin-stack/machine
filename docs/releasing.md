@@ -14,7 +14,7 @@ the two. A device dropped from the allowlist reads exactly like a typo added in
 Each artefact is a job of `parts.yml` that runs when a change reaches it, because QEMU and the
 kernel take tens of minutes each and the base image is ~1.5 GB of apt. The `parts` job says whether
 every job that ran passed. Each artefact's job ends in the verification that belongs to it, so a
-build that lost a device, a kernel that is not a relocatable bzImage, or an image that grew an identity fails
+build that lost a device, a kernel that cannot put itself at a random base, or an image that grew an identity fails
 in the workflow that produced it.
 
 CI calls the same targets a developer calls. A second definition of what the gate is, kept in a

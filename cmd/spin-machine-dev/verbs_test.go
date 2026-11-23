@@ -417,7 +417,7 @@ func TestPublishIsWhatFetchPulls(t *testing.T) {
 func TestVerifySaysWhatIsMissingAndAsksQEMUForTheArguments(t *testing.T) {
 	dir := checkout(t)
 	_, stderr, status := verb(t, "verify", "qemu", "kernel")
-	if status != 1 || !strings.Contains(stderr, "qemu: missing") || !strings.Contains(stderr, "kernel: no kernel") {
+	if status != 1 || !strings.Contains(stderr, "qemu: missing") || !strings.Contains(stderr, "kernel: reading "+filepath.Join(dir, "_output/kernel/vmlinux")) {
 		t.Errorf("verify of nothing built: exit %d, %q", status, stderr)
 	}
 	if _, stderr, status := verb(t, "verify"); status != 1 || !strings.Contains(stderr, "image: missing") {
@@ -560,7 +560,7 @@ func packed(t *testing.T, dir string) string {
 	for _, f := range build.Firmware {
 		put(t, filepath.Join(out, "qemu", f), f, 0o644)
 	}
-	for _, f := range []string{"e2fsprogs/mke2fs.conf", "kernel/bzImage", "kernel/vmlinux", "kernel/kernel-config", "kernel/sources",
+	for _, f := range []string{"e2fsprogs/mke2fs.conf", "kernel/vmlinux", "kernel/kernel-config", "kernel/sources",
 		"kernel/patches/0001-k.patch", "image/rootfs.qcow2", "licenses.txt"} {
 		put(t, filepath.Join(out, f), f, 0o644)
 	}
@@ -1103,7 +1103,7 @@ func TestShellBootsTheBaseAndChecksItAfter(t *testing.T) {
 	if _, stderr, status := verb(t, "shell"); status != 2 || !strings.Contains(stderr, "missing") {
 		t.Errorf("nothing built: exit %d, %q", status, stderr)
 	}
-	for _, f := range []string{"bin/qemu-system-x86_64", "kernel/bzImage", "image/rootfs.qcow2"} {
+	for _, f := range []string{"bin/qemu-system-x86_64", "kernel/vmlinux", "image/rootfs.qcow2"} {
 		put(t, filepath.Join(out, f), "x", 0o644)
 	}
 	log := filepath.Join(dir, "boot")

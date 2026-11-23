@@ -15,15 +15,12 @@ import (
 	"github.com/spin-stack/machine/internal/elftest"
 )
 
-// A whole kernel is a relocatable bzImage and, beside it, a vmlinux that randomizes itself.
+// A whole kernel is a vmlinux that randomizes itself.
 func TestAWholeKernelVerifies(t *testing.T) {
 	out := t.TempDir()
-	b, _ := os.ReadFile(bzImage(t, "HdrS", 1))
 	v := elftest.Kernel([]uint32{18, 19}, []byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0x10, 0, 0, 0})
-	for p, body := range map[string][]byte{"kernel/bzImage": b, "kernel/vmlinux": v} {
-		_ = os.MkdirAll(filepath.Dir(filepath.Join(out, p)), 0o755)
-		_ = os.WriteFile(filepath.Join(out, p), body, 0o644)
-	}
+	_ = os.MkdirAll(filepath.Join(out, "kernel"), 0o755)
+	_ = os.WriteFile(filepath.Join(out, "kernel/vmlinux"), v, 0o644)
 	if err := VerifyKernel(Options{Out: out}); err != nil {
 		t.Errorf("a whole kernel: %v", err)
 	}

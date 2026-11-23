@@ -8,7 +8,15 @@ resumed guest runs the kernel in its saved memory until it reboots, and boots th
 (the machine's record, `machine.QEMU.Target`, leaves the kernel out). `spin-machine-dev build kernel`
 builds it. `spin-machine-dev verify kernel` asserts that the stripped vmlinux, which the machine
 enters through PVH, carries the two Xen notes QEMU enters and places it by and a filled relocation
-table, and reads the setup header of the bzImage beside it (relocatable).
+table.
+
+The build makes `vmlinux` and nothing else: no bzImage since #660. Nothing booted the bzImage
+after #645, so it went, and `CONFIG_KERNEL_LZ4`, which compressed only it, went with it. The
+kernel compression mode is Kconfig's default and compresses nothing that ships. A release from
+then on has no `kernel/bzImage`, and spin's `hack/machine/place.go` must stop requiring it
+(spin-stack/spin#1689). A release from v20261119.02 to v20261123.06 still boots its own bzImage
+(`machine.OpenRelease`). The RFC's patch to the decompressor, which read the relocations from
+`.data.reloc` (its 0018 here), went too: nothing compiles the decompressor.
 
 ## KASLR with no decompressor
 
@@ -165,7 +173,6 @@ every kernel bump.
 | 0013 | the compiled `kernel/bpf/verifier.c` asks for vmlinux BTF through `need_btf_vmlinux(env)` |
 | 0014-0016 | `.data.reloc` holds a table the relocs tool filled; how much of the reserve it uses is printed |
 | 0017 | `startup_64` calls `__pi___relocate_kernel`, and the object it is built in (`arch/x86/boot/startup/kaslr.o`, with `lib/kaslr.c` and `lib/cmdline.c` included) has no `__fentry__`, KASAN, KCOV, UBSAN or stack-protector call and no GOT relocation: it runs before the kernel has moved (virt-pvm/linux#11 is the failure a `__fentry__` call through the GOT made) |
-| 0018 | the compiled decompressor reads its relocations from `.data.reloc` |
 | 0019 | the compiled `arch/x86/boot/startup/kaslr.c` sets `KASLR_FLAG` |
 | 0020 | the compiled `arch/x86/boot/startup/kaslr.c` reads RDRAND from CPUID leaf 1's ECX |
 

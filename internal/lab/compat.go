@@ -26,10 +26,12 @@ type CompatRow struct {
 	Release string
 	// Resumed is whether a checkpoint the release saved went on running here; Moved, that this
 	// machine refused it (machine.CanResume), so none of the release's checkpoints is meant to.
-	// NoBzImage is a release from before v20261119.02, which carries only the vmlinux the machine
-	// entered through PVH then: nothing here boots it, so nothing checks it.
-	Resumed, Moved, NoBzImage bool
-	// Why is the failure, or the refusal: every difference between the two machines.
+	// Unbootable is a release machine.OpenRelease refuses: one from before v20261119.02 carries a
+	// vmlinux that runs where it was linked and no bzImage, and nothing here boots it, so nothing
+	// checks it. A release from #660 on carries no bzImage either, and boots its vmlinux.
+	Resumed, Moved, Unbootable bool
+	// Why is the failure, or the refusal: every difference between the two machines, or why
+	// OpenRelease refused the release.
 	Why string
 }
 
@@ -38,8 +40,8 @@ type CompatRow struct {
 // release's checkpoint is taken at spin's shape on its own machine - its QEMU, kernel and firmware,
 // started by the spin-machine of the commit it was made from - and this machine refuses it or
 // resumes it (resume); the first it refuses, by its differences, is where the machine moved, and
-// every older release is past it. It stops as well at the first release with no bzImage, which no
-// spin-machine since v20261119.02 boots, and every older release has none either. For each release it also holds the other direction: a checkpoint written by here's
+// every older release is past it. It stops as well at the first release OpenRelease refuses, which
+// no spin-machine since v20261119.02 boots, and every older release neither. For each release it also holds the other direction: a checkpoint written by here's
 // QEMU is one CanResume refuses on a release whose QEMU is older (QEMU loads what an older version
 // wrote, never the reverse).
 //
@@ -57,8 +59,8 @@ func Compat(here string, tags []string, src Sources, resume func(previous, previ
 		if err != nil {
 			return nil, err
 		}
-		if !fileExists(filepath.Join(dir, partFiles["kernel"])) {
-			rows = append(rows, CompatRow{Release: tag, NoBzImage: true})
+		if _, err := machine.OpenRelease(dir); err != nil {
+			rows = append(rows, CompatRow{Release: tag, Unbootable: true, Why: err.Error()})
 			break
 		}
 		relQEMU, err := qemuVersion(filepath.Join(dir, "bin", "qemu-system-x86_64"))
@@ -131,8 +133,8 @@ func CompatTable(rows []CompatRow) string {
 		switch {
 		case r.Moved:
 			fmt.Fprintf(&b, "| %s | not meant to: its machine is not this one (%s); older releases neither |\n", r.Release, r.Why)
-		case r.NoBzImage:
-			fmt.Fprintf(&b, "| %s | not checked: it carries no bzImage, the only kernel this machine boots; older releases neither |\n", r.Release)
+		case r.Unbootable:
+			fmt.Fprintf(&b, "| %s | not checked: this machine boots neither its kernel nor anything older (%s) |\n", r.Release, r.Why)
 		case r.Resumed:
 			fmt.Fprintf(&b, "| %s | resumed |\n", r.Release)
 		default:

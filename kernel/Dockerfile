@@ -53,7 +53,7 @@ RUN --mount=type=cache,sharing=locked,id=kernel-aptlib,target=/var/lib/apt \
     --mount=type=cache,sharing=locked,id=kernel-aptcache,target=/var/cache/apt \
     apt-get update && apt-get install -y --no-install-recommends \
         build-essential libncurses-dev flex bison libssl-dev libelf-dev bc cpio git \
-        wget xz-utils curl lz4 ca-certificates file \
+        wget xz-utils curl ca-certificates file \
         # The four that CONFIG_DEBUG_INFO_BTF brings with it, and none of them is obvious
         # from the symbol's name:
         #
@@ -287,11 +287,9 @@ RUN <<EOT
     # 2026-11-19). RELOCATABLE_UNCOMPRESSED_KERNEL (patches/0014-0020) has the kernel move its
     # own virtual base at startup_64, from a relocation table the relocs tool writes into it,
     # and QEMU (qemu/patches/0008) puts it at a random physical base. PVH is the entry itself.
-    # boot:kaslr asks the booted kernel.
-    #
-    # The bzImage is still built and shipped (spin's hack/machine/place.go names it), and its
-    # decompressor randomizes as it did, from the same table.
-    for opt in RELOCATABLE RANDOMIZE_BASE RANDOMIZE_MEMORY PVH RELOCATABLE_UNCOMPRESSED_KERNEL KERNEL_LZ4; do
+    # boot:kaslr asks the booted kernel. Nothing builds a bzImage since #660, so the kernel
+    # compression mode compresses nothing: the choice keeps Kconfig's default.
+    for opt in RELOCATABLE RANDOMIZE_BASE RANDOMIZE_MEMORY PVH RELOCATABLE_UNCOMPRESSED_KERNEL; do
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig (the kernel would not be randomized)!"; exit 1; }
     done
 
@@ -447,7 +445,7 @@ ARG DEBIAN_SNAPSHOT
 RUN cd linux && make ARCH=${KERNEL_ARCH} -j${KERNEL_NPROC} \
         KBUILD_BUILD_TIMESTAMP="$(date -u -d "$(echo "${DEBIAN_SNAPSHOT}" | cut -c1-8)")" \
         KBUILD_BUILD_USER=spin-machine KBUILD_BUILD_HOST=build \
-        all
+        vmlinux
 
 # Each patch in patches/, asserted on the vmlinux it went into, while it still has its symbol
 # table. `patch --fuzz=0` above says a patch applied; a patch deleted from the directory, or one
@@ -552,10 +550,6 @@ RUN <<EOT
         [ -z "$bad" ] || lost 0017 "the code that runs before relocation is instrumented or goes through the GOT: $bad"
     fi
 
-    # 0018: the decompressor applies the same table to a bzImage, and no vmlinux.relocs of its own.
-    grep -qF 'output_len = VO___relocation_end - VO__text;' arch/x86/boot/compressed/misc.c ||
-        lost 0018 "the decompressor does not read .data.reloc"
-
     # 0019 and 0020: a kernel that moved itself says so, so RANDOMIZE_MEMORY moves the direct map,
     # vmalloc and vmemmap; and it draws its base from RDRAND and RDTSC, read from the registers
     # that hold them. Both are early startup code with no symbol of their own, so the source is read.
@@ -626,21 +620,6 @@ RUN <<EOT
     # an empty string and then the offset.
     btf=$(readelf -SW /build/vmlinux | awk '{for (i=1;i<=NF;i++) if ($i==".BTF") print $(i+4)}')
     printf 'BTF: %d bytes\n' "0x$btf"
-
-    # The bzImage, which spin's hack/machine/place.go still asks a release for and an older
-    # machine boots. `make all` builds it on x86 from the vmlinux above, so it
-    # is reproducible when vmlinux is. Asserted from its setup header
-    # (Documentation/arch/x86/boot.rst) rather than its name: "HdrS" at 0x202, which QEMU and
-    # qboot look for before treating a file as a bzImage (without it QEMU tries it as a
-    # multiboot or an ELF kernel instead); a boot protocol of 2.12 or later at 0x206; and relocatable_kernel at
-    # 0x234, without which the decompressor runs the kernel where it was linked and KASLR is
-    # off however it is configured.
-    cp arch/x86/boot/bzImage /build/bzImage
-    hdr() { od -An -j "$1" -N "$2" -t "$3" /build/bzImage | tr -d ' '; }
-    test "$(hdr 514 4 c)" = HdrS || { echo "ERROR: the bzImage has no HdrS setup header; QEMU cannot boot it as a bzImage"; exit 1; }
-    test "$(hdr 518 2 u2)" -ge 524 || { echo "ERROR: the bzImage's boot protocol is 0x$(hdr 518 2 x2), older than 2.12"; exit 1; }
-    test "$(hdr 564 1 u1)" = 1 || { echo "ERROR: the bzImage is not relocatable; KASLR cannot move it"; exit 1; }
-    file /build/bzImage
 EOT
 
 # sparse (make C=2) over every C file kernel/patches touches, once as built and once with the
@@ -651,17 +630,8 @@ EOT
 # Kconfig) keeps its patched text in both, or the build reconfigures between the two. Each
 # side must show make checking every file, or a file that stopped building would compare
 # empty with empty. A file a patch adds (0017's arch/x86/boot/startup/kaslr.c) has no upstream
-# side, so every warning in it is new.
-#
-# The decompressor's files (0018's arch/x86/boot/compressed/misc.c) are built only through the
-# bzImage, with flags of their own: `make C=2 arch/x86/boot/compressed/misc.o` compiles one with
-# vmlinux's and fails (job 137873298240). So the patched side rebuilds them through the bzImage
-# with V=1, which prints the sparse command kbuild ran for each, and both sides run that command.
-# That log holds bytes grep takes for binary, and it then prints no line: it is read with -a
-# (job 137883284845).
-# The upstream side cannot rebuild the bzImage: its vmlinux would link through 0016's postlink
-# with 0015's relocs taken out. arch/x86/tools is left out by name: host programs, which C=
-# never checks.
+# side, so every warning in it is new. arch/x86/tools is left out by name: host programs, which
+# C= never checks.
 #
 # sparse itself is built from versions.yaml's `sparse`, not taken from trixie: the kernel's
 # scripts/checker-valid.sh asks the checker to parse __typeof_unqual__, which trixie's 0.6.4
@@ -681,27 +651,10 @@ RUN git clone --quiet --branch "${SPARSE_VERSION}" https://git.kernel.org/pub/sc
 RUN <<EOT
     set -eu
     cd /usr/src/linux
-    touched=$(sed -n 's|^+++ b/\(.*\.c\)$|\1|p' /usr/src/patches/*.patch | sort -u | grep -v '^arch/x86/tools/')
-    files=$(printf '%s\n' $touched | grep -v '^arch/x86/boot/compressed/' || true)
-    boot=$(printf '%s\n' $touched | grep '^arch/x86/boot/compressed/' || true)
+    files=$(sed -n 's|^+++ b/\(.*\.c\)$|\1|p' /usr/src/patches/*.patch | sort -u | grep -v '^arch/x86/tools/')
     others=$(sed -n 's|^+++ b/\(.*\)$|\1|p' /usr/src/patches/*.patch | grep -v '\.[ch]$' | sort -u)
-    if [ -n "$boot" ]; then
-        touch $boot
-        make ARCH=${KERNEL_ARCH} V=1 C=1 bzImage > /tmp/sparse-bzimage.log 2>&1 || {
-            cat /tmp/sparse-bzimage.log; echo "ERROR: make V=1 C=1 bzImage failed"; exit 1; }
-        for f in $boot; do
-            grep -aE "^ *sparse .* $f\$" /tmp/sparse-bzimage.log | tail -1 > "/tmp/sparse-cmd-$(echo "$f" | tr / _)"
-            [ -s "/tmp/sparse-cmd-$(echo "$f" | tr / _)" ] || {
-                echo "ERROR: the bzImage's build ran no sparse over $f"; exit 1; }
-        done
-    fi
     sparse_of() {
         : > "/tmp/sparse-$1.log"
-        for f in $boot; do
-            [ "$1" = upstream ] && [ ! -e "$f" ] && continue
-            sh "/tmp/sparse-cmd-$(echo "$f" | tr / _)" >> "/tmp/sparse-$1.log" 2>&1 || true
-            echo "  CHECK   $f" >> "/tmp/sparse-$1.log"
-        done
         for f in $files; do
             [ "$1" = upstream ] && [ ! -e "$f" ] && continue
             make ARCH=${KERNEL_ARCH} C=2 "${f%.c}.o" >> "/tmp/sparse-$1.log" 2>&1 || {
@@ -720,7 +673,7 @@ RUN <<EOT
     for p in $(ls -r /usr/src/patches/*.patch); do patch -R -p1 --fuzz=0 < "$p" > /dev/null; done
     for f in $others; do mv "$f.patched" "$f"; done
     sparse_of upstream
-    echo "sparse: $(wc -l < /tmp/sparse-upstream) distinct upstream warnings in $(echo $files $boot | wc -w) files"
+    echo "sparse: $(wc -l < /tmp/sparse-upstream) distinct upstream warnings in $(echo $files | wc -w) files"
     awk '
         NR == FNR { n = $1; $1 = ""; base[$0] = n; next }
         { n = $1; $1 = ""; if (n > base[$0] + 0) { print "ERROR: sparse, new with the patches:" $0; bad = 1 } }
@@ -729,13 +682,12 @@ RUN <<EOT
     echo "sparse: the patches add no warning"
 EOT
 
-# The tree this stage writes is the release tree: kernel/bzImage and kernel/vmlinux, at the
+# The tree this stage writes is the release tree: kernel/vmlinux and what it was built from, at the
 # paths a release carries them and machine.Release reads them from. Extracting to the root and
 # letting hack/release do the moving gives the same files one layout here, a second in the
 # tarball and a third wherever a consumer rearranges them into — with a translation step
 # between each pair, and each of those a place to be wrong.
 FROM scratch AS kernel
-COPY --from=kernel-build /build/bzImage /kernel/bzImage
 COPY --from=kernel-build /build/vmlinux /kernel/vmlinux
 COPY --from=kernel-build /build/kernel-config /kernel/kernel-config
 COPY --from=kernel-build /build/sources /kernel/sources

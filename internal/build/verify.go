@@ -90,14 +90,10 @@ func VerifyQEMU(o Options) error {
 	return nil
 }
 
-// VerifyKernel asserts the kernel is one QEMU can enter and this machine can boot at a random
-// base: the vmlinux the machine enters through PVH, which spin also reads symbols from
-// (spin-stack/spin's hack/machine/place.go), able to randomize itself (SelfRandomizing), and the
-// relocatable bzImage beside it, which spin's place.go still asks a release for.
+// VerifyKernel asserts the kernel is the vmlinux the machine enters through PVH, which spin also
+// reads symbols from (spin-stack/spin's hack/machine/place.go), able to put itself at a random
+// base (SelfRandomizing). A release carries no bzImage since #660.
 func VerifyKernel(o Options) error {
-	if err := Relocatable(filepath.Join(o.Out, "kernel", "bzImage")); err != nil {
-		return err
-	}
 	return SelfRandomizing(filepath.Join(o.Out, "kernel", "vmlinux"))
 }
 
@@ -126,23 +122,6 @@ func SelfRandomizing(path string) error {
 	}
 	if f.ByteOrder.Uint32(last) == 0 {
 		return fmt.Errorf("%s's .data.reloc is empty: the relocs tool did not fill it, and the kernel would run where it was linked", path)
-	}
-	return nil
-}
-
-// Relocatable is whether path is a bzImage whose setup header says relocatable: "HdrS" at 0x202,
-// relocatable_kernel at 0x234 (Documentation/arch/x86/boot.rst). Without either QEMU does not boot
-// it as one, or the kernel runs where it was linked and KASLR cannot move it.
-func Relocatable(path string) error {
-	b, err := os.ReadFile(path) //nolint:gosec // the kernel this build made
-	if err != nil {
-		return fmt.Errorf("no kernel: %w", err)
-	}
-	if len(b) <= 0x234 || string(b[0x202:0x206]) != "HdrS" {
-		return fmt.Errorf("%s has no HdrS setup header: QEMU cannot boot it as a bzImage", path)
-	}
-	if b[0x234] != 1 {
-		return fmt.Errorf("%s is not relocatable: KASLR cannot move it", path)
 	}
 	return nil
 }

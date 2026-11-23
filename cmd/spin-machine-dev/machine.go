@@ -49,7 +49,7 @@ slower. Leave with 'poweroff -f', or Ctrl-A then X.`,
 				return err
 			}
 			base := filepath.Join(w.out, "image", "rootfs.qcow2")
-			for _, f := range []string{"bin/spin-machine", "bin/qemu-system-x86_64", "kernel/bzImage", "image/rootfs.qcow2"} {
+			for _, f := range []string{"bin/spin-machine", "bin/qemu-system-x86_64", "kernel/vmlinux", "image/rootfs.qcow2"} {
 				if _, err := os.Stat(filepath.Join(w.out, f)); err != nil {
 					return couldNot(fmt.Errorf("missing %s: spin-machine-dev build makes it", filepath.Join(w.out, f)))
 				}
