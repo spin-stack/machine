@@ -18,24 +18,17 @@ MASK_UNITS=(
     systemd-timedated.service
 
     systemd-journal-flush.service
-    systemd-journal-catalog-update.service
 
     systemd-fsck-root.service
-    systemd-update-done.service
 
     systemd-modules-load.service
     systemd-hibernate-clear.service
     systemd-pstore.service
-    systemd-hwdb-update.service
 
     systemd-firstboot.service
     systemd-machine-id-commit.service
 
     systemd-random-seed.service
-
-    ldconfig.service
-
-    systemd-sysusers.service
 
     modprobe@configfs.service
     modprobe@drm.service

@@ -443,11 +443,9 @@ was not separated. Each is also something this machine has no use for, which the
 | `dev-mqueue.mount` | removed | The kernel has POSIX message queues and the syscalls work without the mount. | No `/dev/mqueue` to list queues in. |
 | `systemd-timedated.service` | configuration | Time is the host's. timedated would let a session set a clock it does not own. It is bus-activated, never part of the boot, so the mask costs and saves no boot time. | function | `timedatectl` fails ("Unit dbus-org.freedesktop.timedate1.service is masked"). A restored guest's clock is stepped by spin (spin-stack/spin#1498). |
 
-The masks of the units of `ConditionNeedsUpdate` are load-bearing, not removed work:
-
-| Deviation | Category | Why | Evidence | A workspace gives up |
-|---|---|---|---|---|
-| `ldconfig.service`, `systemd-sysusers.service`, `systemd-hwdb-update.service`, `systemd-journal-catalog-update.service`, `systemd-update-done.service` | removed | They run when `/etc` is newer than `/etc/.updated`, which the image does not have, so unmasked they rebuild `hwdb.bin`, the linker cache and the catalog in every boot. The build already ran `ldconfig`, `systemd-sysusers` and `systemd-hwdb update` (the package scripts do). | laptop, 2 boots: +260 ms and QEMU's RSS +90 MiB unmasked (docs/boot-time.md) | A package installed in a workspace that drops a hwdb file or a sysusers.d file has it applied by its own maintainer script, as on Ubuntu; at the next boot nothing reapplies it. Writing `/etc/.updated` at build time would let the units stay and skip themselves (#513). |
+The units of `ConditionNeedsUpdate` (`ldconfig`, `systemd-sysusers`, `systemd-hwdb-update`,
+`systemd-journal-catalog-update`, `systemd-update-done`) are not masked: they skip themselves on
+the image's update stamps. See "The update stamps".
 
 The distribution's background maintenance timers:
 
@@ -840,6 +838,29 @@ repeated too quickly"). Every boot here is a first boot, so keys live exactly as
   session that filled it (2026-09-28). `Options=` replaces the whole list, so it is the shipped unit's
   with the size changed; `%%` is a literal `%` in a unit file.
 
+### The update stamps
+
+`/etc/.updated` and `/var/.updated` are written by `image/build.sh` as the last change to the tree,
+each with `/usr`'s mtime (the build's `SOURCE_DATE_EPOCH`) and `TIMESTAMP_NSEC=`, as
+`systemd-update-done` writes them after an installed system's first boot. The five units of
+`ConditionNeedsUpdate` then find `/usr` no newer than the stamps and skip themselves in every boot,
+as on any installed Ubuntu. Before #513 the image had no stamps, so the units were masked: unmasked
+without stamps they rebuilt `hwdb.bin`, the linker cache and the journal's catalog in every boot,
++260 ms to the first login and +90 MiB of QEMU's RSS (laptop, 2 boots, 2026-11-21). With the
+stamps, a later change to `/usr` that moves its mtime is applied once at the next boot instead of
+never. `build.sh` fails an image whose stamps' mtime is not `/usr`'s, and `boot:workspace` asserts
+that each of the five units checked its condition and skipped.
+
+- **What it costs.** Nothing either goal number shows: bench, spin's shape and login, 20 a side
+  against v20261123.04 with the stamps and the unmasks in its overlay, first login −0.3 [−6.8,
+  +4.5] (lab 45120950183), restored +0.2 [−2.1, +0.9] evicted and −1.3 [−4.5, −0.4] cached, the
+  cold login +1.2 [−2.6, +7.3] (lab 45120950314). The units are in `sysinit.target`, which starts
+  after the first login's units since #581.
+- **Prior art.** OSTree forces every mtime to 0, so `/etc` was never newer than a stamp carried
+  over, and ostreedev/ostree#1631 removes the stamp from each new deployment; on rpm-ostree the
+  units do not run because `/usr`'s mtime does not move (RHBZ 2230187). This image is never
+  upgraded in place by an image tool, and its stamps equal `/usr`'s mtime rather than exceed it.
+
 ### The pressure sender
 
 The guest's half of the pressure probe: PSI triggers on CPU, memory and IO, and OOM kills, written
@@ -894,7 +915,7 @@ it rather than going stale. On v20261122.03 (lab 45036254377):
 | A daemon ready at login | The first `docker` command waits 0.47 s for dockerd and containerd (two vCPUs). | `docker.socket` (deferred) |
 
 Issues this review opened, each a decision still to make: the packages a workspace gets
-(#512), `/etc/.updated` instead of five masks (#513), the journal's size and persistence (#514),
+(#512), the journal's size and persistence (#514),
 and the host keys from the first dispatch (#515).
 
 ## Measured in this review

@@ -226,12 +226,8 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 // machine carries"), one group each, as image/mkosi.extra/usr/local/lib/spin-base/
 // optimize-systemd.sh and the coldplug filter do it. What the script does for a function (the time
 // sync, the first boot's prompt, the machine-id commit, journald's storage, docker's socket
-// activation) is not in any of them, and neither are the masks of the five units of
-// ConditionNeedsUpdate (ldconfig, sysusers, hwdb-update, journal-catalog-update, update-done): the
-// image has no /etc/.updated or /var/.updated, so unmasked they rebuild hwdb.bin, the linker cache
-// and the catalog in every boot, the first login +260 ms and QEMU's RSS +90 MiB on a laptop (2
-// boots, 2026-11-21). Each step checks what it undoes, so a release that no longer carries one
-// fails the tree rather than measuring it twice.
+// activation) is not in any of them. Each step checks what it undoes, so a release that no longer
+// carries one fails the tree rather than measuring it twice.
 
 // carryMasksEdit unmasks the units optimize-systemd.sh masks for boot time that the image has.
 var carryMasksEdit = Edit{
