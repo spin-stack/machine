@@ -209,7 +209,13 @@ sshd-auth's exec and exit, the fork of the login's process, its exec of the shel
 `/usr/bin/true`, and true's exit. Each window lists its CPU by owner, and idle. An owner is a task's
 unit, read from its cgroup after the login or from systemd's `ExecMainPID`, else its parent's.
 Kernel threads are one owner. PID 1 is the kernel's until it execs init, because the kernel's
-initcalls run in it. A task forked by PID 1 that nothing names is `unattributed`. The generators
+initcalls run in it. On spin's login (`login=spin`) PID 1 execs the lab's stand-in for spin's
+handoff first, a shell that places spin's host key and execs systemd, and the ledger gives it its
+own window, `spin's handoff, to PID 1's exec of systemd`, with its length recorded as `handoff`.
+Its mounts and its `mkdir` are `unattributed`. It took 6.3 to 7.9 ms in three boots, 2.3 to
+3.7 of them idle on cold reads of the shell and `mount` (lab 45088516505, v20261123.01, 2026-11-23).
+systemd mounts `/proc` and `/run` itself when no one has, so part of that window is moved from
+systemd's. spin's own vminitd runs before systemd too, does more, and is not measured here. A task forked by PID 1 that nothing names is `unattributed`. The generators
 and the executors that exited before the login are the usual ones. A task named `9` is
 systemd-executor, which PID 1 starts by its file descriptor. A second table gives each owner's
 time from PID 1 to the login by state: running, runnable (waiting for the vCPU), disk
@@ -297,6 +303,8 @@ Each of these made a number say something it did not measure.
   - A 128 MiB guest never plugged runs its OOM killer through the boot. It lost boots in
     `initcalls` and stalled ~400 ms in ~20% of restores (labs 44784196287, 44788801555).
   - The lane's login moved numbers that spin's login does not have.
+  - spin's login without spin's host key handed over paid the image's keygen, which spin's own
+    path skips: ~7 ms of every cold login (#515). `login=spin` hands it over since #575.
 - **Host noise.** Interleaved boots on the bench fleet, one lab run on each instance, now prevent it.
   The cases:
   - a cold page cache right after `task build`: 98 ms read as a 35 ms regression (`f32d527`);

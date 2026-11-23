@@ -58,8 +58,13 @@ The probes boot and log in as spin does, unless a run asks otherwise (docs/cli.m
 - **The host.** spin's host must set THP defrag to `defer`, and spin does not set it
   (`docs/memory-and-disk.md`, "What the host must set"). The probes leave the bench host's policy
   as it is, unless `restore-together` is given `defrag=`.
+- **The host key.** Before it execs systemd, spin's vminitd places the workspace's host key at
+  `/run/spin/ssh/ssh_host_ed25519_key` with a drop-in naming it sshd's only `HostKey`, and the
+  image's keygen then does not run (#515). `login=spin` does the same from a shell as PID 1, a
+  stand-in that costs 6-8 ms of its own before systemd (docs/measuring.md, "The ledger"; #575).
 - **Still not spin's.** spin boots `/sbin/vminitd` from its own initrd before systemd. Its
-  supervisor starts `ssh.service` when it installs the user CA. The probes boot the image's init.
+  supervisor starts `ssh.service` when it installs the user CA. The probes boot the image's init
+  behind the handoff's shell.
 
 Most numbers taken before 2026-11-21 used another shape (2 vCPUs, 2 GiB, no ceilings, the
 "ladder" shape) and another login (the lane). The "Shape" column of each row below says which. A

@@ -155,7 +155,7 @@ func (exitsProbe) Measure(_ context.Context, m *Measurement) error {
 	cid := NewCID()
 	sock := filepath.Join(m.Socks, "m.qmp")
 	t0 := time.Now()
-	mc, err := m.Launch(nil, m.BootArgs(overlay, "--vsock-cid", fmt.Sprint(cid), "--qmp", sock, "--append", m.Tree.Cmdline())...)
+	mc, err := m.Launch(nil, m.BootArgs(overlay, "--vsock-cid", fmt.Sprint(cid), "--qmp", sock, "--append", m.Tree.Cmdline(m.Key.Init()))...)
 	if err != nil {
 		return err
 	}

@@ -66,7 +66,7 @@ func (sshFirst) Measure(_ context.Context, m *Measurement) error {
 	// t0 before the exec, so QEMU's start and the firmware are inside what is measured.
 	t0 := time.Now()
 	qmp := filepath.Join(m.Socks, "m.qmp")
-	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--console", "file:/dev/stdout", "--append", m.Tree.Cmdline()}, m.qmpToPlug(qmp)...)
+	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--console", "file:/dev/stdout", "--append", m.Tree.Cmdline(m.Key.Init())}, m.qmpToPlug(qmp)...)
 	mc, err := m.Launch(w, m.BootArgs(overlay, args...)...)
 	if err != nil {
 		return err

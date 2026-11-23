@@ -359,6 +359,40 @@ func TestTheLedgersCutsFollowTheLoginsProcesses(t *testing.T) {
 	}
 }
 
+// On spin's path PID 1 is first the handoff, which execs systemd: the handoff gets a window of its
+// own, the PID 1 window starts at systemd's exec, and the probe's numbers are read from them.
+func TestSpinsHandoffHasAWindowOfItsOwn(t *testing.T) {
+	in := ledgerFixture(t)
+	lane, err := newLedger(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const exec = "         systemd-1       [000] .....     0.083224: sched_process_exec: filename=/sbin/init pid=1 old_pid=1\n"
+	const switched = "          <idle>-0       [000] d..2.     0.083971: sched_switch: prev_comm=swapper/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=init next_pid=1 next_prio=120\n"
+	if !strings.Contains(in.Trace, exec) || !strings.Contains(in.Trace, switched) {
+		t.Fatal("the fixture no longer has the lines this test edits")
+	}
+	trace := strings.Replace(in.Trace, exec, strings.Replace(exec, "/sbin/init", spinHandoffInit, 1), 1)
+	in.Trace = strings.Replace(trace, switched, switched+"         systemd-1       [000] .....     0.083972: sched_process_exec: filename=/sbin/init pid=1 old_pid=1\n", 1)
+	l, err := newLedger(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Windows) != len(lane.Windows)+1 || l.Windows[1].Name != windowHandoff || !near(l.Windows[1].Start, 83.224) ||
+		!near(l.Windows[2].Start, 83.972) || !near(l.Windows[1].End, 83.972) {
+		t.Fatalf("windows: %+v", l.Windows[:3])
+	}
+	if h := l.window(windowHandoff); !near(h.End-h.Start, 0.748) {
+		t.Errorf("the handoff's window: %+v", h)
+	}
+	if h := lane.window(windowHandoff); h.End-h.Start != 0 {
+		t.Errorf("the lane's ledger has a handoff: %+v", h)
+	}
+	if !near(l.window(windowConnection).Start, 252.151) || !near(lane.window(windowConnection).Start, 252.151) {
+		t.Errorf("the connection: %v and %v", l.window(windowConnection), lane.window(windowConnection))
+	}
+}
+
 // With no unit named for any task, a task's time is the kernel's, its threads', idle or
 // unattributed, and nothing else.
 func TestATaskNoUnitNamesIsUnattributed(t *testing.T) {

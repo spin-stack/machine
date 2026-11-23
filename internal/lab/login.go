@@ -99,13 +99,59 @@ func GettyDropin(body string) map[string]string {
 	}
 }
 
+// spinHandoffInit is spinHandoff's init, which a boot on spin's path runs as PID 1 (Key.Init).
+const spinHandoffInit = "/usr/local/sbin/spin-lab-handoff"
+
+// spinHandoff stands for spin's vminitd handing the boot over to systemd with the host key spin
+// pins (spin-stack/spin at 1bd3414, internal/guest/vminit/handoff, writeHostKey): the key at
+// /run/spin/ssh/ssh_host_ed25519_key, on a /run mounted before systemd starts, and the drop-in
+// that names it as sshd's only HostKey. With the key there the image's keygen does not run (#515),
+// and without the handoff every probe on spin's path paid ~7 ms of it that spin's does not (#575).
+// The key is made on the host for each overlay, a fresh one for each boot as spin's guest makes
+// one for each launch.
+//
+// The init is a shell that execs systemd, as vminitd does. It costs what vminitd does not do
+// in the same way, so it is kept to three execs: the key is read from a file the shell sources and
+// written by its printf, both builtins. The ledger gives it a window of its own (docs/measuring.md,
+// "The ledger"). vminitd's own work on spin's path is not measured here.
+var spinHandoff = Edit{
+	Files: map[string]string{
+		"/etc/ssh/sshd_config.d/00-spin-host-key.conf": "HostKey /run/spin/ssh/ssh_host_ed25519_key\n",
+		spinHandoffInit: `#!/bin/sh
+mount -t proc proc /proc
+mount -t tmpfs -o mode=0755,nosuid,nodev,size=20%,nr_inodes=800k tmpfs /run
+mkdir -p -m 0700 /run/spin/ssh
+umask 077
+. /usr/local/lib/spin-lab/host-key
+printf '%s\n' "$key" > /run/spin/ssh/ssh_host_ed25519_key
+exec /sbin/init
+`,
+	},
+	Setup: `chmod 0755 "$MNT` + spinHandoffInit + `"
+d=$(mktemp -d)
+ssh-keygen -q -t ed25519 -N "" -C "" -f "$d/key"
+install -d -m 0700 "$MNT/usr/local/lib/spin-lab"
+(umask 077; printf "key='%s'\n" "$(cat "$d/key")" > "$MNT/usr/local/lib/spin-lab/host-key")
+rm -r "$d"
+`,
+}
+
 // Edits are what a boot logged into with k needs in its overlay: Edit, and on spin's path
-// spinsPath after it.
+// spinsPath and spin's handoff after it.
 func (k *Key) Edits() []Edit {
 	if k.SpinsPath {
-		return []Edit{k.Edit(), spinsPath}
+		return []Edit{k.Edit(), spinsPath, spinHandoff}
 	}
 	return []Edit{k.Edit()}
+}
+
+// Init is what a boot logged into with k runs as PID 1: spin's handoff on spin's path, which execs
+// /sbin/init, and /sbin/init on the lane.
+func (k *Key) Init() string {
+	if k.SpinsPath {
+		return spinHandoffInit
+	}
+	return "/sbin/init"
 }
 
 // Edit is what a boot logged into with k needs in its overlay: k in spin's authorized_keys,

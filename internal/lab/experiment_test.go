@@ -268,8 +268,14 @@ func TestBootArgsAreTheTreesInTheExperimentsShape(t *testing.T) {
 	}
 	c := &checkpoint{cid: 42}
 	m.Tree.Manifest.Append = "quiet"
+	m.Key = &Key{}
 	if got := c.bootFlags(m, "/s/q", "--held"); !slices.Equal(got, []string{"--vsock-cid", "42", "--qmp", "/s/q", "--console", "file:/s/q.console", "--append", "init=/sbin/init quiet", "--held"}) {
 		t.Errorf("bootFlags = %v", got)
+	}
+	// On spin's path the handoff is PID 1, and a tree's own init= still comes after it.
+	m.Key.SpinsPath = true
+	if got := c.bootFlags(m, "/s/q"); got[len(got)-1] != "init="+spinHandoffInit+" quiet" {
+		t.Errorf("bootFlags on spin's path = %v", got)
 	}
 }
 
@@ -471,19 +477,20 @@ func TestALoginKeyGoesIntoTheOverlayOwnedBySpin(t *testing.T) {
 }
 
 // spin's login is root's, through a forwarder from vsock to ssh.service with Nagle off on its
-// loopback side, and systemd's own vsock sshd masked; the lane's is spin's, with no forwarder.
+// loopback side, systemd's own vsock sshd masked and spin's handoff as PID 1; the lane's is spin's,
+// with no forwarder, booting systemd.
 func TestSpinsLoginIsRootThroughAForwarderToSSHService(t *testing.T) {
 	k, err := NewKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if k.User() != "spin" || len(k.Edits()) != 1 {
-		t.Errorf("the lane's login: %s, %d edits", k.User(), len(k.Edits()))
+	if k.User() != "spin" || len(k.Edits()) != 1 || k.Init() != "/sbin/init" {
+		t.Errorf("the lane's login: %s, %d edits, init %s", k.User(), len(k.Edits()), k.Init())
 	}
 	k.SpinsPath = true
 	e := k.Edits()
-	if k.User() != "root" || len(e) != 2 {
-		t.Fatalf("spin's login: %s, %d edits", k.User(), len(e))
+	if k.User() != "root" || len(e) != 3 || k.Init() != spinHandoffInit || e[2].Files[spinHandoffInit] == "" {
+		t.Fatalf("spin's login: %s, %d edits, init %s", k.User(), len(e), k.Init())
 	}
 	fwd := e[1].Files["/etc/systemd/system/spin-lab-forward.service"]
 	if !slices.Equal(e[1].Mask, []string{"sshd-vsock.socket"}) || !strings.Contains(fwd, "TCP:127.0.0.1:22,nodelay") ||
