@@ -168,6 +168,11 @@ every kernel bump.
 | 0018 | the compiled decompressor reads its relocations from `.data.reloc` |
 | 0019 | the compiled `arch/x86/boot/startup/kaslr.c` sets `KASLR_FLAG` |
 | 0020 | the compiled `arch/x86/boot/startup/kaslr.c` reads RDRAND from CPUID leaf 1's ECX |
+| 0021 | `enable_IO_APIC` does not call `clear_IO_APIC`: each pin is cleared from the read its ExtINT search made |
+| 0022 | `pci_bus_add_device` calls `pci_find_host_bridge`, the gate on its state save |
+| 0023 | `vp_modern_probe` calls `pci_find_capability` once |
+| 0024 | the compiled `drivers/virtio/virtio_pci_modern_dev.c` writes `queue_select` only when `selected_queue` differs |
+| 0025 | the compiled `arch/x86/kernel/apic/msi.c` compares the vector and the destination before the message write |
 
 None of them is a guest check. What the patches save is CPU and VM exits, which a guest cannot
 count, and the format files 0003 defers are behind lockdown. What 0012 and 0013 save is a parse of

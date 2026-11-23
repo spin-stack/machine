@@ -1,0 +1,95 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 01:26:15 -0300
+Subject: [PATCH] PCI: Save a device's state at add only where error recovery
+ can use it
+
+Commit a2f1e22390ac ("PCI/ERR: Ensure error recoverability at all
+times") saves every device's configuration space in
+pci_bus_add_device(), so that a driver's error handlers can restore it
+after an error has already lost it, and so that pci_restore_state()
+no longer needs to refuse a state that was never saved. The save reads
+the first 64 bytes of configuration space a dword at a time, and the
+capability state pci_save_state() keeps.
+
+A kernel built without anything that calls a driver's error handlers
+never restores that state. Error recovery through pcie_do_recovery()
+needs CONFIG_PCIEAER, which DPC and EDR depend on, and the other
+callers of the handlers are EEH, s390's zPCI and Xen's PCI frontend.
+Every other path that loses the state saves it first: runtime and
+system suspend in pci-driver.c, hibernation's freeze, the reset
+methods through pci_dev_save_and_disable() and the bus and slot resets
+through pci_bus_save_and_disable_locked(). The one other restore of a
+state nobody saved is pcibios_reset_secondary_bus(), which restores a
+Root Port on a host bridge that provides reset_root_port().
+
+Skip the save at add when none of those is built and the device is
+not on such a root bus.
+
+Under a hypervisor every configuration read is a trap. On this
+machine's QEMU q35, eight conventional PCI functions on the root bus
+(the host bridge, the LPC bridge and six virtio-pci devices), the save
+reads 16 dwords from each: 128 reads per boot, measured with the
+function tracer. At about 6.7 us a nested exit, that is ~0.9 ms on the
+boot's path.
+
+What it costs: with the save skipped, pci_restore_state() on a device
+whose state was never saved writes zeros back over its header. In a
+kernel built with none of the error recovery above, that takes a
+driver that restores in a path of its own without a pci_save_state()
+of its own. Of the drivers this machine's config builds, only 8250_pci
+restores, and only in its error handler. A driver that does,
+built into a later config, would leave its device unusable after its
+own reset, so the list above has to grow with whatever calls error
+handlers next.
+
+Local patch for this machine. Not upstream.
+
+Assisted-by: LLM
+---
+ drivers/pci/bus.c | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pci/bus.c b/drivers/pci/bus.c
+index 655ed5343..a8c3794ad 100644
+--- a/drivers/pci/bus.c
++++ b/drivers/pci/bus.c
+@@ -336,6 +336,26 @@ void __weak pcibios_resource_survey_bus(struct pci_bus *bus) { }
+ 
+ void __weak pcibios_bus_add_device(struct pci_dev *pdev) { }
+ 
++/*
++ * Whether anything can restore @dev's state without saving it first.
++ * Error recovery can: it calls a driver's error handlers once the error
++ * has lost the state, and those restore what was saved beforehand.
++ * Every other path that loses it, a power transition or a reset,
++ * saves it first. pcie_do_recovery() needs AER, which DPC and EDR
++ * depend on; EEH, s390's zPCI and Xen's PCI frontend call the handlers
++ * themselves. pcibios_reset_secondary_bus() restores a Root Port its
++ * host has reset.
++ */
++static bool pci_dev_needs_saved_state(struct pci_dev *dev)
++{
++	if (IS_ENABLED(CONFIG_PCIEAER) || IS_ENABLED(CONFIG_EEH) ||
++	    IS_ENABLED(CONFIG_S390) || IS_ENABLED(CONFIG_XEN_PCIDEV_FRONTEND))
++		return true;
++
++	return pci_is_root_bus(dev->bus) &&
++	       pci_find_host_bridge(dev->bus)->reset_root_port;
++}
++
+ /**
+  * pci_bus_add_device - start driver for a single device
+  * @dev: device to add
+@@ -358,7 +378,8 @@ void pci_bus_add_device(struct pci_dev *dev)
+ 	pci_bridge_d3_update(dev);
+ 
+ 	/* Save config space for error recoverability */
+-	pci_save_state(dev);
++	if (pci_dev_needs_saved_state(dev))
++		pci_save_state(dev);
+ 
+ 	/*
+ 	 * Enable runtime PM, which potentially allows the device to
+-- 
+2.53.0
+
