@@ -24,12 +24,21 @@ Under a hypervisor every configuration read is a trap. On this
 machine's QEMU q35 with six virtio-pci devices it is 114 reads fewer
 per boot, out of the 258 that vp_modern_probe() and
 vp_modern_map_capability() make (counted from the source and QEMU's
-capability order; the 258 were measured with the function tracer). At
-about 6.7 us a nested exit, that is ~0.8 ms on the boot's path.
+capability order; the 258 were measured with the function tracer, and
+114 fewer MMIO exits with the patch). At about 6.7 us a nested exit,
+that is ~0.8 ms on the boot's path.
 
 It costs nothing at run time. The capabilities are read as before,
 fewer times; vp_modern_map_capability() still reads each structure's
 BAR again before it maps it.
+
+Measured on the bench fleet (nested KVM, Xeon 6975P-C, one vCPU, the
+workspace's shape), alone this patch moved the first SSH login by less
+than the noise. With the other four patches that remove exits from
+device setup (the IO-APIC table, the state save at add, virtio's
+capabilities, queue_select, the MSI message), the cold first login was
+9.2 ms faster, 95% interval [6.0, 12.2], over 120 interleaved boots a
+side (2026-11-23), and a restored guest's login did not move.
 
 Local patch for this machine. Not upstream.
 
