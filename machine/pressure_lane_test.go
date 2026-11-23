@@ -579,6 +579,8 @@ func (r *guestRoot) write(path, content string) {
 		r.t.Fatal(err)
 	}
 	_ = exec.Command(r.tool, "-w", "-R", "mkdir "+filepath.Dir(path), r.path).Run()
+	// debugfs writes no file over one there, and the release's image has its own sender and units.
+	_ = exec.Command(r.tool, "-w", "-R", "rm "+path, r.path).Run()
 	r.debugfs("write " + in + " " + path)
 	if b, err := exec.Command(r.tool, "-R", "cat "+path, r.path).Output(); err != nil || string(b) != content {
 		r.t.Fatalf("%s is not in the guest's root as written (%v)", path, err)
