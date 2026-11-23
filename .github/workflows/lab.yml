@@ -130,6 +130,12 @@ jobs:
       - name: Run the experiment
         run: go tool task lab:ci
 
+      # Experiment #611 only: what on the host could limit QEMU, kept with the result. After the
+      # experiment, which writes the result's directory.
+      - name: Host settings
+        if: always()
+        run: .github/scripts/host-settings.sh _output/lab/result/host
+
       # result.json, and what a probe kept beside it for a person to read: bootchart's charts.
       - name: Keep the result
         if: always()

@@ -245,6 +245,7 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 		{"trace", asRoot + "cat /sys/kernel/tracing/trace"},
 		{"journal", asRoot + "journalctl -b -o short-monotonic --no-pager"},
 		{"units", asRoot + "sh " + ledgerUnits},
+		{"dmesg", asRoot + "dmesg"},
 	} {
 		if _, fetched[f.name], err = m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, f.command); err != nil {
 			return Miss("fetching the %s: %v", f.name, err)
@@ -288,7 +289,7 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.Record("unattributed", l.unattributed())
 	m.Record("breaks", float64(l.Breaks))
 	if traced {
-		if err := m.prekernel(l, t0, fetched["journal"]); err != nil {
+		if err := m.prekernel(l, t0, fetched["journal"], fetched["dmesg"]); err != nil {
 			return Miss("no split before the kernel's clock: %v", err)
 		}
 	}
@@ -432,7 +433,7 @@ func (ledgerProbe) Detail(r *Result) string {
 
 // prekernel splits the time before the kernel's clock from the traced QEMU's trace (#611), records
 // it, and keeps it beside the ledger.
-func (m *Measurement) prekernel(l Ledger, t0 time.Time, journal string) error {
+func (m *Measurement) prekernel(l Ledger, t0 time.Time, journal, dmesg string) error {
 	trace, err := readPrekernelTrace(m.Dir)
 	if err != nil {
 		return err
@@ -444,6 +445,11 @@ func (m *Measurement) prekernel(l Ledger, t0 time.Time, journal string) error {
 	p, err := splitPrekernel(trace, t0, l.QEMUExec, offset, l.KernelZero)
 	if err != nil {
 		return err
+	}
+	// The ledger's kernel clock is CLOCK_MONOTONIC's, the sched offset sched_clock's: PID 1's exec on
+	// each says how far apart the two zeros are.
+	if pid1, ok := printkRunInit(dmesg); ok {
+		p.Values["mono_lag"] = pid1 - l.Windows[1].Start
 	}
 	if m.Options.Bool("strace") {
 		var cont float64

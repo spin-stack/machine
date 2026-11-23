@@ -717,6 +717,23 @@ var prekernelMetrics = []Metric{
 	{"ioctl_gap_ms", "ms", "their trace gaps summed, an upper bound"},
 	{"acpi_init_build", "ms", "the trace interval ending in etc/acpi/tables' registration, QEMU's first ACPI build"},
 	{"acpi_select_build", "ms", "the longest ACPI file select callback once the guest runs: the rebuild"},
+	{"mono_lag", "ms", "PID 1's exec on sched_clock (dmesg) less on CLOCK_MONOTONIC (the ledger's trace)"},
 	{"strace_ioctls", "count", "under strace: KVM ioctls from QEMU's exec to cont"},
 	{"strace_ioctl_ms", "ms", "under strace: their time, strace -T"},
+}
+
+// printkRunInit is dmesg's "Run ... as init process" on sched_clock, in ms.
+func printkRunInit(dmesg string) (float64, bool) {
+	for line := range strings.Lines(dmesg) {
+		if !strings.Contains(line, "as init process") {
+			continue
+		}
+		open, close := strings.Index(line, "["), strings.Index(line, "]")
+		if open < 0 || close < open {
+			return 0, false
+		}
+		sec, err := strconv.ParseFloat(strings.TrimSpace(line[open+1:close]), 64)
+		return sec * 1000, err == nil
+	}
+	return 0, false
 }
