@@ -1,5 +1,5 @@
 diff --git a/src/core/exec-invoke.c b/src/core/exec-invoke.c
-index 0543e39..1f1f13b 100644
+index 0543e39..e3b559b 100644
 --- a/src/core/exec-invoke.c
 +++ b/src/core/exec-invoke.c
 @@ -70,6 +70,20 @@
@@ -159,3 +159,19 @@ index 0543e39..1f1f13b 100644
          r = fexecve_or_execve(executable_fd, executable, final_argv, accum_env);
  
          /* The execve() failed, let's undo the marking as hot */
+diff --git a/src/shared/seccomp-util.c b/src/shared/seccomp-util.c
+index 3359e91..897c3df 100644
+--- a/src/shared/seccomp-util.c
++++ b/src/shared/seccomp-util.c
+@@ -1316,7 +1316,11 @@ int seccomp_load_syscall_filter_set_raw(uint32_t default_action, Hashmap* filter
+                         log_warning_errno(r, "Failed to set SCMP_FLTATR_CTL_OPTIMIZE, ignoring: %m");
+ #endif
+ 
++                struct timespec spin_ts0, spin_ts1;
++                assert_se(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &spin_ts0) == 0);
+                 r = sym_seccomp_load(seccomp);
++                assert_se(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &spin_ts1) == 0);
++                log_warning("spin-seccomp-mark - syscall_filter_load %" PRIu64 "us r=%i", timespec_load(&spin_ts1) - timespec_load(&spin_ts0), r);
+                 if (ERRNO_IS_NEG_SECCOMP_FATAL(r))
+                         return r;
+                 if (r < 0)
