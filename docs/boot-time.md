@@ -364,6 +364,7 @@ and a row measured in another shape than spin's has such a reason.
 | `pam_selinux` (twice) and `pam_mail` out of sshd's PAM stack: SELinux is off and there is no mail | −1.9 [−4.9, +2.8] at 60 boots | spin | lab 44979726719 | 11-22 |
 | `nsswitch.conf` without the `db` entries libnss-db would serve (kept since 09, never measured); reverted to Ubuntu's | taking it back +0.8 [−8.4, +5.2] cold, restored in noise | spin | lab 45034963004 | 11-22 |
 | The manager's timeouts at 15 s and 10 s, the watchdogs off (`fast-boot.conf`); reverted to systemd's defaults | taking it back +0.3 [−5.2, +3.3] cold, restored in noise | spin | lab 45034963004 | 11-22 |
+| containerd's CRI-enabled config replaced by containerd.io's own (#510); reverted to the package's | first login −4.9 [−12.2, +1.6] at 20 boots, restored login −0.6 [−2.1, +1.5] evicted: containerd starts at the first docker command, after the login | spin | labs 45111391250, 45112037022 | 11-23 |
 
 ### The login
 
