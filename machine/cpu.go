@@ -3,6 +3,7 @@
 package machine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -289,7 +290,8 @@ func Baseline(hosts [][]CPUModel) (CPUModel, error) {
 // Where Baseline names the newest model every host runs, this keeps the host's own model and
 // takes away only what is missing somewhere: a named model cost the cold first login 27 ms on the
 // bench against host (lab 44855890737, 2026-11-21). Hosts of more than one vendor or model are an
-// error, which no list of features takes away.
+// error, which no list of features takes away, and so are hosts whose vCPU properties differ in
+// one that taking features away leaves as it is (unreconciled).
 func Unshared(hosts []CPU) ([]string, error) {
 	if len(hosts) == 0 {
 		return nil, errors.New("no hosts to find the features they share")
@@ -299,6 +301,16 @@ func Unshared(hosts []CPU) ([]string, error) {
 		if h.Vendor != hosts[0].Vendor || h.Model != hosts[0].Model {
 			return nil, fmt.Errorf("a pool of %s %s and %s %s CPUs: only hosts of one vendor and model share features by taking some away",
 				hosts[0].Vendor, hosts[0].Model, h.Vendor, h.Model)
+		}
+		var differ []string
+		for _, d := range hosts[0].differences(h) {
+			if !slices.Contains(unreconciled, d.Part) {
+				differ = append(differ, fmt.Sprintf("%s %s and %s", d.Part, cmp.Or(d.Checkpoint, "none"), cmp.Or(d.Here, "none")))
+			}
+		}
+		if len(differ) > 0 {
+			return nil, fmt.Errorf("a pool of hosts whose CPUs differ in %s: taking features away leaves each as it is, so no checkpoint of one resumes on the other",
+				strings.Join(differ, ", "))
 		}
 		for _, f := range slices.Compact(slices.Sorted(slices.Values(h.Features))) {
 			shows[f]++
@@ -313,6 +325,23 @@ func Unshared(hosts []CPU) ([]string, error) {
 	slices.Sort(out)
 	return out, nil
 }
+
+// unreconciled are the parts of two hosts' CPUs that Unshared lets differ, because taking
+// features away can change them. Read in QEMU 11.2.0-rc0's target/i386 (#587):
+//
+//   - level and xlevel: under host, kvm_cpu_max_instance_init starts the minimum leaves at what
+//     KVM supports, and x86_cpu_expand_features raises them for each feature word that is on
+//     (x86_cpu_adjust_feat_level, and AVX10 to 0x24, APX to 0x29, SVM to 0x8000000A), so a host
+//     that loses a feature can lose the leaf it raised. Two hosts' levels can agree or differ
+//     either way once CPUWithout is applied, and the record does not hold KVM's own leaf to tell
+//     which, so the records of the machines that take CPUWithout decide (CanResume).
+//
+// Every other property is fixed before features are expanded: family, model, stepping and
+// model-id from the host (host_cpu_instance_init), phys-bits and guest-phys-bits from the host
+// and KVM (host_cpu_adjust_phys_bits, kvm_set_guest_phys_bits) whenever lm is on, which every
+// x86_64 host shares, pmu by kvm_cpu_max_instance_init, and the cache switches by the machine
+// type and -cpu.
+var unreconciled = []string{"cpu features", "cpu level", "cpu xlevel"}
 
 // derivedFromHost reports whether a CPU model takes its feature set from the
 // silicon it runs on, which is what makes a checkpoint saved with it unusable on

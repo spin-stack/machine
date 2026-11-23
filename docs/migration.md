@@ -55,7 +55,10 @@ it, by its model and features.
 A named model is slower: the newest one a bench host could run cost the cold first login 27 ms
 against `host` (lab 44855890737, 2026-11-21). A pool can keep `host` and take away what some host
 of it lacks instead: `machine.Unshared` over the hosts' CPUs is the list, and `Spec.CPUWithout`
-takes it away from every machine of the pool (spin-stack/spin#1417).
+takes it away from every machine of the pool (spin-stack/spin#1417). It refuses a pool whose
+hosts differ in a vCPU property no feature taken away changes, such as the stepping or the
+physical address bits. The highest leaves (`level`, `xlevel`) can move with the features, so the
+records of the machines started with `CPUWithout` decide those.
 
 **A named model carries `enforce=on`.** Without it, a model name does not fix the guest's CPU.
 By default, QEMU warns about features the host cannot provide, removes them, and starts anyway.

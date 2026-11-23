@@ -344,6 +344,13 @@ func TestUnshared(t *testing.T) {
 	host := func(vendor string, features ...string) CPU {
 		return CPU{Vendor: vendor, Model: "host", Features: features}
 	}
+	withProps := func(c CPU, kv ...string) CPU {
+		c.Properties = map[string]string{}
+		for i := 0; i < len(kv); i += 2 {
+			c.Properties[kv[i]] = kv[i+1]
+		}
+		return c
+	}
 	for _, tc := range []struct {
 		name  string
 		hosts []CPU
@@ -356,6 +363,12 @@ func TestUnshared(t *testing.T) {
 		{"two vendors", []CPU{host("GenuineIntel"), host("AuthenticAMD")}, nil, "a pool of GenuineIntel host and AuthenticAMD host CPUs"},
 		{"two models", []CPU{host("GenuineIntel"), {Vendor: "GenuineIntel", Model: "Skylake-Server-v4"}}, nil, "a pool of GenuineIntel host and GenuineIntel Skylake-Server-v4 CPUs"},
 		{"no hosts", nil, nil, "no hosts"},
+		{"levels that taking features away may reconcile", []CPU{withProps(host("GenuineIntel", "avx2", "avx10"), "level", "36", "xlevel", "2147483656"),
+			withProps(host("GenuineIntel", "avx2"), "level", "31", "xlevel", "2147483680")}, []string{"avx10"}, ""},
+		{"a stepping and phys-bits no feature changes", []CPU{withProps(host("GenuineIntel", "avx2"), "stepping", "4", "phys-bits", "46", "level", "31"),
+			withProps(host("GenuineIntel", "avx2"), "stepping", "7", "phys-bits", "52", "level", "31")}, nil,
+			"differ in cpu phys-bits 46 and 52, cpu stepping 4 and 7"},
+		{"a property one host lacks", []CPU{withProps(host("GenuineIntel"), "pmu", "true"), host("GenuineIntel")}, nil, "differ in cpu pmu true and none"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := Unshared(tc.hosts)
