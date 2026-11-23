@@ -210,7 +210,6 @@ them for boot time.
 | SELinux off, `pcre2` on | image/systemd | function | - | - |
 | `-O ^orphan_file` | image/build.sh | lead (11-19) | laptop | - |
 | `lazy_itable_init=0` | image/build.sh | function: no 16 MiB of zeros in every overlay | - | - |
-| Masks of the units of `ConditionNeedsUpdate` (ldconfig, sysusers, hwdb-update, journal-catalog-update, update-done) | optimize-systemd.sh | load-bearing: without `/etc/.updated` they rebuild hwdb.bin and the linker cache at every boot, +260 ms | laptop, 2 boots | log.md, 11-21 |
 | 16 more unit masks (journal-flush, fsck-root, modules-load, pstore, random-seed, four modprobe@, …) | optimize-systemd.sh | cold +57.5 [+49.0, +63.0] | group C-masks | lab 44818953987 |
 | 8 generators disabled, 3 tmpfiles rules masked | optimize-systemd.sh | cold +16.7 [+11.6, +23.3] | group C-generators | lab 44818953987 |
 | udev's coldplug filtered (`10-coldplug.conf`), `cpu` kept for hot-added cores | image | cold +14.9 [+8.2, +19.8]; restored +463.7, which was not the coldplug but QEMU's TSC, a guest saved with its tick running (#452, QEMU 0005) | group C-coldplug | lab 44818953987 |

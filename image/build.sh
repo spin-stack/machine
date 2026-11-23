@@ -70,6 +70,14 @@ while read -r pkg version _; do
     echo "==> held: $pkg $version"
 done < "$SHARE/packages.txt"
 
+# docs/image.md, "The update stamps". Last before the inventory: nothing after it changes /usr.
+usr_ns=$(stat -c %.9Y "$tree/usr" | tr -d . | sed 's/^0*//')
+usr_ns=${usr_ns:-0}
+for d in etc var; do
+    printf 'TIMESTAMP_NSEC=%s\n' "$usr_ns" > "$tree/$d/.updated"
+    touch -r "$tree/usr" "$tree/$d/.updated"
+done
+
 # docs/image.md, "The inventory".
 python3 -I /usr/local/share/spin-image/deviations.py "$tree" > /work/deviations.txt
 diff -u /usr/local/share/spin-image/deviations.txt /work/deviations.txt || {
@@ -176,6 +184,16 @@ in_image /etc/udev/rules.d/40-spin-hotadd.rules || {
 for f in /etc/systemd/system/serial-getty@.service.d/term.conf \
          /etc/systemd/system/getty@.service.d/term.conf; do
     in_image "$f" || { echo "ERROR: the image has no $f; a login would inherit TERM=dumb" >&2; exit 1; }
+done
+
+# docs/image.md, "The update stamps"
+usr_mtime=$(stat_in_image /usr | sed -n 's/^ *mtime: \(0x[0-9a-f:]*\).*/\1/p')
+test -n "$usr_mtime" || { echo "ERROR: debugfs gave no mtime for /usr" >&2; exit 1; }
+for f in /etc/.updated /var/.updated; do
+    m=$(stat_in_image "$f" | sed -n 's/^ *mtime: \(0x[0-9a-f:]*\).*/\1/p')
+    test "$m" = "$usr_mtime" || {
+        echo "ERROR: $f's mtime is '$m', not /usr's $usr_mtime; the units of ConditionNeedsUpdate would run in every boot" >&2
+        exit 1; }
 done
 
 for u in systemd-random-seed.service; do
