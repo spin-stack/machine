@@ -92,6 +92,13 @@ type Record struct {
 	// login, from a scheduler trace, taken in the record's run (the ledger probe): read as the
 	// charts are (docs/measuring.md, "The ledger").
 	Ledger string `json:"ledger,omitempty"`
+	// Chain, Order and Graph are files beside the record that show why the same boot as the charts
+	// waited where it did: its login's critical chains, and the ordering among their units as dot
+	// and as graphviz's drawing of it (the bootchart probe's dependency view, docs/measuring.md,
+	// "Boot charts").
+	Chain string `json:"chain,omitempty"`
+	Order string `json:"order,omitempty"`
+	Graph string `json:"graph,omitempty"`
 	// Withdrawn is set when the release was withdrawn (releases withdraw): nobody is to adopt it,
 	// and the release after it is measured against the newest one before it that was not.
 	// Everything it published stays, and its checkpoints resume as before.
@@ -362,7 +369,7 @@ func tables(records []Record, kept string) []table {
 		}
 	}
 	where := table{Title: "Where each was measured",
-		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run", "bootchart", "units", "ledger"}}
+		Head: []string{"release", "measured", "host", "shape", "boots of each probe", "against", "run", "bootchart", "units", "ledger", "chain", "order"}}
 	for _, r := range records {
 		named := entry{Text: r.Release}
 		if r.Withdrawn != nil {
@@ -406,8 +413,10 @@ func tables(records []Record, kept string) []table {
 			run = entry{Text: r.Run[strings.LastIndex(r.Run, "/")+1:], Link: r.Run}
 		}
 		chart, plot, ledger := keptFile("processes", r.Bootchart, kept), keptFile("units", r.Plot, kept), keptFile("ledger", r.Ledger, kept)
+		// The drawing when graphviz made one, and the dot it would have drawn when not.
+		chain, order := keptFile("chain", r.Chain, kept), keptFile("order", cmp.Or(r.Graph, r.Order), kept)
 		where.Rows = append(where.Rows, []entry{release, {Text: r.Measured.Format(time.DateOnly)}, {Text: r.Host},
-			{Text: r.shape()}, {Text: itoa(r.Reps)}, against, run, chart, plot, ledger})
+			{Text: r.shape()}, {Text: itoa(r.Reps)}, against, run, chart, plot, ledger, chain, order})
 	}
 	if adopted := slices.DeleteFunc(slices.Clone(records), func(r Record) bool { return r.Withdrawn != nil }); len(adopted) > 0 {
 		// The newest release a consumer may adopt: a withdrawn one's gap to the goal is nobody's.
