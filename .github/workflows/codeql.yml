@@ -190,7 +190,8 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           # The suppression query marks a result under a codeql[<rule>] comment, which says why it
           # stays, so that severe below and code scanning pass it by.
-          queries: security-extended${{ matrix.language == 'go' && ',codeql/go-queries:AlertSuppression.ql' || '' }}
+          queries: security-extended
+          packs: ${{ matrix.language == 'go' && 'codeql/go-queries:AlertSuppression.ql' || '' }}
 
       - name: Analyze
         uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
