@@ -1,0 +1,172 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 09:00:00 -0300
+Subject: [PATCH] x86/boot: Mark the steps before the kernel's clock with port
+ writes
+
+Lab-only, never for a release (spin-stack/machine#611). One write of a
+distinct value to port 0x80 at each step from the real-mode setup code
+to start_kernel(), so that QEMU's trace of the write (its
+memory_region_ops_write event, 'ioport80') stamps each step on the
+host's clock:
+
+  0xd1 setup main()              0xd8 before choose_random_location()
+  0xd2 before protected mode     0xd9 after it
+  0xd3 decompressor startup_32   0xda after __decompress() (LZ4)
+  0xd4 before the payload copy   0xdb after parse_elf()
+  0xd5 after it                  0xdc after handle_relocations()
+  0xd6 after .bss is cleared     0xdd the kernel's startup_64
+  0xd7 after the identity map    0xde start_kernel()
+
+Each is one exit to the VMM. The setup code's io_delay() writes the
+same port with an undefined value, so a reader matches the values in
+this order.
+
+Assisted-by: Claude
+---
+ arch/x86/boot/compressed/head_64.S | 10 ++++++++++
+ arch/x86/boot/compressed/misc.c    | 11 +++++++++++
+ arch/x86/boot/main.c               |  2 ++
+ arch/x86/kernel/head_64.S          |  2 ++
+ init/main.c                        |  3 +++
+ 5 files changed, 28 insertions(+)
+
+diff --git a/arch/x86/boot/compressed/head_64.S b/arch/x86/boot/compressed/head_64.S
+index 1aca513..c1e6fc3 100644
+--- a/arch/x86/boot/compressed/head_64.S
++++ b/arch/x86/boot/compressed/head_64.S
+@@ -88,6 +88,8 @@ SYM_FUNC_START(startup_32)
+ 	 */
+ 	cld
+ 	cli
++	movb	$0xd3, %al
++	outb	%al, $0x80
+ 
+ /*
+  * Calculate the delta between where we were compiled to run
+@@ -420,6 +422,8 @@ SYM_CODE_START(startup_64)
+  * Copy the compressed kernel to the end of our buffer
+  * where decompression in place becomes safe.
+  */
++	movb	$0xd4, %al
++	outb	%al, $0x80
+ 	leaq	(_bss-8)(%rip), %rsi
+ 	leaq	rva(_bss-8)(%rbx), %rdi
+ 	movl	$(_bss - startup_32), %ecx
+@@ -427,6 +431,8 @@ SYM_CODE_START(startup_64)
+ 	std
+ 	rep	movsq
+ 	cld
++	movb	$0xd5, %al
++	outb	%al, $0x80
+ 
+ 	/*
+ 	 * The GDT may get overwritten either during the copy we just did or
+@@ -457,12 +463,16 @@ SYM_FUNC_START_LOCAL_NOALIGN(.Lrelocated)
+ 	subq	%rdi, %rcx
+ 	shrq	$3, %rcx
+ 	rep	stosq
++	movb	$0xd6, %al
++	outb	%al, $0x80
+ 
+ 	call	load_stage2_idt
+ 
+ 	/* Pass boot_params to initialize_identity_maps() */
+ 	movq	%r15, %rdi
+ 	call	initialize_identity_maps
++	movb	$0xd7, %al
++	outb	%al, $0x80
+ 
+ /*
+  * Do the extraction, and jump to the new kernel..
+diff --git a/arch/x86/boot/compressed/misc.c b/arch/x86/boot/compressed/misc.c
+index 0f41ca0..687dafd 100644
+--- a/arch/x86/boot/compressed/misc.c
++++ b/arch/x86/boot/compressed/misc.c
+@@ -338,6 +338,12 @@ const unsigned long kernel_total_size = VO__end - VO__text;
+ 
+ static u8 boot_heap[BOOT_HEAP_SIZE] __aligned(4);
+ 
++/* A lab-only mark (spin-stack/machine#611): a port write QEMU's trace stamps. */
++static inline void lab_mark(u8 v)
++{
++	asm volatile("outb %%al, $0x80" : : "a"(v));
++}
++
+ extern unsigned char input_data[];
+ extern unsigned int input_len, output_len;
+ 
+@@ -354,9 +360,12 @@ unsigned long decompress_kernel(unsigned char *outbuf, unsigned long virt_addr,
+ 	if (__decompress(input_data, input_len, NULL, NULL, outbuf, output_len,
+ 			 NULL, error) < 0)
+ 		return ULONG_MAX;
++	lab_mark(0xda);
+ 
+ 	entry = parse_elf(outbuf);
++	lab_mark(0xdb);
+ 	handle_relocations(outbuf, output_len, virt_addr);
++	lab_mark(0xdc);
+ 
+ 	return entry;
+ }
+@@ -487,10 +496,12 @@ asmlinkage __visible void *extract_kernel(void *rmode, unsigned char *output)
+ 	debug_putaddr(trampoline_32bit);
+ #endif
+ 
++	lab_mark(0xd8);
+ 	choose_random_location((unsigned long)input_data, input_len,
+ 				(unsigned long *)&output,
+ 				needed_size,
+ 				&virt_addr);
++	lab_mark(0xd9);
+ 
+ 	/* Validate memory location choices. */
+ 	if ((unsigned long)output & (MIN_KERNEL_ALIGN - 1))
+diff --git a/arch/x86/boot/main.c b/arch/x86/boot/main.c
+index 4e382d9..24cfdc3 100644
+--- a/arch/x86/boot/main.c
++++ b/arch/x86/boot/main.c
+@@ -132,6 +132,7 @@ static void init_heap(void)
+ 
+ void main(void)
+ {
++	asm volatile("outb %%al, $0x80" : : "a"(0xd1));
+ 	init_default_io_ops();
+ 
+ 	/* First, copy the boot header into the "zeropage" */
+@@ -175,5 +176,6 @@ void main(void)
+ 	set_video();
+ 
+ 	/* Do the last things and invoke protected mode */
++	asm volatile("outb %%al, $0x80" : : "a"(0xd2));
+ 	go_to_protected_mode();
+ }
+diff --git a/arch/x86/kernel/head_64.S b/arch/x86/kernel/head_64.S
+index 7ed5520..227f551 100644
+--- a/arch/x86/kernel/head_64.S
++++ b/arch/x86/kernel/head_64.S
+@@ -57,6 +57,8 @@ SYM_CODE_START_NOALIGN(startup_64)
+ 	 * tables and then reload them.
+ 	 */
+ 	mov	%rsi, %r15
++	movb	$0xdd, %al
++	outb	%al, $0x80
+ 
+ 	/* Set up the stack for verify_cpu() */
+ 	leaq	__top_init_kernel_stack(%rip), %rsp
+diff --git a/init/main.c b/init/main.c
+index 4efcb99..8d2d3ee 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -989,6 +989,9 @@ void start_kernel(void)
+ 	char *command_line;
+ 	char *after_dashes;
+ 
++#ifdef CONFIG_X86
++	asm volatile("outb %%al, $0x80" : : "a"((u8)0xde));
++#endif
+ 	set_task_stack_end_magic(&init_task);
+ 	smp_setup_processor_id();
+ 	debug_objects_early_init();
+-- 
+2.53.0
+
