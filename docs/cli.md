@@ -435,6 +435,14 @@ with the host's `vmx flags` and `kvm_intel` parameters. On a nested host the tim
 handling alone, a floor on what the guest waited. Run it with `--host bench` and
 `--host bench-metal` to see where nesting's cost goes. It needs sudo.
 
+It also keys the MMIO and port exits by `guest_rip`, and after the first login reads the guest's
+`/proc/kallsyms` to name the function each exit's instruction is in. The detail lists them by
+tree, as `EPT_MISCONFIG pci_mmcfg_read` and the like. An accessor is a leaf, so for its callers
+boot `--kernel traceable:TAG` with the function tracer on the accessors and their stacks, such as
+`--append 'ftrace=function ftrace_filter=pci_mmcfg_read,native_io_apic_read
+trace_options=func_stack_trace,nooverwrite trace_clock=mono trace_buf_size=8M'`. A tree whose
+command line carries `ftrace=` has the guest's trace kept as `TREE-REP.ftrace.txt` (#566).
+
 `lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
 compare. Use `--host bench` (nested, the default) unless the question is nested against metal. `--ref` names the branch whose lab.yml and probes run (default
