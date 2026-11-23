@@ -1,7 +1,7 @@
 # Each pressure in turn, on a guest of one vCPU and 1 GiB, for TestThePressureProbeReportsEachPressure.
 # Each phase is named on the console when it starts; the host reads which phase an event fell in.
 set -u
-# Its timer starts it 10 s after the boot.
+# It starts with the boot's rest, after multi-user.target's first units.
 for i in $(seq 200); do
     systemctl is-active --quiet spin-machine-pressure.service && break
     sleep 0.1
