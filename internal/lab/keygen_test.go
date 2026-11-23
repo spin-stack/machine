@@ -57,22 +57,12 @@ func TestSpinsHandoffKeyIsTheOneTheKeygenStepsAsideFor(t *testing.T) {
 		t.Errorf("the handoff places its key somewhere sshd is not told to read: %q, %q", dropIn, init)
 	}
 
-	e, err := keygenEdit(checkoutRoot(t))
+	b, err = os.ReadFile(filepath.Join(checkoutRoot(t), "image/mkosi.extra/usr/local/lib/spin-base/rootfs/usr/lib/systemd/system/spin-machine-sshd-keygen.service"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	unit := e.Files["/etc/systemd/system/spin-machine-sshd-keygen.service"]
-	if !strings.Contains(unit, "\nConditionPathExists=!"+key+"\n") {
-		t.Errorf("the image's keygen runs whether or not spin handed over its key:\n%s", unit)
-	}
-	release := t.TempDir()
-	write(t, filepath.Join(release, "usr/lib/systemd/system/spin-machine-sshd-keygen.service"), []byte("[Unit]\n"))
-	if err := setUp(t, e, release); err != nil {
-		t.Errorf("a release with another keygen unit: %v", err)
-	}
-	write(t, filepath.Join(release, "usr/lib/systemd/system/spin-machine-sshd-keygen.service"), []byte(unit))
-	if err := setUp(t, e, release); err == nil || !strings.Contains(err.Error(), "is this checkout's") {
-		t.Errorf("a release whose keygen unit is this checkout's is measured twice: %v", err)
+	if !strings.Contains(string(b), "\nConditionPathExists=!"+key+"\n") {
+		t.Errorf("the image's keygen runs whether or not spin handed over its key:\n%s", b)
 	}
 }
 
@@ -105,8 +95,5 @@ func TestCarryKeygenLeavesTheKeysToSSHServiceWhicheverReleaseItEdits(t *testing.
 		if got, err := os.Readlink(ssh); err != nil || got != unit {
 			t.Errorf("%s: ssh.service wants %q, %v", name, got, err)
 		}
-	}
-	if err := setUp(t, keygenUnwantedEdit, t.TempDir()); err == nil {
-		t.Error("keygen-unwanted edited a release with no ssh.service want")
 	}
 }

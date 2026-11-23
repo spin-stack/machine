@@ -228,8 +228,6 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
   systemd: a fresh Ed25519 key for each boot at `/run/spin/ssh/ssh_host_ed25519_key` and the
   drop-in naming it sshd's only `HostKey`. Its tree boots
   `--append init=/usr/local/sbin/spin-lab-handoff`, the shell that places the key.
-- `--edit keygen`: the image's host-key generation unit as this checkout builds it.
-  `--edit keygen-unwanted`: the image's `ssh.service.wants` link to it taken away (#515).
 - `--systemd PATCH`: systemd built here with a patch from image/systemd/experiments, in every
   overlay.
 - `--openssh`: OpenSSH as this checkout builds it (image/openssh), built here, in every overlay.
