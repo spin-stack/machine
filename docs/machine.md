@@ -531,7 +531,8 @@ such as a NIC's MTU or `ICH9-LPC.disable_s3`. The record names each of them. It 
   `x-consistent-cache=off` alone gave leaf 2 a 2 MiB 8-way L2 and leaf 4 a 4 MiB 16-way one, and
   `x-legacy-cpuid2-cache=off` (qemu/patches/0006) makes leaf 2 describe leaf 4's (#586). No
   release's QEMU has that switch, so `task boot:compat` refuses every release's checkpoints by
-  it, from v20261123.02 on, `cpu x-legacy-cpuid2-cache: checkpoint none, here false (same)`.
+  it, v20261123.03 first, `cpu x-legacy-cpuid2-cache: checkpoint none, here false (same)` (CI
+  run 45104443218, 2026-11-23).
 - the machine: its **versioned** type (`machine.Type`, `pc-q35-11.1`), the accelerator,
   each `-machine` option, `-smp` and `-m`, as QEMU reads them back.
 - every device the machine was started with. A device on the root complex is named by its slot
