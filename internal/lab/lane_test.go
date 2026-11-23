@@ -60,17 +60,25 @@ func TestEveryProbeMeasuresATree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// io runs only a tree that carries fio.
+	fioed, err := MakeTree(filepath.Join(t.TempDir(), "fioed"), TreeSpec{Name: "fioed", From: from, SpinMachine: "here", Edits: []string{"lane", fioName}},
+		Sources{Checkout: checkoutRoot(t), Cache: t.TempDir(), Log: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range ProbeNames() {
 		t.Run(name, func(t *testing.T) {
 			p := Probes[name]
-			trees, keep := trees, t.TempDir()
+			trees, keep, opts := trees, t.TempDir(), Options{}
 			switch name {
 			case bootchartName:
 				trees = []*Tree{charted}
 			case ledgerName:
 				trees = []*Tree{traced}
+			case "io":
+				trees, opts = []*Tree{fioed}, Options{"jobs": "randwrite-4k-qd32", "runtime": "1"}
 			}
-			r, err := Experiment{Probe: p, Trees: trees, Reps: 1, Options: Options{}, Scratch: t.TempDir(), Keep: keep, Log: io.Discard}.Run(t.Context())
+			r, err := Experiment{Probe: p, Trees: trees, Reps: 1, Options: opts, Scratch: t.TempDir(), Keep: keep, Log: io.Discard}.Run(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}

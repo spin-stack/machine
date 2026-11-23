@@ -447,9 +447,11 @@ func (m *Measurement) SpinMachine(args ...string) error {
 // Probes are the probes there are, by name.
 var Probes = map[string]Probe{
 	"bootchart":        bootchart{},
+	"build":            goBuild{},
 	"density":          density{},
 	"exits":            exitsProbe{},
 	"initcalls":        initcalls{},
+	"io":               ioProbe{},
 	"ledger":           ledgerProbe{},
 	"prestart":         prestart{},
 	"restore-first":    restoreFirst{},

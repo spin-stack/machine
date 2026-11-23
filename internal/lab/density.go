@@ -146,7 +146,7 @@ func (m *Measurement) bootLoggedIn(name string) (*Machine, uint32, time.Duration
 		return nil, 0, 0, err
 	}
 	cid := NewCID()
-	qmp := filepath.Join(m.Socks, name+".qmp")
+	qmp := m.qmpPath(name)
 	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--console", "file:" + m.Dir + "/" + name + ".console",
 		"--append", m.Tree.Cmdline(m.Key.Init())}, m.qmpToPlug(qmp)...)
 	t0 := time.Now()
@@ -161,3 +161,7 @@ func (m *Measurement) bootLoggedIn(name string) (*Machine, uint32, time.Duration
 	}
 	return mc, cid, login, plugged()
 }
+
+// qmpPath is the monitor bootLoggedIn opens for the machine it boots as name, when the options size
+// the guest.
+func (m *Measurement) qmpPath(name string) string { return filepath.Join(m.Socks, name+".qmp") }

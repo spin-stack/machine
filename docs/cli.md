@@ -225,6 +225,8 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--edit bootchart`: systemd-bootchart as PID 1, spin-stack's fork at the commit versions.yaml
   pins, compiled here in a container, which samples the boot and execs systemd. The `bootchart` probe draws only a tree that carries
   it (measuring.md, "Boot charts").
+- `--edit fio`: fio, built here from the release versions.yaml pins, at /usr/local/bin/fio,
+  which the `io` probe runs.
 - `--edit ledger`: sshd at LogLevel DEBUG1 and the `ledger` probe's two scripts. Its tree also
   boots a kernel that can be traced and the scheduler's tracepoints from the kernel's start,
   `--kernel traceable:TAG --append '<lab.LedgerAppend>'` (measuring.md, "The ledger").
@@ -413,6 +415,21 @@ burst's counts, with every restore's `running`.
 `density` is a workspace's first login with others already running on the host. It has a row for
 each number in `crowds` (default `0 8 16 32`). The running workspaces are idle, or keep their vCPUs
 busy with `load=cpu`, and settle for `settle` seconds (default 10) before the measured boot.
+
+`io` is what a running workspace's disk I/O costs the host (#563). Each row is a fio job in
+`jobs` (default all six: 4 KiB random read and write at 1 and at 32 in flight, 1 MiB sequential
+read and write at 8), run for `runtime` seconds (default 10) with no ramp. The guest boots and is
+logged into, then gets a raw disk of `size` MiB (default 1024) attached as spin attaches one,
+and fio runs against its device with O_DIRECT and io_uring. It records IOPS, MiB/s, the
+completion latency's p50 and p99, and the CPU each GiB moved took: QEMU's, every thread
+(`/proc/PID/stat`), and the guest's busy time. The disk is on the host's tmpfs on every host, so
+two hosts differ only in the path through the hypervisors, not in their scratch devices. The tree
+needs `--edit fio`.
+
+`build` is what a build a workspace runs costs the host (#563): `go build cmd/go` with an empty
+cache and its `sync`, inside the guest, on an ext4 disk attached after the boot that holds the
+host's Go toolchain, on the host's tmpfs as `io`'s is. It records the wall time on the guest's
+clock, QEMU's CPU time and the guest's busy time over it.
 
 `transport` says how much of each goal number QMP and vsock are. It boots and restores as
 `restore-first` does, with QEMU traced (QMP and the run state, in host time). From the trace it

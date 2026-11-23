@@ -36,6 +36,8 @@ on:
           - bootchart
           - ledger
           - exits
+          - io
+          - build
           - check:firmware
           - check:firmware-stages
           - check:waits
