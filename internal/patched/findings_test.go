@@ -146,8 +146,11 @@ func TestScopeKeepsTheTouchedFilesAndFindsWhatIsOnTheirAddedLines(t *testing.T) 
 			t.Errorf("%s lost what it did not read", r.RuleID)
 		}
 	}
-	if want := []string{"changed", "added", "spans-into-added", "upstreams", "upstreams-after", "new-file", "absolute"}; !slices.Equal(rules, want) {
-		t.Errorf("scoped results = %v, want %v", rules, want)
+	if want := []string{"changed", "added", "spans-into-added", "new-file", "absolute"}; !slices.Equal(rules, want) {
+		t.Errorf("scoped results = %v, want %v: only what the patches added goes to code scanning", rules, want)
+	}
+	if got, want := read(t, filepath.Join(dir, "upstream.txt")), "lib/a.c:1: upstreams: upstreams said\nlib/a.c:5: upstreams-after: upstreams-after said\n"; got != want {
+		t.Errorf("upstream.txt = %q, want %q", got, want)
 	}
 	if scoped.Schema != "s" || len(scoped.Runs[0].Tool) == 0 {
 		t.Errorf("the scoped SARIF lost its document: %+v", scoped)
@@ -202,5 +205,30 @@ func TestAddedLinesAreTheNewSideOfEachHunk(t *testing.T) {
 	same, err := addedLines(context.Background(), filepath.Join(dir, "was"), filepath.Join(dir, "was"))
 	if err != nil || len(same) != 0 {
 		t.Errorf("an unchanged file: %v, %v", same, err)
+	}
+}
+
+func TestSevereIsWhatIsAtTheSeverityAndNotSuppressed(t *testing.T) {
+	dir := t.TempDir()
+	// The shape CodeQL writes: the rules in the query pack's extension, not the driver.
+	put(t, filepath.Join(dir, "go.sarif"), `{"runs":[{"tool":{"driver":{"name":"CodeQL"},"extensions":[{"name":"codeql/go-queries","rules":[`+
+		`{"id":"go/high","properties":{"security-severity":"8.2"}},{"id":"go/medium","properties":{"security-severity":"4.0"}},`+
+		`{"id":"go/low","properties":{"security-severity":"3.9"}},{"id":"go/quality","properties":{}}]}]},"results":[`+
+		res("go/high", "a.go", 3, 0)+","+res("go/medium", "b.go", 4, 0)+","+res("go/low", "c.go", 5, 0)+","+res("go/quality", "d.go", 6, 0)+","+
+		`{"ruleId":"go/high","message":{"text":"why it stays"},"suppressions":[{"kind":"inSource"}],"locations":[{"physicalLocation":{"artifactLocation":{"uri":"e.go"},"region":{"startLine":7}}}]}`+
+		`]}]}`)
+	got, err := Severe(dir, Medium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, f := range got {
+		lines = append(lines, f.String())
+	}
+	if want := []string{"a.go:3: go/high: go/high said", "b.go:4: go/medium: go/medium said"}; !slices.Equal(lines, want) {
+		t.Errorf("Severe = %q, want %q", lines, want)
+	}
+	if _, err := Severe(t.TempDir(), Medium); err == nil {
+		t.Error("no SARIF gave no error")
 	}
 }

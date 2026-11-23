@@ -26,10 +26,12 @@ func (f Finding) String() string {
 	return fmt.Sprintf("%s:%d: %s: %s", f.File, f.Line, f.Rule, f.Message)
 }
 
-// Scope reads the SARIF the analysis wrote over dir's tree (dir/sarif/*.sarif), writes the
-// results in the files the patches touch to dir/scoped.sarif, which is what code scanning is
-// given, and answers those on a line the patches added. A result anywhere else in a touched file
-// is upstream's: it goes to code scanning and decides nothing here.
+// Scope reads the SARIF the analysis wrote over dir's tree (dir/sarif/*.sarif) and answers the
+// results on a line the patches added or changed, which it also writes to dir/scoped.sarif, what
+// code scanning is given. A result anywhere else in a touched file is upstream's: it goes to
+// dir/upstream.txt, one a line, and decides nothing. An alert for upstream's code is one nobody
+// here fixes, and a ruleset that requires CodeQL would block a merge on it (alert #1, system/vl.c's
+// -dump-vmstate fopen, which qemu 0001 does not change, dismissed 2026-11-23).
 //
 // No result says nothing about a file the extractor did not compile, and CodeQL's analysis exits
 // 0 without it. So Scope also fails, naming each, on a touched C file the SARIF does not report
@@ -63,7 +65,7 @@ func Scope(ctx context.Context, dir string) ([]Finding, error) {
 		return nil, fmt.Errorf("%s has no run: the analysis did not finish", sarifs[0])
 	}
 	src, _ := filepath.Abs(filepath.Join(dir, "src"))
-	var findings []Finding
+	var findings, upstream []Finding
 	for _, run := range log.Runs {
 		var results []result
 		if err := json.Unmarshal(run["results"], &results); err != nil {
@@ -79,12 +81,18 @@ func Scope(ctx context.Context, dir string) ([]Finding, error) {
 			if !ok {
 				continue
 			}
-			kept = append(kept, r.raw)
-			for l := first; l <= last; l++ {
-				if lines[l] {
-					findings = append(findings, Finding{Rule: r.RuleID, File: file, Line: l, Message: r.Message.Text})
-					break
+			f := Finding{Rule: r.RuleID, File: file, Line: first, Message: r.Message.Text}
+			ours := false
+			for l := first; l <= last && !ours; l++ {
+				if ours = lines[l]; ours {
+					f.Line = l
 				}
+			}
+			if ours {
+				findings = append(findings, f)
+				kept = append(kept, r.raw)
+			} else {
+				upstream = append(upstream, f)
 			}
 		}
 		if run["results"], err = json.Marshal(kept); err != nil {
@@ -99,6 +107,13 @@ func Scope(ctx context.Context, dir string) ([]Finding, error) {
 		return nil, err
 	}
 	if err := os.WriteFile(filepath.Join(dir, "scoped.sarif"), out, 0o644); err != nil {
+		return nil, err
+	}
+	var text strings.Builder
+	for _, f := range upstream {
+		text.WriteString(f.String() + "\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "upstream.txt"), []byte(text.String()), 0o644); err != nil {
 		return nil, err
 	}
 	unread, err := notExtracted(log.Runs, src, slices.Collect(maps.Keys(added)))
@@ -249,4 +264,79 @@ func addedLines(ctx context.Context, was, now string) (map[int]bool, error) {
 		}
 	}
 	return lines, nil
+}
+
+// Medium is the security severity, CVSS-like as CodeQL rates its rules, from which a result in
+// the repository's own code fails codeql.yml: GitHub's "medium" begins at 4.0. The repository's
+// first analysis gave one result at that or above (go/insecure-hostkeycallback, high, 2026-11-23),
+// so the threshold costs nothing today, and a new one is fixed or suppressed in the source with
+// its reason. Results below it, and those of rules with no security severity, go to code scanning.
+const Medium = 4.0
+
+// Severe is each result of the SARIF files in dir whose rule's security severity is at least at,
+// and which the analysis does not report suppressed: the alert-suppression query marks a result
+// under a `codeql[<rule>]` comment, which says in the source why it stays.
+func Severe(dir string, at float64) ([]Finding, error) {
+	sarifs, _ := filepath.Glob(filepath.Join(dir, "*.sarif"))
+	if len(sarifs) == 0 {
+		return nil, fmt.Errorf("no SARIF file in %s", dir)
+	}
+	var severe []Finding
+	for _, path := range sarifs {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		type rules []struct {
+			ID         string `json:"id"`
+			Properties struct {
+				Severity string `json:"security-severity"`
+			} `json:"properties"`
+		}
+		var log struct {
+			Runs []struct {
+				Tool struct {
+					Driver     struct{ Rules rules }   `json:"driver"`
+					Extensions []struct{ Rules rules } `json:"extensions"`
+				} `json:"tool"`
+				Results []json.RawMessage `json:"results"`
+			} `json:"runs"`
+		}
+		if err := json.Unmarshal(raw, &log); err != nil {
+			return nil, fmt.Errorf("reading %s: %w", path, err)
+		}
+		if len(log.Runs) == 0 {
+			return nil, fmt.Errorf("%s has no run: the analysis did not finish", path)
+		}
+		for _, run := range log.Runs {
+			severity := map[string]float64{}
+			all := run.Tool.Driver.Rules
+			for _, e := range run.Tool.Extensions {
+				all = append(all, e.Rules...)
+			}
+			for _, r := range all {
+				if s, err := strconv.ParseFloat(r.Properties.Severity, 64); err == nil {
+					severity[r.ID] = s
+				}
+			}
+			for _, b := range run.Results {
+				var r result
+				var suppressed struct {
+					Suppressions []json.RawMessage `json:"suppressions"`
+				}
+				if err := errors.Join(json.Unmarshal(b, &r), json.Unmarshal(b, &suppressed)); err != nil {
+					return nil, fmt.Errorf("reading %s's results: %w", path, err)
+				}
+				if len(suppressed.Suppressions) > 0 || severity[r.RuleID] < at {
+					continue
+				}
+				f := Finding{Rule: r.RuleID, Message: r.Message.Text}
+				if len(r.Locations) > 0 {
+					f.File, f.Line, _ = r.where("")
+				}
+				severe = append(severe, f)
+			}
+		}
+	}
+	return severe, nil
 }
