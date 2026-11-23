@@ -29,7 +29,10 @@ tasks:
       /dev/kvm and /dev/vhost-vsock.
     deps: [':tools']
     cmds:
-      - SPIN_RECORD_TEST=1 go test ./boot/ -run '^TestTheMachineSaysHowItEnded$/^shut_down$' -count=40 -timeout 60m 2>&1 | tee /tmp/r.log | grep -E '^(---|    ---|ok|FAIL)|OOM killer|Out of memory' ; echo "runs $(grep -c 'shut_down' /tmp/r.log) fails $(grep -c -- '--- FAIL: TestTheMachineSaysHowItEnded/shut_down' /tmp/r.log) oom $(grep -c 'ran its OOM killer' /tmp/r.log)"
+      - |
+        SPIN_RECORD_TEST=1 go test ./boot/ -run '^TestTheMachineSaysHowItEnded$/^shut_down$' -count=40 -timeout 60m > /tmp/r.log 2>&1 || true
+        grep -E 'FAIL|OOM killer|Out of memory|^ok' /tmp/r.log || true
+        echo "runs 40 fails $(grep -c -- '--- FAIL: TestTheMachineSaysHowItEnded/shut_down' /tmp/r.log) oom $(grep -c 'ran its OOM killer' /tmp/r.log)"
 
   patches:
     desc: >-
