@@ -210,8 +210,8 @@
 - name: systemd-bootchart
   kind: download
   source: https://github.com/spin-stack/systemd-bootchart/archive/{version}.tar.gz
-  version: 3125dea07c5170ee25dd81717335f247972823ab
-  pin: 425ddae00a9a64f4f14eeaa0644e349fe4f1a43952d19c279dcb35580e8e7475
+  version: 5c358a2c9ded32ed82c98bc60598a291648d8bbd
+  pin: 863c5c83f3f1b7dd6595614d72cc42b1f5b748350834a96079d283d7d6dee0b6
   track: commit https://github.com/spin-stack/systemd-bootchart.git main
   note: >-
     internal/lab's bootchart edit: spin-stack's fork of systemd-bootchart, compiled by
