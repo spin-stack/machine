@@ -235,8 +235,10 @@ measure` takes one ledger of each release on it, beside its boot chart, and its 
 a vmlinux that randomizes itself, verified as the release's is, and the tree boots it through
 PVH as the release boots its own. Up to v20261123.07 it was a bzImage, and `traceable:TAG` still
 fetches that for those releases. So the ledgers of v20261123.07 and of every release after it
-until #697 booted through a decompressor their release no longer ran, and their window before the
-kernel's clock reads ~20 ms long. The tree's manifest names the kernel and how the machine
+until #697 booted through a decompressor their release no longer ran. On v20261123.07, 10 boots a
+tree (lab 45260129735), the bzImage's firmware, entry and setup read 44.3 ms and the vmlinux's
+19.4, −24.9 [−25.8, −23.4], while QEMU's start read 8.4 ms longer through PVH (50.3 against 41.9,
+the vmlinux's load, #698): the kernel's 0 is −16.8 [−18.2, −15.1] sooner. The tree's manifest names the kernel and how the machine
 enters it, and the ledger names that window by it.
 `--append` takes `lab.LedgerAppend` as it stands in internal/lab/ledgerprobe.go: the scheduler's
 tracepoints from the kernel's start, on CLOCK_MONOTONIC, into a 2 MiB buffer that drops what
