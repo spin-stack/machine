@@ -31,13 +31,15 @@ const (
 	rootfsName  = "image/rootfs.qcow2"
 	manifest    = "machine.env"
 
-	// kernelName is the kernel the machine boots: a bzImage, entered through its setup code
-	// and the decompressor that picks KASLR's random base, with linuxboot_dma.bin the option
-	// ROM QEMU adds for it. Until 2026-11-19 the machine entered vmlinux through its PVH notes,
-	// which skips that decompressor: _text was ffffffff81000000 at every boot. A release from
-	// before v20261119.02 carries no bzImage, and OpenRelease refuses it for that.
-	kernelName = "kernel/bzImage"
-	kernelROM  = "linuxboot_dma.bin"
+	// The kernel the machine boots, and the option ROM QEMU enters it with. A release whose
+	// vmlinux randomizes itself (PVH) boots it through PVH, with no decompressor (#645); one
+	// from v20261119.02 to #645 boots its bzImage, whose decompressor picks KASLR's base. Until
+	// 2026-11-19 the machine entered a vmlinux that could not move, through PVH, and _text was
+	// ffffffff81000000 at every boot: such a release has neither, and is refused.
+	vmlinuxName = "kernel/vmlinux"
+	pvhROM      = "pvh.bin"
+	bzImageName = "kernel/bzImage"
+	bzImageROM  = "linuxboot_dma.bin"
 )
 
 // Release is an unpacked spin-machine release: the tree the tarball holds under
@@ -50,6 +52,8 @@ const (
 type Release struct {
 	dir string
 	env map[string]string
+	// kernel and rom are the kernel this release boots and the option ROM QEMU enters it with.
+	kernel, rom string
 }
 
 // OpenRelease reads the release tree at dir and reports what is missing, if anything.
@@ -69,8 +73,11 @@ func OpenRelease(dir string) (*Release, error) {
 		return nil, fmt.Errorf("resolving release directory %s: %w", dir, err)
 	}
 
-	r := &Release{dir: abs}
-	for _, want := range []string{qemuName, qemuImgName, kernelName, filepath.Join(firmwareDir, kernelROM), filepath.Join(firmwareDir, DefaultBIOS)} {
+	r := &Release{dir: abs, kernel: bzImageName, rom: bzImageROM}
+	if PVH(filepath.Join(abs, vmlinuxName)) == nil {
+		r.kernel, r.rom = vmlinuxName, pvhROM
+	}
+	for _, want := range []string{qemuName, qemuImgName, r.kernel, filepath.Join(firmwareDir, r.rom), filepath.Join(firmwareDir, DefaultBIOS)} {
 		p := filepath.Join(abs, want)
 		if _, err := os.Stat(p); err != nil {
 			return nil, fmt.Errorf("%s is not a whole machine: %w", abs, err)
@@ -86,22 +93,6 @@ func OpenRelease(dir string) (*Release, error) {
 
 // QEMUImg creates and rebases the qcow2 files a guest's disks are.
 func (r *Release) QEMUImg() string { return filepath.Join(r.dir, qemuImgName) }
-
-// isBzImage refuses a file that is not a bzImage: its setup header's magic, "HdrS" at 0x202.
-// QEMU given anything else tries it as a multiboot or an ELF kernel, and this machine
-// enters neither: the failure would be a guest that never starts, not a sentence.
-func isBzImage(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("opening kernel %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-	magic := make([]byte, 4)
-	if _, err := f.ReadAt(magic, 0x202); err != nil || string(magic) != "HdrS" {
-		return fmt.Errorf("%s is not a bzImage (no HdrS at 0x202): the machine boots a bzImage, and nothing enters a vmlinux", path)
-	}
-	return nil
-}
 
 // Rootfs is the read-only base image every workspace overlays.
 //
@@ -128,8 +119,8 @@ func (r *Release) optional(name, what string) (string, error) {
 func (r *Release) Version() string { return r.env["version"] }
 
 // Spec returns the parts of a machine this release supplies for the accelerator accel ("" or
-// "kvm", or "tcg"): the QEMU that runs under it, the kernel, a bzImage, the firmware directory
-// QEMU loads the BIOS and linuxboot_dma.bin from, and Accel. It is the one way to a Spec's
+// "kvm", or "tcg"): the QEMU that runs under it, the kernel it boots, the firmware directory
+// QEMU loads the BIOS and the kernel's option ROM from, and Accel. It is the one way to a Spec's
 // binaries, so that a binary and the accelerator it was built for cannot be paired wrong.
 //
 // Under "kvm" the QEMU is the ordinary build, which has no TCG compiled in. Under "tcg" it is
@@ -152,7 +143,7 @@ func (r *Release) Spec(accel string) (Spec, error) {
 	}
 	return Spec{
 		QEMU:     qemu,
-		Kernel:   filepath.Join(r.dir, kernelName),
+		Kernel:   filepath.Join(r.dir, r.kernel),
 		Firmware: filepath.Join(r.dir, firmwareDir),
 		Accel:    accel,
 	}, nil

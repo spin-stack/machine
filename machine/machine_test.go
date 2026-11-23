@@ -9,10 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spin-stack/machine/internal/elftest"
 )
 
 // spec returns a minimal valid spec pointing at files that exist: Args asks the kernel whether
-// it is a bzImage.
+// it is a bzImage or an ELF kernel entered through PVH.
 func spec(t *testing.T) Spec {
 	t.Helper()
 	dir := t.TempDir()
@@ -478,17 +480,24 @@ func TestValidateRefuses(t *testing.T) {
 	// A kernel refused is named, for whoever reads the error and not the code.
 	s := spec(t)
 	s.Kernel = s.QEMU
-	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), s.QEMU+" is not a bzImage") {
+	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), s.QEMU+" is neither a bzImage") {
 		t.Errorf("Args of a kernel that is not a bzImage: %v", err)
 	}
-	// Long enough to hold a setup header and without its magic, as a vmlinux is.
+	// Long enough to hold a setup header and without its magic.
 	s = spec(t)
-	s.Kernel = filepath.Join(t.TempDir(), "vmlinux")
+	s.Kernel = filepath.Join(t.TempDir(), "kernel")
 	if err := os.WriteFile(s.Kernel, make([]byte, 0x400), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "is not a bzImage") {
+	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "is neither a bzImage") {
 		t.Errorf("Args of a kernel with no HdrS at 0x202: %v", err)
+	}
+	// An ELF kernel QEMU would enter where it was linked, with no relocation note.
+	if err := os.WriteFile(s.Kernel, elftest.Kernel([]uint32{xenPhys32Entry}, nil), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "no Xen ELF note 19") {
+		t.Errorf("Args of a vmlinux that cannot move: %v", err)
 	}
 
 	// And the specs the cases above are made from have to pass, or every one of them
