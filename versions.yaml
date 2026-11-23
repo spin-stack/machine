@@ -77,8 +77,8 @@
 - name: qemu-builder
   kind: image
   source: ghcr.io/spin-stack/spin-machine/builder-qemu
-  version: b06465ba23ab
-  pin: sha256:19e41fb9909758e885abf79bd9dcedb69b2fd27993065f908739631ec15a96a1
+  version: 45a26bb587b6
+  pin: sha256:dd0b5ed87b601474b991ee19972d0650341b148c7f3e4163a0ff6228cd77c744
   track: digest
   note: >-
     Alpine with qemu/apk.list installed (builder/Dockerfile): the static libraries QEMU links. Its
