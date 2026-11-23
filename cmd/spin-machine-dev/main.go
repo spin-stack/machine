@@ -94,6 +94,7 @@ func root() *cobra.Command {
 		releaseCmd(),
 		releasesCommand(),
 		osvCmd(), cvesCmd(),
+		patchedCmd(),
 	)
 	return c
 }

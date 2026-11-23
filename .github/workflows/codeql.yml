@@ -1,0 +1,94 @@
+name: CodeQL
+
+# CodeQL's C/C++ analysis of the files the machine's patches touch, in the trees its builds make:
+# each part's pinned upstream source with its patches applied (spin-machine-dev patched tree), every
+# other C file taken out, analysed without a build (build-mode none). Every result in a touched file
+# goes to code scanning, under the part's category; a result on a line the patches added or changed
+# fails the job (spin-machine-dev patched scope), and upstream's own do not (#653).
+#
+# On a change to a patch, a pin a patched tree is made from, or this; on main; and weekly, for the
+# queries CodeQL adds.
+
+on:
+  pull_request:
+    paths: &paths
+      - kernel/patches/**
+      - qemu/patches/**
+      - qemu/qboot/*.patch
+      - image/systemd/*.patch
+      - image/openssh/*.patch
+      - versions.yaml
+      - internal/patched/**
+      - cmd/spin-machine-dev/patched.go
+      - .github/workflows/codeql.yml
+  push:
+    branches: [main]
+    paths: *paths
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [kernel, qemu, qboot, systemd, openssh]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # spin-machine-dev built and on the PATH, so a step's exit status is the verb's (go run makes
+      # it 1): the verbs below are the ones a person types (docs/cli.md).
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Make the patched tree
+        run: spin-machine-dev patched tree ${{ matrix.part }}
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: c-cpp
+          build-mode: none
+          source-root: _output/patched/${{ matrix.part }}/src
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: patched-${{ matrix.part }}
+          output: _output/patched/${{ matrix.part }}/sarif
+          upload: never
+
+      - name: Keep the results in the touched files, and fail on one in a line the patches added
+        run: spin-machine-dev patched scope ${{ matrix.part }}
+
+      # The touched files' results, whether or not the step above failed on one.
+      - name: Upload to code scanning
+        if: ${{ !cancelled() && hashFiles(format('_output/patched/{0}/scoped.sarif', matrix.part)) != '' }}
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: _output/patched/${{ matrix.part }}/scoped.sarif
+          category: patched-${{ matrix.part }}
