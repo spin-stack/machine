@@ -31,6 +31,14 @@ func shell(t *testing.T, r *recorder, systemd bool) *guest {
 	g := startGuest(t, s, mac, nil)
 	g.boot(t, r.overlay(t, t.TempDir()), r.base())
 	if systemd {
+		// Sized as spin sizes a workspace right after it starts (docs/boot-time.md, "The memory"):
+		// systemd in the 128 MiB base alone, ~90 MiB to the guest, ran its OOM killer at 0.37 s
+		// and killed systemd-logind, which handles the power button, now and then (#658).
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := g.SetMemory(ctx, 2048); err != nil {
+			t.Fatal(err)
+		}
 		g.await(t, regexp.MustCompile(`login: `), 60*time.Second)
 		return g
 	}
@@ -73,6 +81,9 @@ func TestTheMachineSaysHowItEnded(t *testing.T) {
 			case <-g.Exited():
 			case <-time.After(30 * time.Second):
 				t.Fatalf("QEMU did not end:\n%s", tail([]byte(g.said()), 2000))
+			}
+			if strings.Contains(g.said(), "Out of memory") {
+				t.Errorf("the guest ran its OOM killer:\n%s", tail([]byte(g.said()), 4000))
 			}
 			end, said := g.End()
 			t.Logf("End: %+v, %v", end, said)
