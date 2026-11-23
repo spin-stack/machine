@@ -48,11 +48,10 @@ func hasXenNote(f *elf.File, t uint32) bool {
 		if _, err := p.ReadAt(b, 0); err != nil {
 			continue
 		}
-		for len(b) >= 12 {
+		for len(b) >= 12 { // mutate-exempt: a header alone, 12 bytes, has no room for the name "Xen" and matches nothing
 			namesz, descsz, typ := f.ByteOrder.Uint32(b), f.ByteOrder.Uint32(b[4:]), f.ByteOrder.Uint32(b[8:])
-			name := 12 + (int(namesz)+3)&^3
-			next := name + (int(descsz)+3)&^3
-			if name > len(b) || next > len(b) {
+			next := 12 + (int(namesz)+3)&^3 + (int(descsz)+3)&^3
+			if next > len(b) {
 				break
 			}
 			if typ == t && namesz == 4 && string(b[12:16]) == "Xen\x00" {
