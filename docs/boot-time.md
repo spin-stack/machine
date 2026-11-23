@@ -86,6 +86,27 @@ spends 78.7 ms on them against 48.3 on metal. Removing 1541 CPUID exits moved th
 −10.3 ms, ~6.7 µs an exit. EC2 gives the L1 EPT, VMCS shadowing and APICv, all on, so no L1
 setting is left to turn. Every exit removed counts at ~5-15 µs nested. #565 ranks the levers.
 
+**Density: a host's first login holds until about a third to a half of its CPUs are busy** (#563,
+section 2, `density`, v20261123.04, spin's shape and login, 2026-11-23). Each row boots that many
+workspaces first, logs into each, lets them settle 10 s, and times one more's first login. Under
+`load=cpu` every crowd workspace keeps its one vCPU busy. The line #563 reads is a first login p95
+within 25% of the empty host's in the same run.
+
+| host | load | crowd: first login p50/p95 | within 25% | runs |
+|---|---|---|---|---|
+| nested c8id.4xlarge, 16 CPUs | cpu | 0: 387/417; 4: 378/431; 8: 441/450; 16: 1015/1215; 24: 941/1196 | up to 8 | lab 45110655407, 10 a row |
+| metal c8i.metal-48xl, 192 CPUs | cpu | 0: 337/447; 16: 331/488; 32: 335/344; 48: 336/341 | up to 48 | lab 45110663095, 10 a row |
+| the same | cpu | 0: 342/363; 64: 327/366; 96: 466/486 | up to 64, not 96 | lab 45110670764, 8 a row |
+| the same | idle | 0: 345/368; 16: 336/343; 32: 329/341; 48: 334/352 | all | lab 45110678888, 10 a row |
+| the same | idle | 0: 342/356; 64: 328/350; 96: 331/340 | all | lab 45110688511, 8 a row |
+
+Idle workspaces cost a metal host nothing up to 96, as they cost the bench nothing up to 16 (lab
+44667235868). Busy ones moved the first login at 16 of the bench's 16 CPUs, and at 96 of metal's
+192 (+124 ms p50). The metal empty row's p95 of 447 in lab 45110663095 is one slow boot of ten.
+Between 64 and 96 is unmeasured. The crowd boots one at a time, ~0.8 s each on metal's EBS
+scratch and ~0.75-1.1 s on the bench's NVMe. Section 1 of #563, what nesting costs a running
+workspace's I/O, needs `io` and `build` probes and equal storage on both hosts, and is open.
+
 ## Where the time goes
 
 Each table splits one number into phases, in spin's shape, and gives each phase a source. A phase
