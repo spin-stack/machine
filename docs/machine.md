@@ -519,6 +519,15 @@ such as a NIC's MTU or `ICH9-LPC.disable_s3`. The record names each of them. It 
 - the CPU the guest is shown, read off its vCPU: the vendor, the model, and the features it has
   on, by their canonical names. The features compare as one set. See
   [migration.md](migration.md).
+- the vCPU's properties that shape CPUID without being a feature bit (`cpuidProperties`), each
+  a part `cpu <name>`: the cache switches (`x-consistent-cache`, `l3-cache`, `legacy-cache`,
+  `host-cache-info`), and what the host model takes from the host (`family`, `model`,
+  `stepping`, `model-id`, `level`, `xlevel`, `phys-bits`, `guest-phys-bits`, `pmu`). A switch
+  QEMU leaves at the machine type's default is not held until `-cpu` sets it, and a test fails
+  a `-cpu` option that is neither a feature nor held. A record from before they were held
+  (#569) has none, and is refused by each, `cpu x-consistent-cache: checkpoint none, here false
+  (same)` among them: nothing in it says which side of `x-consistent-cache=off` it was taken on,
+  since v20261122.06 and v20261122.07 run the same QEMU.
 - the machine: its **versioned** type (`machine.Type`, `pc-q35-11.1`), the accelerator,
   each `-machine` option, `-smp` and `-m`, as QEMU reads them back.
 - every device the machine was started with. A device on the root complex is named by its slot

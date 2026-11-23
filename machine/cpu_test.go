@@ -3,6 +3,7 @@
 package machine
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -35,5 +36,25 @@ func TestBaseline(t *testing.T) {
 				t.Errorf("Baseline = %v, %v, want %v", got, err, tc.want)
 			}
 		})
+	}
+}
+
+// Every option -cpu gives a vCPU is a feature, which CPU.Features holds, a filter of features
+// (migratable, enforce), whose outcome Features holds too, or a property the record holds
+// (cpuidProperties). x-consistent-cache went onto -cpu with nothing in the record moving, and a
+// checkpoint resumed across the change to leaf 2 (#569); this fails the next one where it is made.
+func TestTheRecordHoldsWhatTheCPUIsGiven(t *testing.T) {
+	filters := []string{"migratable", "enforce"}
+	for _, s := range []Spec{{}, {Accel: "tcg"}, {CPU: "Skylake-Server-v4"}, {CPUWithout: []string{"avx512f"}}} {
+		model, opts, _ := strings.Cut(s.cpuArg(), ",")
+		for _, o := range strings.Split(opts, ",") {
+			if strings.HasPrefix(o, "-") || strings.HasPrefix(o, "+") {
+				continue
+			}
+			name, _, _ := strings.Cut(o, "=")
+			if !slices.Contains(filters, name) && !slices.Contains(cpuidProperties, name) {
+				t.Errorf("-cpu %s gives the vCPU %s, which the record does not hold: add it to cpuidProperties, or say here why the record need not", model, o)
+			}
+		}
 	}
 }
