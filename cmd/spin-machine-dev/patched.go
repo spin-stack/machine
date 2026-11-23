@@ -3,12 +3,10 @@
 package main
 
 import (
-	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -182,46 +180,7 @@ which no codeql[<rule>] comment suppresses. A result below that goes to code sca
 			say(c, "no result of medium security severity or above")
 			return nil
 		},
-	}, patchedFailed())
-	return c
-}
-
-// patchedFailedTitle is the issue a failed daily analysis opens: one a day, which failed looks for
-// before it opens another.
-func patchedFailedTitle(day string) string {
-	return "CodeQL failed on main " + day
-}
-
-func patchedFailed() *cobra.Command {
-	var run, day string
-	c := &cobra.Command{
-		Use:   "failed --run URL",
-		Short: "Open the issue for a failed daily analysis, once a day",
-		Long: `Open an issue titled "CodeQL failed on main <day>" pointing at --run, the failed run. codeql.yml
-runs once a day on main and not on a pull request, so a red run is seen by nobody unless it opens
-an issue (#653). One a day: an issue of that title, open or closed, is not opened again.`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			title := patchedFailedTitle(cmp.Or(day, time.Now().UTC().Format(time.DateOnly)))
-			url, err := issueTitled(c.Context(), title)
-			if err != nil {
-				return couldNot(err)
-			}
-			if url == "" {
-				body := "The daily CodeQL run failed: " + run + ". A result on a line a patch added, a touched C file " +
-					"the analysis did not read, or a result in this repository's Go of medium security severity or above " +
-					"(codeql.yml's header). Fix it, or suppress a Go result that is safe in the source, with its reason (#653).\n"
-				if url, err = gh(c.Context(), "issue", "create", "-R", github().Repo, "--title", title, "--body", body); err != nil {
-					return couldNot(fmt.Errorf("opening %q: %w", title, err))
-				}
-			}
-			say(c, "%s: %s", title, url)
-			return nil
-		},
-	}
-	c.Flags().StringVar(&run, "run", "", "the URL of the run that failed")
-	c.Flags().StringVar(&day, "day", "", "the day the issue is named for, YYYY-MM-DD (default today, UTC)")
-	_ = c.MarkFlagRequired("run")
+	})
 	return c
 }
 
