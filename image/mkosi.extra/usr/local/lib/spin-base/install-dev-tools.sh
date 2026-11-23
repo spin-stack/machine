@@ -7,6 +7,12 @@ echo "Installing development tools..."
 : "${TASK_VERSION:?}" "${TASK_SHA256:?}"
 : "${GIT_LFS_VERSION:?}" "${GIT_LFS_SHA256:?}"
 : "${BUILDKIT_VERSION:?}" "${BUILDKIT_SHA256:?}"
+: "${DOCKER_CE_VERSION:?}" "${DOCKER_CE_SHA256:?}"
+: "${DOCKER_CE_CLI_VERSION:?}" "${DOCKER_CE_CLI_SHA256:?}"
+: "${DOCKER_CE_ROOTLESS_EXTRAS_VERSION:?}" "${DOCKER_CE_ROOTLESS_EXTRAS_SHA256:?}"
+: "${CONTAINERD_IO_VERSION:?}" "${CONTAINERD_IO_SHA256:?}"
+: "${DOCKER_BUILDX_PLUGIN_VERSION:?}" "${DOCKER_BUILDX_PLUGIN_SHA256:?}"
+: "${DOCKER_COMPOSE_PLUGIN_VERSION:?}" "${DOCKER_COMPOSE_PLUGIN_SHA256:?}"
 
 download() {
     local url="$1" output="$2" sha256="$3"
@@ -45,26 +51,26 @@ tar -xzf /tmp/buildkit.tar.gz -C /usr/local
 rm -rf /usr/local/bin/buildkit-qemu-* 2>/dev/null || true
 buildctl --version
 
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
-
-tee /etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/ubuntu
-Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
-Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
+# docs/image.md, "Packages"
+echo "Installing Docker ${DOCKER_CE_VERSION}..."
+pool=https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64
+mkdir -p /tmp/docker
+docker_deb() {
+    local package="$1" version="$2" sha256="$3"
+    download "${pool}/${package}_${version}~ubuntu.26.04~resolute_amd64.deb" \
+        "/tmp/docker/${package}.deb" "${sha256}"
+}
+docker_deb docker-ce "${DOCKER_CE_VERSION}-1" "${DOCKER_CE_SHA256}"
+docker_deb docker-ce-cli "${DOCKER_CE_CLI_VERSION}-1" "${DOCKER_CE_CLI_SHA256}"
+docker_deb docker-ce-rootless-extras "${DOCKER_CE_ROOTLESS_EXTRAS_VERSION}-1" "${DOCKER_CE_ROOTLESS_EXTRAS_SHA256}"
+docker_deb containerd.io "${CONTAINERD_IO_VERSION}" "${CONTAINERD_IO_SHA256}"
+docker_deb docker-buildx-plugin "${DOCKER_BUILDX_PLUGIN_VERSION}-1" "${DOCKER_BUILDX_PLUGIN_SHA256}"
+docker_deb docker-compose-plugin "${DOCKER_COMPOSE_PLUGIN_VERSION}-1" "${DOCKER_COMPOSE_PLUGIN_SHA256}"
 
 apt-get update
-
-apt-get install -y \
-    docker-ce \
-    docker-ce-cli \
-    containerd.io \
-    docker-buildx-plugin \
-    docker-compose-plugin
+apt-get install -y /tmp/docker/*.deb
+docker --version
+rm -rf /tmp/docker
 
 echo "Cleaning up temporary files..."
 rm -rf /var/tmp/* /usr/local/share/doc /usr/local/share/man

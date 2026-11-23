@@ -15,6 +15,11 @@ no-pci-walk.patch modifies pci.c to skip the PCI bus walk. The firmware built wi
 them ships in releases as qemu/qboot.bin, the patches beside it. The Apache-2.0
 licence does not apply to those patches or COPYING.
 
+image/mkosi.extra/usr/local/lib/spin-base/rootfs/etc/apt/keyrings/docker.asc is
+Docker's public signing key for its apt repository (fingerprint
+9DC858229FC7DD38854AE2D88D81803C0EBFCD88), as https://download.docker.com/linux/ubuntu/gpg
+serves it, unchanged. The Apache-2.0 licence does not apply to it.
+
 --------------------------------------------------------------------------------
 Third-party software in a release, which this licence does NOT cover
 --------------------------------------------------------------------------------

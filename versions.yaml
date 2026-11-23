@@ -273,6 +273,67 @@
     release publishes no checksums, only a provenance attestation beside the tarball. After the
     bump: `spin-machine-dev build image`.
 
+- name: docker-ce
+  kind: download
+  source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-ce_{version}-1~ubuntu.26.04~resolute_amd64.deb
+  version: 29.10.0
+  pin: 87579a4872fa4e5a7d094d2f2137ac83422e3e87477d670c1b90c553678bd94c
+  track: tags https://github.com/docker/cli.git
+  note: >-
+    image/Dockerfile hands it to install-dev-tools.sh, as task, with the five below: Docker's own
+    packages for resolute, from its pool, which keeps every version it published. docker-ce-cli
+    and docker-ce-rootless-extras move with it. The pin can be checked against the package's
+    SHA256 in Docker's Packages index, which its signed InRelease names. A package Docker rebuilds
+    under a revision other than -1 is a change of the source. After the bump: `spin-machine-dev
+    build image` (packages.txt says the version), then `task boot:workspace`.
+
+- name: docker-ce-cli
+  kind: download
+  source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-ce-cli_{version}-1~ubuntu.26.04~resolute_amd64.deb
+  version: 29.10.0
+  pin: 2e4e358b02e43f09944f4043060362dab267fb17a5bb1a81299e85668985e13f
+  track: with docker-ce
+  note: docker-ce's client, released with it; see docker-ce.
+
+- name: docker-ce-rootless-extras
+  kind: download
+  source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-ce-rootless-extras_{version}-1~ubuntu.26.04~resolute_amd64.deb
+  version: 29.10.0
+  pin: fb4c06271a6918aa852ba2ae3a65ab5a516e75a2eb45e0ca994fd8cc764f514b
+  track: with docker-ce
+  note: >-
+    docker-ce recommends it, so apt installed it, unpinned, before it was pinned here. Released
+    with docker-ce; see docker-ce.
+
+- name: containerd-io
+  kind: download
+  source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/containerd.io_{version}~ubuntu.26.04~resolute_amd64.deb
+  version: 2.4.2-4
+  pin: 47921d44c78dcaa8c490025b1602655eed448a3ce3f8df104aeb1ec6025db96c
+  track: follows the newest containerd.io in Docker's resolute pool
+  note: >-
+    the containerd.io package docker-ce depends on; see docker-ce. Its version carries Docker's
+    revision, which Docker moves without a containerd release (2.4.2 went from -1 to -4), so no
+    tag says what is newest: `spin-machine-dev bump containerd-io <version>-<revision>`, the
+    newest the pool lists. After the bump: `spin-machine-dev build image`, then `task
+    boot:workspace`.
+
+- name: docker-buildx-plugin
+  kind: download
+  source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-buildx-plugin_{version}-1~ubuntu.26.04~resolute_amd64.deb
+  version: 0.39.1
+  pin: 969bbbb85df032d7a3f79153e009fb42ad1e659fafcc2d15a8f73420bbde78a4
+  track: tags https://github.com/docker/buildx.git
+  note: Docker's buildx, pinned as docker-ce is. After the bump, `spin-machine-dev build image`.
+
+- name: docker-compose-plugin
+  kind: download
+  source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-compose-plugin_{version}-1~ubuntu.26.04~resolute_amd64.deb
+  version: 5.8.0
+  pin: 0c4d949aa8508ddcebcbe62614c4879887d472c7031c8eb254b7439a6ec6c16f
+  track: tags https://github.com/docker/compose.git
+  note: Docker's compose, pinned as docker-ce is. After the bump, `spin-machine-dev build image`.
+
 - name: qboot
   kind: git
   source: https://github.com/bonzini/qboot.git
