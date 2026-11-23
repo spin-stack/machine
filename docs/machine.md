@@ -295,16 +295,16 @@ and `CPU.Throttles` from `cpu.stat`, and `Memory.High`, `Max`, `OOMs` and `OOMKi
 - **A machine loading or saving a state answers no command until it is done.** The watch follows
   the migration's events and times nothing while one runs, so a restore does not alarm. A command
   asked for the first time has no baseline to be slower than, so it is never slow.
-- **A guest's first 10 s are not reported**, since its sender starts after them.
+- **A guest's first ~0.4 s are not reported**, since its sender starts with the boot's rest, after the first login's units.
 - **vsock's own round trip is not measured** (#393). Under pressure, a heartbeat from a sender at
   the guest's lowest priority would measure the guest's scheduler.
 
 **Where each part lives.** The sender is `cmd/spin-machine-pressure`, built static by the image's
 build (`image/build.sh` checks it is in the image as built). Its unit is
 `spin-machine-pressure.service`, at Nice 19, on the idle scheduler and IO class, and out of the OOM
-killer's way. `spin-machine-pressure.timer` starts it 10 s after the boot. Started with the boot,
-after multi-user.target, it ran beside the first login and cost it ~3 ms, so a guest's first 10 s
-go unreported. A restored guest has it running already. It wakes only when the kernel says something changed. It holds no identity: the host
+killer's way. It is wanted by `multi-user.target`, which the boot's rest starts after the first
+login's units (#581), so it starts ~0.4 s into the boot without costing the login (#401). A
+restored guest has it running already. It wakes only when the kernel says something changed. It holds no identity: the host
 is always CID 2. The host side is `machine/pressure.go`, `machine/limit.go` and `machine/usage.go`. Start refuses a
 watch for a Spec with no vsock, for a QEMU in its caller's own cgroup (one cgroup for every machine
 attributes nothing), and when the cgroup's triggers cannot be armed: a window under 2 s is root's.

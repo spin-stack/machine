@@ -435,8 +435,8 @@ touch "$MNT/var/lib/systemd/linger/root"
 }
 
 // pressureEdit is the pressure probe's guest half as this checkout builds it into the image, put
-// into a published release's overlays: the sender built into the tree at dir, its unit and timer,
-// and the link that enables the timer. A release that has it already is refused, rather than measured twice.
+// into a published release's overlays: the sender built into the tree at dir, its unit, and the
+// link by which multi-user.target wants it. A release that has it already is refused, rather than measured twice.
 func pressureEdit(checkout, dir string) (Edit, error) {
 	bin := filepath.Join(dir, "guest", "spin-machine-pressure")
 	cmd := exec.Command("go", "build", "-trimpath", "-o", bin, "./cmd/spin-machine-pressure")
@@ -444,18 +444,14 @@ func pressureEdit(checkout, dir string) (Edit, error) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return Edit{}, fmt.Errorf("building this checkout's pressure sender: %w: %s", err, out)
 	}
-	files := map[string]string{}
-	for _, unit := range []string{"spin-machine-pressure.service", "spin-machine-pressure.timer"} {
-		path := "/usr/lib/systemd/system/" + unit
-		b, err := os.ReadFile(filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", path))
-		if err != nil {
-			return Edit{}, fmt.Errorf("reading the pressure sender's %s from this checkout: %w", unit, err)
-		}
-		files[path] = string(b)
+	const unit = "/usr/lib/systemd/system/spin-machine-pressure.service"
+	b, err := os.ReadFile(filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", unit))
+	if err != nil {
+		return Edit{}, fmt.Errorf("reading the pressure sender's unit from this checkout: %w", err)
 	}
 	return Edit{
-		Files: files,
-		Links: map[string]string{"/etc/systemd/system/timers.target.wants/spin-machine-pressure.timer": "/usr/lib/systemd/system/spin-machine-pressure.timer"},
+		Files: map[string]string{unit: string(b)},
+		Links: map[string]string{"/etc/systemd/system/multi-user.target.wants/spin-machine-pressure.service": unit},
 		Setup: `test ! -e "$MNT/usr/libexec/spin-machine-pressure"
 install -D -m 0755 ` + bin + ` "$MNT/usr/libexec/spin-machine-pressure"
 `,

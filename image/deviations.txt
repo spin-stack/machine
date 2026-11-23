@@ -42,6 +42,7 @@ masked /etc/systemd/system/modprobe@fuse.service
 masked /etc/systemd/system/motd-news.timer
 unwanted /etc/systemd/system/multi-user.target.wants/containerd.service
 unwanted /etc/systemd/system/multi-user.target.wants/docker.service
+added /etc/systemd/system/multi-user.target.wants/spin-machine-pressure.service
 added /etc/systemd/system/serial-getty@.service.d/term.conf
 added /etc/systemd/system/sockets.target.wants/containerd.socket
 added /etc/systemd/system/ssh.service.d/10-lane.conf
@@ -74,7 +75,6 @@ added /etc/systemd/system/systemd-udev-trigger.service.d/10-coldplug.conf
 added /etc/systemd/system/systemd-udev-trigger.service.d/20-startup.conf
 added /etc/systemd/system/systemd-udevd.service
 added /etc/systemd/system/systemd-udevd.service.d/20-startup.conf
-added /etc/systemd/system/timers.target.wants/spin-machine-pressure.timer
 added /etc/systemd/system/tmp.mount.d/10-size.conf
 added /etc/systemd/system/user-runtime-dir@.service.d/10-lane.conf
 added /etc/systemd/system/user@.service.d/10-lane.conf
@@ -93,7 +93,6 @@ deleted /etc/update-motd.d/50-motd-news
 added /usr/lib/systemd/system/spin-machine-boot-rest.service
 added /usr/lib/systemd/system/spin-machine-login.target
 added /usr/lib/systemd/system/spin-machine-pressure.service
-added /usr/lib/systemd/system/spin-machine-pressure.timer
 added /usr/lib/systemd/system/spin-machine-sshd-keygen.service
 added /usr/libexec/spin-machine-pressure
 added /usr/local/bin/buildctl
