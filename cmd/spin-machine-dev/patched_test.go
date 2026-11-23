@@ -157,3 +157,85 @@ esac`})
 		t.Error("no --run: exit 0")
 	}
 }
+
+// reports fails on a report, naming the patch, opens an issue for one no issue is titled with,
+// and refuses logs that record no sanitized process; a sanitizer that ran and said nothing passes.
+func TestPatchedReportsFailsOnAReportAndOnNothingSanitized(t *testing.T) {
+	root := checkout(t)
+	dir := filepath.Join(root, "_output", "patched", "qemu")
+	put(t, filepath.Join(root, "qemu/patches/0002-scsi.patch"), "--- a/hw/scsi/virtio-scsi.c\n+++ b/hw/scsi/virtio-scsi.c\n", 0o644)
+	put(t, filepath.Join(dir, "upstream/hw/scsi/virtio-scsi.c"), "a\n", 0o644)
+	put(t, filepath.Join(dir, "src/hw/scsi/virtio-scsi.c"), "a\nb\n", 0o644)
+	if _, stderr, status := verb(t, "patched", "reports"); status != 2 || !strings.Contains(stderr, "nothing was checked") {
+		t.Errorf("no logs: status %d, %s", status, stderr)
+	}
+	put(t, filepath.Join(dir, "sanitizer/sanitizer.7"), "==7==AddressSanitizer Init done\n", 0o644)
+	if _, stderr, status := verb(t, "patched", "reports"); status != 0 || !strings.Contains(stderr, "1 sanitized QEMU processes, no report") {
+		t.Errorf("a clean run: status %d, %s", status, stderr)
+	}
+
+	put(t, filepath.Join(dir, "sanitizer/sanitizer.8"), "==8==ERROR: AddressSanitizer: heap-use-after-free on address 0x1\n    #0 0x1 in get_config ../hw/scsi/virtio-scsi.c:2:3\n", 0o644)
+	calls := fakes(t, map[string]string{"gh": `[ "$1 $2" = "issue list" ] && echo '[]'; [ "$1 $2" = "issue create" ] && echo https://x/issues/9; exit 0`})
+	stdout, stderr, status := verb(t, "patched", "reports", "--file-issues", "https://x/runs/5")
+	want := "AddressSanitizer: heap-use-after-free at hw/scsi/virtio-scsi.c:2: 0002-scsi.patch, hw/scsi/virtio-scsi.c:2 on a line it added (sanitizer.8)\n"
+	if status != 1 || stdout != want || !strings.Contains(stderr, "1 sanitizer reports from 2 QEMU processes") {
+		t.Errorf("a report: status %d, stdout %q, stderr %q", status, stdout, stderr)
+	}
+	if got := read(t, calls); !strings.Contains(got, "--title sanitize: AddressSanitizer: heap-use-after-free at hw/scsi/virtio-scsi.c:2 --body") ||
+		!strings.Contains(got, "(https://x/runs/5, #653)") || !strings.Contains(got, "- stopped in: 0002-scsi.patch, hw/scsi/virtio-scsi.c:2 on a line it added") {
+		t.Errorf("gh ran %q", got)
+	}
+	calls = fakes(t, map[string]string{"gh": `[ "$1 $2" = "issue list" ] && echo '[{"title":"sanitize: AddressSanitizer: heap-use-after-free at hw/scsi/virtio-scsi.c:2","url":"https://x/issues/9"}]'; exit 0`})
+	if _, _, status := verb(t, "patched", "reports", "--file-issues", "https://x/runs/6"); status != 1 || strings.Contains(read(t, calls), "issue create") {
+		t.Errorf("filed again: status %d, gh ran %q", status, read(t, calls))
+	}
+	fakes(t, map[string]string{"gh": "exit 1"})
+	if _, stderr, status := verb(t, "patched", "reports", "--file-issues", "https://x/runs/7"); status != 2 || !strings.Contains(stderr, "among the issues") {
+		t.Errorf("gh failing: status %d, %s", status, stderr)
+	}
+}
+
+// sanitized and fuzzer print the environment a workflow appends to GITHUB_ENV: where the build
+// is, and the sanitizers' options, whose logs start empty.
+func TestPatchedSanitizedAndFuzzerPrintTheirEnvironment(t *testing.T) {
+	root := checkout(t)
+	work := t.TempDir()
+	put(t, filepath.Join(work, "a.c"), "int main(int argc, char **argv) { (void)argv; return 1 << argc; }\n", 0o644)
+	binary := filepath.Join(work, "a.out")
+	if out, err := exec.Command("cc", "-fsanitize=address,undefined", "-o", binary, filepath.Join(work, "a.c")).CombinedOutput(); err != nil {
+		t.Skipf("no cc with both sanitizers here: %v\n%s", err, out)
+	}
+	fakes(t, map[string]string{"ninja": `cp ` + binary + ` "$2/$3"`})
+	dir := filepath.Join(root, "_output", "patched", "qemu")
+	put(t, filepath.Join(dir, "src/configure"), "#!/bin/sh\n", 0o755)
+	put(t, filepath.Join(dir, "src/configs/devices/x86_64-softmmu/default.mak"), "", 0o644)
+	put(t, filepath.Join(root, "qemu/Dockerfile"), "\nENV QEMU_FLAGS=\"--static\"\n", 0o644)
+	put(t, filepath.Join(root, "qemu/devices.mak"), "", 0o644)
+	put(t, filepath.Join(root, "_output/qemu/qboot.bin"), "q", 0o644)
+	put(t, filepath.Join(dir, "sanitizer/sanitizer.1"), "an earlier run's\n", 0o644)
+
+	logs := "log_path=" + filepath.Join(dir, "sanitizer", "sanitizer")
+	stdout, stderr, status := verb(t, "patched", "sanitized")
+	if want := "SPIN_SANITIZED=" + filepath.Join(dir, "sanitized") + "\nASAN_OPTIONS=" + logs + ":verbosity=1:detect_leaks=0\nUBSAN_OPTIONS=" + logs + ":print_stacktrace=1\n"; status != 0 || stdout != want {
+		t.Errorf("sanitized: status %d, stdout %q, want %q\n%s", status, stdout, want, stderr)
+	}
+	if got := read(t, filepath.Join(dir, "sanitizer/sanitizer.1")); got != "" {
+		t.Errorf("an earlier run's log is still there: %q", got)
+	}
+	stdout, stderr, status = verb(t, "patched", "fuzzer")
+	if want := "SPIN_FUZZER=" + filepath.Join(dir, "build-fuzz", "qemu-fuzz-x86_64") + "\nASAN_OPTIONS="; status != 0 || !strings.HasPrefix(stdout, want) {
+		t.Errorf("fuzzer: status %d, stdout %q, want it to start %q\n%s", status, stdout, want, stderr)
+	}
+}
+
+// sanitized and fuzzer need the tree that tree makes, and say so.
+func TestPatchedSanitizedAndFuzzerNeedTheTree(t *testing.T) {
+	root := checkout(t)
+	put(t, filepath.Join(root, "qemu/Dockerfile"), "ENV QEMU_FLAGS=\"--static\"\n", 0o644)
+	put(t, filepath.Join(root, "_output/qemu/qboot.bin"), "q", 0o644)
+	for _, v := range []string{"sanitized", "fuzzer"} {
+		if stdout, _, status := verb(t, "patched", v); status != 2 || stdout != "" {
+			t.Errorf("%s without a tree: status %d, %q", v, status, stdout)
+		}
+	}
+}

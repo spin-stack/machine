@@ -29,6 +29,31 @@ posted upstream.
 `docs/boot-time.md`, "What the machine carries", says what each earns among everything else the
 machine carries. The qemu entry of `versions.yaml` says what a bump runs.
 
+## Under the sanitizers
+
+`sanitize.yml` runs the patches under AddressSanitizer and UndefinedBehaviorSanitizer (#653). It
+runs on a change to anything QEMU is built from (`qemu/` and its pins, `--part qemu`) or to what
+builds and reads the sanitized QEMU, and weekly. `spin-machine-dev patched sanitized` builds the patched tree with the Dockerfile's own
+`QEMU_FLAGS`, less what the sanitizers cannot take (`--static`, LTO, strip, fortify; each is
+named with its reason in `internal/patched/sanitized.go`). It is linked dynamically against the
+runner's libraries, since neither runtime links into a static musl binary. Nothing ships it.
+The `boots` job, on the KVM fleet, makes it the QEMU of the newest release's tree, with the
+release's firmware, and runs `boot:record`, `boot:patches`, `boot:checkpoint-pause` (three saves
+each), `lab compat` and three boots and restores of `ssh-first` and `restore-first`. Between them
+these reach every patch: 0002's scan past `max_target`, 0003's deferred flush, 0005's TSC on
+every restore, and 0001, 0006 and 0007 on every start. The `fuzz` job runs QEMU's own
+`generic-fuzz` (`docs/devel/testing/fuzzing.rst`) over a virtio-scsi controller with 0002's
+`max_target=15` and a disk at target 3. It runs five minutes on a change and thirty on the
+weekly run, built with clang under both sanitizers (`task qemu-fuzz`).
+
+Every sanitized process logs its start and its reports under `_output/patched/qemu/sanitizer`.
+`spin-machine-dev patched reports` fails on any report. It names the patches whose touched file
+holds the report's innermost frame in one, and whether the line is one they added; a report with
+no such frame is upstream's. It also fails on logs that record no process. The weekly run opens
+an issue for each report, once a kind and place. No fuzzer reaches 0005. Its code runs only under
+KVM, which libFuzzer's qtest accelerator does not use, and upstream has no migration-stream
+fuzzer. That is #677.
+
 ## Static
 
 A dynamically linked QEMU is not one artefact. It is an artefact plus the libraries it was

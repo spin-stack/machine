@@ -30,6 +30,8 @@ func TestEveryUploadIsAttested(t *testing.T) {
 			"parts.yml/qemu/Upload the extracted binaries":                                     "a lane's QEMU for a person to fetch; a release builds its own",
 			"parts.yml/qemu/Publish the runtime image":                                         "what ci.yml's argument check pulls (spin-machine-dev fetch qemu); a release compiles QEMU, it never takes this",
 			"refresh.yml/builders/Make the builders and propose the ones whose packages moved": "a build's input, pinned by digest in the pull request that takes it; a release ships what is compiled on it, attested",
+			"sanitize.yml/boots/Keep the sanitizers' logs":                                     "a sanitized QEMU's reports, for a person to read; nothing installs or verifies them",
+			"sanitize.yml/fuzz/Keep the crashes and the sanitizers' logs":                      "a fuzzer's crashing inputs and reports, for a person to reproduce; nothing installs or verifies them",
 			"release.yml/trace/Keep the trace":                                                 "where the release's time went, for a person: nothing installs or verifies it",
 			"report.yml/report/Keep the ladders":                                               "each release's ladder.json, every sample, which lab show reads; for a person",
 		},

@@ -5,6 +5,7 @@ package main
 import (
 	"cmp"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 func patchedCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:    "patched",
-		Short:  "Make the source trees the machine's C patches change, and scope an analysis of them",
+		Short:  "Make the source trees the machine's C patches change, scope an analysis of them, and sanitize QEMU's",
 		Hidden: true,
 		Long: `The trees codeql.yml analyses (#653): a part's pinned upstream source with its patches applied,
 in <out>/patched/<part>. Parts: ` + strings.Join(patched.Names(), ", ") + `.`,
@@ -84,6 +85,65 @@ it did not read is not a clean one.`,
 			return nil
 		},
 	}, &cobra.Command{
+		Use:   "sanitized",
+		Short: "Build QEMU's patched tree under ASan and UBSan, as a QEMU a lab tree takes, and print its environment",
+		Long: `Build QEMU from <out>/patched/qemu/src, which tree made, with the release's configuration (qemu/Dockerfile's
+QEMU_FLAGS, less what the sanitizers cannot take) under AddressSanitizer and UndefinedBehaviorSanitizer,
+into <out>/patched/qemu/sanitized: bin/qemu-system-x86_64, and in qemu/ the firmware of <out>/qemu,
+which fetch qemu puts there. A lab build, dynamically linked against this host's libraries; nothing
+ships it (sanitize.yml, #653).
+
+Prints, a line each, SPIN_SANITIZED (the directory, for lab tree's --qemu) and the ASAN_OPTIONS and
+UBSAN_OPTIONS that write every report and every process's start under <out>/patched/qemu/sanitizer,
+emptied here: lines a workflow appends to GITHUB_ENV. reports reads them.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			w, _, dir, err := patchedPart("qemu")
+			if err != nil {
+				return err
+			}
+			laid, err := patched.Sanitized(c.Context(), w.root, dir, filepath.Join(w.out, "qemu"), c.ErrOrStderr())
+			if err != nil {
+				return couldNot(err)
+			}
+			logs, err := sanitizerLogs(dir)
+			if err != nil {
+				return couldNot(err)
+			}
+			_, _ = fmt.Fprintln(c.OutOrStdout(), "SPIN_SANITIZED="+laid)
+			for _, e := range patched.SanitizerOptions(logs) {
+				_, _ = fmt.Fprintln(c.OutOrStdout(), e)
+			}
+			return nil
+		},
+	}, &cobra.Command{
+		Use:   "fuzzer",
+		Short: "Build QEMU's libFuzzer binary from its patched tree under ASan and UBSan, and print its environment",
+		Long: `Build qemu-fuzz-x86_64 from <out>/patched/qemu/src, which tree made, with clang, under
+AddressSanitizer and UndefinedBehaviorSanitizer (QEMU's docs/devel/testing/fuzzing.rst). Prints
+SPIN_FUZZER (the binary) and the ASAN_OPTIONS and UBSAN_OPTIONS of sanitized, whose logs reports
+reads.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			_, _, dir, err := patchedPart("qemu")
+			if err != nil {
+				return err
+			}
+			bin, err := patched.Fuzzer(c.Context(), dir, c.ErrOrStderr())
+			if err != nil {
+				return couldNot(err)
+			}
+			logs, err := sanitizerLogs(dir)
+			if err != nil {
+				return couldNot(err)
+			}
+			_, _ = fmt.Fprintln(c.OutOrStdout(), "SPIN_FUZZER="+bin)
+			for _, e := range patched.SanitizerOptions(logs) {
+				_, _ = fmt.Fprintln(c.OutOrStdout(), e)
+			}
+			return nil
+		},
+	}, reportsCmd(), &cobra.Command{
 		Use:   "severe <sarif-dir>",
 		Short: "Fail on a result of medium security severity or above that the source does not suppress",
 		Long: `Read the SARIF files in <sarif-dir>, which codeql.yml's analysis of this repository's own code
@@ -158,6 +218,81 @@ func patchedPart(name string) (workspace, patched.Part, string, error) {
 		return workspace{}, p, "", err
 	}
 	return w, p, filepath.Join(w.out, "patched", p.Name), nil
+}
+
+func reportsCmd() *cobra.Command {
+	var run string
+	c := &cobra.Command{
+		Use:   "reports",
+		Short: "Name each sanitizer report a sanitized QEMU wrote, and the patch it stopped in (exits 1 on one)",
+		Long: `Read the logs a QEMU that sanitized or fuzzer built wrote under <out>/patched/qemu/sanitizer and
+print each error its sanitizers reported, with the innermost frame in the tree and the patches whose
+file holds it, or upstream. Exits 1 on any report, whoever's code it is in, and 2 when the logs record
+no sanitized process: a run that started none checked nothing. With --file-issues, each report whose
+kind and place no issue is titled with yet is opened as one, citing the run.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			w, p, dir, err := patchedPart("qemu")
+			if err != nil {
+				return err
+			}
+			reports, ran, err := patched.Reports(c.Context(), w.root, p, dir, filepath.Join(dir, "sanitizer"))
+			if err != nil {
+				return couldNot(err)
+			}
+			for _, r := range reports {
+				_, _ = fmt.Fprintln(c.OutOrStdout(), r)
+			}
+			if ran == 0 {
+				return couldNot(fmt.Errorf("no sanitized QEMU wrote to %s: nothing was checked", filepath.Join(dir, "sanitizer")))
+			}
+			if len(reports) == 0 {
+				say(c, "qemu: %d sanitized QEMU processes, no report", ran)
+				return nil
+			}
+			if run != "" {
+				for _, r := range reports {
+					if err := fileReport(c, r, run); err != nil {
+						return couldNot(err)
+					}
+				}
+			}
+			return exitError{code: 1, err: fmt.Errorf("%d sanitizer reports from %d QEMU processes", len(reports), ran)}
+		},
+	}
+	c.Flags().StringVar(&run, "file-issues", "", "the run's URL: open an issue for each report no issue is titled with yet")
+	return c
+}
+
+// fileReport opens an issue for r unless one has its title: its kind and innermost place, so a
+// weekly run that finds it again does not open it again.
+func fileReport(c *cobra.Command, r patched.Report, run string) error {
+	title := "sanitize: " + r.Title()
+	if url, err := issueTitled(c.Context(), title); err != nil || url != "" {
+		return err
+	}
+	where := "upstream's code: no frame is in a file qemu/patches touches"
+	if r.Patch != "" {
+		where = r.Patch
+	}
+	body := "sanitize.yml's sanitized QEMU reported this (" + run + ", #653).\n\n" +
+		"- report: " + r.Kind + "\n- stopped in: " + where + "\n- log: " + filepath.Base(r.Log) + " in the run's artifact\n\n" +
+		"A report in a carried patch is fixed in the patch; one in upstream's code is reported upstream and recorded here."
+	url, err := gh(c.Context(), "issue", "create", "-R", github().Repo, "--title", title, "--body", body)
+	if err != nil {
+		return fmt.Errorf("opening %q: %w", title, err)
+	}
+	say(c, "%s: %s", title, url)
+	return nil
+}
+
+// sanitizerLogs empties the directory a sanitized QEMU writes its logs to, beside its tree.
+func sanitizerLogs(dir string) (string, error) {
+	logs := filepath.Join(dir, "sanitizer")
+	if err := os.RemoveAll(logs); err != nil {
+		return "", err
+	}
+	return logs, os.MkdirAll(logs, 0o777)
 }
 
 // traced is the parts analysed by tracing their compile.
