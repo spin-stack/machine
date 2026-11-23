@@ -213,12 +213,16 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLaneLogindEdit, nil
 	case "carry-keygen":
 		return carryKeygenEdit, nil
+	case "docker-socket":
+		return dockerSocketEdit, nil
+	case "no-containerd-socket":
+		return noContainerdSocketEdit, nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	case ledgerName:
 		return ledgerEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, bootchart, ledger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, docker-socket, no-containerd-socket, bootchart, ledger", name)
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
@@ -299,6 +303,24 @@ ln -sf /usr/lib/systemd/system/docker.socket "$MNT/etc/systemd/system/sockets.ta
 mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
 ln -s /usr/lib/systemd/system/docker.service "$MNT/etc/systemd/system/multi-user.target.wants/docker.service"
 ln -s /usr/lib/systemd/system/containerd.service "$MNT/etc/systemd/system/multi-user.target.wants/containerd.service"
+`,
+}
+
+// dockerSocketEdit is #509's change in a release's overlay: Docker's own docker.socket, 0660 and
+// group docker, in place of the image's 0666, group root. Experiment only.
+var dockerSocketEdit = Edit{
+	Setup: `grep -qx 'SocketMode=0666' "$MNT/etc/systemd/system/docker.socket"
+rm "$MNT/etc/systemd/system/docker.socket"
+grep -qx 'SocketGroup=docker' "$MNT/usr/lib/systemd/system/docker.socket"
+ln -sf /usr/lib/systemd/system/docker.socket "$MNT/etc/systemd/system/sockets.target.wants/docker.socket"
+`,
+}
+
+// noContainerdSocketEdit is #509's second arm: the image's containerd.socket out of the boot
+// transaction, so containerd starts only through docker.service's Wants. Experiment only.
+var noContainerdSocketEdit = Edit{
+	Setup: `test -e "$MNT/etc/systemd/system/containerd.socket"
+rm "$MNT/etc/systemd/system/containerd.socket" "$MNT/etc/systemd/system/sockets.target.wants/containerd.socket"
 `,
 }
 
