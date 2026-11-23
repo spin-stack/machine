@@ -1,0 +1,308 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Sun, 22 Nov 2026 00:34:17 -0300
+Subject: [PATCH] bpf: Parse vmlinux BTF on first use, not at the first
+ kfunc registration
+
+The first register_btf_kfunc_id_set() of the boot parses vmlinux BTF,
+4.6 MB of it, and every later kfunc set, kfunc destructor and struct_ops
+registration of the boot reuses it. Nothing reads the result until a BPF
+program, map or BTF object needs it, and a system may never load one
+during its boot.
+
+Keep a registration against vmlinux BTF that arrives before the BTF is
+parsed on a list, copying what the caller passed: some callers pass
+arrays on their initcall's stack. The first bpf_get_btf_vmlinux() parses
+the BTF, publishes it, registers what was kept, in order, and only then
+lets another caller have it; the task doing that is handed the BTF
+before it is ready, since the registrations ask for it. Module BTF, and
+anything registered after the parse, is registered at once as before.
+
+On an x86_64 KVM guest with one vCPU, nested, the parse is 6.7 ms of
+the kernel's boot, charged to inet_init through xfrm_init.
+
+A parse that fails for want of memory, which can now happen in any
+task, including one being killed, is tried again by the next user; only
+a malformed BTF is final, and against it each registration kept fails
+and warns, as it did at boot.
+
+The trade-offs: the first BPF user pays the parse; a registration that
+fails is reported then with a warning, not by the initcall's return;
+vmlinux BTF has no object id until it is parsed, so it is not always id
+1.
+
+Assisted-by: LLM
+---
+ include/linux/bpf.h   |   2 +
+ kernel/bpf/btf.c      | 121 ++++++++++++++++++++++++++++++++++++++++++
+ kernel/bpf/verifier.c |  75 ++++++++++++++++++++------
+ 3 files changed, 182 insertions(+), 16 deletions(-)
+
+diff --git a/include/linux/bpf.h b/include/linux/bpf.h
+index 0ecb9418d..a662631aa 100644
+--- a/include/linux/bpf.h
++++ b/include/linux/bpf.h
+@@ -3102,6 +3102,8 @@ static inline s32 bpf_call_args_imm(s16 idx)
+ #endif
+ 
+ struct btf *bpf_get_btf_vmlinux(void);
++bool btf_vmlinux_defer(struct list_head *node);
++void btf_register_deferred(struct list_head *head);
+ 
+ /* Map specifics */
+ struct xdp_frame;
+diff --git a/kernel/bpf/btf.c b/kernel/bpf/btf.c
+index d870bc5e5..c7835844a 100644
+--- a/kernel/bpf/btf.c
++++ b/kernel/bpf/btf.c
+@@ -6509,6 +6509,7 @@ struct btf *btf_parse_vmlinux(void)
+ 	bpf_ctx_convert.t = btf_type_by_id(btf, bpf_ctx_convert_btf_id[0]);
+ 	err = btf_alloc_id(btf);
+ 	if (err) {
++		bpf_ctx_convert.t = NULL;
+ 		btf_free(btf);
+ 		btf = ERR_PTR(err);
+ 	}
+@@ -9240,8 +9241,75 @@ u32 *btf_kfunc_is_modify_return(const struct btf *btf, u32 kfunc_btf_id,
+ 	return btf_kfunc_id_set_contains(btf, BTF_KFUNC_HOOK_FMODRET, kfunc_btf_id);
+ }
+ 
++/*
++ * A registration against vmlinux BTF made before it was parsed, done by the
++ * first bpf_get_btf_vmlinux(). Its arguments are copied: some callers pass
++ * arrays on their initcall's stack.
++ */
++struct btf_deferred_reg {
++	struct list_head list;
++	int (*reg)(struct btf_deferred_reg *r);
++	const char *what;
++	enum btf_kfunc_hook hook;
++	struct btf_kfunc_id_set kset;
++	struct btf_id_dtor_kfunc *dtors;
++	u32 cnt;
++	struct bpf_struct_ops *st_ops;
++};
++
++void btf_register_deferred(struct list_head *head)
++{
++	struct btf_deferred_reg *r, *tmp;
++	int err;
++
++	list_for_each_entry_safe(r, tmp, head, list) {
++		err = r->reg(r);
++		if (err)
++			pr_warn("vmlinux BTF: registering a %s failed: %d\n", r->what, err);
++		list_del(&r->list);
++		kfree(r->dtors);
++		kfree(r);
++	}
++}
++
++static bool btf_defer(struct btf_deferred_reg *r)
++{
++	if (btf_vmlinux_defer(&r->list))
++		return true;
++	kfree(r->dtors);
++	kfree(r);
++	return false;
++}
++
++static int __register_btf_kfunc_id_set_now(enum btf_kfunc_hook hook,
++					   const struct btf_kfunc_id_set *kset);
++
++static int btf_register_deferred_kfuncs(struct btf_deferred_reg *r)
++{
++	return __register_btf_kfunc_id_set_now(r->hook, &r->kset);
++}
++
+ static int __register_btf_kfunc_id_set(enum btf_kfunc_hook hook,
+ 				       const struct btf_kfunc_id_set *kset)
++{
++	struct btf_deferred_reg *r;
++
++	if (!kset->owner) {
++		r = kzalloc_obj(*r, GFP_KERNEL);
++		if (r) {
++			r->reg = btf_register_deferred_kfuncs;
++			r->what = "kfunc set";
++			r->hook = hook;
++			r->kset = *kset;
++			if (btf_defer(r))
++				return 0;
++		}
++	}
++	return __register_btf_kfunc_id_set_now(hook, kset);
++}
++
++static int __register_btf_kfunc_id_set_now(enum btf_kfunc_hook hook,
++					   const struct btf_kfunc_id_set *kset)
+ {
+ 	struct btf *btf;
+ 	int ret, i;
+@@ -9354,8 +9422,37 @@ static int btf_check_dtor_kfuncs(struct btf *btf, const struct btf_id_dtor_kfunc
+ }
+ 
+ /* This function must be invoked only from initcalls/module init functions */
++static int register_btf_id_dtor_kfuncs_now(const struct btf_id_dtor_kfunc *dtors, u32 add_cnt,
++					   struct module *owner);
++
++static int btf_register_deferred_dtors(struct btf_deferred_reg *r)
++{
++	return register_btf_id_dtor_kfuncs_now(r->dtors, r->cnt, NULL);
++}
++
+ int register_btf_id_dtor_kfuncs(const struct btf_id_dtor_kfunc *dtors, u32 add_cnt,
+ 				struct module *owner)
++{
++	struct btf_deferred_reg *r;
++
++	if (!owner) {
++		r = kzalloc_obj(*r, GFP_KERNEL);
++		if (r) {
++			r->reg = btf_register_deferred_dtors;
++			r->what = "set of kfunc destructors";
++			r->dtors = kmemdup(dtors, add_cnt * sizeof(*dtors), GFP_KERNEL);
++			r->cnt = add_cnt;
++			if (!r->dtors)
++				kfree(r);
++			else if (btf_defer(r))
++				return 0;
++		}
++	}
++	return register_btf_id_dtor_kfuncs_now(dtors, add_cnt, owner);
++}
++
++static int register_btf_id_dtor_kfuncs_now(const struct btf_id_dtor_kfunc *dtors, u32 add_cnt,
++					   struct module *owner)
+ {
+ 	struct btf_id_dtor_kfunc_tab *tab;
+ 	struct btf *btf;
+@@ -10034,7 +10131,31 @@ bpf_struct_ops_find(struct btf *btf, u32 type_id)
+ 	return NULL;
+ }
+ 
++static int __register_bpf_struct_ops_now(struct bpf_struct_ops *st_ops);
++
++static int btf_register_deferred_struct_ops(struct btf_deferred_reg *r)
++{
++	return __register_bpf_struct_ops_now(r->st_ops);
++}
++
+ int __register_bpf_struct_ops(struct bpf_struct_ops *st_ops)
++{
++	struct btf_deferred_reg *r;
++
++	if (!st_ops->owner) {
++		r = kzalloc_obj(*r, GFP_KERNEL);
++		if (r) {
++			r->reg = btf_register_deferred_struct_ops;
++			r->what = "struct_ops";
++			r->st_ops = st_ops;
++			if (btf_defer(r))
++				return 0;
++		}
++	}
++	return __register_bpf_struct_ops_now(st_ops);
++}
++
++static int __register_bpf_struct_ops_now(struct bpf_struct_ops *st_ops)
+ {
+ 	struct bpf_verifier_log *log;
+ 	struct btf *btf;
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index 5f874979b..1743d9500 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -308,6 +308,11 @@ static const char *btf_type_name(const struct btf *btf, u32 id)
+ 
+ static DEFINE_MUTEX(bpf_verifier_lock);
+ static DEFINE_MUTEX(btf_vmlinux_lock);
++/* vmlinux BTF and every registration deferred until it was parsed are in place */
++static bool btf_vmlinux_ready;
++/* the task registering what was deferred, which reads btf_vmlinux before it is ready */
++static struct task_struct *btf_vmlinux_registrar;
++static LIST_HEAD(btf_vmlinux_deferred);
+ static DEFINE_MUTEX(bpf_percpu_ma_lock);
+ 
+ __printf(2, 3) static void verbose(void *private_data, const char *fmt, ...)
+@@ -20690,27 +20695,65 @@ int bpf_check_attach_btf_id_multi(struct btf *btf, struct bpf_prog *prog, u32 bt
+ 
+ struct btf *bpf_get_btf_vmlinux(void)
+ {
+-	/* Pairs with the smp_store_release() on the parse path below. */
+-	struct btf *btf = smp_load_acquire(&btf_vmlinux);
++	bool ready = smp_load_acquire(&btf_vmlinux_ready); /* the parse's release */
++	struct btf *btf;
+ 
+-	if (!btf && IS_ENABLED(CONFIG_DEBUG_INFO_BTF)) {
+-		mutex_lock(&btf_vmlinux_lock);
+-		btf = btf_vmlinux;
+-		if (!btf) {
+-			btf = btf_parse_vmlinux();
+-			/*
+-			 * Order the parsed BTF contents and the globals the
+-			 * parse populated (e.g. bpf_ctx_convert.t) before
+-			 * the pointer publication. Pairs with the acquire
+-			 * on the lockless fast path above.
+-			 */
+-			smp_store_release(&btf_vmlinux, btf);
++	if (ready || !IS_ENABLED(CONFIG_DEBUG_INFO_BTF))
++		return READ_ONCE(btf_vmlinux);
++	if (READ_ONCE(btf_vmlinux_registrar) == current)
++		return btf_vmlinux;
++
++	mutex_lock(&btf_vmlinux_lock);
++	if (!btf_vmlinux) {
++		btf = btf_parse_vmlinux();
++		/*
++		 * The parse runs in whichever task asks first, which can be
++		 * short of memory or killed while it allocates. Only a
++		 * malformed BTF is final; the next user parses again.
++		 */
++		if (btf == ERR_PTR(-ENOMEM)) {
++			mutex_unlock(&btf_vmlinux_lock);
++			return btf;
+ 		}
+-		mutex_unlock(&btf_vmlinux_lock);
+-	}
++		/*
++		 * Order the parsed BTF contents and the globals the parse
++		 * populated (e.g. bpf_ctx_convert.t) before the pointer
++		 * publication, which what is registered next reads.
++		 */
++		smp_store_release(&btf_vmlinux, btf);
++		/* Against a malformed BTF, each registration fails and warns. */
++		WRITE_ONCE(btf_vmlinux_registrar, current);
++		btf_register_deferred(&btf_vmlinux_deferred);
++		WRITE_ONCE(btf_vmlinux_registrar, NULL);
++		/* Pairs with the acquire on the lockless fast path above. */
++		smp_store_release(&btf_vmlinux_ready, true);
++	}
++	btf = btf_vmlinux;
++	mutex_unlock(&btf_vmlinux_lock);
+ 	return btf;
+ }
+ 
++/*
++ * Keep a registration against vmlinux BTF for the first user of that BTF
++ * when it has not been parsed yet: parsing it costs milliseconds of every
++ * boot, and nothing needs it until a BPF program, map or BTF object does.
++ */
++bool btf_vmlinux_defer(struct list_head *node)
++{
++	bool deferred = false;
++
++	/* What a deferred registration registers in turn is registered at once */
++	if (!IS_ENABLED(CONFIG_DEBUG_INFO_BTF) || READ_ONCE(btf_vmlinux_registrar) == current)
++		return false;
++	mutex_lock(&btf_vmlinux_lock);
++	if (!btf_vmlinux) {
++		list_add_tail(node, &btf_vmlinux_deferred);
++		deferred = true;
++	}
++	mutex_unlock(&btf_vmlinux_lock);
++	return deferred;
++}
++
+ /*
+  * The add_fd_from_fd_array() is executed only if fd_array_cnt is non-zero. In
+  * this case expect that every file descriptor in the array is either a map or

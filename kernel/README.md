@@ -132,9 +132,13 @@ every kernel bump.
 | 0007 | the image no longer holds `unwind_init`'s "Corrupt .orc_unwind table" message |
 | 0008 | the compiled `kernel/trace/ftrace.c` takes a range out with `memmove(first, stop, ...)` |
 | 0010 | `early_quirks` calls `kvm_para_available` before its scan |
+| 0012 | `btf_vmlinux_defer` is in the vmlinux, and the compiled `kernel/bpf/btf.c` defers registrations through it |
+| 0013 | the compiled `kernel/bpf/verifier.c` asks for vmlinux BTF through `need_btf_vmlinux(env)` |
 
 None of them is a guest check. What the patches save is CPU and VM exits, which a guest cannot
-count, and the format files 0003 defers are behind lockdown. The host can count exits: 0004 and
+count, and the format files 0003 defers are behind lockdown. What 0012 and 0013 save is a parse of
+vmlinux BTF that, once made, gives an object id a guest's `bpftool btf list` shows; the image
+carries no bpftool, so that check is a person's. The host can count exits: 0004 and
 0010 also depend on the running machine (0004 on `raw_pci_ext_ops`, set from the ACPI MCFG
 table, 0010 on KVM's CPUID leaf), so `boot:patches` reads KVM's `io_exits` through QEMU's
 `query-stats` after a cold boot to userspace and holds them under a budget that fails without
