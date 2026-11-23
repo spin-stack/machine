@@ -7,7 +7,7 @@ result = {}
 with open(log) as f:
     for line in f:
         t = json.loads(line)
-        result[t["name"]] = t["result"]
+        result[t["name"].rsplit(":", 1)[-1]] = t["result"]
 bad = [f"{t}: {result.get(t, 'did not run')}" for t in want if result.get(t) != "OK"]
 if bad:
     sys.exit("ERROR: systemd's tests did not pass: " + ", ".join(bad))
