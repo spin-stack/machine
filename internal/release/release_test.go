@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -67,7 +68,17 @@ func tree(t *testing.T) (root, out string) {
 		"kernel/patches/0001-k.patch", "image/rootfs.qcow2", "licenses.txt"} {
 		put(t, filepath.Join(out, f), f, 0o644)
 	}
-	put(t, filepath.Join(out, "packages.txt"), "bash 5.2-1 amd64\nlibc6 2.39-1 amd64\n", 0o644)
+	// Docker's packages, as dpkg records them: an epoch and Docker's suffix around the pinned version.
+	// First, so that the first line of the list is one of them.
+	var list string
+	for _, e := range pins(t).Entries {
+		if file := filepath.Base(e.URL()); strings.HasSuffix(file, ".deb") {
+			// The .deb's name is <package>_<version>_<arch>.deb.
+			f := strings.Split(strings.TrimSuffix(file, ".deb"), "_")
+			list += f[0] + " 5:" + f[1] + " " + f[2] + "\n"
+		}
+	}
+	put(t, filepath.Join(out, "packages.txt"), list+"bash 5.2-1 amd64\nlibc6 2.39-1 amd64\n", 0o644)
 	put(t, filepath.Join(out, "sbom/qemu.apk"), apkDB("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,musl-dev,gcc"), 0o644)
 	put(t, filepath.Join(out, "sbom/e2fsprogs.apk"), apkDB("libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"), 0o644)
 	return root, out
@@ -180,11 +191,19 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	if err != nil || inner.Metadata.Component.Name != "spin-machine" {
 		t.Fatalf("the machine's SBOM: %v", err)
 	}
-	text, _ := io.ReadAll(mustOpen(t, filepath.Join(out, "release", name, share, "sbom", "machine.cdx.json")))
-	for _, c := range []string{"pkg:apk/alpine/glib-static@1.0-r0", "pkg:deb/ubuntu/bash@5.2-1", `"name": "qboot.bin"`, `"name": "rootfs.qcow2"`, "0001-k.patch", "mtrr.patch"} {
-		if !strings.Contains(string(text), c) {
+	raw, _ := io.ReadAll(mustOpen(t, filepath.Join(out, "release", name, share, "sbom", "machine.cdx.json")))
+	// encoding/json writes a purl's & as \u0026.
+	text := strings.ReplaceAll(string(raw), `\u0026`, "&")
+	docker, _ := pins(t).Get("docker-ce")
+	for _, c := range []string{"pkg:apk/alpine/glib-static@1.0-r0", "pkg:deb/ubuntu/bash@5.2-1", `"name": "qboot.bin"`, `"name": "rootfs.qcow2"`, "0001-k.patch", "mtrr.patch",
+		"pkg:deb/docker/docker-ce@5:" + docker.Version + "-1~ubuntu.26.04~resolute?arch=amd64&repository_url=https://download.docker.com/linux/ubuntu", docker.Pin, docker.URL(),
+		"pkg:deb/docker/containerd.io@"} {
+		if !strings.Contains(text, c) {
 			t.Errorf("the machine's SBOM does not name %s", c)
 		}
+	}
+	if strings.Contains(text, "pkg:deb/ubuntu/docker-ce") {
+		t.Error("the machine's SBOM names Docker's docker-ce as Ubuntu's")
 	}
 }
 
@@ -242,8 +261,38 @@ func TestAReleaseMissingAnythingIsRefused(t *testing.T) {
 			}
 		})
 	}
+	// A Docker package the image did not record, or recorded at a version versions.yaml does not
+	// pin, is an image that did not install what the release would say it did.
+	for name, edit := range map[string]func(string) string{
+		"without docker-ce": func(list string) string {
+			return regexp.MustCompile(`(?m)^docker-ce .*\n`).ReplaceAllString(list, "")
+		},
+		"another docker-ce": func(list string) string {
+			return regexp.MustCompile(`(?m)^docker-ce .*`).ReplaceAllString(list, "docker-ce 5:1.0.0-1~ubuntu.26.04~resolute amd64")
+		},
+		"a docker-ce whose version only starts with the pin's": func(list string) string {
+			return regexp.MustCompile(`(?m)^docker-ce 5:([^-]*)-`).ReplaceAllString(list, "docker-ce 5:${1}1-")
+		},
+	} {
+		root, out := tree(t)
+		put(t, filepath.Join(out, "packages.txt"), edit(read(t, filepath.Join(out, "packages.txt"))), 0o644)
+		if _, err := Pack(context.Background(), options(t, root, out)); err == nil || !strings.Contains(err.Error(), "docker-ce") {
+			t.Errorf("an image %s: Pack = %v", name, err)
+		}
+	}
+	// A .deb pinned from a repository the SBOM has no vendor for would be named as Ubuntu's again.
 	root, out := tree(t)
 	o := options(t, root, out)
+	for i, e := range o.Pins.Entries {
+		if e.Name == "docker-ce" {
+			o.Pins.Entries[i].Source = strings.Replace(e.Source, "download.docker.com", "example.org", 1)
+		}
+	}
+	if _, err := Pack(context.Background(), o); err == nil || !strings.Contains(err.Error(), "example.org") {
+		t.Errorf("a .deb from an unknown repository: Pack = %v", err)
+	}
+	root, out = tree(t)
+	o = options(t, root, out)
 	o.Pins = &versions.Versions{}
 	if _, err := Pack(context.Background(), o); err == nil {
 		t.Error("a release with no pins packed")
