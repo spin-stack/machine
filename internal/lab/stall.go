@@ -35,7 +35,8 @@ import (
 //
 // The guest's writes are dd's 4 KiB writes with oflag=dsync, each one written through before the
 // next, which is fio's --bs=4k --fsync=1 without fio: the image carries no fio. The host's are
-// dd's 1 MiB O_DIRECT writes, four streams, on the disk the overlay is on.
+// dd's 1 MiB writes, four streams, on the disk the overlay is on: O_DIRECT, or through the host's
+// page cache in the last row.
 type stall struct{}
 
 func (stall) Name() string { return "stall" }
@@ -53,9 +54,12 @@ const (
 	stallWrites     = "guest writes"
 	stallBusy       = "host disk busy"
 	stallWritesBusy = "guest writes, host disk busy"
+	// stallWritesDirty saturates the disk through the host's page cache instead: buffered writes,
+	// so the host's dirty-page throttling and writeback are in play as on a laptop's full disk.
+	stallWritesDirty = "guest writes, host dirty pages"
 )
 
-func (stall) Rows(Options) []string { return []string{stallWrites, stallBusy, stallWritesBusy} }
+func (stall) Rows(Options) []string { return []string{stallWrites, stallBusy, stallWritesBusy, stallWritesDirty} }
 func (stall) Phases() int           { return 1 }
 
 func (stall) Needs(o Options) []Need {
@@ -116,7 +120,7 @@ func (stall) Measure(_ context.Context, m *Measurement) error {
 	defer func() { _ = vm.Close() }()
 
 	if m.Row != stallWrites {
-		stop, err := saturate(m.Dir)
+		stop, err := saturate(m.Dir, m.Row != stallWritesDirty)
 		if err != nil {
 			return err
 		}
@@ -197,9 +201,14 @@ func threadNamed(pid int, name string) (int, error) {
 	return 0, fmt.Errorf("QEMU %d has no thread named %q", pid, name)
 }
 
-// saturate starts four streams of 1 MiB O_DIRECT writes in dir, and returns what stops them.
+// saturate starts four streams of 1 MiB writes in dir, O_DIRECT or through the page cache with a
+// flush at the end of each GiB, and returns what stops them.
 // mutate-lane: TestEveryProbeMeasuresATree
-func saturate(dir string) (func(), error) {
+func saturate(dir string, direct bool) (func(), error) {
+	flags := "conv=fdatasync"
+	if direct {
+		flags = "oflag=direct"
+	}
 	var hogs []*exec.Cmd
 	stop := func() {
 		for _, h := range hogs {
@@ -209,7 +218,7 @@ func saturate(dir string) (func(), error) {
 	}
 	for i := range 4 {
 		f := filepath.Join(dir, fmt.Sprintf("hog%d", i))
-		h := exec.Command("sh", "-c", `while :; do dd if=/dev/zero of="$1" bs=1M count=1024 oflag=direct status=none; done`, "sh", f) // #nosec G204 -- the measurement's own file
+		h := exec.Command("sh", "-c", `while :; do dd if=/dev/zero of="$1" bs=1M count=1024 `+flags+` status=none; done`, "sh", f) // #nosec G204 -- the measurement's own file
 		if err := h.Start(); err != nil {
 			stop()
 			return nil, fmt.Errorf("starting a writer on %s: %w", f, err)

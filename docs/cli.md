@@ -469,7 +469,8 @@ oflag=dsync` writes, four host streams of 1 MiB O_DIRECT writes on the scratch d
 then times `calls` query-status round trips (default 200) `interval` ms apart (default 100),
 sampling QEMU's main and monitor threads' state and `wchan` every 0.5 ms across each. A round
 trip over 20 ms also takes both threads' kernel stacks, and is written to
-`TREE-ROW-REP.stalls.txt` beside result.json.
+`TREE-ROW-REP.stalls.txt` beside result.json. A fourth row saturates the disk through the host's
+page cache instead, buffered 1 MiB writes flushed each GiB, so that dirty-page throttling is in play.
 
 `lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
