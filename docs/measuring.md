@@ -261,17 +261,40 @@ trace lost events. A switch away from a task the CPU was not running counts as a
 - *The kernel's 0 on the host's clock.* The host asks the guest for 20 markers in the trace,
   50 ms apart. Each marker was written after its request left and before its answer arrived, so
   each puts the kernel's 0 in a bracket. The brackets agree only if the two clocks run at one rate.
-  Spread over a second they met within ±0.15 ms (lab 45062836688). `kernel_zero` is that 0, and
-  everything before it (spin-machine, QEMU, qboot, the decompression) is one span.
+  Spread over a second they met within ±0.15 ms (lab 45062836688). `kernel_zero` is that 0.
+- *QEMU's exec on the host's clock.* No clock in the guest sees it, and /proc stamps a process's
+  start in 10 ms ticks, so the host watches spin-machine's children from its own exec until one
+  is QEMU. The exec is between the last look that did not see it and the first that did:
+  `qemu_exec_error` is half that bracket, 0.11 to 0.14 ms in six boots.
+- *The guest's first instruction.* QEMU zeroes kvm-clock as the machine goes to running, and the
+  kernel prints the kvm-clock it read as it made it the scheduler's clock ("kvm-clock: using
+  sched offset of N cycles", in ns). The kernel's clock, CLOCK_MONOTONIC's 0 included, starts from
+  that reading, so the machine ran at `kernel_zero` less N. `boot:firmware-stages` places the
+  kernel's clock on QEMU's trace by the same line.
 - *The residue.* That is `first_login` less `kernel_zero` and the command's exit on the kernel's
   clock: sshd's answer crossing vsock and the client reading it. It read 0.4 to 1.2 ms in six
   boots. A residue that is negative or large says the alignment is wrong.
 
-`kernel_zero` read 92 to 113 ms. The first boot of each run read ~112 and the others ~93
-(labs 45062548343, 45062836688). `boot:firmware-stages` read 73.7 ms from QEMU's exec to the
-kernel's clock on the same bench (lab 45062836494). The ~20 ms more in the ledger start before
-QEMU: spin-machine's own start and the held start's QMP. That is inferred, not measured
-(#537).
+So the span before the kernel's clock is three parts, which add up to `kernel_zero` by
+construction: `before_qemu`, spin-machine to its exec of QEMU; `qemu_start`, QEMU's start and the
+held start's monitor to the guest's first instruction; and `guest_to_zero`, the firmware, the
+bzImage's decompression and the kernel's setup until its clock runs. A sched offset that puts the
+machine's running before QEMU's exec refuses the ledger, as a journal without the line does.
+`kernel_zero` read 97 to 114 ms in six boots, the first the longest (lab 45110630795, bench,
+spin's shape, v20261123.04, 2026-11-23):
+
+| part | p50 | range |
+|---|---|---|
+| `before_qemu`, spin-machine to QEMU's exec | 2.1 | 1.9 to 2.5 |
+| `qemu_start`, QEMU's exec to the guest's first instruction | 49.4 | 48.3 to 50.8 |
+| `guest_to_zero`, the guest's first instruction to the kernel's clock | 47.4 | 46.4 to 63.2 |
+
+The first boot's extra ~15 ms is all in `guest_to_zero`. `boot:firmware-stages` read 73.7 ms from
+QEMU's exec to the kernel's clock (lab 45062836494), ~23 less than the ledger's ~97. The ~20 ms
+the ledger had over it were read as spin-machine's start and the held start before QEMU. Measured,
+spin-machine is 2 ms of them, and the rest is after QEMU's exec. firmware-stages boots a machine
+of its own, without the disks, the vsock and the hotplug ports a workspace's machine carries,
+and with no held start (#611).
 
 **What it costs.** The trace and sshd's DEBUG1 run on the guest's vCPU beside the boot they
 record. In spin's shape, 20 a side, interleaved (lab 45063070048, bench, v20261122.05):
@@ -289,7 +312,8 @@ running, and it is no goal number.
 **What it is not.** It is not a goal number, nor a saving. CPU on a window's path says what the
 vCPU did. It does not say what the window would have been without it: a task that waits for the
 login may run in the login's window whether or not the login waits for it. It does not split
-the time before the kernel's clock. It names a unit only for tasks it can still see after the
+the time before the kernel's clock past its three parts: firmware-stages' trace does, on its own
+machine. It names a unit only for tasks it can still see after the
 login, or that systemd remembers.
 
 ## Avoid the pitfalls
