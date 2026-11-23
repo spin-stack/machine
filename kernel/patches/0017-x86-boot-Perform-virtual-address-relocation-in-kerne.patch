@@ -7,15 +7,19 @@ Perform virtual address relocation for the uncompressed kernel during
 booting, which is similar to the relocation during decompression.
 
 Signed-off-by: Hou Wenlong <houwenlong.hwl@antgroup.com>
+[ spin-stack/machine: forward-ported to 7.3.5 for #645, and made
+  checkpatch --strict clean: the included lib/kaslr.c and
+  lib/cmdline.c functions made static by a static declaration before
+  each #include, not by a prefix macro checkpatch refuses, so the two
+  lib files are not changed; no extern on the prototype in setup.h. ]
+Assisted-by: LLM
 ---
  arch/x86/boot/startup/Makefile |   1 +
- arch/x86/boot/startup/kaslr.c  | 116 +++++++++++++++++++++++++++++++++
+ arch/x86/boot/startup/kaslr.c  | 120 +++++++++++++++++++++++++++++++++
  arch/x86/include/asm/setup.h   |   1 +
  arch/x86/kernel/head_64.S      |   7 ++
- arch/x86/lib/cmdline.c         |   6 ++
- arch/x86/lib/kaslr.c           |   5 ++
  arch/x86/platform/pvh/head.S   |  15 ++++-
- 7 files changed, 148 insertions(+), 3 deletions(-)
+ 5 files changed, 141 insertions(+), 3 deletions(-)
  create mode 100644 arch/x86/boot/startup/kaslr.c
 
 diff --git a/arch/x86/boot/startup/Makefile b/arch/x86/boot/startup/Makefile
@@ -35,7 +39,7 @@ new file mode 100644
 index 000000000..fb07c31e2
 --- /dev/null
 +++ b/arch/x86/boot/startup/kaslr.c
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,120 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include <linux/init.h>
@@ -95,15 +99,19 @@ index 000000000..fb07c31e2
 +	return hash;
 +}
 +
++/* Declared static first, so that the definition included below is too. */
++static unsigned long __init kaslr_get_random_long(const char *purpose);
++
 +#define KASLR_COMPRESSED_BOOT
-+#define KASLR_FUNC_PREFIX static __init
 +#include "../../lib/kaslr.c"
 +
 +/* A hack to avoid non-static declaration for cmdline_find_option_bool(). */
 +#define _ASM_X86_CMDLINE_H
 +#undef CONFIG_CMDLINE_BOOL
 +#define builtin_cmdline NULL
-+#define CMDLINE_FUNC_PREFIX static __maybe_unused __init
++static int __init cmdline_find_option_bool(const char *cmdline, const char *option);
++static int __init __maybe_unused cmdline_find_option(const char *cmdline, const char *option,
++						     char *buffer, int bufsize);
 +#include "../../lib/cmdline.c"
 +
 +static unsigned long __init find_random_virt_addr(unsigned long minimum,
@@ -160,7 +168,7 @@ index 895d09faa..0a46aa0e8 100644
  extern void __pi_startup_64_load_idt(void *vc_handler);
  extern void early_setup_idt(void);
  extern void __init do_early_exception(struct pt_regs *regs, int trapnr);
-+extern void __init __relocate_kernel(unsigned long p2v_offset, struct boot_params *bp);
++void __init __relocate_kernel(unsigned long p2v_offset, struct boot_params *bp);
  
  #ifdef CONFIG_X86_INTEL_MID
  extern void x86_intel_mid_early_setup(void);
@@ -182,60 +190,6 @@ index 7ed5520dd..9bde9ae63 100644
  	/*
  	 * Derive the kernel's physical-to-virtual offset from the physical and
  	 * virtual addresses of common_startup_64().
-diff --git a/arch/x86/lib/cmdline.c b/arch/x86/lib/cmdline.c
-index c65cd5550..07c4398b9 100644
---- a/arch/x86/lib/cmdline.c
-+++ b/arch/x86/lib/cmdline.c
-@@ -11,6 +11,10 @@
- #include <asm/cmdline.h>
- #include <asm/bug.h>
- 
-+#ifndef CMDLINE_FUNC_PREFIX
-+#define CMDLINE_FUNC_PREFIX
-+#endif
-+
- static inline int myisspace(u8 c)
- {
- 	return c <= ' ';	/* Close enough approximation */
-@@ -205,6 +209,7 @@ __cmdline_find_option(const char *cmdline, int max_cmdline_size,
- 	return len;
- }
- 
-+CMDLINE_FUNC_PREFIX
- int cmdline_find_option_bool(const char *cmdline, const char *option)
- {
- 	int ret;
-@@ -219,6 +224,7 @@ int cmdline_find_option_bool(const char *cmdline, const char *option)
- 	return ret;
- }
- 
-+CMDLINE_FUNC_PREFIX
- int cmdline_find_option(const char *cmdline, const char *option, char *buffer,
- 			int bufsize)
- {
-diff --git a/arch/x86/lib/kaslr.c b/arch/x86/lib/kaslr.c
-index 8c7cd115b..711a19729 100644
---- a/arch/x86/lib/kaslr.c
-+++ b/arch/x86/lib/kaslr.c
-@@ -13,6 +13,10 @@
- #include <asm/e820/api.h>
- #include <asm/shared/io.h>
- 
-+#ifndef KASLR_FUNC_PREFIX
-+#define KASLR_FUNC_PREFIX
-+#endif
-+
- /*
-  * When built for the regular kernel, several functions need to be stubbed out
-  * or changed to their regular kernel equivalent.
-@@ -46,6 +50,7 @@ static inline u16 i8254(void)
- 	return timer;
- }
- 
-+KASLR_FUNC_PREFIX
- unsigned long kaslr_get_random_long(const char *purpose)
- {
- #ifdef CONFIG_X86_64
 diff --git a/arch/x86/platform/pvh/head.S b/arch/x86/platform/pvh/head.S
 index 53ee2d53f..098ad94d8 100644
 --- a/arch/x86/platform/pvh/head.S
