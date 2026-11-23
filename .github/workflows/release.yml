@@ -209,7 +209,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # The release's kernel from main's cache and the traceable one beside it, whose config is held
-      # to the release kernel's: lockdown swapped and every other option the same.
+      # to the release kernel's: lockdown swapped and every other option the same. Both caches are
+      # warm: parts.yml builds the two on every change that reaches the kernel and main writes each.
       - name: Build the traceable kernel
         run: spin-machine-dev release traceable-kernel --version "$VERSION" --jobs 4 --cache-registry --cache-export=false
 
