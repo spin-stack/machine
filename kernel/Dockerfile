@@ -291,11 +291,15 @@ RUN <<EOT
     # boot take between 0.3 and 7 us each. It is the one-time parse of the 4.35 MB .BTF
     # section, charged to whichever kfunc set registers first.
     #
-    # Today that is XFRM: xfrm_init measures 8.6-9.1 ms across three boots and
-    # register_xfrm_state_bpf is essentially all of it, which makes inet_init look like a
-    # 9 ms initcall and makes CONFIG_XFRM=n look like a 9 ms saving. It is not one. Turning
-    # XFRM off moves the bill to the next registrant and changes nothing, and the only knob
-    # that removes it is CONFIG_DEBUG_INFO_BTF=n, which is the line above.
+    # It was XFRM's: xfrm_init measured 8.6-9.1 ms across three boots and
+    # register_xfrm_state_bpf was essentially all of it, which made inet_init look like a
+    # 9 ms initcall and CONFIG_XFRM=n look like a 9 ms saving. It was not one: turning XFRM
+    # off moved the bill to the next registrant. patches/0012 keeps the registrations made
+    # before the parse on a list for the first bpf_get_btf_vmlinux(), and patches/0013 has
+    # the verifier ask for the BTF only where a kernel type enters a program, so neither the
+    # boot nor journald's cgroup device and skb programs parse it: the first login -10.0
+    # [-12.7, -3.3] ms, 60 boots each (lab 45114405201, 2026-11-23). The first program that
+    # uses a kernel type pays for the parse when it is loaded.
     grep -q "CONFIG_FUNCTION_TRACER=y" .config || (echo "ERROR: CONFIG_FUNCTION_TRACER not enabled (fentry/fexit cannot attach)!" ; exit 1)
     # What it cost a boot, and what is left of that: 21.9 ms measured 2026-09-29 against a
     # kernel without it (1 vCPU, the lab runner), of which the two ftrace patches in patches/
@@ -436,7 +440,7 @@ RUN <<EOT
     dis() { objdump -d --no-show-raw-insn --disassemble="$1" vmlinux; }
     lost() { echo "ERROR: patches/$1 is not in this vmlinux: $2"; failed=1; }
     for f in vfs_read ftrace_check_for_weak_functions trace_eval_init trace_format_open \
-            raw_pci_read raw_pci_write pci_setup_device early_quirks; do
+            raw_pci_read raw_pci_write pci_setup_device early_quirks btf_vmlinux_defer; do
         dis "$f" | grep -q "<$f>:" || { echo "ERROR: no function $f in vmlinux; the check that names it reads nothing"; failed=1; }
     done
 
@@ -476,6 +480,17 @@ RUN <<EOT
     # 0010: early_quirks() asks whether it runs under KVM before scanning bus 0 through port
     # I/O. The call is there only when the patch is and CONFIG_KVM_GUEST is on.
     dis early_quirks | grep -q '<kvm_para_available>' || lost 0010 "early_quirks scans bus 0 in a KVM guest"
+
+    # 0012: a kfunc set, destructor or struct_ops registered before vmlinux BTF is parsed waits
+    # on a list for its first user, so no initcall parses it (~7 ms nested).
+    # btf_vmlinux_defer is in the list of functions above; the registrations' calls to it are
+    # static and may be inlined, so their source is read.
+    grep -qF 'btf_vmlinux_defer(&r->list)' kernel/bpf/btf.c || lost 0012 "kfunc registration parses vmlinux BTF at boot"
+
+    # 0013: bpf_check() asks for vmlinux BTF only where a kernel type enters a program, so a
+    # cgroup device or skb program does not parse it. The helper may be inlined, so the source
+    # that was compiled is read.
+    grep -qF 'need_btf_vmlinux(env)' kernel/bpf/verifier.c || lost 0013 "bpf_check parses vmlinux BTF for every program"
 
     [ "$failed" = 0 ] || exit 1
     echo "kernel patches: each is in this vmlinux"
