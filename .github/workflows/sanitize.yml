@@ -5,7 +5,7 @@ name: Sanitize
 #
 # boots: the release's configuration built from the patched tree with both sanitizers (patched
 # sanitized), as the QEMU of the newest release's tree, running what reaches each patch: the
-# machine's record and its checkpoints (0001, 0003, 0006, 0007), what a guest sees of each patch,
+# machine's record and its checkpoints (0001, 0003, 0006), what a guest sees of each patch,
 # the SCSI scan past max_target and a restored TSC among them (0002, 0005), checkpoints' pauses,
 # every release's checkpoint resumed (0005), and the goal probes' boots and restores. Every
 # process writes its start and its reports to a log, and `patched reports` fails on any report,

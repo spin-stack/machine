@@ -26,7 +26,6 @@ posted upstream.
 | 0006 | x86 CPUs get `x-legacy-cpuid2-cache`. Off, a legacy cache model under `x-consistent-cache=off` (host's and max's) describes in leaf 2 the caches leaf 4 does, and not `legacy_intel_cpuid2_cache_info`. Default on, QEMU's behaviour (#586) | correctness: glibc read a 2 MiB 8-way L2 from leaf 2 where leaf 4 and the guest's kernel said 4 MiB 16-way (lab 45100482399) | the build (`-device max-x86_64-cpu,help`); `boot:patches`, once the machine sets it off: glibc's L2 is the kernel's |
 | 0008 | A 64-bit ELF kernel with `XEN_ELFNOTE_PHYS32_RELOC`, which Linux emits under `CONFIG_PVH` since 6.12 (Jason Andryuk), is loaded at a random multiple of the note's alignment below the initrd and the ACPI data, its entry moved with it, from `qemu_guest_getrandom`: the physical base a bzImage's decompressor chose before (#645). Xen's toolstack honours the note. QEMU's tree and history name it nowhere (the qemu/qemu mirror's code and commit search, 2026-11-23); qemu-devel's archives could not be searched that day (lore and lists.gnu.org refused, patchew timed out) | with kernel 0014-0020, cold −16.8 [−20.9, −13.0] (lab 45219785493, `docs/boot-time.md`) | `boot:kaslr`: the physical "Kernel code" takes more than one value across ten boots |
 | 0009 | A machine's first reset copies an ELF kernel's segments (the PVH vmlinux, 37.4 MB of data) into guest RAM in a thread beside the main loop, waited for before the vCPUs start, a migration's setup, the next reset and QEMU's exit. A machine made for an incoming migration copies nothing at reset, as before (#698) | cold −8.6 [−11.0, −4.0], restored −0.1 [−1.1, +0.7] (labs 45260098299, 45260694485) | the build: a held TCG machine with its threads named shows `rom-copy` while it copies a 256 MiB stub ELF |
-| 0007 | x86's `-kernel` maps a bzImage read-only instead of reading the whole file into a heap buffer that only fw_cfg reads; the pages are touched when qboot copies them, from the page cache. A kernel with a dtb appended still gets a buffer (#646) | cold −13.4 [−16.9, −7.3], restored −9.3 [−11.2, −6.1] evicted (labs 45182382388, 45182382864) | the build: a held TCG machine's `/proc/PID/maps` names a stub bzImage given to it |
 
 `docs/boot-time.md`, "What the machine carries", says what each earns among everything else the
 machine carries. The qemu entry of `versions.yaml` says what a bump runs.
@@ -43,7 +42,7 @@ The `boots` job, on the KVM fleet, makes it the QEMU of the newest release's tre
 release's firmware, and runs `boot:record`, `boot:patches`, `boot:checkpoint-pause` (three saves
 each), `lab compat` and three boots and restores of `ssh-first` and `restore-first`. Between them
 these reach every patch: 0002's scan past `max_target`, 0003's deferred flush, 0005's TSC on
-every restore, and 0001, 0006 and 0007 on every start. The `fuzz` job runs QEMU's own
+every restore, and 0001 and 0006 on every start. The `fuzz` job runs QEMU's own
 `generic-fuzz` (`docs/devel/testing/fuzzing.rst`) over a virtio-scsi controller with 0002's
 `max_target=15` and a disk at target 3. It runs five minutes on a change and thirty on the
 weekly run, built with clang under both sanitizers (`task qemu-fuzz`).

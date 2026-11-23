@@ -384,26 +384,6 @@ RUN Q=/opt/qemu/bin/qemu-system-x86_64 && \
     ! $Q -accel help | grep -qx tcg && \
     /opt/qemu-tcg/bin/qemu-system-x86_64 -accel help | grep -qx tcg
 
-# qemu/patches/0007 maps a bzImage given to -kernel instead of reading it into a buffer, and
-# nothing else shows that it did: a QEMU that reads it boots the same guest. So a stub bzImage
-# (the setup header fields x86_load_linux reads, and no code) is loaded into a held machine, and
-# QEMU's own maps must name the file. docs/boot-time.md, "What the machine carries" (#646).
-RUN k=/tmp/bzImage-stub && head -c 3072 /dev/zero > "$k" && \
-    w() { printf "$2" | dd of="$k" bs=1 seek=$(($1)) conv=notrunc 2>/dev/null; } && \
-    w 0x1f1 '\004' && w 0x1fe '\125\252' && w 0x202 'HdrS' && w 0x206 '\017\002' && \
-    w 0x211 '\001' && w 0x22c '\377\377\377\177' && w 0x234 '\001' && w 0x236 '\002' && \
-    w 0x238 '\000\010' && \
-    { /opt/qemu-tcg/bin/qemu-system-x86_64 -machine q35 -accel tcg -nodefaults -display none -S \
-        -L /build/pc-bios -kernel "$k" & } && pid=$! && \
-    for i in $(seq 100); do \
-        grep -q " $k\$" /proc/$pid/maps 2>/dev/null && break; \
-        kill -0 $pid 2>/dev/null || break; \
-        sleep 0.1; \
-    done; \
-    grep -q " $k\$" /proc/$pid/maps 2>/dev/null; mapped=$?; \
-    kill $pid 2>/dev/null; wait $pid 2>/dev/null; rm -f "$k"; \
-    [ $mapped = 0 ] || { echo "ERROR: QEMU read the kernel into a buffer: qemu/patches/0007 is lost"; exit 1; }
-
 # qemu/patches/0009 copies an ELF kernel into guest RAM in a thread beside the main loop, and a
 # QEMU that copies it on the main thread boots the same guest. So a stub ELF with a PVH entry note
 # and one 256 MiB PT_LOAD of zeros, long enough to copy that the thread is seen, is loaded into a
