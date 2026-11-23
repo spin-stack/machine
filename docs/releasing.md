@@ -187,8 +187,9 @@ noise. Detection flags, and a person decides.
 **Detection.** Once a release is measured, report.yml runs `spin-machine-dev releases flag` over
 its ladder. When the rule trips, it opens an issue named `RELEASE regressed against BEFORE`. The
 issue holds the Δs, the run, and the commits from the one release to the other, which are where
-the cause is. It opens one issue for each pair, and withdraws nothing. A failed functional check is
-the release run's `pause` job, red (#595).
+the cause is. It opens one issue for each pair, and withdraws nothing. A failed functional check in
+release.yml's `pause` job opens an issue named `RELEASE failed boot:CHECK`, with the run, once for
+each release and check (`spin-machine-dev releases failed`).
 
 **Withdrawing.** A person runs `withdraw.yml` with the release, the reason and the issue that
 decided it (`spin-machine-dev releases withdraw TAG --reason TEXT --issue N`, docs/cli.md). A
