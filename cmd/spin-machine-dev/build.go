@@ -66,8 +66,8 @@ every one when none is named, with what a named part is made with.
 A part is built when it is missing or stale. Each one leaves a manifest in _output/manifest naming a
 digest of its inputs - the build arguments versions.yaml gives its Dockerfile and every file under
 its directory - and one whose inputs have not moved, and whose output still verifies, is left as it
-is. Every part is verified after it is built: the binaries run here, the kernel is a relocatable
-bzImage, the tools are the pinned version (verify says what each checks).
+is. Every part is verified after it is built: the binaries run here, the kernel is a vmlinux that
+randomizes itself, the tools are the pinned version (verify says what each checks).
 
 In a workflow it writes what each part is to the run's summary, and qemu_version to the step's
 outputs.`,
@@ -172,7 +172,7 @@ func verifyCmd() *cobra.Command {
              the machine type every checkpoint is saved on (a newer one is said, not failed), and
              the TCG binary's query-qmp-schema has every QMP command and event the module
              defines, as the module defines it
-  kernel     a bzImage whose setup header says relocatable, and the vmlinux it was made from
+  kernel     a vmlinux with both Xen notes and a filled .data.reloc, and a relocatable bzImage
   e2fsprogs  the four tools and mke2fs.conf, and mkfs.ext4 answers the pinned version
   systemd    the packages the image installs
   openssh    the packages the image installs
