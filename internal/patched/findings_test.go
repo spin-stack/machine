@@ -232,3 +232,22 @@ func TestSevereIsWhatIsAtTheSeverityAndNotSuppressed(t *testing.T) {
 		t.Error("no SARIF gave no error")
 	}
 }
+
+func TestScopeRefusesExtractionDiagnosticsItCannotRead(t *testing.T) {
+	dir := analysed(t, `{"runs":[{"invocations":{},"results":[]}]}`)
+	if _, err := Scope(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "cpp.sarif's extraction diagnostics") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestAFailedCompilationIsTheLastArgumentItWasGiven(t *testing.T) {
+	dir := analysed(t, "")
+	put(t, filepath.Join(dir, "sarif/cpp.sarif"), `{"runs":[{"invocations":[{"toolExecutionNotifications":[`+
+		`{"descriptor":{"id":"cpp/diagnostics/successfully-extracted-files"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"lib/a.c"}}}]},`+
+		`{"descriptor":{"id":"cpp/diagnostics/successfully-extracted-files"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"lib/new.c"}}}]},`+
+		`{"descriptor":{"id":"cpp/bmn/extraction-information"},"properties":{"attributes":{"extraction_errors":[{"error_args":[]},{"error_args":["lib/new.c"]}]}}}`+
+		`]}],"results":[]}]}`)
+	if _, err := Scope(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "lib/new.c (its compilation failed)") || strings.Contains(err.Error(), "lib/a.c") {
+		t.Errorf("err = %v", err)
+	}
+}
