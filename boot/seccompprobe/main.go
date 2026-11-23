@@ -171,6 +171,9 @@ func run(out io.Writer, cs []call, from int) int {
 		close(lines)
 	}()
 	next := from
+	tick := time.NewTicker(2 * time.Millisecond)
+	defer tick.Stop()
+	asked := time.Now()
 	for {
 		select {
 		case l, ok := <-lines:
@@ -184,15 +187,36 @@ func run(out io.Writer, cs []call, from int) int {
 			}
 			fmt.Fprintf(out, "%s = %s\n", cs[next], l)
 			next++
-		case <-time.After(300 * time.Millisecond):
+			asked = time.Now()
+		case <-tick.C:
+			gone := leaderGone(cmd.Process.Pid)
+			if !gone && time.Since(asked) < 300*time.Millisecond {
+				continue
+			}
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			_ = cmd.Wait()
 			for range lines {
 			}
-			fmt.Fprintf(out, "%s = no answer\n", cs[next])
+			what := "no answer"
+			if gone {
+				what = "main thread gone"
+			}
+			fmt.Fprintf(out, "%s = %s\n", cs[next], what)
 			return next + 1
 		}
 	}
+}
+
+// leaderGone is whether the child's main thread, which makes the calls, has exited while the
+// process lives on: a filter's SCMP_ACT_KILL kills the thread, and the Go runtime's other threads
+// keep the process.
+func leaderGone(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	i := strings.LastIndexByte(string(b), ')')
+	return i > 0 && i+2 < len(b) && b[i+2] == 'Z'
 }
 
 func died(err error) string {
