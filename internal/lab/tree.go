@@ -375,3 +375,50 @@ func fileSHA256(path string) (string, error) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
+
+// Edited is the tree laid out again at dir with its edits made in its root filesystem, for what
+// boots the tree's image as it is rather than through a probe's overlays (`lab check`): every part
+// a link to the tree's, and image/rootfs.qcow2 a qcow2 overlay over the tree's base with the
+// edits made in it. A tree without edits is itself.
+// mutate-lane: TestEveryProbeMeasuresATree
+func (t *Tree) Edited(dir string) (string, error) {
+	if len(t.Manifest.Edits) == 0 {
+		return t.Dir, nil
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "image"), 0o755); err != nil {
+		return "", fmt.Errorf("making the edited tree %s: %w", dir, err)
+	}
+	link := func(from, name string) error {
+		entries, err := os.ReadDir(from)
+		if err != nil {
+			return fmt.Errorf("reading tree %s: %w", from, err)
+		}
+		for _, e := range entries {
+			if e.Name() == name {
+				continue
+			}
+			if err := os.Symlink(filepath.Join(from, e.Name()), filepath.Join(dir, strings.TrimPrefix(strings.TrimPrefix(from, t.Dir), "/"), e.Name())); err != nil {
+				return fmt.Errorf("laying out the edited tree %s: %w", dir, err)
+			}
+		}
+		return nil
+	}
+	if err := link(t.Dir, "image"); err != nil {
+		return "", err
+	}
+	if err := link(filepath.Join(t.Dir, "image"), "rootfs.qcow2"); err != nil {
+		return "", err
+	}
+	rootfs := filepath.Join(dir, "image", "rootfs.qcow2")
+	if err := NewOverlay(t, rootfs); err != nil {
+		return "", err
+	}
+	var edits []Edit
+	for _, e := range t.Manifest.Edits {
+		edits = append(edits, e.Edit)
+	}
+	if err := EditOverlay(rootfs, edits...); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
