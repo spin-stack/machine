@@ -228,18 +228,6 @@ jobs:
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: spin-machine-dev build kernel --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
 
-      # Still named vmlinux-<sha>: lab tree --kernel run:<id> finds a kernel run's artifact by that name.
-      - name: Upload the kernel
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: vmlinux-${{ github.sha }}
-          path: |
-            _output/kernel/bzImage
-            _output/kernel/vmlinux
-            _output/kernel/kernel-config
-          retention-days: 30
-          if-no-files-found: error
-
       # The lab's traceable kernel, as release.yml's traceable job builds it once a release is out:
       # the release kernel again, from the step above's builder, and a second with lockdown forced
       # to none, held to the first's config less that option. Here, a change that breaks it fails
@@ -251,6 +239,17 @@ jobs:
         env:
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: spin-machine-dev release traceable-kernel --version "$GITHUB_SHA" --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+
+      # PROOF ONLY (#697), never merged: the traceable kernel as a run's kernel, for lab --kernel run:N.
+      - name: Upload the traceable kernel
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vmlinux-traceable-${{ github.sha }}
+          path: |
+            _output/traceable/kernel/vmlinux
+            _output/traceable/kernel/kernel-config
+          retention-days: 7
+          if-no-files-found: error
 
   # The base image: ~1.5 GB of apt against a live archive. The build runs `docker run --cap-add
   # SYS_ADMIN` and not `docker buildx build`, because mkosi assembles a root filesystem by
