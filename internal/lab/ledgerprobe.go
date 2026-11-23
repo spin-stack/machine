@@ -121,16 +121,26 @@ func (ledgerProbe) Name() string { return ledgerName }
 func (ledgerProbe) About() string {
 	return "a boot accounted for from the moment before QEMU is exec'd to the first login, from a scheduler trace from the kernel's start: ledgers kept beside result.json"
 }
-func (ledgerProbe) Options() []Option     { return shape }
+// Options are the shape's, and #611's experiment: QEMU traced for the split before the kernel's
+// clock (prekernel.go), and QEMU under strace for its ioctls' own times.
+func (ledgerProbe) Options() []Option {
+	return append(slices.Clone(shape),
+		Option{"qemu-trace", "false", "trace QEMU and split the time before the kernel's clock (#611)"},
+		Option{"strace", "false", "run the traced QEMU under strace, for its ioctls' times (#611)"})
+}
 func (ledgerProbe) Rows(Options) []string { return []string{"boot"} }
 func (ledgerProbe) Phases() int           { return 1 }
 
 func (ledgerProbe) Needs(o Options) []Need {
-	return append(append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "append"}), plugNeeds(o)...)
+	needs := append(append(bootNeeds, Need{"boot", "vsock-cid"}, Need{"boot", "append"}), plugNeeds(o)...)
+	if o.Bool("qemu-trace") {
+		needs = append(needs, Need{"boot", "qemu"})
+	}
+	return needs
 }
 
 func (ledgerProbe) Metrics() []Metric {
-	return []Metric{
+	return append([]Metric{
 		{"first_login", "ms", "the first login, /usr/bin/true, from the moment before QEMU is exec'd, with the trace running"},
 		{"kernel_zero", "ms", "where the kernel's clock read 0, from the same moment: QEMU, the firmware and the kernel's decompression"},
 		{"kernel_zero_error", "ms", "kernel_zero's uncertainty, half its narrowest bracket"},
@@ -146,7 +156,7 @@ func (ledgerProbe) Metrics() []Metric {
 		{"unattributed", "ms", "CPU time from PID 1 to the login no unit could be named for"},
 		{"breaks", "count", "switches the trace lost events at"},
 		{"trace_dropped", "count", "events the full buffer dropped, after the boot or, when the ledger is missed, before its end"},
-	}
+	}, prekernelMetrics...)
 }
 
 // ledgerTrips is how many markers the host asks for, ledgerSpacing apart. The brackets of the
@@ -173,6 +183,14 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	t0 := time.Now()
 	qmp := filepath.Join(m.Socks, "m.qmp")
 	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--append", m.Tree.Cmdline(m.Key.Init())}, m.qmpToPlug(qmp)...)
+	traced := m.Options.Bool("qemu-trace")
+	if traced {
+		flag, err := prekernelQEMU(m, m.Dir, m.Options.Bool("strace"))
+		if err != nil {
+			return err
+		}
+		args = append(args, flag)
+	}
 	mc, err := m.Launch(nil, m.BootArgs(overlay, args...)...)
 	if err != nil {
 		return err
@@ -268,6 +286,11 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.Record("residue", l.Residue)
 	m.Record("unattributed", l.unattributed())
 	m.Record("breaks", float64(l.Breaks))
+	if traced {
+		if err := m.prekernel(l, t0, fetched["journal"]); err != nil {
+			return Miss("no split before the kernel's clock: %v", err)
+		}
+	}
 	m.Logf("first login %v: %.1f ms before the kernel's clock (±%.1f), %.1f on it to the command's exit, %.1f residue; kept as %s",
 		login.Round(time.Millisecond), l.KernelZero, l.KernelZeroError, l.LoginEnd, l.Residue, text)
 	return nil
@@ -404,4 +427,82 @@ func (ledgerProbe) Detail(r *Result) string {
 		}
 	}
 	return b.String()
+}
+
+// prekernel splits the time before the kernel's clock from the traced QEMU's trace (#611), records
+// it, and keeps it beside the ledger.
+func (m *Measurement) prekernel(l Ledger, t0 time.Time, journal string) error {
+	trace, err := readPrekernelTrace(m.Dir)
+	if err != nil {
+		return err
+	}
+	offset, err := schedOffset(journal)
+	if err != nil {
+		return err
+	}
+	p, err := splitPrekernel(trace, t0, l.QEMUExec, offset, l.KernelZero)
+	if err != nil {
+		return err
+	}
+	if m.Options.Bool("strace") {
+		var cont float64
+		for _, c := range p.Commands {
+			if c.Monitor == "start" && c.Name == "cont" {
+				cont = c.Taken
+			}
+		}
+		ioctls, _, err := straceIoctls(filepath.Join(m.Dir, "strace.txt"), t0, cont)
+		if err != nil {
+			return err
+		}
+		p.Strace = ioctls
+		for _, x := range ioctls {
+			p.Values["strace_ioctls"] += float64(x.N)
+			p.Values["strace_ioctl_ms"] += x.GapMs
+		}
+	}
+	for k, v := range p.Values {
+		m.Record(k, v)
+	}
+	for _, iv := range p.Intervals {
+		m.Detail("stretch:"+iv.Name, iv.Ms)
+	}
+	for _, x := range p.Ioctls {
+		m.Detail("ioctl:"+x.Name, float64(x.N))
+		m.Detail("ioctl_ms:"+x.Name, x.GapMs)
+	}
+	for _, x := range p.Strace {
+		m.Detail("strace:"+x.Name, float64(x.N))
+		m.Detail("strace_ms:"+x.Name, x.GapMs)
+	}
+	name := fmt.Sprintf("%s-%d", m.Tree.Name(), m.Rep+1)
+	b, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return fmt.Errorf("writing the split: %w", err)
+	}
+	// The trace up to the kernel's clock and a little after, for a person: the whole boot's is MBs.
+	var head strings.Builder
+	zero := l.KernelZero + 5
+	for line := range strings.Lines(trace) {
+		stamp, _, _ := strings.Cut(line, " ")
+		if at, err := time.Parse("2006-01-02T15:04:05.000000Z", stamp); err == nil && ms(at.Sub(t0)) > zero {
+			break
+		}
+		head.WriteString(line)
+	}
+	for file, body := range map[string]string{
+		name + ".prekernel.json": string(b) + "\n",
+		name + ".prekernel.txt":  p.text(fmt.Sprintf("%s, boot %d", m.Tree.Name(), m.Rep+1)),
+		name + ".qemu-trace.txt": head.String(),
+	} {
+		if err := os.WriteFile(filepath.Join(m.Keep, file), []byte(body), 0o644); err != nil { //nolint:gosec // for a person to read
+			return fmt.Errorf("keeping %s: %w", file, err)
+		}
+	}
+	if m.Options.Bool("strace") {
+		if raw, err := os.ReadFile(filepath.Join(m.Dir, "strace.txt")); err == nil { // #nosec G304 -- the probe's own file
+			_ = os.WriteFile(filepath.Join(m.Keep, name+".strace.txt"), raw, 0o644) //nolint:gosec // for a person to read
+		}
+	}
+	return nil
 }

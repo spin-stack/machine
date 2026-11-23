@@ -393,10 +393,20 @@ func qemuPID(pid int) int {
 		for _, f := range strings.Fields(string(b)) {
 			if child, err := strconv.Atoi(f); err == nil && isQEMU(child) {
 				return child
+			} else if err == nil && isStrace(child) {
+				// #611's experiment runs QEMU under strace, one generation further down.
+				if q := qemuPID(child); q != child {
+					return q
+				}
 			}
 		}
 	}
 	return pid
+}
+
+func isStrace(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	return err == nil && strings.HasPrefix(string(b), "strace")
 }
 
 // isQEMU is whether pid runs a QEMU system emulator, by its name (comm, cut at 15 bytes).

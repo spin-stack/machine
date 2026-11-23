@@ -121,6 +121,11 @@ jobs:
         if: inputs.probe == 'bootchart'
         run: go tool task graphviz
 
+      # Experiment #611 only: the ledger's strace arm runs QEMU under strace.
+      - name: Install strace
+        if: inputs.probe == 'ledger'
+        run: command -v strace || { sudo apt-get update -q && sudo apt-get install -y -q strace; }
+
       # Makes the trees, runs the probe, writes result.json and puts the table on the summary.
       - name: Run the experiment
         run: go tool task lab:ci
