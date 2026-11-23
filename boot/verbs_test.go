@@ -31,6 +31,14 @@ func shell(t *testing.T, r *recorder, systemd bool) *guest {
 	g := startGuest(t, s, mac, nil)
 	g.boot(t, r.overlay(t, t.TempDir()), r.base())
 	if systemd {
+		// Sized as spin sizes a workspace right after it starts (docs/boot-time.md, "The memory"):
+		// systemd in the 128 MiB base alone, ~90 MiB to the guest, ran its OOM killer at 0.37 s
+		// and killed systemd-logind, which handles the power button, now and then (#658).
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := g.SetMemory(ctx, 2048); err != nil {
+			t.Fatal(err)
+		}
 		g.await(t, regexp.MustCompile(`login: `), 60*time.Second)
 		return g
 	}
