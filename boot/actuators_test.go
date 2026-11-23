@@ -19,10 +19,16 @@ import (
 // shape, booted to systemd at 2048 MiB and logged into over SSH, is given each in turn,
 // SPIN_ACTUATORS_REPS times (default 10):
 //
-//   - SetMemory from 2048 down to 1024 MiB, idle, until /sys/devices/system/memory has 1024 MiB
-//     online, and then back up to 2048;
+//   - SetMemory from 2048 down to 1024 MiB, idle, until the guest's MemTotal is 1024 MiB less,
+//     and then back up to 2048;
 //   - the same with the page cache full: 1536 MiB of the root disk read just before;
 //   - SetCPUs from 1 to 2 and back, until /sys/devices/system/cpu/online shows it.
+//
+// Memory is read from MemTotal, not from the blocks /sys/devices/system/memory has online.
+// virtio-mem takes memory back in its own blocks, a few MiB each, from inside a 128 MiB memory
+// block, and a block stays online until all of it is gone. Read by the blocks online, an unplug
+// QEMU had finished stood at 1536 MiB for 2 minutes in 19 of 20 (bench, lab 45113957566,
+// 2026-11-23). The ready line also says the MiB of blocks online.
 //
 // Each is timed from the call to the guest's line saying it saw it, and the call's own return is
 // logged beside it: SetMemory returns once QEMU has the request, SetCPUs down once QEMU has let the
@@ -48,6 +54,13 @@ func TestWhatTheActuatorsCost(t *testing.T) {
 	w.boot(ctx, t, top, []string{x.frozen, x.raw})
 	w.sh(t, "systemctl is-system-running --wait >/dev/null || true")
 
+	// MemTotal at 2048 MiB, less what the kernel keeps for itself. A block taken whole takes its
+	// memmap with it, a few MiB that were never in MemTotal, so the watch allows memSlack.
+	var full int
+	if _, err := fmt.Sscan(w.sh(t, `awk '$1 == "MemTotal:" { print int($2 / 1024) }' /proc/meminfo`), &full); err != nil {
+		t.Fatalf("reading MemTotal: %v", err)
+	}
+	down, up := fmt.Sprintf("mem le %d", full-1024+memSlack), fmt.Sprintf("mem ge %d", full-memSlack)
 	var rows []actuation
 	for i := range reps {
 		for _, full := range []bool{false, true} {
@@ -56,14 +69,18 @@ func TestWhatTheActuatorsCost(t *testing.T) {
 				name = "SetMemory 2048 → 1024 MiB, page cache full"
 				t.Logf("#%d: %s", i, w.sh(t, `dd if=/dev/vda of=/dev/null bs=1M count=1536 2>/dev/null; awk '$1 == "Buffers:" || $1 == "Cached:" || $1 == "MemFree:" { printf "%s %d MiB ", $1, $2 / 1024 }' /proc/meminfo`))
 			}
-			rows = append(rows, w.actuate(t, name, "mem le 1024", func() error { return w.SetMemory(ctx, 1024) }))
-			rows = append(rows, w.actuate(t, "SetMemory 1024 → 2048 MiB", "mem ge 2048", func() error { return w.SetMemory(ctx, 2048) }))
+			rows = append(rows, w.actuate(t, name, down, func() error { return w.SetMemory(ctx, 1024) }))
+			rows = append(rows, w.actuate(t, "SetMemory 1024 → 2048 MiB", up, func() error { return w.SetMemory(ctx, 2048) }))
 		}
 		rows = append(rows, w.actuate(t, "SetCPUs 1 → 2", "cpu eq 0-1", func() error { return w.SetCPUs(ctx, 2) }))
 		rows = append(rows, w.actuate(t, "SetCPUs 2 → 1", "cpu eq 0", func() error { return w.SetCPUs(ctx, 1) }))
 	}
 	t.Log(actuationTable(rows))
 }
+
+// memSlack is how far from 1024 MiB less the guest's MemTotal may be and count as there: the memmap
+// of eight 128 MiB blocks is 16 MiB.
+const memSlack = 16
 
 // actuatorWithin is how long the guest is given to show what an actuator did. virtio-mem's driver
 // retries a block it could not empty on a timer that backs off, so an unplug the guest has not
@@ -80,18 +97,18 @@ type actuation struct {
 
 // actuatorWatch is run by bash in the guest as `actuatorWatch KIND OP WANT`: it prints "ready" and
 // what it reads now, then polls until what it reads compares to WANT by OP, printing "at" and what
-// it reads each time that changes, and "done" and what it read at the end. KIND mem is the MiB of memory blocks online, cpu is /sys/devices/system/cpu/online.
+// it reads each time that changes, and "done" and what it read at the end. KIND mem is the guest's MemTotal in
+// MiB, cpu is /sys/devices/system/cpu/online.
 // Between polls it waits a millisecond on its input, which the host leaves open and silent.
 const actuatorWatch = `kind=$1 op=$2 want=$3
 read -r bs < /sys/devices/system/memory/block_size_bytes
 bs=$((16#$bs))
 state() {
 	if [ "$kind" = mem ]; then
-		n=0
-		for f in /sys/devices/system/memory/memory*/online; do
-			read -r v < "$f" && [ "$v" = 1 ] && n=$((n + 1))
-		done
-		s=$((n * bs / 1048576))
+		while read -r k v _; do
+			[ "$k" = MemTotal: ] && break
+		done < /proc/meminfo
+		s=$((v / 1024))
 	else
 		read -r s < /sys/devices/system/cpu/online
 	fi
@@ -103,7 +120,14 @@ seen() {
 	esac
 }
 state
-echo "ready $s"
+blocks() {
+	n=0
+	for f in /sys/devices/system/memory/memory*/online; do
+		read -r v < "$f" && [ "$v" = 1 ] && n=$((n + 1))
+	done
+	echo "$((n * bs / 1048576)) MiB in blocks online"
+}
+echo "ready $s, $(blocks)"
 last=$s
 until seen; do
 	read -r -t 0.001 _ || true
