@@ -129,7 +129,6 @@ rm -f /etc/systemd/system/multi-user.target.wants/containerd.service 2>/dev/null
 
 mkdir -p /etc/systemd/system/sockets.target.wants
 ln -sf /etc/systemd/system/containerd.socket /etc/systemd/system/sockets.target.wants/containerd.socket
-ln -sf /etc/systemd/system/docker.socket /etc/systemd/system/sockets.target.wants/docker.socket
 
 # docs/image.md, "The host keys"
 mkdir -p /etc/systemd/system/sysinit.target.wants
