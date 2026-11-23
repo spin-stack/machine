@@ -95,7 +95,7 @@ mkdir -p /etc/systemd/journald.conf.d
 cat <<'EOF' >/etc/systemd/journald.conf.d/volatile.conf
 [Journal]
 Storage=volatile
-RuntimeMaxUse=4M
+RuntimeMaxUse=8M
 RuntimeMaxFileSize=1M
 
 Compress=no
