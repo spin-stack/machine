@@ -36,6 +36,7 @@ on:
           - bootchart
           - ledger
           - exits
+          - check:kaslr
           - check:firmware
           - check:firmware-stages
           - check:waits

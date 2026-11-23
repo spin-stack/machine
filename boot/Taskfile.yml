@@ -211,6 +211,15 @@ tasks:
     cmds:
       - SPIN_LOCKDOWN_TEST=1 go test ./boot/ -run '^TestTheGuestKernelIsLockedDown$' -count=1 -v -timeout 5m
 
+  kaslr:
+    desc: >-
+      Check the kernel's virtual base, physical base and RANDOMIZE_MEMORY regions each move,
+      across SPIN_KASLR_BOOTS boots (default 10) in spin's base shape (kaslr_test.go, #645).
+      Needs a built release and /dev/kvm.
+    deps: [':tools']
+    cmds:
+      - SPIN_KASLR_TEST=1 go test ./boot/ -run '^TestTheKernelMovesEveryBoot$' -count=1 -v -timeout 15m
+
   cpu-plug:
     desc: >-
       A workspace checkpointed with memory and continued still grows: spin's shape booted to
