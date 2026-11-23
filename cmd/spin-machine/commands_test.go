@@ -39,7 +39,14 @@ func newMonitor(t *testing.T, replies ...string) *monitor {
 // greetedBy is newMonitor with the greeting hello, which says which QEMU it is.
 func greetedBy(t *testing.T, hello string, replies ...string) *monitor {
 	t.Helper()
-	m := &monitor{socket: filepath.Join(t.TempDir(), "qmp.sock"), done: make(chan served, 1)}
+	// A socket's path fits in 108 bytes, and t.TempDir() under a TMPDIR on disk
+	// (/var/tmp/..., AGENTS.md) does not: a short directory of its own in /tmp.
+	dir, err := os.MkdirTemp("/tmp", "mon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	m := &monitor{socket: filepath.Join(dir, "qmp.sock"), done: make(chan served, 1)}
 	l, err := net.Listen("unix", m.socket)
 	if err != nil {
 		t.Fatal(err)
