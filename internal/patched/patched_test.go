@@ -6,6 +6,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -117,7 +119,8 @@ func TestTreeFromATarballAppliesThePatchesAndKeepsOnlyTheCFilesTheyTouch(t *test
 	dir := t.TempDir()
 	put(t, filepath.Join(dir, "src/stale.c"), "from an earlier tree\n")
 	put(t, filepath.Join(dir, "upstream/stale.c"), "from an earlier tree\n")
-	if err := Tree(context.Background(), checkout(t, patchA, patchNew), v, Parts[0], dir); err != nil {
+	buildless := Part{Name: "kernel", Pin: "kernel", Patches: "kernel/patches/*.patch"}
+	if err := Tree(context.Background(), checkout(t, patchA, patchNew), v, buildless, dir); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, filepath.Join(dir, "src/lib/a.c")); got != "one\nTWO\nthree\nfour\n" {
@@ -141,6 +144,13 @@ func TestTreeFromATarballAppliesThePatchesAndKeepsOnlyTheCFilesTheyTouch(t *test
 		if _, err := os.Stat(filepath.Join(dir, kept)); err != nil {
 			t.Errorf("%s: %v", kept, err)
 		}
+	}
+
+	if err := Tree(context.Background(), checkout(t, patchA, patchNew), v, Parts[0], dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "src/lib/b.c")); err != nil {
+		t.Errorf("the kernel's tree, which its analysis compiles, lost a file its build needs: %v", err)
 	}
 }
 
@@ -313,5 +323,114 @@ func TestPruneTakesOutOnlyTheUntouchedCSources(t *testing.T) {
 		if err := prune(src, nil); err == nil {
 			t.Error("a directory it cannot read is an error, not a tree pruned in part")
 		}
+	}
+}
+
+func TestCompileRefusesAPartWithoutABuildOrATree(t *testing.T) {
+	qboot, _ := Find("qboot")
+	if err := Compile(context.Background(), t.TempDir(), qboot, t.TempDir(), io.Discard); err == nil || !strings.Contains(err.Error(), "without a build") {
+		t.Errorf("qboot: %v", err)
+	}
+	if err := Compile(context.Background(), t.TempDir(), Parts[0], t.TempDir(), io.Discard); err == nil || !strings.Contains(err.Error(), "make the tree first") {
+		t.Errorf("no tree: %v", err)
+	}
+}
+
+func TestTheKernelIsCompiledWithoutNamedAddressSpacesOrNotAtAll(t *testing.T) {
+	src := t.TempDir()
+	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config CC_HAS_NAMED_AS\n\tbool\n")
+	root := t.TempDir()
+	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
+	if err := compileKernel(context.Background(), root, src, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "no longer says") {
+		t.Errorf("a Kconfig that turns __seg_gs on some other way: %v", err)
+	}
+}
+
+// fakeTools puts scripts named for the build tools first on PATH, each appending its arguments
+// to dir/calls, and answers ninja's target listing with what targets holds.
+func fakeTools(t *testing.T, targets string) string {
+	t.Helper()
+	bin := t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	for _, tool := range []string{"make", "ninja"} {
+		put(t, filepath.Join(bin, tool), "#!/bin/sh\necho "+tool+" \"$@\" >> "+calls+"\n"+
+			"case \"$*\" in *'-t targets all'*) printf '"+targets+"' ;; esac\n")
+		if err := os.Chmod(filepath.Join(bin, tool), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return calls
+}
+
+func TestTheKernelIsCompiledFromItsConfigurationWithoutNamedAddressSpaces(t *testing.T) {
+	calls := fakeTools(t, "")
+	src, root := t.TempDir(), t.TempDir()
+	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config A\n\tbool\n\nconfig CC_HAS_NAMED_AS\n\tdef_bool $(success,echo x | $(CC))\n\tdepends on CC_IS_GCC\n")
+	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
+	if err := compileKernel(context.Background(), root, src, []string{"lib/a.c", "kernel/b.c"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(src, "arch/x86/Kconfig")); got != "config A\n\tbool\n\nconfig CC_HAS_NAMED_AS\n\tdef_bool n\n\tdepends on CC_IS_GCC\n" {
+		t.Errorf("Kconfig = %q", got)
+	}
+	if got := read(t, filepath.Join(src, ".config")); got != "CONFIG_X86_64=y\n" {
+		t.Errorf(".config = %q, want the series' configuration", got)
+	}
+	got := read(t, calls)
+	for _, want := range []string{"make -C " + src + " ARCH=x86_64 olddefconfig\n", " prepare\n", " lib/a.o kernel/b.o\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("calls:\n%s\nwant %q in them", got, want)
+		}
+	}
+
+	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config CC_HAS_NAMED_AS\n\tdef_bool $(x)\n")
+	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_CC_HAS_NAMED_AS=y\n")
+	if err := compileKernel(context.Background(), root, src, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "CONFIG_CC_HAS_NAMED_AS=y") {
+		t.Errorf("a configuration that kept named address spaces: %v", err)
+	}
+}
+
+func TestQEMUIsConfiguredForItsTargetAndCompilesOnlyTheTouchedObjects(t *testing.T) {
+	calls := fakeTools(t, "libqemu-x86_64-softmmu.a.p/target_i386_cpu.c.o: C_COMPILER\\nlibcommon.a.p/system_vl.c.o: C_COMPILER\\nqemu-system-x86_64: link\\n")
+	src := t.TempDir()
+	put(t, filepath.Join(src, "configure"), "#!/bin/sh\necho configure \"$@\" >> "+calls+"\n")
+	if err := os.Chmod(filepath.Join(src, "configure"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := compileQEMU(context.Background(), t.TempDir(), src, []string{"target/i386/cpu.c", "system/vl.c"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, calls)
+	for _, want := range []string{"configure --target-list=x86_64-softmmu", "ninja -C " + filepath.Join(src, "build") + " libqemu-x86_64-softmmu.a.p/target_i386_cpu.c.o libcommon.a.p/system_vl.c.o\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("calls:\n%s\nwant %q in them", got, want)
+		}
+	}
+	if err := compileQEMU(context.Background(), t.TempDir(), src, []string{"hw/arm/virt.c"}, io.Discard); err == nil || !strings.Contains(err.Error(), "compiles no hw/arm/virt.c") {
+		t.Errorf("a file the target does not build: %v", err)
+	}
+}
+
+func TestCompileHandsThePartOnlyTheTouchedCFiles(t *testing.T) {
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, "touched"), "lib/a.c\nlib/a.h\nlib/Kconfig\nlib/b.cc\n")
+	var got []string
+	p := Part{Name: "x", compile: func(_ context.Context, _, src string, touched []string, _ io.Writer) error {
+		got = touched
+		if src != filepath.Join(dir, "src") {
+			t.Errorf("src = %s", src)
+		}
+		return nil
+	}}
+	if err := Compile(context.Background(), t.TempDir(), p, dir, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []string{"lib/a.c", "lib/b.cc"}) {
+		t.Errorf("touched = %v", got)
+	}
+	p.compile = func(context.Context, string, string, []string, io.Writer) error { return errors.New("make failed") }
+	if err := Compile(context.Background(), t.TempDir(), p, dir, io.Discard); err == nil || err.Error() != "x: make failed" {
+		t.Errorf("a failed compile: %v", err)
 	}
 }

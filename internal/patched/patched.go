@@ -15,11 +15,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spin-stack/go-tools/versions"
@@ -28,14 +31,22 @@ import (
 
 // A Part is a source the machine carries patches for, the versions.yaml entry it is built from
 // and where its patches are, a glob from the checkout's root.
+//
+// compile, when a part has it, compiles the touched C files of a tree that keeps every file, for
+// an analysis that traces the compiler (build-mode manual). The kernel and QEMU have it: their
+// files include headers only their builds generate, and without a build CodeQL's extractor
+// failed every compilation of a touched kernel file it was given and three of QEMU's (codeql.yml
+// run 45214602230, 2026-11-23). A part without it is analysed from a tree with every C file it
+// does not touch taken out (build-mode none).
 type Part struct {
 	Name, Pin, Patches string
+	compile            func(ctx context.Context, root, src string, touched []string, out io.Writer) error
 }
 
 // Parts is every part with C patches, where AGENTS.md says each part's patches are kept.
 var Parts = []Part{
-	{Name: "kernel", Pin: "kernel", Patches: "kernel/patches/*.patch"},
-	{Name: "qemu", Pin: "qemu", Patches: "qemu/patches/*.patch"},
+	{Name: "kernel", Pin: "kernel", Patches: "kernel/patches/*.patch", compile: compileKernel},
+	{Name: "qemu", Pin: "qemu", Patches: "qemu/patches/*.patch", compile: compileQEMU},
 	{Name: "qboot", Pin: "qboot", Patches: "qemu/qboot/*.patch"},
 	{Name: "systemd", Pin: "systemd-source", Patches: "image/systemd/*.patch"},
 	{Name: "openssh", Pin: "openssh-source", Patches: "image/openssh/*.patch"},
@@ -95,10 +106,140 @@ func Tree(ctx context.Context, root string, pins *versions.Versions, p Part, dir
 			return fmt.Errorf("%s: %s does not apply to %s %s: %w\n%s", p.Name, filepath.Base(patch), e.Name, e.Version, err, out)
 		}
 	}
-	if err := prune(src, touched); err != nil {
-		return fmt.Errorf("%s: %w", p.Name, err)
+	if p.compile == nil {
+		if err := prune(src, touched); err != nil {
+			return fmt.Errorf("%s: %w", p.Name, err)
+		}
 	}
 	return os.WriteFile(filepath.Join(dir, "touched"), []byte(strings.Join(touched, "\n")+"\n"), 0o644)
+}
+
+// Traced is whether p is analysed by tracing Compile rather than without a build.
+func (p Part) Traced() bool { return p.compile != nil }
+
+// Compile compiles the C files the patches touch in p's tree in dir, which Tree made, for an
+// analysis tracing the compiler, writing what the build prints to out. root is the checkout.
+func Compile(ctx context.Context, root string, p Part, dir string, out io.Writer) error {
+	if p.compile == nil {
+		return fmt.Errorf("%s is analysed without a build: it has nothing to compile", p.Name)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "touched"))
+	if err != nil {
+		return fmt.Errorf("reading the touched files (make the tree first): %w", err)
+	}
+	var touched []string
+	for _, f := range strings.Fields(string(raw)) {
+		if slices.Contains(cSources, filepath.Ext(f)) {
+			touched = append(touched, f)
+		}
+	}
+	if err := p.compile(ctx, root, filepath.Join(dir, "src"), touched, out); err != nil {
+		return fmt.Errorf("%s: %w", p.Name, err)
+	}
+	return nil
+}
+
+// namedAddressSpaces is the symbol arch/x86/Kconfig sets when GCC has named address spaces, which
+// makes per-CPU access go through __seg_gs, and which compileKernel turns off. CodeQL's C front end
+// cannot parse __seg_gs: with it, every file that reached a per-CPU accessor (this_cpu_inc,
+// raw_cpu_ptr) failed to extract, ten of the fourteen the patches touch (codeql.yml run
+// 45216274329, 2026-11-23). Without it the kernel takes its other, upstream-supported path, the
+// one a compiler without named address spaces builds.
+const namedAddressSpaces = "config CC_HAS_NAMED_AS\n\tdef_bool "
+
+// compileKernel configures the tree as kernel/Dockerfile does, from the series' configuration
+// but without named address spaces, and makes the touched files' objects.
+func compileKernel(ctx context.Context, root, src string, touched []string, out io.Writer) error {
+	kconfig := filepath.Join(src, "arch", "x86", "Kconfig")
+	k, err := os.ReadFile(kconfig)
+	if err != nil {
+		return err
+	}
+	before, after, found := bytes.Cut(k, []byte(namedAddressSpaces))
+	if !found {
+		return fmt.Errorf("%s no longer says %q: see how it turns on __seg_gs now", kconfig, namedAddressSpaces)
+	}
+	_, rest, _ := bytes.Cut(after, []byte("\n"))
+	k = slices.Concat(before, []byte(namedAddressSpaces+"n\n"), rest)
+	if err := os.WriteFile(kconfig, k, 0o644); err != nil {
+		return err
+	}
+	configs, _ := filepath.Glob(filepath.Join(root, "kernel", "config-*-x86_64"))
+	if len(configs) != 1 {
+		return fmt.Errorf("want one kernel/config-*-x86_64, found %d", len(configs))
+	}
+	raw, err := os.ReadFile(configs[0])
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(src, ".config"), raw, 0o644); err != nil {
+		return err
+	}
+	objects := []string{"ARCH=x86_64", "-j" + jobs()}
+	for _, f := range touched {
+		objects = append(objects, strings.TrimSuffix(f, filepath.Ext(f))+".o")
+	}
+	if err := shown(ctx, out, "", "make", "-C", src, "ARCH=x86_64", "olddefconfig"); err != nil {
+		return err
+	}
+	config, err := os.ReadFile(filepath.Join(src, ".config"))
+	if err != nil {
+		return err
+	}
+	if bytes.Contains(config, []byte("CONFIG_CC_HAS_NAMED_AS=y")) {
+		return errors.New("olddefconfig kept CONFIG_CC_HAS_NAMED_AS=y: the analysis would not parse per-CPU access")
+	}
+	for _, args := range [][]string{{"ARCH=x86_64", "-j" + jobs(), "prepare"}, objects} {
+		if err := shown(ctx, out, "", "make", append([]string{"-C", src}, args...)...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// compileQEMU configures the tree for the one target the machine builds and makes the
+// touched files' objects, which ninja names after the file's path.
+func compileQEMU(ctx context.Context, root, src string, touched []string, out io.Writer) error {
+	build := filepath.Join(src, "build")
+	if err := os.MkdirAll(build, 0o755); err != nil {
+		return err
+	}
+	if err := shown(ctx, out, build, filepath.Join(src, "configure"), "--target-list=x86_64-softmmu", "--enable-kvm", "--disable-docs", "--disable-werror"); err != nil {
+		return err
+	}
+	all, err := run(ctx, "ninja", "-C", build, "-t", "targets", "all")
+	if err != nil {
+		return fmt.Errorf("ninja -t targets: %w\n%s", err, all)
+	}
+	var targets []string
+	for _, f := range touched {
+		object := "/" + strings.ReplaceAll(f, "/", "_") + ".o:"
+		var found []string
+		for line := range strings.Lines(string(all)) {
+			if strings.Contains(line, object) {
+				found = append(found, strings.TrimSuffix(strings.Fields(line)[0], ":"))
+			}
+		}
+		if len(found) == 0 {
+			return fmt.Errorf("the x86_64-softmmu build compiles no %s", f)
+		}
+		targets = append(targets, found...)
+	}
+	return shown(ctx, out, build, "ninja", append([]string{"-C", build}, targets...)...)
+}
+
+// jobs is how many compilations make runs at once: one a CPU.
+func jobs() string { return strconv.Itoa(runtime.NumCPU()) }
+
+// shown runs a command in dir with its output to out, where a person reading the job sees what
+// was compiled and why it failed.
+func shown(ctx context.Context, out io.Writer, dir, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, out, out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return nil
 }
 
 // unpack puts e's source in src: a git entry cloned at its commit, a Debian source package
@@ -212,6 +353,9 @@ func keep(from, to string) error {
 	return os.WriteFile(to, raw, 0o644)
 }
 
+// cSources are the extensions of the C and C++ files a compiler is given.
+var cSources = []string{".c", ".cc", ".cpp", ".cxx"}
+
 // prune removes every C or C++ source file in src that the patches do not touch.
 func prune(src string, touched []string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
@@ -219,7 +363,7 @@ func prune(src string, touched []string) error {
 			return err
 		}
 		rel, _ := filepath.Rel(src, p)
-		if !d.Type().IsRegular() || !slices.Contains([]string{".c", ".cc", ".cpp", ".cxx"}, filepath.Ext(p)) ||
+		if !d.Type().IsRegular() || !slices.Contains(cSources, filepath.Ext(p)) ||
 			slices.Contains(touched, filepath.ToSlash(rel)) {
 			return nil
 		}
