@@ -476,8 +476,14 @@ func TestTheSplitBeforeTheKernelsClockIsRefusedWhenItCannotHold(t *testing.T) {
 	if _, err := newLedger(in); err == nil || !strings.Contains(err.Error(), "sched offset") {
 		t.Errorf("no kvm-clock line: %v", err)
 	}
+	// The machine ran at 70.0215 ± 0.0335: a bracket of QEMU's exec that starts inside that is
+	// taken, and one that starts after it is refused.
 	in = ledgerFixture(t)
-	in.QEMUExecLo, in.QEMUExecHi = 80, 80.2
+	in.QEMUExecLo, in.QEMUExecHi = 70.05, 70.2
+	if _, err := newLedger(in); err != nil {
+		t.Errorf("QEMU exec'd within the kernel's 0's uncertainty of the machine's running: %v", err)
+	}
+	in.QEMUExecLo = 70.06
 	if _, err := newLedger(in); err == nil || !strings.Contains(err.Error(), "before QEMU's exec") {
 		t.Errorf("QEMU exec'd after the machine ran: %v", err)
 	}

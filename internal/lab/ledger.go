@@ -146,7 +146,7 @@ func newLedger(in ledgerInput) (Ledger, error) {
 		return Ledger{}, err
 	}
 	exec, execErr, running := (in.QEMUExecLo+in.QEMUExecHi)/2, (in.QEMUExecHi-in.QEMUExecLo)/2, zero-offset
-	if running < exec-execErr-zeroErr {
+	if running+zeroErr < in.QEMUExecLo {
 		return Ledger{}, fmt.Errorf("the machine ran at %.3f ms, before QEMU's exec at %.3f ± %.3f: the kernel's sched offset of %.3f ms does not put kvm-clock's 0 on the host's clock", running, exec, execErr, offset)
 	}
 	cuts, end, err := b.cuts()
@@ -403,11 +403,8 @@ func schedOffset(journal string) (float64, error) {
 	if m == nil {
 		return 0, fmt.Errorf("the journal has no \"kvm-clock: using sched offset\" line: a kernel not on kvm-clock, or a journal that lost the kernel's first lines, puts nothing between QEMU's exec and the kernel's 0")
 	}
-	ns, err := strconv.ParseInt(m[1], 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("reading the kernel's sched offset %q: %w", m[1], err)
-	}
-	return float64(ns) / 1e6, nil
+	ns, _ := strconv.ParseFloat(m[1], 64) // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
+	return ns / 1e6, nil
 }
 
 var reSchedOffset = regexp.MustCompile(`kvm-clock: using sched offset of (\d+) cycles`)
