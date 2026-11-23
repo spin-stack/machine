@@ -41,6 +41,13 @@ RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false
     CONFFLAGS_UPSTREAM="${extra}" dpkg-buildpackage -b -uc -us -j"${JOBS}" && \
     meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra}
 
+COPY image/systemd/tests-passed.py /build/tests-passed.py
+RUN tests="test-engine test-load-fragment test-unit-name test-unit-file test-install-root" && \
+    meson configure obj-* -Dtests=true && \
+    ninja -C obj-* $tests && \
+    meson test -C obj-* --no-rebuild --print-errorlogs $tests && \
+    python3 /build/tests-passed.py obj-*/meson-logs/testlog.json $tests
+
 RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
     for p in systemd systemd-sysv udev libsystemd0 libsystemd-shared libudev1 libpam-systemd; do \
         ls /debs/${p}_*+spin1_*.deb > /dev/null || { echo "ERROR: no ${p} built"; exit 1; }; \
