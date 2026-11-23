@@ -57,7 +57,7 @@ func (restoreFirst) Options() []Option {
 }
 
 func (restoreFirst) Rows(o Options) []string {
-	return withChannels(o, "evicted", "cached")
+	return []string{"saved at login", "saved finished", "saved settled"}
 }
 
 func (restoreFirst) Phases() int { return 2 }
@@ -87,10 +87,11 @@ func (restoreFirst) Measure(_ context.Context, m *Measurement) error {
 	if err != nil {
 		return err
 	}
+	_ = way
 	if m.Phase == 0 {
 		return coldSave(m, channels...)
 	}
-	return restore(m, way == "cached", channels...)
+	return restore(m, false, channels...)
 }
 
 // restore resumes m's saved state - evicted from the page cache, or read back into it first when
@@ -258,12 +259,17 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 	if err := plugged(); err != nil {
 		return nil, err
 	}
-	if err := bootFinished(m, c.cid); err != nil {
-		return nil, err
+	if m.Row != "saved at login" {
+		if err := bootFinished(m, c.cid); err != nil {
+			return nil, err
+		}
 	}
 	c.finished = time.Since(t0)
 	if err := touch(m, c.cid); err != nil {
 		return nil, err
+	}
+	if m.Row == "saved settled" {
+		time.Sleep(3 * time.Second)
 	}
 	t0 = time.Now()
 	if err := m.SpinMachine(append([]string{"save", "--qmp", qmp, "--to", c.state}, channels...)...); err != nil {
