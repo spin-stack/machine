@@ -118,9 +118,12 @@ its exit or to the chart's end. Its colour is the CPU it used (blue) and the tim
 by unit" sums it by unit. Every process that used CPU while the chart ran is drawn, however
 briefly. Only what did not run, idle kernel threads mostly, is left out. The graphs above the
 bars are the whole guest's. IO read and write are the kilobytes the kernel sent to its disks
-(/proc/vmstat's `pgpgin` and `pgpgout`), averaged over 250 ms and each scaled to its own peak, so
-a few kilobytes fill the write graph (#538). A boot that writes nothing after the chart starts
-draws an empty write graph. CPU pressure, under CPU utilization, is the share of each 5 ms in
+(/proc/vmstat's `pgpgin` and `pgpgout`), one bar for each 5 ms, so a burst starts where it
+happened. Both graphs share one scale, the larger peak, which each title gives as MB/s at full
+height, so a write's height reads against the reads. Each graph labels its own peak. Upstream
+averaged 250 ms around each bar and gave each graph its own peak: a 5 ms burst drew as a plateau
+that rose before it began, and 164 KB written filled the write graph (#538). A boot that writes
+nothing after the chart starts draws an empty write graph. CPU pressure, under CPU utilization, is the share of each 5 ms in
 which some task waited for the vCPU. There is no graph of the summed wait: it counted two waiting
 tasks twice and sat at its ceiling on one vCPU (#534). `systemd-analyze plot` is the same boot drawn
 by unit: when each unit started activating and when it was active.
