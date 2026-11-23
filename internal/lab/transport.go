@@ -29,8 +29,8 @@ import (
 // next command. After the cold boot's login, the probe times query-status on the machine's
 // monitor, a one-byte echo over vsock, the same echo through a hop like spin's forwarder (vsock to
 // TCP on the guest's loopback), and a warm login, counting the login's round trips. Then the
-// machine finishes its boot (bootFinished), is saved and, in the second phase, restored into a traced QEMU and logged into, as
-// restore-first does it.
+// machine finishes its boot (bootFinished), is saved and, in the second phase, restored into a
+// traced QEMU and logged into, as restore-first does it.
 type transport struct{}
 
 func (transport) Name() string { return "transport" }

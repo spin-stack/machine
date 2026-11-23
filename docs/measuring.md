@@ -56,6 +56,36 @@ The decision itself is AGENTS.md's. A change goes in when it moves one of the tw
 interleaved against the release, without making the other worse. It also goes in when it is
 functional.
 
+## When a checkpoint is taken
+
+A probe that restores saves its checkpoint once the guest's boot has finished, never at the cold
+login. spin checkpoints an empty workspace, a project's workspace or a prebuild long after its
+boot, never while the boot is still running (#578). A state saved at the login carried the boot's
+remaining jobs, and every restore of it ran them beside the login it measured.
+
+Finished is three answers, asked over SSH as the probe's user (`bootFinished`, in
+`internal/lab/restore.go`):
+
+1. `systemctl is-system-running --wait` says `running` or `degraded`: the system manager is out
+   of its start.
+2. `multi-user.target` is active and `systemctl list-jobs` lists nothing. The manager calls its
+   start finished the first time its job queue empties. A unit that starts part of the boot once
+   the first jobs are done (#581's `Type=idle` one) finds that moment, so the first answer alone
+   can come before that part has run.
+3. `systemctl --user is-system-running --wait` says the same of the user's manager. root lingers,
+   so its manager starts in the boot.
+
+Nothing is waited for after that. A settle of 3 s more, long enough for free page reporting's
+2 s delay and for the probe's own sessions to close, moved neither the state (−0.0 MiB [−0.4,
++0.3]) nor the restored login (+0.4 [−0.6, +1.3]), so it would cost only bench time (bench, spin's
+shape and login, v20261123.01, 40 a side, lab 45095349849, measured 2026-11-23).
+
+`restore-first` records when its guest answered as `finished`, which includes the SSH login that
+asked. The probes that save are `restore-first`, `prestart`, `restore-together`, `run-delay` and
+`transport`. `lab compat`'s checkpoint boots a shell as PID 1, with no systemd to finish. A
+restore measured before this rule saved at the login, so its numbers do not compare with one
+measured after (docs/log.md, 11-23).
+
 ## Boot charts
 
 A boot chart shows where a boot's time went: which processes ran, when, and what they waited
