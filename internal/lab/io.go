@@ -195,6 +195,7 @@ func (ioProbe) Measure(_ context.Context, m *Measurement) error {
 // tmpfsDir is a directory on the host's tmpfs for a measurement's disks, and what removes it, which
 // the caller runs once the machine that has them open is stopped: left to the experiment's end, a
 // run's disks would fill the host's memory.
+// mutate-lane: TestEveryProbeMeasuresATree
 func tmpfsDir() (string, func(), error) {
 	dir, err := os.MkdirTemp("/dev/shm", "lab-disk")
 	if err != nil {
@@ -205,6 +206,7 @@ func tmpfsDir() (string, func(), error) {
 
 // tmpfsDisk is a raw disk of size bytes on the host's tmpfs, every page allocated, and what removes
 // it (tmpfsDir).
+// mutate-lane: TestEveryProbeMeasuresATree
 func tmpfsDisk(name string, size int64) (string, func(), error) {
 	dir, remove, err := tmpfsDir()
 	if err != nil {
@@ -247,6 +249,7 @@ func (m *Measurement) attachRaw(cid uint32, name, path, serial string) (string, 
 
 // qemuCPU is the CPU time process pid has had, every thread's, the exited ones' included:
 // /proc/PID/stat's utime and stime. A vCPU thread's time running the guest is in its utime.
+// mutate-lane: TestEveryProbeMeasuresATree
 func qemuCPU(pid int) (time.Duration, error) {
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
@@ -259,10 +262,10 @@ func qemuCPU(pid int) (time.Duration, error) {
 // since a command may hold spaces. Both are in USER_HZ ticks, 100 a second on Linux's ABI.
 func statCPU(stat string) (time.Duration, error) {
 	i := strings.LastIndexByte(stat, ')')
-	if i < 0 {
+	if i < 0 { // mutate-exempt: < 1 differs only on a stat that starts with ')', which none does
 		return 0, fmt.Errorf("a /proc/PID/stat with no command: %q", stat)
 	}
-	f := strings.Fields(stat[i+1:])
+	f := strings.Fields(stat[i+1:]) // mutate-exempt: the kernel writes a space after the command, so i+2 reads the same fields
 	if len(f) < 13 {
 		return 0, fmt.Errorf("a /proc/PID/stat with no utime and stime: %q", stat)
 	}

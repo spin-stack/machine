@@ -50,6 +50,7 @@ func (goBuild) Metrics() []Metric {
 
 // goDisk makes the workspace disk a build starts from at path: a raw ext4 image holding the
 // host's Go toolchain at /go. It returns the toolchain's version.
+// mutate-lane: TestEveryProbeMeasuresATree
 func goDisk(path string) (string, error) {
 	out, err := exec.Command("go", "env", "GOROOT", "GOVERSION").Output()
 	f := strings.Fields(string(out))
