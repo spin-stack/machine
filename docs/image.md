@@ -486,6 +486,7 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 | `systemd-logind-varlink.socket.d/10-seats.conf` | configuration | Makes `/run/systemd/seats` before logind is reached. Without it, a login that arrives before logind has run gets no session, `XDG_RUNTIME_DIR` unset, and no error (2026-09-12). | function; `boot:logind` | Nothing. |
 | `sshd-vsock.socket.d/10-lane.conf`, `sshd@.service.d/10-lane.conf` | reordered | The image's own vsock login, `login=lane` in the probes. spin's path does not use it. | lane | Nothing. |
 | `ssh.service.d/20-no-config-test.conf` | removed | Ubuntu's ssh.service runs `sshd -t` before it starts. The check stays on reload. | measured: −3.2 [−7.2, −0.8], 60 a side (lab 44977044826) | A broken `sshd_config` fails at start rather than in a pre-check; the error is sshd's own. |
+| `default.target` → `spin-machine-login.target`, `spin-machine-boot-rest.service` | reordered, deferred | The boot's default target holds only what the first login needs. `multi-user.target`, and with it `sysinit.target`, `basic.target`, udev, tmpfiles, sysctl, the sockets, the timers and the getty, starts once those units are up. See "The first login's target". | measured on v20261123.02, 40 a side: first login −21.5 [−26.4, −15.5] (lab 45098372930); restored +1.1 [−6.0, +5.2] evicted, +2.2 [−10.6, +12.9] cached (lab 45098372897) | Deferred: everything outside the target runs right after its units are up, not before them. A device udev prepares, `/run/utmp`, sysctls, docker's socket and the serial getty come tens of ms later (console prompt +15.5). |
 
 ## Login
 
@@ -631,6 +632,45 @@ explains it.
   two 334 ms timeouts (a terminfo query and a terminal reset) to a serial port with a file behind it;
   with it, 855 ms became 163-207 for the whole boot (`b5f361f`). `linux` and
   `vt220` are what systemd picks for a virtual console and a serial line when nothing says otherwise.
+
+### The first login's target
+
+`spin-machine-login.target` is the boot's default target. It wants the units a workspace's first
+login needs: `ssh.socket`, `ssh.service` and its keygen, the image's vsock socket, journald,
+logind with its Varlink socket, the system bus, `/tmp`, and spin's supervisor by its name
+(`spin-supervisor.service`, spin-stack/spin's `deploy/guest/extension/supervisor`). Each of those
+starts without default dependencies, so the target pulls in neither `sysinit.target` nor
+`basic.target`, and PID 1 loads only what the target reaches before the login.
+`spin-machine-boot-rest.service`, wanted by the target, starts `multi-user.target` once the boot's
+first jobs are done (`Type=idle`, at most 5 s later): every unit still runs, after the login's.
+
+- **Why.** On one vCPU, every unit started before the first login is on its clock (#553, #564).
+  A bound with the rest started 3 s later read −55.5 [−63.0, −51.6] (lab 45089584596, 20 a side),
+  and PID 1's CPU before the login 55 → 38 ms (lab 45089584735). Prior art: Kata's
+  `kata-containers.target`, Sony's critical target (LPC 2024), Axis's targets (ASG 2025), none
+  timed against a login (#574).
+- **Why after the boot's first jobs.** Three triggers were measured with spin's supervisor off
+  `basic.target` (lab 45090246267, 20 a side): `Type=idle` −59.2 [−69.1, −47.4], a timer 2 s after
+  the boot −66.5 [−75.2, −56.1], sshd's PAM stack starting it at the first session −52.0
+  [−61.6, −37.4]. The timer starts the rest at an arbitrary time whatever the login, and docker's
+  socket waits for it; the PAM trigger ran beside the login's last steps (accept to login +15.3).
+- **spin's supervisor.** spin's unit has default dependencies and `WantedBy=multi-user.target`. The
+  target wants it by name, so spin's login does not wait for the rest; its default dependencies
+  still pull `sysinit.target` and `basic.target` in before the login. Off them (the
+  probe's forwarder with `forwarder-early`'s drop-in, which `--edit forwarder-early` makes on a
+  release that has this target), the first login read −45.3 [−50.2, −39.4] against the release, but
+  the second login +43.7 [+41.1, +46.1]: the first login then comes before the boot's first jobs
+  are done, and the rest of the boot runs when the second login comes (lab 45098372930,
+  v20261123.02, 40 a side; spin-stack/spin#1653).
+- **logind's Varlink socket.** systemd refuses to start a socket whose service already runs, so it
+  starts with logind or not at all. Without it in the target, `boot:logind` failed (lab 45090950033).
+- **The restore.** A probe's checkpoint is taken once the boot has finished (#578), so the rest of
+  the boot is done in every state it saves. The restored login read +1.1 [−6.0, +5.2] evicted and
+  +2.2 [−10.6, +12.9] cached, both within noise (lab 45098372897, v20261123.02, 40 a side). The
+  guest's boot finishes 35.2 ms later than the release's, since the rest of it runs after the login.
+- **The console prompt.** The serial getty is part of `multi-user.target`, so its prompt comes
+  +15.5 [+11.5, +19.0] ms later (lab 45098372930). Nothing a workspace does waits for the getty:
+  spin reaches it over SSH, and the console is for a person debugging a guest.
 
 ### The host keys
 
