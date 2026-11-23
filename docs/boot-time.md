@@ -415,6 +415,7 @@ and a row measured in another shape than spin's has such a reason.
 | `direct-io` (O_DIRECT) on the channels | within the noise evicted, +45 ms cached | laptop | log.md, 11-21 | 11-21 |
 | `direct-io` on the channels of a save, against dirty-page throttling in the stop | never converged beside a busy disk: each pass ~2.5 s, the save cancelled after 10 min | spin, plugged 2 GiB | lab 44973775066, docs/memory-and-disk.md | 11-22 |
 | `downtime-limit` 15 instead of 30 | the guest's stop −2.5 [−7.5, +3.0] short of memory beside a busy disk, −1.5 [−6.0, +2.8] with a writer | spin, plugged 2 GiB | lab 44975130836 | 11-22 |
+| The guest's clean page cache dropped right before its save (`sync; echo 1 > /proc/sys/vm/drop_caches`), #276's last idea | the state did not shrink: 183 MiB with the drop, saved at once −0.1 [−0.4, +0.3] and 3 s later −0.0 [−0.3, +0.4]. The restored login was worse, +4.7 [+3.5, +7.3] evicted at once and +5.6 [+4.6, +7.6] 3 s later, as the login read again from the guest's disk what the drop took from its cache | spin | lab 45110967817 | 11-23 |
 
 ### QMP and vsock
 
