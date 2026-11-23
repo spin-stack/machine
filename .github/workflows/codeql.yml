@@ -4,12 +4,15 @@ name: CodeQL
 # each part's pinned upstream source with its patches applied (spin-machine-dev patched tree).
 # The kernel and QEMU are compiled under CodeQL's tracer, only the files their patches touch
 # (spin-machine-dev patched compile); qboot, systemd and OpenSSH are analysed without a build, from
-# a tree with every other C file taken out. Every result in a touched file goes to code scanning,
-# under the part's category; a result on a line the patches added or changed fails the job, and so
-# does a touched C file the analysis did not extract (spin-machine-dev patched scope). Upstream's
-# own results decide nothing (#653).
+# a tree with every other C file taken out. A result on a line the patches added or changed fails
+# the job and goes to code scanning, under the part's category; so does a touched C file the
+# analysis did not extract (spin-machine-dev patched scope). Upstream's own results in the touched
+# files are kept as the job's artifact, not sent to code scanning: an alert nobody here fixes is noise, and
+# would block a merge once a ruleset requires CodeQL (#653).
 #
-# Beside them, the analysis of this repository's own Go and workflows (`own`).
+# Beside them, the analysis of this repository's own Go and workflows (`own`). A Go result of medium
+# security severity or above fails it (spin-machine-dev patched severe), unless a codeql[<rule>]
+# comment in the source suppresses it and says why.
 #
 # The patched trees on a change that reaches one, on main, and weekly, for the queries CodeQL adds.
 
@@ -110,7 +113,7 @@ jobs:
 
       - name: What a traced build needs
         if: ${{ matrix.build-mode == 'manual' }}
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bc bison flex libelf-dev libssl-dev dwarves ninja-build libglib2.0-dev libpixman-1-dev python3-venv
+        run: go tool task patched-build-deps
 
       - name: Compile what the patches touch, traced
         if: ${{ matrix.build-mode == 'manual' }}
@@ -123,8 +126,18 @@ jobs:
           output: _output/patched/${{ matrix.part }}/sarif
           upload: never
 
-      - name: Keep the results in the touched files, and fail on one in a line the patches added
+      - name: Keep the results on lines the patches added, fail on one, and on a file not read
         run: spin-machine-dev patched scope ${{ matrix.part }}
+
+      # Upstream's results in the files the patches touch, one a line: kept here, never uploaded as
+      # alerts.
+      - name: Keep upstream's results in the touched files
+        if: ${{ !cancelled() && hashFiles(format('_output/patched/{0}/upstream.txt', matrix.part)) != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: upstream-results-${{ matrix.part }}
+          path: _output/patched/${{ matrix.part }}/upstream.txt
+          retention-days: 90
 
       # The analysis' own SARIF, whose diagnostics say what it extracted, for a scope that failed.
       - name: Keep the SARIF
@@ -175,10 +188,20 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-          queries: security-extended
+          # The suppression query marks a result under a codeql[<rule>] comment, which says why it
+          # stays, so that severe below and code scanning pass it by.
+          queries: security-extended${{ matrix.language == 'go' && ',codeql/go-queries:AlertSuppression.ql' || '' }}
 
       - name: Analyze
         uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           category: own-${{ matrix.language }}
           output: _output/codeql/${{ matrix.language }}
+
+      - name: spin-machine-dev
+        if: ${{ matrix.language == 'go' }}
+        run: go tool task bin
+
+      - name: Fail on a result of medium security severity or above
+        if: ${{ matrix.language == 'go' }}
+        run: spin-machine-dev patched severe _output/codeql/go

@@ -81,6 +81,27 @@ it did not read is not a clean one.`,
 			say(c, "%s: no result on a line the patches added", p.Name)
 			return nil
 		},
+	}, &cobra.Command{
+		Use:   "severe <sarif-dir>",
+		Short: "Fail on a result of medium security severity or above that the source does not suppress",
+		Long: `Read the SARIF files in <sarif-dir>, which codeql.yml's analysis of this repository's own code
+writes, and exit 1 naming each result whose rule's security severity is medium (4.0) or above and
+which no codeql[<rule>] comment suppresses. A result below that goes to code scanning only.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			severe, err := patched.Severe(args[0], patched.Medium)
+			if err != nil {
+				return couldNot(err)
+			}
+			for _, f := range severe {
+				_, _ = fmt.Fprintln(c.OutOrStdout(), f)
+			}
+			if len(severe) > 0 {
+				return exitError{code: 1, err: fmt.Errorf("%d results of medium security severity or above", len(severe))}
+			}
+			say(c, "no result of medium security severity or above")
+			return nil
+		},
 	})
 	return c
 }

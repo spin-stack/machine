@@ -279,9 +279,10 @@ func (k *Key) session(conn net.Conn, cid uint32, kex, command string) (string, e
 // config is the client's configuration for a login as k.User, offering only the key exchange kex.
 func (k *Key) config(kex string) *xssh.ClientConfig {
 	return &xssh.ClientConfig{
-		User:            k.User(),
-		Auth:            []xssh.AuthMethod{xssh.PublicKeys(k.Signer)},
-		HostKeyCallback: xssh.InsecureIgnoreHostKey(), // a fresh VM's keys, made in its boot
+		User: k.User(),
+		Auth: []xssh.AuthMethod{xssh.PublicKeys(k.Signer)},
+		// codeql[go/insecure-hostkeycallback] vsock reaches only this host's own guest, whose keys its boot made: no key to check, no network to impersonate it on.
+		HostKeyCallback: xssh.InsecureIgnoreHostKey(),
 		Config:          xssh.Config{KeyExchanges: []string{kex}},
 	}
 }
