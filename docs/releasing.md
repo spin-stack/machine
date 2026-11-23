@@ -131,13 +131,14 @@ host, the shape, the date, the run whose artifact holds every sample (90 days), 
 before it, with its numbers from the same run and each Δ with its 95% interval. `releases record`
 writes `docs/releases.md` from every record: a chart of the goal's numbers release by release
 (`docs/releases.svg`), the tables, and where each was measured, which links each release's charts,
-kept beside its record as `RELEASE-bootchart.svg` and `RELEASE-plot.svg`, and its ledger, as
-`RELEASE-ledger.txt`. The job proposes the records and
-the page as a pull request, as the release app, so the checks on it run. A test fails when the page
-or its chart is not what the records say, so nobody edits either by hand. Once that pull request
-merges, `pages.yml` publishes the same page, with each record, at
-https://spin-stack.github.io/spin-machine/ (`spin-machine-dev releases site`). That URL is the link
-to share.
+kept beside its record as `RELEASE-bootchart.svg` and `RELEASE-plot.svg`, the same boot's
+critical chain and ordering graph, as `RELEASE-chain.txt`, `RELEASE-order.dot` and
+`RELEASE-order.svg` (graphviz's drawing, which the job installs to draw), and its ledger, as
+`RELEASE-ledger.txt`. The job proposes the records and the page as a pull request, as the release
+app, so the checks on it run. A test fails when the page or its chart is not what the records
+say, so nobody edits either by hand. Once that pull request merges, `pages.yml` publishes the same
+page, with each record, at https://spin-stack.github.io/spin-machine/ (`spin-machine-dev releases
+site`). That URL is the link to share.
 
 The job measures a release with the release before it, and not alone, because a Δ is read only
 between two releases booted in the same run. The bench moves between runs by as much as a release
