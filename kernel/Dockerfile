@@ -72,7 +72,9 @@ RUN --mount=type=cache,sharing=locked,id=kernel-aptlib,target=/var/lib/apt \
         # "apparmor: enabled, but apparmor_parser missing" and exits non-zero, failing a
         # configuration that is correct; without sysctl it prints three "sysctl: not found"
         # lines while inspecting the bridge driver.
-        apparmor procps
+        apparmor procps \
+        # sparse, run over the files kernel/patches touch (kernel/README.md, "Patches").
+        sparse
 
 # The version, and the tarball it is made of by content, from versions.yaml. See the same
 # argument in qemu/Dockerfile: https says who sent it, not what they sent. It is also what
@@ -130,6 +132,31 @@ RUN --mount=type=cache,sharing=locked,id=kernel-src-${KERNEL_VERSION},target=/va
 # Assisted-by: (coding-assistants.rst) and carries no Signed-off-by a tool added: that
 # certifies the DCO, which only the human who takes the patch on can do.
 COPY kernel/patches/ /usr/src/patches/
+
+# That claim, checked: master's checkpatch.pl at the commit versions.yaml pins, beside the
+# pinned tree's spelling.txt and const_structs.checkpatch, which it reads from its own
+# directory. Three things are left out, each by name. --no-signoff and the Assisted-by:
+# trailer removed before the check, because checkpatch knows no Assisted-by: and the missing
+# Signed-off-by is the rule above. UNKNOWN_COMMIT_ID, because a tarball has no history to find
+# a cited commit in. Each patch must come out "has no obvious style problems", read from the
+# output rather than trusted from the exit status.
+ARG CHECKPATCH_VERSION
+ARG CHECKPATCH_SHA256
+RUN mkdir /usr/src/checkpatch && cd /usr/src/checkpatch && \
+    curl -o checkpatch.pl -fsSL "https://raw.githubusercontent.com/torvalds/linux/${CHECKPATCH_VERSION}/scripts/checkpatch.pl" && \
+    echo "${CHECKPATCH_SHA256}  checkpatch.pl" | sha256sum -c - && \
+    cp /usr/src/linux/scripts/spelling.txt /usr/src/linux/scripts/const_structs.checkpatch . && \
+    failed=0 && \
+    for p in /usr/src/patches/*.patch; do \
+        out=$(grep -v '^Assisted-by: ' "$p" | perl checkpatch.pl --strict --no-signoff --ignore UNKNOWN_COMMIT_ID \
+            --root=/usr/src/linux --summary-file --patch - 2>&1) || true; \
+        case "$out" in \
+            *"has no obvious style problems"*) echo "checkpatch: ${p##*/}: clean" ;; \
+            *) echo "ERROR: checkpatch --strict: ${p##*/}:"; echo "$out"; failed=1 ;; \
+        esac; \
+    done && \
+    [ "$failed" = 0 ]
+
 RUN cd /usr/src/linux && \
     for p in /usr/src/patches/*.patch; do \
         patch -p1 --forward --fuzz=0 < "$p" || { echo "ERROR: $p does not apply to ${KERNEL_VERSION}"; exit 1; }; \
@@ -567,6 +594,46 @@ RUN <<EOT
     test "$(hdr 518 2 u2)" -ge 524 || { echo "ERROR: the bzImage's boot protocol is 0x$(hdr 518 2 x2), older than 2.12"; exit 1; }
     test "$(hdr 564 1 u1)" = 1 || { echo "ERROR: the bzImage is not relocatable; KASLR cannot move it"; exit 1; }
     file /build/bzImage
+EOT
+
+# sparse (make C=2) over every C file kernel/patches touches, once as built and once with the
+# patches taken back out, and a warning the patches add fails the build. Upstream's own
+# warnings in those files are counted on both sides, so they fail nothing; what is compared is
+# each message with its line number removed, and how many times it appears, so a patch that
+# moves a warning is not one that adds it. A touched file that is not a C or header file (0001's
+# Kconfig) keeps its patched text in both, or the build reconfigures between the two. Each
+# side must show make checking every file, or a file that stopped building would compare
+# empty with empty.
+RUN <<EOT
+    set -eu
+    cd /usr/src/linux
+    files=$(sed -n 's|^+++ b/\(.*\.c\)$|\1|p' /usr/src/patches/*.patch | sort -u)
+    others=$(sed -n 's|^+++ b/\(.*\)$|\1|p' /usr/src/patches/*.patch | grep -v '\.[ch]$' | sort -u)
+    sparse_of() {
+        : > "/tmp/sparse-$1.log"
+        for f in $files; do
+            make ARCH=${KERNEL_ARCH} C=2 "${f%.c}.o" >> "/tmp/sparse-$1.log" 2>&1 || {
+                cat "/tmp/sparse-$1.log"; echo "ERROR: make C=2 ${f%.c}.o failed ($1)"; exit 1; }
+        done
+        for f in $files; do
+            grep -q "^  CHECK  *$f\$" "/tmp/sparse-$1.log" || {
+                echo "ERROR: sparse did not check $f ($1)"; exit 1; }
+        done
+        grep -E '^[^ :]+:[0-9]+:[0-9]+: (warning|error): ' "/tmp/sparse-$1.log" \
+            | sed -E 's/:[0-9]+:[0-9]+: /: /' | sort | uniq -c > "/tmp/sparse-$1"
+    }
+    sparse_of patched
+    for f in $others; do cp -p "$f" "$f.patched"; done
+    for p in $(ls -r /usr/src/patches/*.patch); do patch -R -p1 --fuzz=0 < "$p" > /dev/null; done
+    for f in $others; do mv "$f.patched" "$f"; done
+    sparse_of upstream
+    echo "sparse: $(wc -l < /tmp/sparse-upstream) distinct upstream warnings in $(echo $files | wc -w) files"
+    awk '
+        NR == FNR { n = $1; $1 = ""; base[$0] = n; next }
+        { n = $1; $1 = ""; if (n > base[$0] + 0) { print "ERROR: sparse, new with the patches:" $0; bad = 1 } }
+        END { exit bad }
+    ' /tmp/sparse-upstream /tmp/sparse-patched
+    echo "sparse: the patches add no warning"
 EOT
 
 # The tree this stage writes is the release tree: kernel/bzImage and kernel/vmlinux, at the
