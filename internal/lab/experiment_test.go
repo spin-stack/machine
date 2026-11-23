@@ -476,6 +476,31 @@ func TestALoginKeyGoesIntoTheOverlayOwnedBySpin(t *testing.T) {
 	}
 }
 
+// The service login=spin installs for spin's supervisor is one the image's login target wants by
+// name, as it wants spin's: a stand-in the target did not name started with multi-user.target,
+// after the login's target, and measured that wiring rather than the machine (#598).
+func TestTheImageStartsLoginSpinsSupervisorWithTheLogin(t *testing.T) {
+	b, err := os.ReadFile("../../image/mkosi.extra/usr/local/lib/spin-base/rootfs/usr/lib/systemd/system/spin-machine-login.target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wanted []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if units, ok := strings.CutPrefix(line, "Wants="); ok {
+			wanted = append(wanted, strings.Fields(units)...)
+		}
+	}
+	var installed []string
+	for path := range spinsPath.Files {
+		if dir, unit := filepath.Split(path); dir == "/etc/systemd/system/" && strings.HasSuffix(unit, ".service") {
+			installed = append(installed, unit)
+		}
+	}
+	if len(installed) != 1 || !slices.Contains(wanted, installed[0]) {
+		t.Errorf("login=spin installs %q; the login target wants %q", installed, wanted)
+	}
+}
+
 // spin's login is root's, through a forwarder from vsock to ssh.service with Nagle off on its
 // loopback side, systemd's own vsock sshd masked and spin's handoff as PID 1; the lane's is spin's,
 // with no forwarder, booting systemd.
@@ -492,10 +517,10 @@ func TestSpinsLoginIsRootThroughAForwarderToSSHService(t *testing.T) {
 	if k.User() != "root" || len(e) != 3 || k.Init() != spinHandoffInit || e[2].Files[spinHandoffInit] == "" {
 		t.Fatalf("spin's login: %s, %d edits, init %s", k.User(), len(e), k.Init())
 	}
-	fwd := e[1].Files["/etc/systemd/system/spin-lab-forward.service"]
+	fwd := e[1].Files["/etc/systemd/system/spin-supervisor.service"]
 	if !slices.Equal(e[1].Mask, []string{"sshd-vsock.socket"}) || !strings.Contains(fwd, "TCP:127.0.0.1:22,nodelay") ||
 		!strings.Contains(fwd, "After=ssh.service") || !strings.Contains(e[1].Setup, "/root/.ssh/authorized_keys") ||
-		e[1].Links["/etc/systemd/system/multi-user.target.wants/spin-lab-forward.service"] == "" {
+		e[1].Links["/etc/systemd/system/multi-user.target.wants/spin-supervisor.service"] == "" {
 		t.Errorf("spin's path: %+v", e[1])
 	}
 	o, err := settle(Probes["ssh-first"], Options{"plugged": "2048", "login": "spin"})

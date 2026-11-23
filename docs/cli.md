@@ -282,7 +282,9 @@ guest through virtio-mem right after its start. spin sizes every workspace the s
 handing it its filesystem, to 2048 MiB unless the workspace asks for more. Left at 128 MiB
 (`plugged=0`), the guest's OOM killer runs through the boot and the logins (lab 44784196287).
 `login=spin`, the default, logs in as spin does: as root, through a forwarder from vsock to
-`ssh.service` on 127.0.0.1:22 (`internal/lab/login.go`, `spinsPath`), with spin's host key handed
+`ssh.service` on 127.0.0.1:22 (`internal/lab/login.go`, `spinsPath`), installed as
+`spin-supervisor.service`, the unit it stands for, so the image starts it as it starts spin's, with
+spin's host key handed
 over before systemd starts, as spin's vminitd hands it over (`spinHandoff`), so the image's host-key
 generation does not run (#515, #575). A shell stands in for vminitd as PID 1: it places the key and
 execs systemd, and its cost is measuring.md's ("The ledger"). `login=lane` logs in as the

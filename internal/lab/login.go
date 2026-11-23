@@ -64,19 +64,29 @@ func (k *Key) User() string {
 //
 // sshd_accepts on this path is the forwarder listening, which follows sshd's start; when spin's
 // supervisor listens is its own and is not measured here.
+//
+// The forwarder is installed under spin's unit's name, with its default dependencies and its
+// WantedBy=multi-user.target (deploy/guest/extension/supervisor/units/spin-supervisor.service),
+// because the image starts spin's supervisor by that name: spin-machine-login.target wants
+// spin-supervisor.service, and multi-user.target follows the login. A stand-in named otherwise
+// started with multi-user.target, and the ladder read v20261123.03, the first release with that
+// target, +50 ms worse cold than the release before it for that alone (#598).
+// TestTheImageStartsLoginSpinsSupervisorWithTheLogin holds the image to the name.
 var spinsPath = Edit{
 	Mask: []string{"sshd-vsock.socket"},
 	Files: map[string]string{
-		"/etc/systemd/system/spin-lab-forward.service": `[Unit]
+		"/etc/systemd/system/" + supervisorUnit: `[Unit]
 Description=Stands for spin's supervisor forwarding vsock port 22 to 127.0.0.1:22
 Wants=ssh.service
 After=ssh.service
 [Service]
 ExecStart=/usr/bin/socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22,nodelay
+[Install]
+WantedBy=multi-user.target
 `,
 	},
 	Links: map[string]string{
-		"/etc/systemd/system/multi-user.target.wants/spin-lab-forward.service": "/etc/systemd/system/spin-lab-forward.service",
+		"/etc/systemd/system/multi-user.target.wants/" + supervisorUnit: "/etc/systemd/system/" + supervisorUnit,
 	},
 	Setup: `test -x "$MNT/usr/bin/socat" && test -e "$MNT/usr/lib/systemd/system/ssh.socket"
 install -d -m 700 "$MNT/root/.ssh"
@@ -98,6 +108,10 @@ func GettyDropin(body string) map[string]string {
 		"/etc/systemd/system/serial-getty@ttyS0.service.d/zz-bench.conf": "[Service]\n" + body,
 	}
 }
+
+// supervisorUnit is spin's supervisor's unit, which login=spin's forwarder stands for under the
+// same name.
+const supervisorUnit = "spin-supervisor.service"
 
 // spinHandoffInit is spinHandoff's init, which a boot on spin's path runs as PID 1 (Key.Init).
 const spinHandoffInit = "/usr/local/sbin/spin-lab-handoff"

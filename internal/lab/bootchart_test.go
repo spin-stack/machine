@@ -313,7 +313,9 @@ func TestTheDependencyViewKeepsTheChainsAndTheirOrderingGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	chainFile, orderFile, graphFile := DependencyFiles(m.Tree.Name(), 1)
-	if got := read(t, filepath.Join(m.Keep, chainFile)); got != string(b) {
+	// The run asked for the forwarder by its name then, spin-lab-forward.service.
+	want := strings.Replace(string(b), "spin-lab-forward.service ssh.service", supervisorUnit+" ssh.service", 1)
+	if got := read(t, filepath.Join(m.Keep, chainFile)); got != want {
 		t.Errorf("the chains kept are not the guest's under their commands:\n%s", got)
 	}
 	if len(asked) != 3 || !strings.Contains(asked[2], "--from-pattern='user@0.service'") || !strings.Contains(asked[2], "--to-pattern='-.slice'") {
