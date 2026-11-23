@@ -108,3 +108,36 @@ func TestTheExitsDetailIsEachReasonByTree(t *testing.T) {
 		}
 	}
 }
+
+// Each MMIO or port exit is put on the guest function its instruction is in, by the guest's own
+// kallsyms, and summed by reason and function. The kvm_exit file's other histograms are passed
+// over, and an instruction below the kernel's text is not given a kernel function.
+func TestMMIOAndPortExitsAreSummedByTheGuestFunctionThatMadeThem(t *testing.T) {
+	syms := parseKallsyms(`ffffffff81000000 T _stext
+ffffffff81001000 t native_io_apic_read
+ffffffff81001040 t clear_IO_APIC_pin
+ffffffff81002000 T pci_mmcfg_read
+ffffffff81003000 D some_data
+0000000000000000 T hidden
+`)
+	hist := `{ exit_reason:         10 } hitcount:        256
+{ exit_reason:         49, guest_rip: 18446744071578849290 } hitcount:        200
+{ exit_reason:         49, guest_rip: 18446744071578849300 } hitcount:        100
+{ exit_reason:         49, guest_rip: 18446744071578853384 } hitcount:        915
+{ exit_reason:         49, guest_rip: 18446744071578849350 } hitcount:         48
+{ exit_reason:         30, guest_rip: 1048576 } hitcount:         60
+`
+	got := exitSites(hist, syms)
+	want := []exitSite{
+		{"EPT_MISCONFIG", "pci_mmcfg_read", 915},
+		{"EPT_MISCONFIG", "native_io_apic_read", 300},
+		{"IO_INSTRUCTION", "below the kernel", 60},
+		{"EPT_MISCONFIG", "clear_IO_APIC_pin", 48},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("sites:\n got %v\nwant %v", got, want)
+	}
+	if got := exitSites(hist, nil); len(got) != 5 || got[0].Function != "0xffffffff81002008" {
+		t.Errorf("without symbols, an exit is its address: %v", got)
+	}
+}
