@@ -134,6 +134,7 @@ func (ledgerProbe) Metrics() []Metric {
 		{"first_login", "ms", "the first login, /usr/bin/true, from the moment before QEMU is exec'd, with the trace running"},
 		{"kernel_zero", "ms", "where the kernel's clock read 0, from the same moment: QEMU, the firmware and the kernel's decompression"},
 		{"kernel_zero_error", "ms", "kernel_zero's uncertainty, half its narrowest bracket"},
+		{"monotonic_lag", "ms", "CLOCK_MONOTONIC, the trace's and the journal's clock, behind the kernel's sched clock: what it lost on jiffies"},
 		{"before_qemu", "ms", "kernel_zero's first part: spin-machine, from the same moment to its exec of QEMU"},
 		{"qemu_start", "ms", "kernel_zero's second part: QEMU's start and the held start, from its exec to the guest's first instruction"},
 		{"guest_to_zero", "ms", "kernel_zero's third part: the firmware, the bzImage's decompression and the kernel's setup, to the kernel's clock"},
@@ -256,6 +257,7 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.RecordMs("first_login", login)
 	m.Record("kernel_zero", l.KernelZero)
 	m.Record("kernel_zero_error", l.KernelZeroError)
+	m.Record("monotonic_lag", l.MonotonicLag)
 	m.Record("before_qemu", l.QEMUExec)
 	m.Record("qemu_start", l.Running-l.QEMUExec)
 	m.Record("guest_to_zero", l.KernelZero-l.Running)
