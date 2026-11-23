@@ -1,0 +1,64 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 12:30:00 -0300
+Subject: [PATCH] x86/apic/msi: Skip the message write when the affinity change
+ moves nothing
+
+request_irq() of a PCI MSI-X interrupt writes its message twice in a
+row. Activation assigns the vector and msi_domain_activate() writes the
+message; irq_startup() then sets the affinity before the entry is
+unmasked (IRQCHIP_AFFINITY_PRE_STARTUP), the vector domain keeps the
+vector because its CPU is in the mask (assign_vector_locked() and
+assign_managed_vector() return early), and msi_set_affinity() writes
+the same message again. For an MSI-X entry that is three writes to the
+table and a read to flush them, each an exit to the VMM in a guest.
+
+Return from msi_set_affinity() without writing when neither the vector
+nor the destination APIC ID changed. The message is composed from those
+two alone (__irq_msi_compose_msg()), and the device already holds it:
+apic_set_affinity() refuses an interrupt that is not activated, and the
+vector and destination of an activated interrupt change only through
+activation and through this function, both of which write the message.
+A device whose table was lost to a reset or a sleep state gets it back
+from pci_restore_msi_state(), which writes the message the descriptor
+recorded, the same one. An affinity change that moves the interrupt
+writes as before, through the same paths.
+
+Counted from the source for this machine's six virtio devices, 19
+vectors, each requested at probe: 19 writes of four MMIO accesses to
+the MSI-X table BAR, 76 exits by the first login. Nested on the bench
+fleet an exit costs ~6.7 us, about 0.5 ms, not yet measured.
+
+The one behaviour that changes is for a device that loses its MSI-X
+table without the PCI core restoring it: an affinity change to the CPU
+it already targets no longer happens to repair the entry.
+
+Local patch for this machine. Not upstream.
+
+Assisted-by: LLM
+---
+ arch/x86/kernel/apic/msi.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/arch/x86/kernel/apic/msi.c b/arch/x86/kernel/apic/msi.c
+index 66bc5d3e7..7fb7c25f8 100644
+--- a/arch/x86/kernel/apic/msi.c
++++ b/arch/x86/kernel/apic/msi.c
+@@ -48,6 +48,18 @@ msi_set_affinity(struct irq_data *irqd, const struct cpumask *mask, bool force)
+ 	if (ret < 0 || ret == IRQ_SET_MASK_OK_DONE)
+ 		return ret;
+ 
++	/*
++	 * The parent keeps the vector when its CPU is in the new mask, as
++	 * it is when the interrupt starts up. The device then holds this
++	 * message already: the vector and destination of an activated
++	 * interrupt change only through activation and through here, and
++	 * both write it. Writing it again only costs MMIO accesses to the
++	 * device, each a VM exit in a guest.
++	 */
++	if (cfg->vector == old_cfg.vector &&
++	    cfg->dest_apicid == old_cfg.dest_apicid)
++		return ret;
++
+ 	/*
+ 	 * For non-maskable and non-remapped MSI interrupts the migration
+ 	 * to a different destination CPU and a different vector has to be
