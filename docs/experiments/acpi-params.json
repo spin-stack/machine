@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 30,
+  "date": "2026-09-10",
+  "change": "ACPI params (acpi=noirq, pnpacpi=off, …)",
+  "result": "69.9 vs 68.6 ms, slower",
+  "shape": "runner",
+  "source": "`64d2901`"
+}

@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 50,
+  "change": "`VT=n`, `X86_MSR=n`, `X86_CPUID=n`",
+  "where": "kernel/config-7.3-x86_64",
+  "result": "function: dead code, less surface",
+  "evidence": "-",
+  "source": "kernel/Dockerfile"
+}

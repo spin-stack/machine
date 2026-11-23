@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 190,
+  "date": "2026-11-20",
+  "change": "An uncompressed bzImage payload, KASLR kept",
+  "result": "to the kernel's clock −3 ms, but +3.3 in qboot's copy and +6-7 in QEMU's start",
+  "shape": "laptop",
+  "source": "#326"
+}

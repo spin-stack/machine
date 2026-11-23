@@ -1,0 +1,14 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 240,
+  "date": "2026-11-21",
+  "change": "Kernel 0006 (BTF parsed in the background), 0009 (a booting AP polled by local_clock()), 0011 (queue_select written only on a change)",
+  "result": "taken back −2.5 [−8.4, +1.8] at 40 boots. Deleted",
+  "shape": "spin",
+  "source": "labs 44818953987, 44822157367, #345",
+  "runs": [
+    44818953987,
+    44822157367
+  ]
+}

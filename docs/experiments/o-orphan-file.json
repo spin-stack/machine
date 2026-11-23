@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 320,
+  "change": "`-O ^orphan_file`",
+  "where": "image/build.sh",
+  "result": "lead (11-19)",
+  "evidence": "laptop",
+  "source": "-"
+}

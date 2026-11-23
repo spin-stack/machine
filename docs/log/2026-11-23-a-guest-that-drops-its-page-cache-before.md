@@ -1,0 +1,9 @@
+---
+date: "2026-11-23"
+order: 290
+area: lab
+title: a guest that drops its page cache before its save does not make a smaller state (#276, lab 45110967817, branch archived as `archive/drop-caches-276`)
+issues: [276]
+runs: [45110967817]
+---
+#276's last idea: most of a restored state might be the guest's clean page cache, so a guest asked to drop it right before spin's save would leave less for the restore to load. *Measured* with a `restore-first` option on the experiment's branch, a tree each: `drop=0` ran `sync; echo 1 > /proc/sys/vm/drop_caches` as root after the boot had finished and saved at once, `drop=3` waited 3 s first, which leaves free page reporting its 2 s delay (bench, nested, spin's shape and login, v20261123.04, 20 a side). The state read 183 MiB on all three trees: −0.1 [−0.4, +0.3] at once, −0.0 [−0.3, +0.4] after 3 s. `running` did not move, −0.9 [−2.0, +0.9]. The restored login was worse, +4.7 [+3.5, +7.3] evicted at once, +5.6 [+4.6, +7.6] after 3 s, +6.5 and +6.4 cached. *The instrument saw the drop:* the restored login is the side that moved, as a guest whose cache was emptied must read the login's files from its disk again (inferred: the probe does not read the guest's cache). *Why the state does not shrink* (inferred, not measured): a save writes every page that is not zeros, and a freed page keeps its bytes until something gives it back to the host. Free page reporting gives back only free blocks of `page_reporting_order` (2 MiB here), and a page cache freed 4 KiB at a time beside the boot's live pages leaves few whole ones, even after 3 s. Waiting 3 s with no drop had moved nothing either (docs/measuring.md, "When a checkpoint is taken"). *Decided:* rejected, with its row in docs/boot-time.md. Nothing is asked of spin before a checkpoint. #276's three ideas are answered, and the restore stands at 78-80 ms, under the goal.

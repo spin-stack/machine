@@ -1,0 +1,24 @@
+{
+  "decision": "open",
+  "order": 80,
+  "change": "A workspace's 2048 MiB at boot (`memory=2048 plugged=0`) instead of 128 plugged to 2048 through virtio-mem during the boot (#561)",
+  "number": "cold",
+  "phase": "the plug and the onlining of 2048 MiB on the one vCPU while the boot runs; separate runs read −15 nested and −8 metal (v20261122.06, labs 45074465204, 45074579100, 45074680619, 45078339515), so the ceiling is ~15 ms. Prior art: the kernel onlines hotplugged memory strictly in sequence, one memory block after another, and deferred struct page init, which spreads the boot's own memory over threads, does not apply to it (David Hildenbrand on linux-mm, [lore](https://lore.kernel.org/linux-mm/87v9disj2s.fsf@oracle.com/T/)). Squeezy (arXiv 2411.12893, 2024) measured virtio-mem's operations in seconds at GiB sizes and found init_on_free slows a plug. Neither measured a boot. The kernel has init_on_alloc and init_on_free off",
+  "decided_by": "`ssh-first`, the two shapes as two trees of one run (`--opt` on a tree), 40 a side on bench and on bench-metal, `restore-first` beside them; 3 ledgers of each shape for the onlining's CPU",
+  "state": "a proposal for spin, spin-stack/spin#1660. Measured as two trees of one run (v20261123.04, spin's login): cold first login −5.5 [−10.9, −0.7] nested at 80 a side (lab 45111507862; −2.5 [−7.3, +2.0] at 40, lab 45110554589), −7.0 [−11.4, −3.4] on metal at 40 (lab 45110570912); restored login −2.5 [−3.7, −1.0], the state −17.6 MiB, QEMU's RSS −26 MiB (labs 45110562994, 45111507862). The ledger (lab 45110580480, 3 boots each) shows `kworker/0:1` on the vCPU ~8 ms before PID 1 when plugged and not at all when the memory is at boot, which costs the kernel's own setup ~4.5 ms more: PID 1 −4.0 ms on the kernel's clock (−3.4 on CLOCK_MONOTONIC, before #644). The probes keep spin's shape until spin changes it",
+  "issues": [
+    561,
+    644
+  ],
+  "runs": [
+    45074465204,
+    45074579100,
+    45074680619,
+    45078339515,
+    45110554589,
+    45110562994,
+    45110570912,
+    45110580480,
+    45111507862
+  ]
+}

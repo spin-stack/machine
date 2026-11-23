@@ -1,0 +1,8 @@
+---
+date: "2026-11-21"
+order: 410
+area: machine, spin-machine
+title: a restore reads its state ahead before QEMU answers (lab 44976494418, this change)
+runs: [44809512339, 44912471522, 44976494418]
+---
+restore-first's evicted login read 16 ms more than the cached one (111 against 95.2, main's spin-machine on v20261122.01's parts, 30 restores each). That gap is the disk. `Resume` started the read-ahead (lab 44809512339), but `spin-machine restore` calls Resume only after its dial, and the dial waits for QEMU's first answer, ~19.5 ms after its exec (`transport`, lab 44912471522). So the read began when QEMU was ready to load and never overlapped QEMU's start. `machine.ReadAhead` is the read-ahead with Resume's rule (a full load of a mapped-ram state), and `restore` calls it once the state is open, before the dial. Resume still calls it for callers that do not, and the kernel skips the pages a first call already asked for. *Measured* (bench, nested, spin's shape and login, 30 a side interleaved, lab 44976494418): evicted login 111 → 101, −9.3 [−12.2, −7.3], and `running` −8.1 [−9.4, −6.5]. The cached row read −0.2 [−2.2, +1.5], as it should with nothing left to read. The cold login read −7.5 [−12.8, +0.0], within noise, and no cold boot runs this code. *What limits it now:* the evicted row is 6 ms over the cached one. The read starts ~5 ms after QEMU's exec, once boot has bound the socket and `restore` has started, and a sequential reader takes ~60 ms for the state's 179 MiB (`read`, the same run). *Status:* in place. spin's runner, once it resumes through `machine.QEMU.Resume`, calls ReadAhead before `machine.Start`.

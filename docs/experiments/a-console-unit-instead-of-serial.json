@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 60,
+  "date": "2026-09-26",
+  "change": "A console unit instead of serial-getty",
+  "result": "+340 ms until TERM=dumb, then equal",
+  "shape": "runner",
+  "source": "`c6e48de`, `7b08e5a`"
+}

@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 150,
+  "date": "2026-11-22",
+  "change": "spin's forwarder (spin's supervisor) without default dependencies, after `ssh.service` only (`--edit forwarder-early`), on v20261122.06",
+  "result": "cold +4.2 [+0.0, +11.0], restored −0.0 [−2.3, +2.3], restored into prestarted −4.3 [−7.7, −0.4]: not a gain on either goal number, though the forwarder was active 116-141 ms after PID 1 against 154-176 (bootchart, 3 a side). The login then waits for systemd-logind, active at 162-186 ms in both arms, before `user-runtime-dir@0` (#553). On earlier releases it read cold −60.4 (lab 44987584707); what changed since is not measured",
+  "shape": "spin",
+  "source": "labs 45071102677 (`prestart`, 20 a side), 45071549627",
+  "issues": [
+    553
+  ],
+  "runs": [
+    44987584707,
+    45071102677,
+    45071549627
+  ]
+}

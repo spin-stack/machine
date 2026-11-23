@@ -1,0 +1,14 @@
+{
+  "decision": "open",
+  "order": 50,
+  "change": "The no-systemd floor, each release",
+  "number": "a bound",
+  "phase": "how much of the cold number is systemd's to give back: 445 → 240 in spin's shape",
+  "decided_by": "`ssh-first` on the release with `--edit floor --append init=/usr/local/sbin/spin-floor` and `login=lane`; `releases measure` does it beside every release, and report.yml records it (docs/releases.md, \"Bounds\")",
+  "state": "last measured 11-22 on v20261122.02: the lane's first login 407 → 241, −166.3 [−174.7, −160.3] (report.yml run 45018301368, 20 boots). On v20261122.01: 404 → 250, −153.9 [−162.5, −151.2], sshd accepting 242 → 197 (lab 44978079694, 20 boots). 11-20: 445 → 240 (lab 44750322384)",
+  "runs": [
+    44750322384,
+    44978079694,
+    45018301368
+  ]
+}

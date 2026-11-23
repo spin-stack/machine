@@ -1,0 +1,13 @@
+{
+  "decision": "open",
+  "order": 60,
+  "change": "A workspace's cgroup at a higher `cpu.weight` while it boots or restores, on a busy host (spin's runner owns the cgroup)",
+  "number": "restore, as a busy host sees it",
+  "phase": "with 16 workspaces keeping the 16 CPUs busy, the restored first login is 306 ms against 115 idle, and QEMU's threads wait 282 ms for a CPU (lab 44925573288). The same weight ratio as QEMU at nice −10, set as the crowd at nice 10: restored −79.3 [−93.5, −71.0], cold −104.7 [−258.3, +150.9], within noise (lab 44927312303)",
+  "decided_by": "spin's `restore-together` or a crowd on its runner, with the weight raised through the workspace's cgroup and set back after the login, against without it",
+  "state": "a proposal for spin. Measured in one cgroup, where each thread competes alone. In spin each workspace is a cgroup, and the weight is shared by its threads. The idle host has nothing to win (Measured and rejected, \"Memory and the host\")",
+  "runs": [
+    44925573288,
+    44927312303
+  ]
+}

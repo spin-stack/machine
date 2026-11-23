@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "memory",
+  "order": 40,
+  "date": "2026-10-01",
+  "change": "Prefetch the boot's files",
+  "result": "47 ms to win 24",
+  "shape": "runner",
+  "source": "run 36803912357",
+  "runs": [
+    36803912357
+  ]
+}

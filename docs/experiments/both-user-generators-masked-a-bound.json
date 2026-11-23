@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 100,
+  "date": "2026-11-22",
+  "change": "Both user generators masked, a bound: the environment.d one also brings `/etc/environment` to user services",
+  "result": "first login −8.4 [−15.8, −1.0] against class `user-early`",
+  "shape": "spin",
+  "source": "lab 45030778365",
+  "runs": [
+    45030778365
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 20,
+  "date": "2026-11-13",
+  "change": "The vsock socket and sshd@ without default dependencies",
+  "result": "no sooner; dropped 7 of 22 first connections. Carried since with the lane's other drop-ins (`sshd-vsock.socket.d`, `sshd@.service.d`), which the lane kept together (lab 43518915618)",
+  "shape": "laptop",
+  "source": "`c3c0fd1`",
+  "runs": [
+    43518915618
+  ]
+}

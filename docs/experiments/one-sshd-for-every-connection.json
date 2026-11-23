@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 40,
+  "date": "2026-11-13",
+  "change": "One sshd for every connection (vsock `Accept=no`, `sshd -D` early)",
+  "result": "first login 382 vs 381; second 40 vs 48",
+  "shape": "lane",
+  "source": "lab 43524721490",
+  "runs": [
+    43524721490
+  ]
+}

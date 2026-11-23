@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 230,
+  "change": "`pci=lastbus=0`",
+  "where": "machine/cmdline.go",
+  "result": "kernel to init 87.6 → 51.1 (2026-09): 8192 configuration reads, each an exit",
+  "evidence": "runner, mechanism",
+  "source": "`5e7d60e`, docs/machine.md"
+}

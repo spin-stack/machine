@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 50,
+  "date": "2026-11-13",
+  "change": "A login without pam_systemd (a bound)",
+  "result": "380 vs 436, but no session and no XDG_RUNTIME_DIR",
+  "shape": "lane",
+  "source": "lab 43518044150",
+  "runs": [
+    43518044150
+  ]
+}

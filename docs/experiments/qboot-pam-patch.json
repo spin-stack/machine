@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 80,
+  "change": "qboot `pam.patch` (PAM in three writes)",
+  "where": "qemu/qboot",
+  "result": "cold +3.9 [−3.4, +8.0]: inside the noise, and the upper bound over +5 keeps it (rule 5 of docs/measuring.md)",
+  "evidence": "measured, 40 a side",
+  "source": "lab 44993790452",
+  "runs": [
+    44993790452
+  ]
+}

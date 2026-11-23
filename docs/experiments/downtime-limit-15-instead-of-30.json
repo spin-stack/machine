@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 90,
+  "date": "2026-11-22",
+  "change": "`downtime-limit` 15 instead of 30",
+  "result": "the guest's stop −2.5 [−7.5, +3.0] short of memory beside a busy disk, −1.5 [−6.0, +2.8] with a writer",
+  "shape": "spin, plugged 2 GiB",
+  "source": "lab 44975130836",
+  "runs": [
+    44975130836
+  ]
+}

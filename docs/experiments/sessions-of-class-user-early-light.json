@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 430,
+  "change": "Sessions of class `user-early-light`",
+  "where": "configure-system.sh",
+  "result": "lane 472 vs 436",
+  "evidence": "lane, mechanism: a root session would start `user@0`",
+  "source": "lab 43518044150",
+  "runs": [
+    43518044150
+  ]
+}

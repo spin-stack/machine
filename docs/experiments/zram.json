@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 130,
+  "date": "2026-09-28",
+  "change": "ZRAM",
+  "result": "the runaway killed later (20 vs 14 s), worst login 3.8 s",
+  "shape": "runner",
+  "source": "kernel/Dockerfile, `430d2b3`"
+}

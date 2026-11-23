@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 80,
+  "date": "2026-11-22",
+  "change": "`direct-io` on the channels of a save, against dirty-page throttling in the stop",
+  "result": "never converged beside a busy disk: each pass ~2.5 s, the save cancelled after 10 min",
+  "shape": "spin, plugged 2 GiB",
+  "source": "lab 44973775066, docs/memory-and-disk.md",
+  "runs": [
+    44973775066
+  ]
+}

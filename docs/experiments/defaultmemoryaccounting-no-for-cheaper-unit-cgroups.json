@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 260,
+  "date": "2026-11-22",
+  "change": "`DefaultMemoryAccounting=no`, for cheaper unit cgroups",
+  "result": "+4.1 [+0.8, +7.1] at 60 boots, worse; sshd accepting +6.2 [+2.2, +8.0]. The cause is not measured",
+  "shape": "spin",
+  "source": "the same"
+}

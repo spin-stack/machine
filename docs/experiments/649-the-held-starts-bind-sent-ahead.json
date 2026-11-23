@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "qmp",
+  "order": 30,
+  "date": "2026-11-23",
+  "change": "The held start's bind sent ahead of its answers: the run state with the places, every place's serial at once, each image's two nodes together, the reopen with the placeholder's delete; 13 round trips to 9, add-fd still waiting for its answer and `cont` for the bind's last (#649)",
+  "result": "first login −1.7 [−5.6, +2.6], sshd accepting −2.4 [−5.5, +2.8] at 60 a side (lab 45230790902); restored −0.3 [−3.8, +3.7] evicted, +0.9 [−10.6, +7.5] cached (lab 45231358105). The split: QEMU waited 4.5 ms p50 for the client in 24 boots, 0.9 of it QEMU busy with the probe's plug monitor, so ~3.6 ms is spin-machine's own, ~0.28 ms a round trip (lab 45177818419). The four round trips removed are ~1.1 ms (inferred), and the whole of spin-machine's share is under what 60 boots resolve. Code on tag `archive/exp-649-held-start`",
+  "shape": "spin",
+  "source": "labs 45230790902, 45231358105",
+  "issues": [
+    649
+  ],
+  "runs": [
+    45177818419,
+    45230790902,
+    45231358105
+  ]
+}

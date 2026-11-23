@@ -1,0 +1,10 @@
+---
+date: "2026-11-23"
+order: 140
+area: image
+title: docker.socket is Docker's own, 0660 and group docker (#509, labs 45111147182, 45111147449, 45111146715, 45111146865, 45111146854, 45111146735, 45111708456, this change)
+issues: [509]
+prs: [581]
+runs: [45111146715, 45111146735, 45111146854, 45111146865, 45111147182, 45111147449, 45111708456]
+---
+*Why:* the image carried its own `docker.socket` since the first commit (`2afac47`), with no recorded reason, at `SocketMode=0666`, `SocketGroup=root`. Any local uid reached dockerd, which is root on the guest: a service's DynamicUser, `nobody`, a sandboxed command running as another uid. Docker's own unit is 0660, group docker, and `spin` is in docker. *Changed:* the image's unit and `optimize-systemd.sh`'s link to it are deleted, so the link docker-ce's postinst made to its own unit stands. `boot:workspace` asserts the socket is `660 root:docker`, that `spin` runs a container through the group, and that uid 65534 with no groups is refused. On v20261123.04 as released the two new checks fail (`666 root:root`, the refusal not refused; lab 45111708456) and with the change they pass (lab 45111146854). *Measured* (bench, nested, spin's shape and login, against v20261123.04, the change as an overlay edit, 20 a side): first login +1.7 [−5.3, +10.0], sshd accepting +1.5 (lab 45111147182); restored login +0.4 [−0.6, +1.3] evicted, +0.3 [−0.3, +0.8] cached (lab 45111147449). Both within noise, so it goes in on function. *Second arm, rejected:* the image's `containerd.socket` out of the boot transaction, against Docker's socket alone: first login +7.4 [−4.7, +15.3] (lab 45111146715), prestart within noise in every row (lab 45111146865). Both sockets start in `sockets.target`, after the first login since #581, so there was nothing on the clock to take. `boot:workspace` passed on that arm too (lab 45111146735). Prior art: upstream containerd binds its own socket and its unit has none; SUSE carried a `containerd.socket` from a 2016 socket-activation patchset never merged upstream. In "Measured and rejected". The experiment edits lived on `exp-509`, tagged `archive/exp-509`. *Status:* in place.

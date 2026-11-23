@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 160,
+  "date": "2026-11-19",
+  "change": "`scsi_mod.scan=manual`",
+  "result": "kernel −9.3, but since Linux 5.10 a disk added at run time, at boot, or under `-S` never appears, silently. `max_target` took its place",
+  "shape": "spin",
+  "source": "lab 44570773103; `drivers/scsi/virtio_scsi.c`, `scsi_scan.c`",
+  "runs": [
+    44570773103
+  ]
+}

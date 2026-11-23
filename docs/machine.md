@@ -504,7 +504,7 @@ guest's wall clock 1.001 s further behind the host's, while the process's lines 
 apart on both clocks and the host saw a 1.10 s gap between them on the console. A resumed guest
 starts on its checkpoint's clock: 48 ms after a resume it read 6.34 s behind, the time since the
 checkpoint's stop, and 5 s later it read the same. Nothing in the machine steps it, by the decision
-that took chrony out (docs/log.md, 09-10): whoever restores corrects the clock. spin's supervisor
+that took chrony out (docs/log/2026-09-10-6aba37b-064c4f4-c7bab94-c7af4d3-08c56e1.md): whoever restores corrects the clock. spin's supervisor
 steps it when it registers again after a restore. Nothing steps it after a snapshot continued in
 place (spin-stack/spin#1498).
 

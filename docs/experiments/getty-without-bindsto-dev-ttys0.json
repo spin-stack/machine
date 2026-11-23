@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 100,
+  "date": "2026-11-12",
+  "change": "Getty without BindsTo dev-ttyS0",
+  "result": "342 vs 345",
+  "shape": "ladder",
+  "source": "lab 43303190733",
+  "runs": [
+    43303190733
+  ]
+}

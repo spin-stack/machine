@@ -1,0 +1,18 @@
+{
+  "decision": "carried",
+  "order": 440,
+  "change": "Sessions of class `user-early` and root lingering, so a login waits for its user manager and root's starts in the boot (#467)",
+  "where": "configure-system.sh",
+  "result": "correctness: the first login's own `systemctl --user` failed 10 of 10 on v20261122.03 and passed 10 of 10 with it (lab 45032247920). First login +4.7 [−0.2, +12.2] at 40 a side, sshd accepting +5.6 [+1.1, +10.1]; restored −10.8 [−15.9, −6.6] evicted, −12.3 [−15.1, −5.5] cached. The lane's login as spin, whose manager does not linger, +29.7 [+22.8, +42.1]",
+  "evidence": "measured",
+  "source": "labs 45031644179, 45031644114, 45031687433",
+  "issues": [
+    467
+  ],
+  "runs": [
+    45031644114,
+    45031644179,
+    45031687433,
+    45032247920
+  ]
+}

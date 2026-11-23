@@ -1,0 +1,11 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 10,
+  "date": "2026-09-10",
+  "change": "An earlier idea (#7)",
+  "result": "154 µs",
+  "shape": "runner",
+  "source": "`c03ed89`",
+  "prs": [7]
+}

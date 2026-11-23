@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 60,
+  "date": "2026-09-30",
+  "change": "Board init wrapped in one memory transaction",
+  "result": "the guest prints nothing",
+  "shape": "runner",
+  "source": "`f10383b`, lab 36662499370",
+  "runs": [
+    36662499370
+  ]
+}

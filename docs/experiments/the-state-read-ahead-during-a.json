@@ -1,0 +1,14 @@
+{
+  "decision": "rejected",
+  "section": "restore",
+  "order": 40,
+  "date": "2026-11-22",
+  "change": "The state read ahead during a fast load",
+  "result": "at 179 MiB the login −168 ms, still +234 over a full load; at 3.7 GiB within noise, p95 713 against 490",
+  "shape": "spin, touched",
+  "source": "labs 45035029887, 45035048486",
+  "runs": [
+    45035029887,
+    45035048486
+  ]
+}

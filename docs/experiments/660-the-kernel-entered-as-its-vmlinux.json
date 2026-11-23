@@ -1,0 +1,22 @@
+{
+  "decision": "carried",
+  "order": 110,
+  "change": "The kernel entered as its vmlinux through PVH, randomizing itself: kernel 0014-0017 (Hou Wenlong's RFC, less its decompressor patch, deleted with the bzImage in #660; [the cover letter](https://lkml.iu.edu/2601.3/01845.html), lore `cover.1769434279.git.houwenlong.hwl@antgroup.com`, 2026-01-26, unchanged on 7.3.5), 0019 (sets `KASLR_FLAG`, without which `RANDOMIZE_MEMORY` did nothing), 0020 (RDRAND and TSC read from the registers that hold them), QEMU 0008 (a random physical base from `XEN_ELFNOTE_PHYS32_RELOC`), #645",
+  "where": "kernel/patches, qemu/patches, machine",
+  "result": "first login −16.8 [−20.9, −13.0], 368 → 352, sshd accepting −16.7 [−20.2, −12.7], QEMU's RSS −13.8 MiB, 60 a side (lab 45219785493); restored −4.4 [−17.5, −2.0] evicted, −4.3 [−14.0, +10.2] cached, within noise, the state −31.9 MiB, the save −14.6 (lab 45219801969). As released, v20261123.07 against v20261123.06, each with its own spin-machine: first login −18.6 [−23.6, −14.0], 378 → 359, sshd accepting −15.3 [−21.2, −12.6], 60 a side (lab 45252584128); the release record's −3.5 [−12.9, +2.9] at 20 a side was a shifted run (#694). The bound, the same vmlinux entered with no KASLR at all: −18.9 [−22.8, −12.4] cold, −3.6 [−5.1, −2.1] restored evicted at 40 a side (labs 45213668842, 45213683698), so KASLR without the decompressor costs ~2 ms against no KASLR (inferred across runs; Hou measured ~2 ms too). Arms booted the kernel without 0020. KASLR across 10 boots (lab 45221660056): `_text` 10 distinct, the physical base 8, the direct map and vmalloc each 10 distinct 1 GiB-aligned bases. Entropy: the virtual base the decompressor's slot rule and seed sources once 0020 is in, the physical base QEMU's `getrandom` over the decompressor's range, the regions the kernel's own (#645, \"entropy\"). Chosen over QEMU applying the relocations (Holmes et al., \"KASLR in the age of MicroVMs\", EuroSys '22, 20-25 ms over an LZ4 bzImage; Firecracker #5661, parked; rust-vmm/linux-loader #84, open): no relocation format for QEMU to parse, nothing new on its command line, the kernel's own entropy code",
+  "evidence": "measured, 60 a side",
+  "source": "labs 45219785493, 45219801969, 45252584128",
+  "issues": [
+    645,
+    660,
+    694
+  ],
+  "runs": [
+    45213668842,
+    45213683698,
+    45219785493,
+    45219801969,
+    45221660056,
+    45252584128
+  ]
+}

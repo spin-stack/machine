@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 190,
+  "change": "The resume reads the state ahead",
+  "where": "machine",
+  "result": "restored into a QEMU started ahead −12.9 [−14.7, −9.8]",
+  "evidence": "measured",
+  "source": "lab 44809512339",
+  "runs": [
+    44809512339
+  ]
+}

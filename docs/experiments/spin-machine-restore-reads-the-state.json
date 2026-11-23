@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 200,
+  "change": "`spin-machine restore` reads the state ahead before its dial (`machine.ReadAhead`), beside QEMU's start",
+  "where": "cmd/spin-machine, machine",
+  "result": "restored −9.3 [−12.2, −7.3] evicted, cached −0.2 [−2.2, +1.5]",
+  "evidence": "measured, 30 a side",
+  "source": "lab 44976494418",
+  "runs": [
+    44976494418
+  ]
+}

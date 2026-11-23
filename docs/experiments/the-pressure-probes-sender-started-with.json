@@ -1,0 +1,20 @@
+{
+  "decision": "carried",
+  "order": 560,
+  "change": "The pressure probe's sender, started with `multi-user.target` by the boot's rest, at the lowest priority",
+  "where": "spin-machine-pressure.service",
+  "result": "function (docs/machine.md, \"Pressure\"); from the boot's rest in place of a timer 10 s after the boot: first login −0.8 [−7.8, +4.8], restored −0.8 [−2.9, +2.1] evicted, 20 a side; it starts at 0.37-0.38 s, after the login. Before #581, after multi-user.target beside the first login, sshd accepting to login +2.6 to +3.3 in three runs",
+  "evidence": "measured",
+  "source": "labs 45120950183, 45120950314, 45120692382; 44921602512, 44924252325, 44924755505",
+  "prs": [
+    581
+  ],
+  "runs": [
+    44921602512,
+    44924252325,
+    44924755505,
+    45120692382,
+    45120950183,
+    45120950314
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 510,
+  "change": "MOTD and `pam_motd` off; `mlkem768x25519-sha256` alone",
+  "where": "configure-system.sh",
+  "result": "−12 on the first login; 104 → 40 a login against sntrup761",
+  "evidence": "ladder, mechanism: a root login runs the same PAM and kex",
+  "source": "#240, lab 43479854381",
+  "runs": [
+    43479854381
+  ]
+}

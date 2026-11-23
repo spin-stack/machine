@@ -1,0 +1,21 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 120,
+  "date": "2026-11-23",
+  "change": "QEMU 0007 kept once no release boots a bzImage: `-kernel` mapped a bzImage read-only instead of reading it into QEMU's heap (#646, carried from 11-23). From v20261123.07 the machine enters the vmlinux through PVH, which QEMU's ELF loader maps without it (#645)",
+  "result": "taken back, against v20261123.07: first login +3.6 [−3.3, +7.8], sshd accepting −1.6 [−6.7, +5.6], QEMU's RSS +0.3 [−1.6, +2.1] MiB (lab 45258887660); restored −0.4 [−1.5, +0.9] evicted, −0.1 [−0.9, +0.9] cached, the cold boot of the same run +2.7 [−3.1, +8.7] (lab 45258106255), 40 a side, all within noise. A release before .07 boots its bzImage with its own QEMU, which carries 0007. When it came in, on a bzImage: first login −13.4 [−16.9, −7.3], restored −9.3 [−11.2, −6.1] evicted (labs 45182382388, 45182382864). Deleted",
+  "shape": "spin",
+  "source": "labs 45258887660, 45258106255, parts run 45256311661, #660",
+  "issues": [
+    645,
+    646
+  ],
+  "runs": [
+    45182382388,
+    45182382864,
+    45256311661,
+    45258106255,
+    45258887660
+  ]
+}

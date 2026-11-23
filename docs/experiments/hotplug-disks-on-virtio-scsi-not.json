@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 160,
+  "change": "Hotplug disks on virtio-scsi, not PCIe root ports",
+  "where": "machine",
+  "result": "boot −31, attach 135 → 1.5 (09-29)",
+  "evidence": "runner",
+  "source": "#25"
+}

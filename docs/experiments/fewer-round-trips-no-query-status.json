@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "qmp",
+  "order": 40,
+  "date": "2026-11-21",
+  "change": "Fewer round trips (no `query-status` before the bind, places read from the Spec instead of `query-block` and `qom-get`, `Last(RESUME)` for the `query-status` after a load)",
+  "result": "ceiling ~1.3 ms cold, ~1.9 restored",
+  "shape": "spin",
+  "source": "the same, the detail by command"
+}

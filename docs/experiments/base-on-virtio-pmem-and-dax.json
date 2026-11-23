@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 70,
+  "date": "2026-10-01",
+  "change": "Base on virtio-pmem and DAX",
+  "result": "~155 MB less per VM, but a side channel",
+  "shape": "runner",
+  "source": "#63, #65"
+}

@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 10,
+  "date": "2026-11-13",
+  "change": "sntrup761 (OpenSSH's default kex)",
+  "result": "104 vs 40 ms a login",
+  "shape": "ladder",
+  "source": "#245, lab 43479854381",
+  "runs": [
+    43479854381
+  ]
+}

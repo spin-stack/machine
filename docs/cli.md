@@ -148,7 +148,7 @@ withdraw.yml task bin ; spin-machine-dev releases withdraw|restore TAG ; task gi
              spin-machine-dev releases propose --branch --title
 osv.yml      spin-machine-dev osv --issues ; spin-machine-dev cves
 lab.yml      task vsock ; task lab:ci
-pages.yml    task bin ; spin-machine-dev releases site --out _site
+pages.yml    task bin ; spin-machine-dev releases site --out _site ; spin-machine-dev docs site --out _site
 ```
 
 A build in CI reads BuildKit's cache from GitHub's registry (`--cache-registry`,
@@ -157,6 +157,24 @@ request's, a release's and compat's builds read main's cache, and nobody reads w
 after. The cache lives in the registry and not in the Actions cache, because the fleet's runners
 cannot read the Actions cache, and the Actions cache evicted a lane's layers between a merge and
 the release that needed them.
+
+## The log and the experiments
+
+The log is one file an entry under `docs/log`, and the rows of `docs/boot-time.md`'s tables are one
+record each under `docs/experiments` (AGENTS.md, "Experiments", says what each holds). A pull
+request adds files of its own, so two in flight do not conflict. The pages they make are rendered,
+never committed (#709):
+
+```
+spin-machine-dev docs log [--out FILE]       the log: docs/log's head, the entries by date under their weeks, rework.md
+spin-machine-dev docs tables [--out FILE]    what the machine carries, what was measured and rejected, what is open
+spin-machine-dev docs site --out OUT         both as web pages, OUT/log.html and OUT/experiments.html
+```
+
+pages.yml publishes the site's two pages beside the releases' page, at
+https://spin-stack.github.io/spin-machine/log.html and
+https://spin-stack.github.io/spin-machine/experiments.html. Each verb refuses a file that does not
+parse, as `gates/docs_test.go` does.
 
 ## The Taskfile
 

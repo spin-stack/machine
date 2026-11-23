@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 30,
+  "date": "2026-09-10",
+  "change": "chrony or another time daemon",
+  "result": "10 ms; cannot know it was restored",
+  "shape": "runner",
+  "source": "`c7af4d3`"
+}

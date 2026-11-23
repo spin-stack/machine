@@ -1,0 +1,9 @@
+---
+date: "2026-11-22"
+order: 420
+area: machine
+title: CPUID leaf 2 with QEMU's cache descriptors (#565, labs 45082640147, 45082640186, 45083473855, 45083473790, 45083754801, this change)
+issues: [565]
+runs: [45082640147, 45082640186, 45083473790, 45083473855, 45083754801]
+---
+*Why:* nesting costs ~50 ms of the cold first login, and #565 profiles a boot's exits by reason on both hosts with the new `exits` probe. Both hosts make the same ~10,400 exits, and nested ones cost more. CPUID was the most frequent: 3805 exits, 3549 of them below the guest kernel's half. Every process glibc starts asks for its cache sizes 12 times (glibc 2.42, `dl-cacheinfo.h`, `handle_intel`), and QEMU's leaf 2 answered 0xFF ("see leaf 4"), so each query walked leaf 4's subleaves, 1797 exits. *Changed:* `-cpu` carries `x-consistent-cache=off`, so leaf 2 holds QEMU's descriptors for the same caches leaf 4 describes (`env->cache_info`), and glibc reads them there. (Not under `host`: leaf 2 described `legacy_intel_cpuid2_cache_info`, a 2 MiB 8-way L2 against leaf 4's 4 MiB 16-way, corrected 11-23, #586.) *Measured* (bench, nested, spin's shape, against v20261122.06 with spin-machine `exp/cpuid2-descriptors` at ee005ce): CPUID exits 3727 → 2176, every exit −1541 [−1695, −1380] (3 a side). First login −10.3 [−14.2, −4.0] at 40 a side, a second login −1.1 [−1.6, −0.7]. The restored login +1.0 [−3.9, +4.4] evicted and −0.4 [−4.6, +1.6] cached, both within noise, at 30 a side. That is ~6.7 µs an exit removed, against 1.94 µs in the nested L1, so the two L0 trips around an exit cost ~4.7 µs (inferred). *The record:* `machine.CPU` reads feature bits, and `x-consistent-cache` is a switch, so the record does not move. A guest moved across the change reads the same cache sizes from either leaf. *Opened:* #566 (the MMIO accesses), #567 (HZ), #568 (memory's first touch). *Status:* in place.

@@ -1,0 +1,9 @@
+---
+date: "2026-11-23"
+order: 450
+area: kernel, release
+title: 'the release is its vmlinux alone: no bzImage, no `KERNEL_LZ4`, no kernel 0018 (#660, lab 45262046768, spin-stack/spin#1689, this change)'
+issues: [645, 660]
+runs: [45262046768]
+---
+*Why:* since #645 (v20261123.07) the machine boots a release's vmlinux through PVH, and the bzImage beside it was booted by nothing: spin's `hack/machine/place.go` still asked for it, and its runner reads the vmlinux and `pvh.bin`. The maintainer decided not to wait for spin. *Done:* `kernel/Dockerfile` makes `vmlinux` instead of `all`; `CONFIG_KERNEL_LZ4` and the builder's `lz4` go, and the compression mode is Kconfig's default (gzip), which compresses nothing shipped; kernel 0018, the RFC's change to the decompressor, is deleted, as nothing compiles `arch/x86/boot/compressed/` any more, and with it sparse's rebuild of the bzImage to check that file; CodeQL's kernel analysis builds `vmlinux` for the relocs tool where it built the bzImage. The release packs, hashes (SBOM) and describes (SOURCES) `kernel/vmlinux` alone, and `verify kernel` reads no setup header. `machine.OpenRelease` still boots the bzImage of a release from v20261119.02 to v20261123.06: the lab (`--from release:TAG`) and compat open them. Compat stopped at the first release with no bzImage, which every release from this one on is, and now stops at the first `OpenRelease` refuses. *Measured* (bench, nested, spin's shape and login, 20 a side, interleaved): the boot path is unchanged, first login −4.3 [−14.4, +7.4] at 20 a side, within noise, sshd accepting −5.3 [−11.1, +7.0], QEMU's RSS −1.7 MiB (the arm's kernel is also 7.3.6, main's, against .07's 7.3.5). *Left:* spin's place.go must stop requiring `kernel/bzImage` before it takes a release from this one on (spin-stack/spin#1689).

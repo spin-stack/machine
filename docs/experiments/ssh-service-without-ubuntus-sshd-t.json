@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 380,
+  "change": "ssh.service without Ubuntu's `sshd -t` before it starts (`20-no-config-test.conf`); the check stays on reload",
+  "where": "image drop-in",
+  "result": "−3.2 [−7.2, −0.8], sshd accepting −2.4 [−6.4, −1.1], 60 boots a side",
+  "evidence": "measured",
+  "source": "lab 44977044826",
+  "runs": [
+    44977044826
+  ]
+}

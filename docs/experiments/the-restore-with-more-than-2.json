@@ -1,0 +1,12 @@
+{
+  "decision": "open",
+  "order": 70,
+  "change": "The restore with more than 2 GiB of RAM",
+  "number": "restore",
+  "phase": "unmeasured (#242's checklist)",
+  "decided_by": "`restore-first` with `plugged` above 2048",
+  "state": "open",
+  "prs": [
+    242
+  ]
+}

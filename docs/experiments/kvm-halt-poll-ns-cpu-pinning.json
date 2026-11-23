@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "qmp",
+  "order": 70,
+  "date": "2026-11-21",
+  "change": "`kvm.halt_poll_ns`, CPU pinning, for vsock",
+  "result": "bounded by the same 0.6 ms a login. What they do to the boot's other wake-ups is a different question, not measured here",
+  "shape": "spin",
+  "source": "the same"
+}

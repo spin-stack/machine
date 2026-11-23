@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 60,
+  "date": "2026-09-10",
+  "change": "A generous vCPU ceiling",
+  "result": "maxcpus=16 +5 ms, 64 +9 ms of kernel; the ceiling stays (invariant)",
+  "shape": "runner",
+  "source": "`f32d527`"
+}

@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "qmp",
+  "order": 20,
+  "date": "2026-11-21",
+  "change": "Pipelining the bind (every command sent before the first answer)",
+  "result": "ceiling: QEMU's wait on the client, 4.5 ms cold and 5.2 restored, under the noise. The read-ahead overlaps the restore's half, so its share is smaller",
+  "shape": "spin",
+  "source": "the same"
+}

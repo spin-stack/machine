@@ -1,0 +1,13 @@
+{
+  "decision": "carried",
+  "order": 370,
+  "change": "ssh.socket, ssh.service and sshd-keygen without default dependencies; logind and dbus-broker without PrivateTmp; udev at `StartupCPUWeight=1`",
+  "where": "image drop-ins",
+  "result": "−59.4 [−65.9, −56.2] with the probe's forwarder early as well (lab 44805051310, `login-early` and `udev-startup`). In a second run, the image's half alone (`--edit lane`) −17.4 [−25.0, −8.5] and with the forwarder early as well −68.5 [−78.0, −61.8] (lab 44807457606). Each run against its own release, v20261120.03",
+  "evidence": "measured",
+  "source": "labs 44805051310, 44807457606",
+  "runs": [
+    44805051310,
+    44807457606
+  ]
+}

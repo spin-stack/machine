@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 320,
+  "date": "2026-11-22",
+  "change": "The manager's timeouts at 15 s and 10 s, the watchdogs off (`fast-boot.conf`); reverted to systemd's defaults",
+  "result": "taking it back +0.3 [−5.2, +3.3] cold, restored in noise",
+  "shape": "spin",
+  "source": "lab 45034963004",
+  "runs": [
+    45034963004
+  ]
+}

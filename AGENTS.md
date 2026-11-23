@@ -18,7 +18,8 @@ The second number is a checkpoint restored to the same first login (`task boot:r
 A change goes in when it moves one of the two, interleaved against the release, without making
 the other worse. A functional change (security, correctness) goes in too. Every other number,
 such as the console prompt, a phase, an initcall or a unit's time, is a tool for finding why one
-of the two moved, never a target of its own. `docs/log.md` shows what optimising the others cost.
+of the two moved, never a target of its own. The log (`docs/log`) shows what optimising the others
+cost.
 
 `docs/boot-time.md` says where both stand and what each of their phases costs, and
 `docs/measuring.md` says how a number is taken and read. `docs/boot-time.md` also says why the
@@ -122,11 +123,23 @@ full method. These are its rules.
 - Keep experiment outputs, overlays, initrds, firmware and caches apart from release outputs,
   and never open the shared base image for writing.
 - Remove an experiment once its question is answered. When a change decides something, kept or
-  rejected, add its row to `docs/boot-time.md`'s tables and its entry, dated and with its run, to
-  `docs/log.md`.
-- **Read before starting.** Read `docs/boot-time.md`'s "Measured and rejected" table and
-  `docs/log.md`'s rework cycles. An idea already there needs a new reason, not a new run.
-  `docs/memory-and-disk.md` says what the guest's memory and disk cost.
+  rejected, add its record to `docs/experiments` and its entry, dated and with its run, to
+  `docs/log`. Each is a file of its own, so two pull requests in flight never edit the same one
+  (#709); the pages they make are rendered, never committed.
+  - **An entry** is `docs/log/<YYYY-MM-DD>-<slug>.md`: YAML front matter (`date`, `order`, the
+    entry's place among that day's, `area`, `title`, and the `issues`, `prs` and `runs` its text
+    cites), then the prose. `spin-machine-dev docs log` renders the page, its head
+    `**MM-DD · area · title.**`.
+  - **A record** is `docs/experiments/[<issue>-]<slug>.json`, one row of `docs/boot-time.md`'s
+    tables: `decision` (`carried`, `rejected` or `open`), a rejected one's `section`, `order`
+    (its place in the table), and the cells its table shows. `spin-machine-dev docs tables`
+    renders the tables. A record that moves, from open to rejected, changes its `decision`.
+  - `gates/docs_test.go` refuses an entry or record that lacks a field, names a decision or
+    section that does not exist, or lists a run, issue or pull request its text does not cite.
+- **Read before starting.** Read the "Measured and rejected" records
+  (`spin-machine-dev docs tables`) and the log's rework cycles (`docs/log/rework.md`). An idea
+  already there needs a new reason, not a new run. `docs/memory-and-disk.md` says what the
+  guest's memory and disk cost.
 - **Search outside the repository too.** Many people work on KVM, QEMU, the kernel and systemd,
   and a boot-time idea has usually been tried, measured or refused somewhere: the projects'
   mailing lists, issue trackers and commit history, conference talks (LPC, KVM Forum, All
@@ -180,7 +193,7 @@ Comments here are longer than usual, on purpose. These rules are what make them 
 - **A decision, an open question or a follow-up is an issue.** "Left as it is", "not settled",
   "not in this change" and "the consumer should change this" each get a GitHub issue in the repo
   that owns it (spin-stack/machine or spin-stack/spin), with its evidence and how to settle it.
-  A comment, a PR body or `docs/log.md` cites the issue and never stands in for it: a comment is
+  A comment, a PR body or a log entry cites the issue and never stands in for it: a comment is
   read only by whoever opens that file, and an issue is where the next person looks for work.
   An issue closed because its proposal was decided against carries the label `rejected`, and a
   finding that does not apply to this machine (an osv CVE, an upstream bug) carries `not-affected`,

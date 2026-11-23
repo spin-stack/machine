@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 80,
+  "date": "2026-11-12",
+  "change": "Remove virtio-rng",
+  "result": "−13.6 ms to the console prompt, never on a goal number; what seeds the RNG without it is open (\"Open questions\")",
+  "shape": "ladder",
+  "source": "lab 43321809471",
+  "runs": [
+    43321809471
+  ]
+}

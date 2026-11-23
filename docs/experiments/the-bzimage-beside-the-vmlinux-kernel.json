@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 220,
+  "date": "2026-11-23",
+  "change": "The bzImage beside the vmlinux, `KERNEL_LZ4` (its compression) and kernel 0018 (its decompressor reading `.data.reloc`), shipped since 11-19",
+  "result": "no release booted the bzImage after #645: spin's place.go was its last reader (spin-stack/spin#1689). Deleted: the build makes vmlinux alone, and a release from #660 on has no `kernel/bzImage`. The boot path is unchanged: first login −4.3 [−14.4, +7.4] at 20 a side, within noise, sshd accepting −5.3 [−11.1, +7.0], QEMU's RSS −1.7 MiB (the arm's kernel is also 7.3.6, main's, against .07's 7.3.5)",
+  "shape": "spin",
+  "source": "#660, lab 45262046768",
+  "issues": [
+    645,
+    660
+  ],
+  "runs": [
+    45262046768
+  ]
+}

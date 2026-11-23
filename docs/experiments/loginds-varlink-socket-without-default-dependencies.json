@@ -1,0 +1,14 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 60,
+  "date": "2026-11-19",
+  "change": "logind's Varlink socket without default dependencies",
+  "result": "accept to login 131 → 120, first login inside the noise; kept with the lane's other drop-ins",
+  "shape": "ladder",
+  "source": "labs 44558035927, 44558053261",
+  "runs": [
+    44558035927,
+    44558053261
+  ]
+}

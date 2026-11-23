@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 240,
+  "change": "`no_timer_check`, `tsc=reliable`",
+  "where": "machine/cmdline.go",
+  "result": "nothing on record (09-07)",
+  "evidence": "unmeasured",
+  "source": "-"
+}

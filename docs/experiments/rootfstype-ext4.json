@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 260,
+  "change": "`rootfstype=ext4`",
+  "where": "machine/cmdline.go",
+  "result": "lead (11-19)",
+  "evidence": "laptop",
+  "source": "-"
+}

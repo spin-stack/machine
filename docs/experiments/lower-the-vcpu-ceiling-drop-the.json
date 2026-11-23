@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 130,
+  "date": "2026-11-13",
+  "change": "Lower the vCPU ceiling, drop the balloon or ACPI",
+  "result": "not tried: an invariant",
+  "shape": "-",
+  "source": "AGENTS.md"
+}

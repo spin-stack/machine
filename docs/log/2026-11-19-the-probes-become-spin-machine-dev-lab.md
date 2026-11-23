@@ -1,0 +1,15 @@
+---
+date: "2026-11-19"
+order: 120
+area: lab
+title: the probes become `spin-machine-dev lab` (branch `dev-cli-lab`, this change)
+runs: [44546329726, 44555905383, 44584214362, 44585268429, 44587254371, 44596065601, 44596983249]
+---
+Each probe was a Go test behind a `SPIN_*` switch of its own, and took a second kernel, a second QEMU, an edit of the image or a rebuilt systemd each through another environment variable (`SPIN_KERNEL_B`, `SPIN_KERNEL_C`, `SPIN_MACHINE_OUTPUT_B`, `SPIN_APPEND_B`, `SPIN_SYSTEMD_DEBS`), laid out by lab.yml's `variant=beside|instead`. Two failures in one day came from that shape: `boot:restore-first` read no `SPIN_MACHINE_OUTPUT_B` and measured the release's QEMU under the name of 11.2's (lab 44584214362), and a Kernel run from before the bzImage failed `lab:place` with no message (lab 44587254371). Now a tree is a whole machine with a manifest naming every part's source, refused when it is not whole, and a probe is handed trees (`internal/lab`, docs/cli.md). Ported: `ssh-first`, `restore-first` (its `fast` rows an option), `prestart`, `initcalls` (totals, the initcalls of interest per tree, each tree's slowest initcalls and largest gaps). The "as this branch" row is the tree edit `lane`. Not ported, and kept as `boot:` targets `lab check` runs on any tree: `firmware-stages`, `waits`. Deleted, each question answered and its answer in this log or beside it:
+- `boot:login-lane` (`boot/login_lane_test.go`): where the first login's own time goes, on the guest's clock. See the 11-19 entry above and docs/boot-time.md's cold-boot budget, lab 44555905383.
+- `boot:density` (`boot/density_test.go`): one idle workspace's host memory, ~125 MiB (lab 44546329726).
+- `boot:page-cache` (`boot/pagecache_test.go`): the page caches a machine has. See docs/memory-and-disk.md and docs/boot-time.md's "Measured and rejected".
+- initcalls' extra passes, not ported: `SPIN_GRAPH` (function_graph under chosen functions, `boot/graph_test.go`), `SPIN_CPU_SHARE` (who had the CPU during one initcall, `boot/cpushare_test.go`), `SPIN_EARLY` (the lines before the first initcall) and `SPIN_FORMAT_CHECK` (an event's format after patch 0003). Each served one question, answered above. When another asks for one, it comes back from git (`boot/initcalls_test.go` and those two files before this change) as an option of the `initcalls` probe.
+- `boot:ssh-first`, `boot:restore-first`, `boot:prestart`, `boot:initcalls` are now lab runs over `OUTPUT_DIR`, the same targets.
+
+Checked against the probe it replaced on the bench fleet, `lab dispatch ssh-first`, the release and the release with the lane, 20 each (lab 44596983249): sshd accepts 215/228 and 216/229, first login 349/366 and 339/353. The old probe's rows read 215/223 and 216/223, 348/360 and 335/345 (lab 44585268429). A release ships no spin-machine. The old targets' `:tools` built this checkout's into the release tree, and a tree does the same, named in its manifest (the first dispatch, 44596065601, failed on it).

@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 290,
+  "date": "2026-11-23",
+  "change": "x86's `msi_set_affinity` skips the message write when the vector and destination did not change (#592 lever 2, a kernel patch on branch `exp/592-l2-msix-once`)",
+  "result": "56 MMIO exits fewer (`__pci_write_msi_msg` 168 → 112, 3 a side, lab 45113437048), the first login −0.1 [−3.1, +4.5] at 60 a side (lab 45114405201)",
+  "shape": "spin",
+  "source": "labs 45113437048, 45114405201",
+  "issues": [
+    592
+  ],
+  "runs": [
+    45113437048,
+    45114405201
+  ]
+}

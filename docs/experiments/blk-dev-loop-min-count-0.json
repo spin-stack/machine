@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 40,
+  "change": "`BLK_DEV_LOOP_MIN_COUNT=0`, `SERIAL_8250_RUNTIME_UARTS=1`",
+  "where": "kernel/config-7.3-x86_64",
+  "result": "cold +5.3 [−3.2, +15.0]: inside the noise, but the upper bound does not rule out its ~2-4 ms ceiling",
+  "evidence": "measured, 40 a side",
+  "source": "lab 44839538785",
+  "runs": [
+    44839538785
+  ]
+}

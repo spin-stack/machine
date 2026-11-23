@@ -1,0 +1,21 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 320,
+  "date": "2026-11-23",
+  "change": "The IOAPIC's redirection table read once at boot, and written back only where it was masked (#590, a kernel patch on branch `exp/590-ioapic-once`)",
+  "result": "IOAPIC accesses 589 → 205 and the host's handling −3.1 [−6.2, −1.1] ms (3 a side, lab 45113437048), but the first login −4.5 [−7.8, +0.4] at 60 a side (lab 45114405201) and −2.0 [−4.3, +0.6] at 120 (lab 45115330128). With the four other exit patches of #591 and #592, as a bound, −7.4 [−12.1, −2.8], and as one change −9.4 [−14.2, −5.7] at 120 a side: carried as 0021-0025 (#627, \"What the machine carries\")",
+  "shape": "spin",
+  "source": "labs 45113437048, 45114405201, 45115330128",
+  "issues": [
+    590,
+    591,
+    592,
+    627
+  ],
+  "runs": [
+    45113437048,
+    45114405201,
+    45115330128
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 150,
+  "date": "2026-11-13",
+  "change": "A configuration-space snapshot over fw_cfg (QEMU and kernel)",
+  "result": "209 vs 211 with 0005",
+  "shape": "ladder",
+  "source": "lab 43514884598",
+  "runs": [
+    43514884598
+  ]
+}

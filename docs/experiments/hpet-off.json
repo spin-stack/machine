@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 140,
+  "change": "`hpet=off`",
+  "where": "machine",
+  "result": "nothing on record: a timer the guest would enumerate and then not use",
+  "evidence": "unmeasured",
+  "source": "-"
+}

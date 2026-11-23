@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 10,
+  "date": "2026-09-08",
+  "change": "`usb=off`, `vmport=off`, `smm=off`, `i8042=off`",
+  "result": "63.0/62.6/62.3/62.5 vs 62.9 ms",
+  "shape": "laptop",
+  "source": "`fa1803f`"
+}

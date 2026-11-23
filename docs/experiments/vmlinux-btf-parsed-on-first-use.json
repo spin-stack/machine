@@ -1,0 +1,14 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 260,
+  "date": "2026-11-22",
+  "change": "vmlinux BTF parsed on first use, not at the first kfunc registration (a kernel patch on branch `exp/btf-first-use`)",
+  "result": "kernel to \"Freeing\" −7.2 [−8.6, −6.2], inet_init 6.85 → 0.14 ms (lab 44982285400, 10 boots), but the first login −1.5 [−3.1, +1.6] at 60 boots (lab 44982285406): journald's `DeviceAllow=` and `IPAddressDeny=` load cgroup BPF programs at its start, and `bpf_check()` parses the BTF there, before the login. A verifier that asks for BTF only when a program needs it is the next step",
+  "shape": "spin",
+  "source": "labs 44982285400, 44982285406",
+  "runs": [
+    44982285400,
+    44982285406
+  ]
+}

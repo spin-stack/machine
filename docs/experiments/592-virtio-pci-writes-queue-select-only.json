@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 280,
+  "date": "2026-11-23",
+  "change": "virtio-pci writes `queue_select` only when the queue changes, a second time and alone (#592 lever 1, a kernel patch on branch `exp/592-l1-queue-select`; first as 0011)",
+  "result": "68 MMIO exits fewer (91 → 23 writes, 3 a side, lab 45113437048), the first login −2.8 [−6.6, +3.4] at 60 a side (lab 45114405201) and +0.6 [−1.8, +2.3] at 120 (lab 45115330128). The vector read-back stays: virtio 1.2 §4.1.5.1.2 makes it how a device refuses a vector",
+  "shape": "spin",
+  "source": "labs 45113437048, 45114405201, 45115330128",
+  "issues": [
+    592
+  ],
+  "runs": [
+    45113437048,
+    45114405201,
+    45115330128
+  ]
+}

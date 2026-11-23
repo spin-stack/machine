@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 330,
+  "change": "`lazy_itable_init=0`",
+  "where": "image/build.sh",
+  "result": "function: no 16 MiB of zeros in every overlay",
+  "evidence": "-",
+  "source": "-"
+}

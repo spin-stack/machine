@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 190,
+  "date": "2026-11-21",
+  "change": "Masks of 15 units and a generator the image does not have",
+  "result": "they masked nothing. Deleted without a run; image/build.sh refuses such a mask",
+  "shape": "-",
+  "source": "#352"
+}

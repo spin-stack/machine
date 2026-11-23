@@ -2,14 +2,19 @@ name: Pages
 
 # Each release's numbers as one web page to share, https://spin-stack.github.io/spin-machine/:
 # the chart, the tables of docs/releases.md and each record, written from docs/releases/*.json by
-# spin-machine-dev releases site (docs/cli.md). A merge that changes a record publishes it again;
-# nothing else on the page can change without one. Not a required check, so a paths filter is safe.
+# spin-machine-dev releases site (docs/cli.md). Beside it, log.html and experiments.html: the log
+# and docs/boot-time.md's tables, rendered from docs/log and docs/experiments by spin-machine-dev
+# docs site, and committed nowhere else (#709). A merge that changes a record or an entry publishes
+# them again; nothing else on the pages can change without one. Not a required check, so a paths
+# filter is safe.
 
 on:
   push:
     branches: [main]
     paths:
       - "docs/releases/**"
+      - "docs/log/**"
+      - "docs/experiments/**"
   workflow_dispatch:
 
 permissions:
@@ -48,6 +53,9 @@ jobs:
 
       - name: Write the site
         run: spin-machine-dev releases site --out _site
+
+      - name: Write the log and the tables
+        run: spin-machine-dev docs site --out _site
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

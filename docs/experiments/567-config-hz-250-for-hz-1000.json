@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 270,
+  "date": "2026-11-23",
+  "change": "`CONFIG_HZ_250` for `HZ_1000` (#567), as Firecracker's and Cloud Hypervisor's guest configs build",
+  "result": "every exit −587 [−608, −445] (MSR writes 1018 → 755, preemption timer 691 → 482, HLT 332 → 298, 3 a side, lab 45111418504), but the first login −0.6 [−5.9, +3.1] at 60 a side (lab 45111452844): a tick's exits are handled in ~1-1.5 µs each in the L1, not the ~7 µs a nested MMIO or port exit costs",
+  "shape": "spin",
+  "source": "labs 45111418504, 45111452844",
+  "issues": [
+    567
+  ],
+  "runs": [
+    45111418504,
+    45111452844
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 110,
+  "date": "2026-09-26",
+  "change": "erofs removed for speed",
+  "result": "noise (100.46 vs 102.22)",
+  "shape": "runner",
+  "source": "`5a3d509`"
+}

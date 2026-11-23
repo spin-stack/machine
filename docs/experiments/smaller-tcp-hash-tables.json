@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 120,
+  "date": "2026-09-26",
+  "change": "Smaller TCP hash tables",
+  "result": "moved nothing",
+  "shape": "runner",
+  "source": "`dae6a14`, #48"
+}

@@ -50,7 +50,7 @@ func checkRefs(text string, issues, prs, runs []int) error {
 			return fmt.Errorf("issues and prs: #%d is listed but the text does not cite it", n)
 		}
 	}
-	for _, id := range runID.FindAllString(text, -1) {
+	for _, id := range runID.FindAllString(text, -1) { // mutate-exempt: any negative count finds every match
 		n, _ := strconv.Atoi(id)
 		if !slices.Contains(runs, n) {
 			return fmt.Errorf("runs: the text cites run %s, which runs does not list", id)

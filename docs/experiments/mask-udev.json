@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 10,
+  "date": "2026-09-10",
+  "change": "Mask udev",
+  "result": "saves 0, and boots never reach a login (10 s ttyS0 timeout)",
+  "shape": "runner",
+  "source": "`4cbd229`, `80f984b`"
+}

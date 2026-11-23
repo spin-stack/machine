@@ -1,0 +1,16 @@
+{
+  "decision": "carried",
+  "order": 470,
+  "change": "Host keys made from the boot's first dispatch",
+  "where": "spin-machine-sshd-keygen.service",
+  "result": "cold −0.8 [−10.5, +3.5], restored in noise: not a gain in spin's shape, where they are no longer made (the row below); kept for the lane, 489 → 468 (#515)",
+  "evidence": "measured",
+  "source": "lab 45034963004, lab 43483372488",
+  "issues": [
+    515
+  ],
+  "runs": [
+    43483372488,
+    45034963004
+  ]
+}

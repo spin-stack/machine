@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 350,
+  "date": "2026-11-23",
+  "change": "PID 1, journald, logind and `user@0` linked without the dynamic linker: v262's multicall build (#42304) or a static one (#42820), for their ld.so start-up (#638)",
+  "result": "ld.so's own start-up, `LD_DEBUG=statistics`, p50 [range] of 8 boots: PID 1 0.48 [0.46, 0.56] ms, journald 0.20 [0.14, 0.31], logind 0.20 [0.11, 0.31], `user@0` 0.21 [0.15, 0.36]; 1.1 ms for the four, under #638's 5 ms threshold, so no build was run. Relocation 0.08-0.11 ms each (2,522 symbol and 16,589 relative relocations in PID 1 and `user@0`). The instrument moved nothing: first login +3.4 [−23.0, +11.9], PID 1's CPU −1.1 [−5.1, +0.6]. The multicall build keeps libsystemd-core and libsystemd-shared dynamic and leaves journald and logind as they are; the static one has no PAM for `user@`'s `PAMName=`",
+  "shape": "spin",
+  "source": "lab 45180856158",
+  "issues": [
+    638
+  ],
+  "runs": [
+    45180856158
+  ]
+}

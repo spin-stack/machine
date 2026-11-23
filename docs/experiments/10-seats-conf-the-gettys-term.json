@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 550,
+  "change": "`10-seats.conf`, the getty's TERM, `/tmp`'s size",
+  "where": "image drop-ins",
+  "result": "function",
+  "evidence": "-",
+  "source": "-"
+}

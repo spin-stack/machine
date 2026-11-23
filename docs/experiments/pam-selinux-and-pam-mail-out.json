@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 300,
+  "date": "2026-11-22",
+  "change": "`pam_selinux` (twice) and `pam_mail` out of sshd's PAM stack: SELinux is off and there is no mail",
+  "result": "−1.9 [−4.9, +2.8] at 60 boots",
+  "shape": "spin",
+  "source": "lab 44979726719",
+  "runs": [
+    44979726719
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 360,
+  "date": "2026-11-23",
+  "change": "journald's, logind's and `user@`'s seccomp and sandbox settings, split from #574's bound (−14.1 [−18.5, −11.5]), and one seccomp filter per unit (#637)",
+  "result": "the seccomp half carries it, −12.0 [−21.8, −2.1]; the namespace half +0.3 [−9.4, +7.2] (lab 45228294512). Fewer filters do not: `SystemCallArchitectures=` applied first takes journald's 17 → 8 and logind's 26 → 13, the same answer to 3435 calls (`boot:seccomp`, labs 45235103665, 45235485857), and read −0.4 [−6.1, +2.7] against systemd rebuilt without it (lab 45231419187). In journald's executor `SystemCallFilter=@system-service` takes 3.7-4.0 ms of 6.7-7.2, its `seccomp_load()` 1.1-1.2 of that, every other seccomp setting ~0.6 together (labs 45238003981, 45239372741, 2 vCPUs): one filter per unit would reach the 0.6. Building the allow-list once is #686. Prior art: systemd#17451 (one program per feature; Lennart wants each filter's application checked), libseccomp#499 (one context drops a conditional rule beside an unconditional one with another action, so merging settings is unsafe)",
+  "shape": "spin",
+  "source": "labs 45228294512, 45231419187",
+  "issues": [
+    574,
+    637,
+    686
+  ],
+  "runs": [
+    45228294512,
+    45231419187,
+    45235103665,
+    45235485857,
+    45238003981,
+    45239372741
+  ]
+}

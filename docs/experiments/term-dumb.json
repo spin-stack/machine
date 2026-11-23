@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 250,
+  "change": "`TERM=dumb`",
+  "where": "machine/cmdline.go",
+  "result": "687 → 19 ms to systemd's first line (09-10), while systemd queries the console",
+  "evidence": "laptop, mechanism",
+  "source": "`b5f361f`"
+}

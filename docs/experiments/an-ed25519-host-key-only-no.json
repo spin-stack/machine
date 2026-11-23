@@ -1,0 +1,12 @@
+{
+  "decision": "carried",
+  "order": 500,
+  "change": "An Ed25519 host key only, no ECDSA",
+  "where": "spin-machine-sshd-keygen.service",
+  "result": "−5.0 [−8.3, −1.8], sshd accepting −4.4 [−6.9, −1.9], 60 boots a side",
+  "evidence": "measured",
+  "source": "lab 44979726719",
+  "runs": [
+    44979726719
+  ]
+}

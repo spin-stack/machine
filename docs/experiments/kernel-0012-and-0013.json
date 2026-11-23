@@ -1,0 +1,15 @@
+{
+  "decision": "carried",
+  "order": 20,
+  "change": "Kernel 0012 (vmlinux BTF parsed on first use) and 0013 (the verifier asks for it only where a kernel type enters a program)",
+  "where": "kernel/patches",
+  "result": "cold −6.4 [−9.4, −1.0] at 60 a side (lab 45118194310, the kernel carried); before the review's fixes −10.0 [−12.7, −3.3] at 60 and −6.3 [−9.1, −4.6] at 120 (labs 45114405201, 45115330128); restored −1.0 [−6.0, +4.2] evicted, the state 1.3 MiB smaller (lab 45115341056)",
+  "evidence": "measured",
+  "source": "lab 45118194310",
+  "runs": [
+    45114405201,
+    45115330128,
+    45115341056,
+    45118194310
+  ]
+}

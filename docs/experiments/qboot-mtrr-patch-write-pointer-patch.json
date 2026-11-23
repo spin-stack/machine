@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 130,
+  "change": "qboot `mtrr.patch`, `write-pointer.patch`",
+  "where": "qemu/qboot",
+  "result": "function: write-back mappings, vmgenid",
+  "evidence": "-",
+  "source": "-"
+}

@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "login",
+  "order": 80,
+  "date": "2026-11-22",
+  "change": "Every login's user manager started beside it, not waited for (`user-runtime-dir@`'s `20-manager.conf`, #462): a command that needs the user bus at once in the first login came before the manager",
+  "result": "correctness: the first login's own `systemctl --user` failed 10 of 10. Replaced by class `user-early` (#467)",
+  "shape": "spin",
+  "source": "lab 45032247920",
+  "issues": [
+    467
+  ],
+  "runs": [
+    45032247920
+  ]
+}

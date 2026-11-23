@@ -35,7 +35,7 @@ one restore alone to the first login 99.6 → 99.5 ms, Δ −0.1 [−2.0, +1.6];
 disk 283 → 239, Δ −44.1 [−53.2, −35.2]; eight from the page cache 268 → 193, Δ −74.9
 [−83.2, −64.9]. spin restores workspaces concurrently and does not set the policy, so the host's
 setup must set it (`echo defer > /sys/kernel/mm/transparent_hugepage/defrag` at boot, or a tmpfiles.d
-`w` line). `docs/log.md`, 11-21, has the run.
+`w` line). `docs/log/2026-11-21-where-a-burst-of-restores-waits.md` has the run.
 
 ## The host's copy of the guest's disk
 

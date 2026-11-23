@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "memory",
+  "order": 10,
+  "date": "2026-09-30",
+  "change": "Lower `memhp_default_state` (unplug policies)",
+  "result": "kept `online`",
+  "shape": "runner",
+  "source": "`2903d8c`, #48"
+}

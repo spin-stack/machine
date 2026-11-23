@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 140,
+  "date": "2026-11-12",
+  "change": "`pci=noearly`",
+  "result": "the guest does not boot",
+  "shape": "-",
+  "source": "#240"
+}

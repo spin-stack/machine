@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 80,
+  "date": "2026-09-28",
+  "change": "systemd-oomd",
+  "result": "the kernel always beat it",
+  "shape": "runner",
+  "source": "`337c08d`"
+}

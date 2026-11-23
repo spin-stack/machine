@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "memory",
+  "order": 30,
+  "date": "2026-10-01",
+  "change": "`page_reporting_order` 0 or 3",
+  "result": "~100 MB transient vs ~180 MB of huge pages lost",
+  "shape": "runner",
+  "source": "docs/memory-and-disk.md, #83"
+}

@@ -1,0 +1,9 @@
+---
+date: "2026-11-23"
+order: 300
+area: lab
+title: a guest's synced writes on a saturated host disk do not stall QMP on the bench (#391, labs 45111443524, 45112573850, probe archived as `archive/qmp-stall-391`)
+issues: [391, 402]
+runs: [45111443524, 45112573850]
+---
+On a laptop with a 97% full disk, query-status reached 175-950 ms beside small synced writes, and #402 did not reproduce that case. A `stall` probe on the experiment's branch booted spin's shape, logged in, started a row's load, and timed 200 query-status round trips 100 ms apart, sampling QEMU's main thread and its monitor's I/O thread (`stat` and `wchan`) every 0.5 ms across each, with both kernel stacks taken past 20 ms. The rows: the guest's 4 KiB `dd oflag=dsync` writes (fio's `--bs=4k --fsync=1`; the image has no fio); four host streams of 1 MiB O_DIRECT writes on the scratch NVMe the overlay is on; both; and the guest's writes beside four buffered host streams flushed each GiB, so that dirty-page throttling and writeback are in play. *Measured* (bench, nested, spin's shape and login, v20261123.04, 3 boots a row, two runs): the slowest round trip of all 2,400 was 1.2 ms, and none passed 20 ms. p50 0.24-0.37 ms with the guest writing alone, 0.41-0.56 with the host disk busy. *The load was real:* the disk read 99-100% busy from its io_ticks in every busy row, and the guest's writes fell from 113,700-118,400 a row to 2,700-3,100 beside O_DIRECT and 1,500-2,100 beside buffered writes. QEMU's disks are `aio=io_uring` on the main loop's ring, so a slow write waits in the kernel and not in the main thread. *Decided:* the case does not stall QMP on the host kind the goal is measured on, so no `iothread=` arm was measured and the probe was removed with its question. The laptop's stalls stand as #402 explained them: the main thread blocked in the host, in cgroup reclaim at `memory.high`, waiting for the mmap lock under reclaim, or with QEMU's cgroup throttled by `cpu.max`.

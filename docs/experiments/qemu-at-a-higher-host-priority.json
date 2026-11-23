@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "memory",
+  "order": 70,
+  "date": "2026-11-21",
+  "change": "QEMU at a higher host priority (cgroup `cpu.weight`, nice, a real-time class) on an idle host",
+  "result": "ceiling: QEMU's threads wait 0.2/1.1 ms for a CPU from its exec to the cold first login and 0.1/0.2 to the restored one, the guest's steal 0. Priority can win back only that wait. On a busy host it is a lead for spin (\"Open experiments\")",
+  "shape": "spin",
+  "source": "lab 44925573288, `run-delay`",
+  "runs": [
+    44925573288
+  ]
+}

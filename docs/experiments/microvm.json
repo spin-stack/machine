@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 70,
+  "date": "2026-09-10",
+  "change": "MICROVM",
+  "result": "no ACPI CPU hotplug",
+  "shape": "-",
+  "source": "`b151186`"
+}

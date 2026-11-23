@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 10,
+  "date": "2026-09-10",
+  "change": "Trim the 8250 driver",
+  "result": "154 µs",
+  "shape": "runner",
+  "source": "`c03ed89`"
+}

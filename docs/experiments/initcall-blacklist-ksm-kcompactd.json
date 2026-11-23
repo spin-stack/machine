@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 40,
+  "date": "2026-09-10",
+  "change": "initcall_blacklist ksm/kcompactd",
+  "result": "0; event_trace's 6 ms is the profiler",
+  "shape": "runner",
+  "source": "`64d2901`"
+}

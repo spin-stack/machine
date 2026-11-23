@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 290,
+  "date": "2026-11-23",
+  "change": "The rest of the boot started from sshd's PAM stack at the first session (#574)",
+  "result": "−52.0 [−61.6, −37.4], accept to login +15.3 [+10.8, +21.7]: it runs beside the login's last steps, and every login pays its `pam_exec`",
+  "shape": "spin",
+  "source": "lab 45090246267",
+  "issues": [
+    574
+  ],
+  "runs": [
+    45090246267
+  ]
+}

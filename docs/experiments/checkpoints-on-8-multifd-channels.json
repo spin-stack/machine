@@ -1,0 +1,13 @@
+{
+  "decision": "carried",
+  "order": 180,
+  "change": "Checkpoints on 8 multifd channels",
+  "where": "machine",
+  "result": "restored into a QEMU started ahead 150 → 103 against 1 channel; 16 channels lose to 8 when 4 restore at once, +3.2 [+1.1, +5.8]",
+  "evidence": "measured",
+  "source": "labs 44789688221, 44792429636",
+  "runs": [
+    44789688221,
+    44792429636
+  ]
+}

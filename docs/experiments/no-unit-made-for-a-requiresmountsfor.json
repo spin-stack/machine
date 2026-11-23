@@ -1,0 +1,17 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 270,
+  "date": "2026-11-23",
+  "change": "No unit made for a `RequiresMountsFor=` prefix with no unit file (`unit_add_mount_dependencies` checks the unit name map before it loads one)",
+  "result": "−1.0 [−4.3, +3.9] at 100 boots, and PID 1's CPU before the login 57.2 against 56.0, p50 of 5: not separable. Whether the stubs went in those boots was not observed (no debug boot of the arm). The patch and an upstream draft, not sent, are #580",
+  "shape": "spin",
+  "source": "labs 45090299768, 45090326943",
+  "issues": [
+    580
+  ],
+  "runs": [
+    45090299768,
+    45090326943
+  ]
+}

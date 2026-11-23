@@ -1,0 +1,10 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 240,
+  "date": "2026-11-22",
+  "change": "`systemd-user-sessions` without its ExecStart (it removes a /run/nologin the image never writes), its ExecStop kept",
+  "result": "−0.6 [−5.2, +1.5] at 60 boots",
+  "shape": "spin",
+  "source": "the same"
+}

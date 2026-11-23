@@ -1,0 +1,17 @@
+{
+  "decision": "carried",
+  "order": 100,
+  "change": "QEMU 0009 (the vmlinux's segments copied into guest RAM in a thread beside the main loop at the machine's first reset, #698)",
+  "where": "qemu/patches",
+  "result": "first login −8.6 [−11.0, −4.0], 351 → 342, sshd accepting −9.1 [−12.4, −5.9], the console prompt −7.7 [−11.4, −5.5], QEMU's RSS unmoved, 60 a side (lab 45260098299); restored −0.1 [−1.1, +0.7] evicted, −0.3 [−2.1, +0.9] cached, and the same run's cold login −6.9 [−12.9, −0.8], 40 a side (lab 45260694485): a restore's reset copies nothing. The copy it moves off the main thread was 9.1 ms (p50 of 20, p95 9.3, lab 45257214350), and the gain is all of it. Prior art: QEMU has mapped an ELF kernel instead of reading it since 4.2 (Stefano Garzarella, `816b9fe450`, [qemu-devel 2019-07-24](https://patchew.org/QEMU/20190724143105.307042-1-sgarzare@redhat.com/20190724143105.307042-3-sgarzare@redhat.com), 2019), so #698's first candidate, mapping the file, was already upstream; what was left is the copy into guest RAM, which any loader pays: Firecracker and Cloud Hypervisor read each PT_LOAD straight into guest memory ([rust-vmm/linux-loader](https://github.com/rust-vmm/linux-loader)), one copy as QEMU's. A `pread` into guest RAM against the mapping's `memcpy` was no faster on a laptop (9-11 ms each, not nested), where half the copy was faulting in the destination's huge pages and half the copy itself. No ROM copy off the main thread found in QEMU 11.2's tree or by a web search of qemu-devel (2026-11-23)",
+  "evidence": "measured",
+  "source": "labs 45260098299, 45260694485",
+  "issues": [
+    698
+  ],
+  "runs": [
+    45257214350,
+    45260098299,
+    45260694485
+  ]
+}

@@ -179,7 +179,7 @@ withdrawn one stays a release that a host may already run and hold checkpoints o
 restore to the first login, against the release before it in the same run (report.yml), with a
 Δp50 whose 95% interval is wholly above 0: slower, beyond noise. A failed functional check counts
 too: `boot:logind` or `boot:workspace` in release.yml's `pause` job, or compat. Compat runs before a
-release is built, so a release that fails it is never published. A cost that docs/log.md records
+release is built, so a release that fails it is never published. A cost that the log (docs/log) records
 as accepted is no regression: a correctness change, as #505 was for v20261122.04's +6.8
 [+0.1, +13.6]. With 20 boots a side and a 95% interval, about 1 in 40 flags of each number is
 noise. Detection flags, and a person decides.

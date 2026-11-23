@@ -1,0 +1,9 @@
+{
+  "decision": "carried",
+  "order": 310,
+  "change": "SELinux off, `pcre2` on",
+  "where": "image/systemd",
+  "result": "function",
+  "evidence": "-",
+  "source": "-"
+}

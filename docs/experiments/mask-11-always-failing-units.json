@@ -1,0 +1,13 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 150,
+  "date": "2026-11-13",
+  "change": "Mask 11 always-failing units",
+  "result": "484, no change",
+  "shape": "ladder",
+  "source": "lab 43483372488",
+  "runs": [
+    43483372488
+  ]
+}
