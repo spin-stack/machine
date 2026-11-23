@@ -224,10 +224,6 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--edit carry-journal`, `carry-docker`, `carry-lane-logind` and `carry-keygen`: one of the
   image's deviations from Ubuntu taken back to what Ubuntu ships (docs/image.md, "Measured in this
   review"). Each goes after `--edit lane`.
-- `--edit spin-handoff`: spin's handoff of its host key, as spin's vminitd makes it before it execs
-  systemd: a fresh Ed25519 key for each boot at `/run/spin/ssh/ssh_host_ed25519_key` and the
-  drop-in naming it sshd's only `HostKey`. Its tree boots
-  `--append init=/usr/local/sbin/spin-lab-handoff`, the shell that places the key.
 - `--systemd PATCH`: systemd built here with a patch from image/systemd/experiments, in every
   overlay.
 - `--openssh`: OpenSSH as this checkout builds it (image/openssh), built here, in every overlay.
@@ -286,7 +282,10 @@ guest through virtio-mem right after its start. spin sizes every workspace the s
 handing it its filesystem, to 2048 MiB unless the workspace asks for more. Left at 128 MiB
 (`plugged=0`), the guest's OOM killer runs through the boot and the logins (lab 44784196287).
 `login=spin`, the default, logs in as spin does: as root, through a forwarder from vsock to
-`ssh.service` on 127.0.0.1:22 (`internal/lab/login.go`, `spinsPath`). `login=lane` logs in as the
+`ssh.service` on 127.0.0.1:22 (`internal/lab/login.go`, `spinsPath`), with spin's host key handed
+over before systemd starts, as spin's vminitd hands it over (`spinHandoff`), so the image's host-key
+generation does not run (#515, #575). A shell stands in for vminitd as PID 1: it places the key and
+execs systemd, and its cost is measuring.md's ("The ledger"). `login=lane` logs in as the
 user spin through systemd's vsock socket and one `sshd@` for each connection. That is the path the
 probes took until 2026-11-20, and the one the `floor` edit's sshd serves, so a floor run passes
 `login=lane`.

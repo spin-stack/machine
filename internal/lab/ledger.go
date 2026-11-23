@@ -370,6 +370,12 @@ func (b *boot) kernelZero(trips []Trip) (zero, halfWidth float64, err error) {
 	return (lo + hi) / 2, (hi - lo) / 2, nil
 }
 
+// The windows the ledger probe records by name.
+const (
+	windowHandoff    = "spin's handoff, to PID 1's exec of systemd"
+	windowConnection = "sshd-session, to sshd-auth"
+)
+
 // cut is where a window starts, and what the window is.
 type cut struct {
 	name string
@@ -398,8 +404,14 @@ func (b *boot) cuts() ([]cut, float64, error) {
 	if !ok {
 		return nil, 0, fmt.Errorf("the trace has the login's command and not its exit: it ended inside the login")
 	}
-	cuts := []cut{{"the kernel, to PID 1's exec of init", 0}, {"PID 1, to the login's sshd-session", pid1},
-		{"sshd-session, to sshd-auth", conn}}
+	cuts := []cut{{"the kernel, to PID 1's exec of init", 0}}
+	// On spin's path PID 1 is first the lab's stand-in for spin's handoff, which execs systemd
+	// (login.go, spinHandoff): its own window, so that its cost is not read as systemd's.
+	if len(inits) > 1 && strings.HasSuffix(inits[0].file, spinHandoffInit) {
+		cuts = append(cuts, cut{windowHandoff, pid1})
+		pid1 = inits[1].at
+	}
+	cuts = append(cuts, cut{"PID 1, to the login's sshd-session", pid1}, cut{windowConnection, conn})
 	if auth, authPID, ok := b.execOf("/sshd-auth", conn, connPID); ok {
 		cuts = append(cuts, cut{"the key exchange and authentication, in sshd-auth", auth})
 		if done, ok := b.exited[authPID]; ok {

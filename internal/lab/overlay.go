@@ -213,14 +213,12 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLaneLogindEdit, nil
 	case "carry-keygen":
 		return carryKeygenEdit, nil
-	case "spin-handoff":
-		return spinHandoffEdit, nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	case ledgerName:
 		return ledgerEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, spin-handoff, bootchart, ledger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, bootchart, ledger", name)
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot
@@ -326,35 +324,6 @@ var carryKeygenEdit = Edit{
 	Setup: `rm "$MNT/etc/systemd/system/sysinit.target.wants/spin-machine-sshd-keygen.service"
 mkdir -p "$MNT/etc/systemd/system/ssh.service.wants"
 ln -sfn /usr/lib/systemd/system/spin-machine-sshd-keygen.service "$MNT/etc/systemd/system/ssh.service.wants/spin-machine-sshd-keygen.service"
-`,
-}
-
-// spinHandoffInit is where spinHandoffEdit's init is, which a tree boots with
-// --append init=/usr/local/sbin/spin-lab-handoff.
-const spinHandoffInit = "/usr/local/sbin/spin-lab-handoff"
-
-// spinHandoffEdit stands for spin's vminitd handing the boot over to systemd with the host key
-// spin pins (spin-stack/spin at 1bd3414, internal/guest/vminit/handoff, writeHostKey): the key at
-// /run/spin/ssh/ssh_host_ed25519_key, on a /run mounted before systemd starts, and the drop-in
-// that names it as sshd's only HostKey. The key is made on the host for each overlay, a fresh one
-// for each boot as spin's guest makes one for each launch, and the init that places it is a shell
-// that execs systemd, as vminitd does. A tree boots it with --append init=/usr/local/sbin/spin-lab-handoff,
-// the kernel taking the last init= it is given; without it sshd has no host key and nothing logs in.
-var spinHandoffEdit = Edit{
-	Files: map[string]string{
-		"/etc/ssh/sshd_config.d/00-spin-host-key.conf": "HostKey /run/spin/ssh/ssh_host_ed25519_key\n",
-		spinHandoffInit: `#!/bin/sh
-mount -t proc proc /proc
-mount -t tmpfs -o mode=0755,nosuid,nodev,size=20%,nr_inodes=800k tmpfs /run
-install -d -m 0700 /run/spin/ssh
-install -m 0600 /usr/local/lib/spin-lab/ssh_host_ed25519_key /run/spin/ssh/ssh_host_ed25519_key
-exec /sbin/init
-`,
-	},
-	Setup: `chmod 0755 "$MNT` + spinHandoffInit + `"
-install -d -m 0700 "$MNT/usr/local/lib/spin-lab"
-rm -f "$MNT/usr/local/lib/spin-lab/ssh_host_ed25519_key" "$MNT/usr/local/lib/spin-lab/ssh_host_ed25519_key.pub"
-ssh-keygen -q -t ed25519 -N "" -C "" -f "$MNT/usr/local/lib/spin-lab/ssh_host_ed25519_key"
 `,
 }
 

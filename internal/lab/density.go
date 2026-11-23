@@ -148,7 +148,7 @@ func (m *Measurement) bootLoggedIn(name string) (*Machine, uint32, time.Duration
 	cid := NewCID()
 	qmp := filepath.Join(m.Socks, name+".qmp")
 	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--console", "file:" + m.Dir + "/" + name + ".console",
-		"--append", m.Tree.Cmdline()}, m.qmpToPlug(qmp)...)
+		"--append", m.Tree.Cmdline(m.Key.Init())}, m.qmpToPlug(qmp)...)
 	t0 := time.Now()
 	mc, err := m.Launch(nil, m.BootArgs(overlay, args...)...)
 	if err != nil {

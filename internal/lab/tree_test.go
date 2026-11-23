@@ -75,8 +75,8 @@ func TestATreeIsItsBaseLinkedAndSaysWhereEachPartCameFrom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tr.Name() != "t" || tr.Cmdline() != "init=/sbin/init quiet x=1" {
-		t.Errorf("name %q, cmdline %q", tr.Name(), tr.Cmdline())
+	if tr.Name() != "t" || tr.Cmdline("/sbin/init") != "init=/sbin/init quiet x=1" {
+		t.Errorf("name %q, cmdline %q", tr.Name(), tr.Cmdline("/sbin/init"))
 	}
 	// Read back from the manifest on disk, as a measurement opens it.
 	if again, err := OpenTree(tr.Dir); err != nil || !slices.Equal(again.Manifest.Boot, []string{"--cpu=Skylake-Server-v4"}) {

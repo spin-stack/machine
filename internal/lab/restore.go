@@ -148,7 +148,7 @@ type checkpoint struct {
 // line, the same for the boot that saves and the one that restores, and the given ones after them.
 func (c *checkpoint) bootFlags(m *Measurement, qmp string, extra ...string) []string {
 	return append([]string{"--vsock-cid", fmt.Sprint(c.cid), "--qmp", qmp, "--console", "file:" + qmp + ".console",
-		"--append", m.Tree.Cmdline()}, extra...)
+		"--append", m.Tree.Cmdline(m.Key.Init())}, extra...)
 }
 
 // restoreArgs are `spin-machine restore`'s arguments for c into the machine on qmp: its state and

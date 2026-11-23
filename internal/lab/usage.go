@@ -76,7 +76,7 @@ func (usage) Measure(_ context.Context, m *Measurement) error {
 	}
 	cid := NewCID()
 	sock := filepath.Join(m.Socks, "usage.qmp")
-	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--qmp", sock, "--append", m.Tree.Cmdline()}, under...)
+	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--qmp", sock, "--append", m.Tree.Cmdline(m.Key.Init())}, under...)
 	t0 := time.Now()
 	mc, err := m.Launch(nil, m.BootArgs(overlay, args...)...)
 	if err != nil {
