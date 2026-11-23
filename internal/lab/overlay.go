@@ -209,6 +209,8 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryJournalEdit, nil
 	case "carry-docker":
 		return carryDockerEdit, nil
+	case "carry-containerd":
+		return carryContainerdEdit, nil
 	case "carry-lane-logind":
 		return carryLaneLogindEdit, nil
 	case "carry-keygen":
@@ -299,6 +301,14 @@ ln -sf /usr/lib/systemd/system/docker.socket "$MNT/etc/systemd/system/sockets.ta
 mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
 ln -s /usr/lib/systemd/system/docker.service "$MNT/etc/systemd/system/multi-user.target.wants/docker.service"
 ln -s /usr/lib/systemd/system/containerd.service "$MNT/etc/systemd/system/multi-user.target.wants/containerd.service"
+`,
+}
+
+// carryContainerdEdit is containerd's configuration as containerd.io 2.4.2-4 ships it, CRI
+// disabled, in place of the image's (#510).
+var carryContainerdEdit = Edit{
+	Setup: `grep -q 'io.containerd.grpc.v1.cri' "$MNT/etc/containerd/config.toml"
+printf '%s\n' 'disabled_plugins = ["cri"]' > "$MNT/etc/containerd/config.toml"
 `,
 }
 
