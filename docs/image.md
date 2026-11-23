@@ -380,7 +380,7 @@ security reason, not boot time), *unmeasured*. A Δ is the Δp50 of taking the c
 The `Packages=` list in `image/mkosi.conf` is what a workspace finds. mkosi installs what is
 listed and its dependencies, with no recommends and no Ubuntu metapackage. Against Ubuntu 26.04's
 minimal cloud image (`ubuntu-26.04-minimal-cloudimg-amd64-root.manifest`, 2026-11-22), the image
-has 217 packages against 293.
+has 224 packages against 293 (217 before #512).
 
 | Deviation | Category | Why | Evidence | A workspace gives up |
 |---|---|---|---|---|
@@ -556,7 +556,9 @@ explains it.
   `fusermount3` mounts for a user. `/etc/localtime` is tzdata's link to `Etc/UTC`, so the clock
   still reads UTC. e2fsprogs enables `e2scrub_reap.service` in `multi-user.target` and
   `e2scrub_all.timer`, as on Ubuntu; both find no LVM and do nothing. python3, lsb-release and the
-  smaller tools stay out: each is one `apt install` away.
+  smaller tools stay out: each is one `apt install` away. The three and their dependencies are 7
+  packages and +5.1 MiB of tree, the qcow2 1013587968 → 1019158528 bytes (+5.3 MiB; image jobs on
+  #616 and #625, 2026-11-23).
 - **RemoveFiles** removes the identity files and the caches. `/etc/resolv.conf` is the sharpest: the
   guest bind-mounts one in and refuses to mount over a file that is not there, so a stale one baked
   in would be the one every container reads. `/etc/machine-id` is handled in `build.sh` instead,
