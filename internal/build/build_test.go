@@ -423,6 +423,19 @@ func TestTheCacheIsLocalByDefaultAndWrittenOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+// The traceable kernel's cache is its own: written to the release kernel's tag, it would replace
+// that cache with layers the release kernel cannot use, and the other way round.
+func TestTheTraceableKernelsCacheIsATagOfItsOwn(t *testing.T) {
+	o := Options{Root: "/r", Registry: true, Export: true}
+	release := cacheFlags(o, "kernel")
+	o.Traceable = true
+	if got := cacheFlags(o, "kernel"); !slices.Equal(got, []string{"--cache-from", "type=registry,ref=" + CacheRegistry + ":kernel-traceable",
+		"--cache-to", "type=registry,ref=" + CacheRegistry + ":kernel-traceable,mode=max,image-manifest=true,oci-mediatypes=true"}) ||
+		!slices.Contains(release, "type=registry,ref="+CacheRegistry+":kernel") {
+		t.Errorf("the release kernel's cache %v, the traceable one's %v", release, got)
+	}
+}
+
 func TestABuildThatFailsSaysWhich(t *testing.T) {
 	fakeDocker(t, "exit 3")
 	err := makeE2fsprogs(context.Background(), Options{Root: t.TempDir(), Out: t.TempDir(), Pins: pins(t)}, Parts[2])
