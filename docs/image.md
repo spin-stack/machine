@@ -513,7 +513,7 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 | `/etc/docker/daemon.json` | configuration | Container logs rotate at 10 MB, 3 files, so a long-running container does not fill the overlay; default address pools of /24s. | function | Nothing. |
 | `/etc/apt/sources.list.d/docker.sources`, `/etc/apt/keyrings/docker.asc` | added | Docker's repository, so `apt upgrade` updates docker in a workspace. The key is a file in `rootfs/` (fingerprint `9DC858229FC7DD38854AE2D88D81803C0EBFCD88`, no expiry), not fetched at build: the build installs the pinned packages by their SHA-256 and never reads Docker's repository. | function | Nothing. |
 | `/etc/apt/sources.list.d/resolute.sources` | added | mkosi writes the archive's sources: the release, `-updates` and `-security`, with `deb-src`. Ubuntu's installer writes `ubuntu.sources` with the same pockets. | function | Nothing. |
-| `/etc/systemd/journald.conf.d/volatile.conf` | configuration | The journal lives in `/run` (RAM), capped at 4 MB, uncompressed, not forwarded to the console or syslog. | measured, with the flush's mask: +6.1 [+2.3, +15.8] cold, +6.5 [+3.1, +13.1] prestarted, restored in noise (lab 45034963004) | The journal does not survive a reboot of the workspace, and 4 MB holds little: a busy workspace's journal rotates in minutes (#514). |
+| `/etc/systemd/journald.conf.d/volatile.conf` | configuration | The journal lives in `/run` (RAM), capped at 8 MB, uncompressed, not forwarded to the console or syslog. `/run` is a tmpfs of 20% of the RAM at its mount, 19 MiB in spin's shape (it is mounted at 128 MiB, before the guest is sized), so the cap is set against that, not against the 2 GiB the guest grows to; journald keeps 15% of `/run` free whatever the cap. 8 MB held a workspace's whole journal through 10 minutes of docker builds, 3.6 MB used; at 4 MB the boot's first 90 s were gone after 9 minutes (labs 45121159883, 45121159741, #514). | measured, with the flush's mask: +6.1 [+2.3, +15.8] cold, +6.5 [+3.1, +13.1] prestarted, restored in noise (lab 45034963004); 8 MB against 4 MB, first login −2.2 [−12.1, +6.4] (lab 45121159504) | The journal does not survive a reboot of the workspace. A busy workspace writes ~0.4 MB a minute of it (docker builds), so 8 MB holds about 15-20 minutes of such a workspace. |
 | `default.target` | configuration | `multi-user.target`, set explicitly. | function | Nothing: there is no display manager. |
 | `/etc/systemd/network/99-default.link.d/traditional-naming.conf` | configuration | Interfaces keep the kernel's names (`eth0`), which is what `net.ifnames=0` on the command line also asks for. | function | Nothing. |
 | `/etc/locale.conf`, `/etc/default/locale` | configuration | `LANG=en_US.UTF-8`, and that locale generated at build time. | function; `boot:workspace` checks it sets without a warning | Other locales must be generated with `locale-gen`. |
@@ -910,7 +910,7 @@ it rather than going stale. On v20261122.03 (lab 45036254377):
 
 | Given up | What a workspace sees | Row |
 |---|---|---|
-| A journal kept across a reboot | The journal is `/run/log/journal/…/system.journal`, in RAM, 4 MB. | `volatile.conf` (#514) |
+| A journal kept across a reboot | The journal is `/run/log/journal/…/system.journal`, in RAM, 8 MB. | `volatile.conf` |
 | Unattended apt | No `apt-daily.timer` or `apt-daily-upgrade.timer`. | the timers |
 | apt's package lists | `apt install` says "Unable to locate package" until `apt update` has run once. | `/var/lib/apt/lists/` |
 | `timedatectl` | It fails: timedated is masked. | `systemd-timedated.service` |
@@ -920,7 +920,7 @@ it rather than going stale. On v20261122.03 (lab 45036254377):
 | A daemon ready at login | The first `docker` command waits 0.47 s for dockerd and containerd (two vCPUs). | `docker.socket` (deferred) |
 
 Issues this review opened, each a decision still to make: the packages a workspace gets
-(#512), the journal's size and persistence (#514),
+(#512), the journal's persistence,
 and the host keys from the first dispatch (#515).
 
 ## Measured in this review
