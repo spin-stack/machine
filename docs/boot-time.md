@@ -365,6 +365,7 @@ and a row measured in another shape than spin's has such a reason.
 | `nsswitch.conf` without the `db` entries libnss-db would serve (kept since 09, never measured); reverted to Ubuntu's | taking it back +0.8 [−8.4, +5.2] cold, restored in noise | spin | lab 45034963004 | 11-22 |
 | The manager's timeouts at 15 s and 10 s, the watchdogs off (`fast-boot.conf`); reverted to systemd's defaults | taking it back +0.3 [−5.2, +3.3] cold, restored in noise | spin | lab 45034963004 | 11-22 |
 | containerd's CRI-enabled config replaced by containerd.io's own (#510); reverted to the package's | first login −4.9 [−12.2, +1.6] at 20 boots, restored login −0.6 [−2.1, +1.5] evicted: containerd starts at the first docker command, after the login | spin | labs 45111391250, 45112037022 | 11-23 |
+| The image's `containerd.socket` out of the boot transaction, Docker's own `docker.socket` on both sides (#509) | first login +7.4 [−4.7, +15.3], sshd accepting +7.5 [−6.6, +14.9] (lab 45111146715); prestart cold −1.1 [−8.0, +9.0], prestarted +4.5 [−4.6, +9.9], restored −0.1 [−1.0, +1.7], restored into prestarted −0.5 [−1.8, +0.7] (lab 45111146865): all within noise. The socket starts in `sockets.target`, after the first login since #581. Kept: nothing to gain, and a tool that dials containerd's socket before docker has run would lose its start | spin | lab 45111146715, 45111146865 (20 a side, v20261123.04) | 11-23 |
 
 ### The login
 

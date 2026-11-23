@@ -43,7 +43,9 @@ lost "/dev/hugepages mounted at boot" mountpoint -q /dev/hugepages
 # is imported: Task is a static binary, which runs in an image holding nothing else.
 must "docker answers on its socket" docker info --format '{{.ServerVersion}}'
 must "docker runs a container" sh -c 'd=$(mktemp -d) && cp /usr/local/bin/task "$d/" && tar -C "$d" -c . | docker import - ws-check >/dev/null && docker run --rm --network none ws-check /task --version'
-echo "WS docker.sock $(stat -c '%a %U:%G' /run/docker.sock)"
+must "docker's socket is Docker's, 0660 and group docker" sh -c 'm=$(stat -c "%a %U:%G" /run/docker.sock) && test "$m" = "660 root:docker" || { echo "$m"; exit 1; }'
+must "spin runs a container, through the docker group" su -l spin -c 'docker run --rm --network none ws-check /task --version'
+must "a user outside the docker group is refused" sh -c '! HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups docker info >/dev/null 2>&1'
 
 for tool in python3 lsb_release mkfs.ext4 man xxd; do
     if command -v "$tool" >/dev/null; then echo "WS has $tool"; else echo "WS absent $tool"; fi

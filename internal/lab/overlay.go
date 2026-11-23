@@ -290,12 +290,16 @@ install -d -m 2755 -o 0 -g "$gid" "$MNT/var/log/journal"
 }
 
 // carryDockerEdit is docker and containerd as their packages enable them: both services wanted
-// by multi-user.target, and docker's own docker.socket in place of the image's.
+// by multi-user.target, and no containerd.socket. Docker's own docker.socket is the image's since
+// #509.
 var carryDockerEdit = Edit{
-	Setup: `rm "$MNT/etc/systemd/system/docker.socket" "$MNT/etc/systemd/system/containerd.socket"
+	Setup: `rm "$MNT/etc/systemd/system/containerd.socket"
 rm "$MNT/etc/systemd/system/sockets.target.wants/containerd.socket"
-for u in docker.socket docker.service containerd.service; do test -e "$MNT/usr/lib/systemd/system/$u"; done
-ln -sf /usr/lib/systemd/system/docker.socket "$MNT/etc/systemd/system/sockets.target.wants/docker.socket"
+for u in docker.service containerd.service; do test -e "$MNT/usr/lib/systemd/system/$u"; done
+case "$(readlink "$MNT/etc/systemd/system/sockets.target.wants/docker.socket")" in
+	/usr/lib/systemd/system/docker.socket | /lib/systemd/system/docker.socket) ;;
+	*) echo "docker.socket is not Docker's own" >&2; exit 1 ;;
+esac
 mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
 ln -s /usr/lib/systemd/system/docker.service "$MNT/etc/systemd/system/multi-user.target.wants/docker.service"
 ln -s /usr/lib/systemd/system/containerd.service "$MNT/etc/systemd/system/multi-user.target.wants/containerd.service"

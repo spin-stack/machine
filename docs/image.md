@@ -29,9 +29,9 @@ one-line pointer to a section of this document.
 during `install-dev-tools.sh` stops dpkg at a conffile prompt with no tty (`end of file on stdin at
 conffile prompt`, 2026-09-07, when `rootfs/` replaced containerd.io's
 `/etc/containerd/config.toml`, until #510). So nothing in `mkosi.extra` reaches its final path
-until the packages are in. The enable links
-`optimize-systemd.sh` makes for `docker.socket` and `containerd.socket` point at files from
-`rootfs/` and dangle until the copy.
+until the packages are in. The enable link
+`optimize-systemd.sh` makes for `containerd.socket` points at a file from `rootfs/` and dangles
+until the copy.
 
 **Why the licence texts are collected in the middle.** `optimize-systemd.sh` deletes
 `/usr/share/doc`. The copyright notices must travel with a redistributed copy, so they are
@@ -512,7 +512,7 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 
 | Deviation | Category | Why | Evidence | A workspace gives up |
 |---|---|---|---|---|
-| `docker.socket`, `containerd.socket`, `sockets.target.wants/containerd.socket`; `multi-user.target.wants/docker.service` and `multi-user.target.wants/containerd.service` removed | deferred | dockerd and containerd start at the first connection to their socket, not at boot: when a workspace first runs `docker` (or anything that dials `/run/docker.sock` or containerd's socket), never before, and never if it does not. A checkpoint taken before that holds neither daemon. | measured: +13.9 [+11.4, +18.2] cold, +55.7 [+12.0, +73.9] restored, +40.7 [+33.5, +59.0] restored into prestarted (lab 45034963004) | Deferred: the first `docker` command waits for dockerd and containerd to start, 0.47 s from the command to `docker info` answering on two vCPUs (`boot:workspace`, lab 45036254377; one vCPU not timed). Later commands do not wait. The image's `docker.socket` is mode 0666, group root, where Docker's is 0660, group docker: any local user reaches the daemon (#509). |
+| `containerd.socket`, `sockets.target.wants/containerd.socket`; `multi-user.target.wants/docker.service` and `multi-user.target.wants/containerd.service` removed | deferred | dockerd and containerd start at the first connection to their socket, not at boot: when a workspace first runs `docker` (or anything that dials `/run/docker.sock` or containerd's socket), never before, and never if it does not. A checkpoint taken before that holds neither daemon. | measured: +13.9 [+11.4, +18.2] cold, +55.7 [+12.0, +73.9] restored, +40.7 [+33.5, +59.0] restored into prestarted (lab 45034963004) | Deferred: the first `docker` command waits for dockerd and containerd to start, 0.47 s from the command to `docker info` answering on two vCPUs (`boot:workspace`, lab 45036254377; one vCPU not timed). Later commands do not wait. docker is started by Docker's own `docker.socket`, 0660 and group docker, which `spin` is in. The image's own unit (0666, group root, since the first commit with no recorded reason) let any local uid reach a daemon that is root on the guest, and was deleted (#509): first login +1.7 [−5.3, +10.0], restored +0.4 [−0.6, +1.3] evicted, within noise (bench, spin's shape and login, 20 a side, labs 45111147182, 45111147449). |
 | `/etc/docker/daemon.json` | configuration | Container logs rotate at 10 MB, 3 files, so a long-running container does not fill the overlay; default address pools of /24s. | function | Nothing. |
 | `/etc/apt/sources.list.d/docker.sources`, `/etc/apt/keyrings/docker.asc` | added | Docker's repository, so `apt upgrade` updates docker in a workspace. The key is a file in `rootfs/` (fingerprint `9DC858229FC7DD38854AE2D88D81803C0EBFCD88`, no expiry), not fetched at build: the build installs the pinned packages by their SHA-256 and never reads Docker's repository. | function | Nothing. |
 | `/etc/apt/sources.list.d/resolute.sources` | added | mkosi writes the archive's sources: the release, `-updates` and `-security`, with `deb-src`. Ubuntu's installer writes `ubuntu.sources` with the same pockets. | function | Nothing. |
@@ -812,8 +812,9 @@ repeated too quickly"). Every boot here is a first boot, so keys live exactly as
 - **The cache pre-warm.** `optimize-systemd.sh` runs `ldconfig`, `locale-gen en_US.UTF-8`,
   `update-locale`, `iconvconfig` and `fc-cache` at build time, then deletes documentation, man pages,
   apt's lists and any journal.
-- **docker and containerd by socket.** The two services' enable links are removed and the two sockets
-  enabled; the links dangle until `rootfs/` is copied.
+- **docker and containerd by socket.** The two services' enable links are removed. Docker's own
+  `docker.socket` stays enabled as its package enables it, and the image's `containerd.socket` is
+  enabled; its link dangles until `rootfs/` is copied.
 
 ### Memory
 
@@ -861,7 +862,8 @@ nothing to give back is cheap.
 `running`; the journal takes a line; `fstrim.timer` and `systemd-tmpfiles-clean.timer` wait; dpkg's
 database is whole and `apt-get check` passes; `en_US.UTF-8` sets without a warning; localhost
 resolves; spin has sudo; `/tmp` is a tmpfs; debugfs mounts by hand; docker answers on its socket and
-runs a container. `boot:logind` checks sessions, user services and logout. The release workflow runs
+runs a container. Since #509 it also checks that the socket is 0660, group docker, that `spin` runs
+a container through that group, and that a uid outside it is refused. `boot:logind` checks sessions, user services and logout. The release workflow runs
 both on the release's own image (`release.yml`, the bench job), so a release that loses one fails
 there.
 
@@ -882,8 +884,7 @@ it rather than going stale. On v20261122.03 (lab 45036254377):
 | Some tools | No `python3`, `lsb_release`, `mkfs.ext4`, `man` or `xxd`. | the packages table (#512) |
 | A daemon ready at login | The first `docker` command waits 0.47 s for dockerd and containerd (two vCPUs). | `docker.socket` (deferred) |
 
-Issues this review opened, each a decision still to make: the docker socket's mode (#509),
-the packages a workspace gets
+Issues this review opened, each a decision still to make: the packages a workspace gets
 (#512), `/etc/.updated` instead of five masks (#513), the journal's size and persistence (#514),
 and the host keys from the first dispatch (#515).
 
