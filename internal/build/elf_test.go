@@ -29,6 +29,15 @@ func TestAWholeKernelVerifies(t *testing.T) {
 	}
 }
 
+// A table is filled when its last word is a relocation, however short it is: one word is enough.
+func TestAOneWordRelocationTableIsFilled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vmlinux")
+	_ = os.WriteFile(path, elftest.Kernel([]uint32{18, 19}, []byte{0x10, 0, 0, 0}), 0o644)
+	if err := SelfRandomizing(path); err != nil {
+		t.Errorf("a one-word table: %v", err)
+	}
+}
+
 // A vmlinux that would run where it was linked is refused, each way it can: QEMU cannot place it
 // (no PHYS32_RELOC note), it cannot move itself (no .data.reloc), or the relocs tool never filled
 // the table it reserved.

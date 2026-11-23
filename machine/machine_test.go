@@ -3,6 +3,7 @@
 package machine
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -498,6 +499,15 @@ func TestValidateRefuses(t *testing.T) {
 	}
 	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "no Xen ELF note 19") {
 		t.Errorf("Args of a vmlinux that cannot move: %v", err)
+	}
+	// Its relocation note cut short by the segment that holds it, as QEMU would not read it.
+	k := elftest.Kernel([]uint32{xenPhys32Entry, xenPhys32Reloc}, nil)
+	binary.LittleEndian.PutUint64(k[64+32:], 28+20) // PT_NOTE's p_filesz: the first note whole, the second's descriptor 8 bytes short
+	if err := os.WriteFile(s.Kernel, k, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "no Xen ELF note 19") {
+		t.Errorf("Args of a vmlinux whose relocation note is truncated: %v", err)
 	}
 
 	// And the specs the cases above are made from have to pass, or every one of them
