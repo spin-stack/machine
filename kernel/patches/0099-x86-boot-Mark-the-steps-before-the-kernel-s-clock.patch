@@ -16,6 +16,7 @@ host's clock:
   0xd5 after it                  0xdc after handle_relocations()
   0xd6 after .bss is cleared     0xdd the kernel's startup_64
   0xd7 after the identity map    0xde start_kernel()
+                                 0xdf the sched clock's zero
 
 Each is one exit to the VMM. The setup code's io_delay() writes the
 same port with an undefined value, so a reader matches the values in
@@ -27,8 +28,9 @@ Assisted-by: Claude
  arch/x86/boot/compressed/misc.c    | 11 +++++++++++
  arch/x86/boot/main.c               |  2 ++
  arch/x86/kernel/head_64.S          |  2 ++
+ arch/x86/kernel/kvmclock.c         |  1 +
  init/main.c                        |  3 +++
- 5 files changed, 28 insertions(+)
+ 6 files changed, 29 insertions(+)
 
 diff --git a/arch/x86/boot/compressed/head_64.S b/arch/x86/boot/compressed/head_64.S
 index 1aca513..c1e6fc3 100644
@@ -153,6 +155,18 @@ index 7ed5520..227f551 100644
  
  	/* Set up the stack for verify_cpu() */
  	leaq	__top_init_kernel_stack(%rip), %rsp
+diff --git a/arch/x86/kernel/kvmclock.c b/arch/x86/kernel/kvmclock.c
+index cb3d0ca..1309f65 100644
+--- a/arch/x86/kernel/kvmclock.c
++++ b/arch/x86/kernel/kvmclock.c
+@@ -118,6 +118,7 @@ static inline void kvm_sched_clock_init(bool stable)
+ 	if (!stable)
+ 		clear_sched_clock_stable();
+ 	kvm_sched_clock_offset = kvm_clock_read();
++	asm volatile("outb %%al, $0x80" : : "a"(0xdf));
+ 	paravirt_set_sched_clock(kvm_sched_clock_read);
+ 
+ 	pr_info("kvm-clock: using sched offset of %llu cycles",
 diff --git a/init/main.c b/init/main.c
 index 4efcb99..8d2d3ee 100644
 --- a/init/main.c

@@ -302,7 +302,7 @@ func splitPrekernel(trace string, t0 time.Time, exec, offset, ledgerZero float64
 	}
 	next := 0
 	for _, e := range evs {
-		if e.at < running || e.at > zero || e.kind != "memory_region_ops_write" || next == len(markerNames) {
+		if e.at < running || e.at > zero+40 || e.kind != "memory_region_ops_write" {
 			continue
 		}
 		m := reOpsWrite.FindStringSubmatch(e.args)
@@ -310,6 +310,18 @@ func splitPrekernel(trace string, t0 time.Time, exec, offset, ledgerZero float64
 			continue
 		}
 		v, _ := strconv.ParseUint(m[2], 16, 64)
+		// 0xdf is written as the kernel reads kvm-clock for its sched offset: the kernel's clock's
+		// zero seen directly, which checks both other placements of it.
+		if v == 0xdf {
+			if _, ok := p.Values["zero_marker_vs_trace"]; !ok {
+				p.Values["zero_marker_vs_trace"] = e.at - zero
+				p.Values["zero_marker_vs_ledger"] = e.at - ledgerZero
+			}
+			continue
+		}
+		if next == len(markerNames) {
+			continue
+		}
 		for i := next; i < len(markerNames); i++ {
 			if markerNames[i].v == v {
 				marks = append(marks, pkMark{"kernel: " + markerNames[i].name, e.at})
@@ -717,6 +729,8 @@ var prekernelMetrics = []Metric{
 	{"ioctl_gap_ms", "ms", "their trace gaps summed, an upper bound"},
 	{"acpi_init_build", "ms", "the trace interval ending in etc/acpi/tables' registration, QEMU's first ACPI build"},
 	{"acpi_select_build", "ms", "the longest ACPI file select callback once the guest runs: the rebuild"},
+	{"zero_marker_vs_trace", "ms", "marker kernel: the 0xdf write at the sched offset's read less KVM_SET_CLOCK plus the offset"},
+	{"zero_marker_vs_ledger", "ms", "marker kernel: the 0xdf write less the ledger's kernel_zero"},
 	{"mono_lag", "ms", "PID 1's exec on sched_clock (dmesg) less on CLOCK_MONOTONIC (the ledger's trace)"},
 	{"strace_ioctls", "count", "under strace: KVM ioctls from QEMU's exec to cont"},
 	{"strace_ioctl_ms", "ms", "under strace: their time, strace -T"},
