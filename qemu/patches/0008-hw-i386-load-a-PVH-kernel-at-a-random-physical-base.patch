@@ -1,0 +1,196 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 13:23:31 -0300
+Subject: [PATCH] hw/i386: load a PVH kernel at a random physical base
+
+A kernel entered through PVH has no decompressor, and the decompressor
+is where a bzImage chooses its random physical base.  QEMU loads the
+vmlinux where it is linked, so every PVH boot ran from the same
+physical address even when the kernel randomized its virtual base.
+
+Linux has emitted XEN_ELFNOTE_PHYS32_RELOC under CONFIG_PVH since 6.12
+(Jason Andryuk, "x86/pvh: Add 64bit relocation page tables"): the
+kernel runs from any multiple of an alignment within a range, and finds
+where it was put from its own entry address.  Xen's toolstack honours
+the note; QEMU ignored it.
+
+Read the note and load the segments at a random multiple of its
+alignment that keeps the kernel below the initrd and the ACPI data, the
+range the decompressor would choose from in the same memory, with the
+entry moved by the same offset.  The randomness is qemu_guest_getrandom,
+which -seed makes deterministic.  A kernel without the note, or one
+that does not fit, is loaded where it is linked, as before.
+
+The layout lives in guest memory, so a migrated or restored guest keeps
+the one it booted with; only a boot draws again.
+---
+ hw/i386/x86-common.c | 120 +++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 115 insertions(+), 5 deletions(-)
+
+diff --git a/hw/i386/x86-common.c b/hw/i386/x86-common.c
+index f98f20b01..eacb5d1b3 100644
+--- a/hw/i386/x86-common.c
++++ b/hw/i386/x86-common.c
+@@ -25,6 +25,8 @@
+ #include "qemu/cutils.h"
+ #include "qemu/units.h"
+ #include "qemu/datadir.h"
++#include "qemu/guest-random.h"
++#include "qemu/host-utils.h"
+ #include "qapi/error.h"
+ #include "system/numa.h"
+ #include "system/system.h"
+@@ -592,11 +594,109 @@ static uint64_t read_pvh_start_addr(void *arg1, void *arg2, bool is64)
+     return pvh_start_addr;
+ }
+ 
++/*
++ * XEN_ELFNOTE_PHYS32_RELOC: the kernel runs from any multiple of an
++ * alignment between a minimum and a maximum address.  Linux has emitted
++ * it under CONFIG_PVH since 6.12 and finds where it was put by itself.
++ */
++#define XEN_ELFNOTE_PHYS32_RELOC 19
++
++typedef struct PVHLoad {
++    /* First: load_elf() reads the note type it searches through the opaque. */
++    uint64_t note_type;
++    uint64_t offset;
++} PVHLoad;
++
++static uint64_t pvh_translate(void *opaque, uint64_t addr)
++{
++    return addr + ((PVHLoad *)opaque)->offset;
++}
++
++/*
++ * Where a 64-bit ELF kernel with XEN_ELFNOTE_PHYS32_RELOC goes, as an offset
++ * from where it is linked: a random multiple of the note's alignment that
++ * keeps every segment within the note's range and below @top.  The
++ * decompressor of a bzImage chooses the physical base the same way, and a
++ * kernel entered through PVH has no decompressor.  0, where it is linked,
++ * for a kernel without the note or one that does not fit.
++ */
++static uint64_t pvh_random_offset(const char *kernel_filename, uint64_t top)
++{
++    g_autoptr(GMappedFile) mapped = g_mapped_file_new(kernel_filename,
++                                                      false, NULL);
++    const uint8_t *file;
++    size_t size;
++    const Elf64_Ehdr *eh;
++    uint64_t low = UINT64_MAX, high = 0, first, slots, random;
++    uint32_t align = 0, min = 0, max = 0;
++    bool found = false;
++
++    if (!mapped) {
++        return 0;
++    }
++    file = (const uint8_t *)g_mapped_file_get_contents(mapped);
++    size = g_mapped_file_get_length(mapped);
++    eh = (const Elf64_Ehdr *)file;
++    if (size < sizeof(*eh) || eh->e_ident[EI_CLASS] != ELFCLASS64 ||
++        eh->e_phentsize != sizeof(Elf64_Phdr) ||
++        eh->e_phoff > size ||
++        (uint64_t)eh->e_phnum * sizeof(Elf64_Phdr) > size - eh->e_phoff) {
++        return 0;
++    }
++
++    for (int i = 0; i < eh->e_phnum; i++) {
++        const Elf64_Phdr *ph = (const Elf64_Phdr *)(file + eh->e_phoff) + i;
++        uint64_t off, end;
++
++        if (ph->p_type == PT_LOAD && ph->p_memsz) {
++            low = MIN(low, ph->p_paddr);
++            high = MAX(high, ph->p_paddr + ph->p_memsz);
++            continue;
++        }
++        if (ph->p_type != PT_NOTE || ph->p_offset > size ||
++            ph->p_filesz > size - ph->p_offset) {
++            continue;
++        }
++        off = ph->p_offset;
++        end = ph->p_offset + ph->p_filesz;
++        while (end - off >= sizeof(Elf64_Nhdr)) {
++            const Elf64_Nhdr *nh = (const Elf64_Nhdr *)(file + off);
++            uint64_t name = off + sizeof(*nh);
++            uint64_t desc = name + QEMU_ALIGN_UP(nh->n_namesz, 4);
++
++            off = desc + QEMU_ALIGN_UP(nh->n_descsz, 4);
++            if (off > end) {
++                break;
++            }
++            if (nh->n_type == XEN_ELFNOTE_PHYS32_RELOC && nh->n_namesz == 4 &&
++                !memcmp(file + name, "Xen", 4) && nh->n_descsz >= 12) {
++                align = ldl_le_p(file + desc);
++                min = ldl_le_p(file + desc + 4);
++                max = ldl_le_p(file + desc + 8);
++                found = true;
++            }
++        }
++    }
++
++    if (!found || !align || !is_power_of_2(align) || low >= high) {
++        return 0;
++    }
++    top = MIN(top, (uint64_t)max + 1);
++    first = QEMU_ALIGN_UP(MAX((uint64_t)min, low), align);
++    if (first + (high - low) > top) {
++        return 0;
++    }
++    slots = (top - (high - low) - first) / align + 1;
++    qemu_guest_getrandom_nofail(&random, sizeof(random));
++    return first + (random % slots) * align - low;
++}
++
+ static bool load_elfboot(const char *kernel_filename,
+                          int kernel_file_size,
+                          uint8_t *header,
+                          size_t pvh_xen_start_addr,
+-                         FWCfgState *fw_cfg)
++                         FWCfgState *fw_cfg,
++                         uint64_t top)
+ {
+     uint32_t flags = 0;
+     uint32_t mh_load_addr = 0;
+@@ -618,9 +718,12 @@ static bool load_elfboot(const char *kernel_filename,
+         exit(1);
+     }
+ 
+-    uint64_t elf_note_type = XEN_ELFNOTE_PHYS32_ENTRY;
++    PVHLoad load = {
++        .note_type = XEN_ELFNOTE_PHYS32_ENTRY,
++        .offset = pvh_random_offset(kernel_filename, top),
++    };
+     kernel_size = load_elf(kernel_filename, read_pvh_start_addr,
+-                           NULL, &elf_note_type, &elf_entry,
++                           pvh_translate, &load, &elf_entry,
+                            &elf_low, &elf_high, NULL,
+                            ELFDATA2LSB, I386_ELF_MACHINE, 0, 0);
+ 
+@@ -635,7 +738,7 @@ static bool load_elfboot(const char *kernel_filename,
+         error_report("Error loading uncompressed kernel without PVH ELF Note");
+         exit(1);
+     }
+-    fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_ENTRY, pvh_start_addr);
++    fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_ENTRY, pvh_start_addr + load.offset);
+     fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_ADDR, mh_load_addr);
+     fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_SIZE, elf_kernel_size);
+ 
+@@ -705,8 +808,15 @@ void x86_load_linux(X86MachineState *x86ms,
+          * saving the PVH entry point used by the x86/HVM direct boot ABI.
+          * If load_elfboot() is successful, populate the fw_cfg info.
+          */
++        uint64_t top = x86ms->below_4g_mem_size - acpi_data_size;
++
++        /* The initrd goes at the top of low memory, below the ACPI data. */
++        if (initrd_filename) {
++            top -= QEMU_ALIGN_UP(get_image_size(initrd_filename, NULL), 4096)
++                   + 4096;
++        }
+         if (load_elfboot(kernel_filename, kernel_size,
+-                         header, pvh_start_addr, fw_cfg)) {
++                         header, pvh_start_addr, fw_cfg, top)) {
+             fclose(f);
+ 
+             fw_cfg_add_i32(fw_cfg, FW_CFG_CMDLINE_SIZE,
+-- 
+2.53.0
+
