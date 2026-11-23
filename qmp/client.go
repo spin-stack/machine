@@ -200,22 +200,59 @@ var ErrClosed = errors.New("qmp: the monitor connection ended")
 //
 // The Observer's Command hook, when set, wraps the call. A command whose arguments carry a File
 // sends its descriptor with the line.
-func Do[A, R any](ctx context.Context, c *Client, cmd Command[A, R], args A) (r R, err error) {
+func Do[A, R any](ctx context.Context, c *Client, cmd Command[A, R], args A) (R, error) {
+	return Send(ctx, c, cmd, args).Wait(ctx)
+}
+
+// Pending is a command sent whose answer is still to come. Wait takes it, and every Pending is
+// waited for: its answer is otherwise kept until the connection ends.
+type Pending[R any] struct {
+	name string
+	sent context.Context // what the command was sent under, which bounds its wait too
+	err  error           // the send's own
+	wait func(context.Context) (json.RawMessage, error)
+	end  func(error)
+}
+
+// Send sends cmd with args and returns once its line is written, without its answer. QEMU runs a
+// monitor's commands in the order they arrive, so commands sent one after another run in that
+// order while their answers are on the way: a client that waits for each answer before it sends
+// the next command leaves QEMU idle for a round trip each time (#649). A command that carries a
+// File still holds the connection until QEMU answers it (call), so the next Send waits for that.
+//
+// A command QEMU refuses does not stop the ones sent after it, which run regardless: send ahead
+// only what is harmless to run after a refusal, and Wait for each answer in order.
+func Send[A, R any](ctx context.Context, c *Client, cmd Command[A, R], args A) *Pending[R] {
 	name := cmd.Name()
+	p := &Pending[R]{name: name, end: func(error) {}}
 	if name == "" {
-		return r, errors.New("qmp: a Command no definition made has no name to send")
+		p.err = errors.New("qmp: a Command no definition made has no name to send")
+		return p
 	}
 	if c.obs.Command != nil {
-		var end func(error)
-		ctx, end = c.obs.Command(ctx, name)
-		defer func() { end(err) }()
+		ctx, p.end = c.obs.Command(ctx, name)
 	}
-	ret, err := c.call(ctx, name, args)
+	p.sent = ctx
+	p.wait, p.err = c.send(ctx, name, args)
+	return p
+}
+
+// Wait returns QEMU's answer to the command, decoded. ctx bounds the wait, not QEMU, and so does
+// the context the command was sent under.
+func (p *Pending[R]) Wait(ctx context.Context) (r R, err error) {
+	defer func() { p.end(err) }()
+	if p.err != nil {
+		return r, p.err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(p.sent, cancel)()
+	ret, err := p.wait(ctx)
 	if err != nil {
 		return r, err
 	}
 	if err := json.Unmarshal(ret, &r); err != nil {
-		return r, fmt.Errorf("decoding what %s answered: %w", name, err)
+		return r, fmt.Errorf("decoding what %s answered: %w", p.name, err)
 	}
 	return r, nil
 }
@@ -231,7 +268,8 @@ type request struct {
 	ID        uint64 `json:"id"`
 }
 
-func (c *Client) call(ctx context.Context, name string, args any) (json.RawMessage, error) {
+// send writes the command's line and returns the wait for its answer.
+func (c *Client) send(ctx context.Context, name string, args any) (func(context.Context) (json.RawMessage, error), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
@@ -255,21 +293,24 @@ func (c *Client) call(ctx context.Context, name string, args any) (json.RawMessa
 	got := make(chan answer, 1)
 	c.pending[id] = got
 	c.mu.Unlock()
-	defer func() {
+	forget := func() {
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
-	}()
+	}
 
 	line, err := json.Marshal(request{Execute: name, Arguments: args, ID: id})
 	if err != nil {
+		forget()
 		return nil, fmt.Errorf("encoding %s: %w", name, err)
 	}
 	select {
 	case c.turn <- struct{}{}:
 	case <-ctx.Done():
+		forget()
 		return nil, fmt.Errorf("%s: %w", name, ctx.Err())
 	case <-c.done:
+		forget()
 		return nil, fmt.Errorf("%s: %w", name, c.closed())
 	}
 	if f == nil {
@@ -290,9 +331,17 @@ func (c *Client) call(ctx context.Context, name string, args any) (json.RawMessa
 		}
 	}
 	if err != nil {
+		forget()
 		return nil, c.unsent(name, err)
 	}
+	return func(ctx context.Context) (json.RawMessage, error) {
+		defer forget()
+		return c.wait(ctx, name, got)
+	}, nil
+}
 
+// wait returns the answer the reader hands got.
+func (c *Client) wait(ctx context.Context, name string, got <-chan answer) (json.RawMessage, error) {
 	var a answer
 	select {
 	case a = <-got:

@@ -4,6 +4,7 @@ package machine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -100,7 +101,9 @@ func (m *QEMU) slots(ctx context.Context) ([]slot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing the machine's disks: %w", err)
 	}
+	// Every place's serial is asked for before the first answer is read (qmp.Send).
 	var out []slot
+	var serials []*qmp.Pending[json.RawMessage]
 	for _, b := range blocks {
 		if b.Inserted == nil {
 			continue
@@ -109,11 +112,21 @@ func (m *QEMU) slots(ctx context.Context) ([]slot, error) {
 		if _, err := fmt.Sscanf(b.Inserted.NodeName, slotNodePrefix+"%d", &i); err != nil {
 			continue
 		}
-		serial, err := readProperty[string](ctx, m, peripheral+slotDevice(i), "serial")
-		if err != nil {
-			return nil, fmt.Errorf("reading the serial of disk place %d: %w", i, err)
+		out = append(out, slot{index: i, readonly: b.Inserted.ReadOnly})
+		serials = append(serials, qmp.Send(ctx, m.c, qomGet, qomGetArgs{Path: peripheral + slotDevice(i), Property: "serial"}))
+	}
+	var errs []error
+	for k, p := range serials {
+		raw, err := p.Wait(ctx)
+		if err == nil {
+			err = json.Unmarshal(raw, &out[k].serial)
 		}
-		out = append(out, slot{index: i, serial: serial, readonly: b.Inserted.ReadOnly})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("reading the serial of disk place %d: %w", out[k].index, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -124,13 +137,9 @@ type hotDisk struct {
 	Target int    `json:"target"`
 }
 
-// bindAll binds each disk to the place with its serial, and attaches at its target any disk
+// bindAll binds each disk to the place with its serial (slots), and attaches at its target any disk
 // that has no place but was attached while the machine it is resumed from ran.
-func (m *QEMU) bindAll(ctx context.Context, disks []Disk, hot []hotDisk) error {
-	slots, err := m.slots(ctx)
-	if err != nil {
-		return err
-	}
+func (m *QEMU) bindAll(ctx context.Context, slots []slot, disks []Disk, hot []hotDisk) error {
 	for _, d := range disks {
 		if err := d.validate(); err != nil {
 			return fmt.Errorf("disk %q: %w", d.Serial, err)
@@ -168,12 +177,18 @@ func (m *QEMU) bind(ctx context.Context, s slot, d Disk) error {
 	if err != nil {
 		return err
 	}
+	// Both sent before either answer is read (qmp.Send). A placeholder deleted after a refused
+	// reopen is refused too, as the place still reads it.
 	place := placeNode(s.index, top, s.readonly)
-	if _, err := qmp.Do(ctx, m.c, qmp.BlockdevReopen, qmp.BlockdevReopenArgs{Options: []qmp.BlockNode{place}}); err != nil {
-		return fmt.Errorf("disk %q: putting it in its place: %w", d.Serial, err)
+	reopen := qmp.Send(ctx, m.c, qmp.BlockdevReopen, qmp.BlockdevReopenArgs{Options: []qmp.BlockNode{place}})
+	del := qmp.Send(ctx, m.c, qmp.BlockdevDel, qmp.BlockdevDelArgs{NodeName: emptyNode(s.index)})
+	_, reopenErr := reopen.Wait(ctx)
+	_, delErr := del.Wait(ctx)
+	if reopenErr != nil {
+		return fmt.Errorf("disk %q: putting it in its place: %w", d.Serial, reopenErr)
 	}
-	if _, err := qmp.Do(ctx, m.c, qmp.BlockdevDel, qmp.BlockdevDelArgs{NodeName: emptyNode(s.index)}); err != nil {
-		return fmt.Errorf("disk %q: deleting its place's placeholder: %w", d.Serial, err)
+	if delErr != nil {
+		return fmt.Errorf("disk %q: deleting its place's placeholder: %w", d.Serial, delErr)
 	}
 	return nil
 }
@@ -233,8 +248,11 @@ func (m *QEMU) addImages(ctx context.Context, d Disk) (string, error) {
 			}
 			format = qmp.Qcow2Node{NodeName: node, File: qmp.NodeRef(node + "-f"), ReadOnly: readOnly, Discard: "unmap", Backing: backing}
 		}
-		for _, n := range []qmp.BlockNode{file, format} {
-			if _, err := qmp.Do(ctx, m.c, qmp.BlockdevAdd, n); err != nil {
+		// The format node is sent before the file node's answer is read (qmp.Send): over a file
+		// node QEMU refused, it is refused too.
+		added := []*qmp.Pending[qmp.None]{qmp.Send(ctx, m.c, qmp.BlockdevAdd, qmp.BlockNode(file)), qmp.Send(ctx, m.c, qmp.BlockdevAdd, format)}
+		for _, p := range added {
+			if _, err := p.Wait(ctx); err != nil {
 				return "", fmt.Errorf("disk %q: adding image %d: %w", d.Serial, j, err)
 			}
 		}

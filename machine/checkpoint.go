@@ -599,14 +599,14 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 			return fmt.Errorf("resuming: %w", &Refusal{[]Difference{{Part: "added", Checkpoint: "unreadable: " + err.Error(), Rule: Reads}}})
 		}
 	}
-	st, err := m.Status(ctx)
+	st, slots, err := m.heldState(ctx)
 	if err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
 	if st != Inmigrate {
 		return fmt.Errorf("resuming into a machine that is %s: only one started with Spec.Restore takes a checkpoint", st)
 	}
-	if err := m.bindAll(ctx, disks, again.Disks); err != nil {
+	if err := m.bindAll(ctx, slots, disks, again.Disks); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
 	// The disks are taken here, before a byte of the state is read. QEMU adds a held machine's

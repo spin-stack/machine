@@ -313,6 +313,40 @@ func TestADescriptorHoldsTheConnectionUntilItsAnswer(t *testing.T) {
 	}
 }
 
+// Commands sent with Send reach QEMU in the order sent before any answer is read, and each Wait
+// takes its own command's answer, a refusal included.
+func TestSentCommandsGoOutBeforeTheirAnswers(t *testing.T) {
+	c, m := start(t, Observer{})
+	ctx := bounded(t)
+	first := Send(ctx, c, echo, echoArgs{N: 1})
+	refused := Send(ctx, c, nothing, None{})
+	third := Send(ctx, c, echo, echoArgs{N: 3})
+	var lines []sent
+	for range 3 {
+		s, ok := m.next()
+		if !ok {
+			t.Fatalf("%d of 3 commands sent ahead reached QEMU before any answer", len(lines))
+		}
+		lines = append(lines, s)
+	}
+	if lines[0].Execute != "x-echo" || lines[1].Execute != "x-nothing" || lines[2].Execute != "x-echo" {
+		t.Fatalf("QEMU read %s, %s, %s; want the order they were sent in", lines[0].Execute, lines[1].Execute, lines[2].Execute)
+	}
+	_ = m.answer(lines[0], `{"n": 1}`)
+	_ = m.say(fmt.Sprintf(`{"error": {"class": "GenericError", "desc": "no"}, "id": %d}`, lines[1].ID))
+	_ = m.answer(lines[2], `{"n": 3}`)
+	if r, err := third.Wait(ctx); err != nil || r.N != 3 {
+		t.Errorf("the third command's wait = %+v, %v; want its own answer, 3", r, err)
+	}
+	var e *Error
+	if _, err := refused.Wait(ctx); !errors.As(err, &e) || e.Command != "x-nothing" {
+		t.Errorf("the refused command's wait = %v, want QEMU's refusal of x-nothing", err)
+	}
+	if r, err := first.Wait(ctx); err != nil || r.N != 1 {
+		t.Errorf("the first command's wait = %+v, %v; want its own answer, 1", r, err)
+	}
+}
+
 // The descriptor's hold ends with QEMU's answer though its call gave up first, and an answer QEMU
 // repeats, or one to no command, takes nothing from the turn, held or not.
 func TestTheDescriptorsHoldEndsWithItsAnswerAlone(t *testing.T) {

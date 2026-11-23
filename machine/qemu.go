@@ -223,7 +223,7 @@ func (m *QEMU) unplug(ctx context.Context, id string) error {
 
 // Boot binds the disks to their places and lets the vCPUs go.
 func (m *QEMU) Boot(ctx context.Context, disks ...Disk) error {
-	st, err := m.Status(ctx)
+	st, slots, err := m.heldState(ctx)
 	if err != nil {
 		return fmt.Errorf("booting: %w", err)
 	}
@@ -233,13 +233,28 @@ func (m *QEMU) Boot(ctx context.Context, disks ...Disk) error {
 		// Spec.Restore.
 		return fmt.Errorf("booting a machine that is %s: only one started held for a boot boots", st)
 	}
-	if err := m.bindAll(ctx, disks, nil); err != nil {
+	if err := m.bindAll(ctx, slots, disks, nil); err != nil {
 		return fmt.Errorf("booting: %w", err)
 	}
 	if _, err := qmp.Do(ctx, m.c, qmp.Cont, qmp.None{}); err != nil {
 		return fmt.Errorf("booting: %w", err)
 	}
 	return nil
+}
+
+// heldState is a held machine's run state and its places for disks, asked for together: the bind's
+// first round trip (#649). Its caller reads the state before it binds anything.
+func (m *QEMU) heldState(ctx context.Context) (Status, []slot, error) {
+	status := qmp.Send(ctx, m.c, queryStatus, qmp.None{})
+	slots, slotsErr := m.slots(ctx)
+	st, err := status.Wait(ctx)
+	if err != nil {
+		return "", nil, fmt.Errorf("asking the machine's run state: %w", err)
+	}
+	if slotsErr != nil {
+		return "", nil, slotsErr
+	}
+	return st.Status, slots, nil
 }
 
 // Continue runs a machine a checkpoint left stopped.
