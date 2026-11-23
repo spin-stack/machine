@@ -49,6 +49,7 @@ on:
           - check:shell
           - check:logind
           - check:workspace
+          - check:exp-journal
       trees:
         description: "NAME=SPEC; NAME=SPEC - lab tree's flags, e.g. release=--from release; kaslr=--kernel run:44584704610"
         required: true

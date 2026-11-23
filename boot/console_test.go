@@ -43,7 +43,7 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 	c.Init = "/sbin/init"
 	spec.Cmdline = c
 	shape(&spec)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 	defer cancel()
 	console := newScreen()
 	p, err := machine.Start(ctx, spec, machine.StartOptions{Console: console})
@@ -80,6 +80,9 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 		said(p.QEMU, text)
 	}
 }
+
+// checkTimeout bounds a check's guest; the busy-journal experiment raises it.
+var checkTimeout = 2 * time.Minute
 
 // oneshotAtBoot has root run script as a oneshot unit three seconds after boot, its output on
 // the console.

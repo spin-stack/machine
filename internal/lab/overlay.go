@@ -213,12 +213,20 @@ func namedEdit(name, checkout, dir string) (Edit, error) {
 		return carryLaneLogindEdit, nil
 	case "carry-keygen":
 		return carryKeygenEdit, nil
+	case "stamps":
+		return stampsEdit, nil
+	case "journal-size":
+		return journalSizeEdit, nil
+	case "pressure-rest":
+		return pressureRestEdit, nil
+	case "seccomp-bound":
+		return seccompBoundEdit, nil
 	case bootchartName:
 		return bootchartEdit(checkout, dir)
 	case ledgerName:
 		return ledgerEdit, nil
 	}
-	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, bootchart, ledger", name)
+	return Edit{}, fmt.Errorf("no edit named %q; the edits are: lane, pressure, floor, nolinger, forwarder-early, carry-masks, carry-generators, carry-coldplug, carry-journal, carry-docker, carry-lane-logind, carry-keygen, stamps, journal-size, pressure-rest, seccomp-bound, bootchart, ledger", name)
 }
 
 // The carry-* edits take back, from a release's overlay, what the image does to systemd for boot

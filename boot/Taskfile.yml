@@ -152,6 +152,14 @@ tasks:
     cmds:
       - SPIN_WORKSPACE_TEST=1 go test ./boot/ -run '^TestAWorkspaceHasWhatItExpects$' -count=1 -v -timeout 5m
 
+  exp-journal:
+    desc: >-
+      Experiment (#514, exp-batch3): a guest in spin's shape runs docker builds for 10 minutes and
+      says how much of its volatile journal it kept.
+    deps: [':tools']
+    cmds:
+      - SPIN_EXP_JOURNAL=1 go test ./boot/ -run '^TestExpJournalOfABusyWorkspace$' -count=1 -v -timeout 25m
+
   pressure:
     desc: >-
       The pressure probe on a real guest: this checkout's sender in a disposable root, a guest of

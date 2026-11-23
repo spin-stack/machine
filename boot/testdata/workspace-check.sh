@@ -17,6 +17,10 @@ must "the journal takes a line" sh -c 'logger -t ws-check hello && sleep 0.5 && 
 lost "a journal kept across a reboot" test -d /var/log/journal
 echo "WS journal $(journalctl --header 2>/dev/null | grep -m1 'File path' | tr -s ' ')"
 
+must "the units of ConditionNeedsUpdate skip themselves" sh -c 'for u in ldconfig.service systemd-sysusers.service systemd-hwdb-update.service systemd-journal-catalog-update.service systemd-update-done.service; do r=$(systemctl show -P ConditionResult "$u") t=$(systemctl show -P ConditionTimestampMonotonic "$u"); [ "$r" = no ] && [ "$t" != 0 ] || { echo "$u: condition $r at $t"; exit 1; }; done'
+must "the pressure sender runs" systemctl is-active spin-machine-pressure.service
+echo "WS pressure sender started $(systemctl show -P ExecMainStartTimestampMonotonic spin-machine-pressure.service) us after the kernel; $(journalctl -b -u spin-machine-pressure -o short-monotonic --no-pager | head -2 | tr '\n' ' ')"
+echo "WS journal limits $(journalctl -b -u systemd-journald -o cat --no-pager | grep -i 'runtime journal' | tr '\n' ' '); /run $(df -k --output=size,used /run | tail -1)"
 must "fstrim.timer is waiting" systemctl is-active fstrim.timer
 must "systemd-tmpfiles-clean.timer is waiting" systemctl is-active systemd-tmpfiles-clean.timer
 lost "apt-daily.timer" systemctl is-enabled apt-daily.timer
