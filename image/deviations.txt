@@ -32,7 +32,6 @@ added /etc/systemd/system/dbus.socket
 added /etc/systemd/system/default.target
 masked /etc/systemd/system/dev-hugepages.mount
 masked /etc/systemd/system/dev-mqueue.mount
-added /etc/systemd/system/docker.socket
 masked /etc/systemd/system/dpkg-db-backup.timer
 added /etc/systemd/system/fstrim.timer.d/spin.conf
 added /etc/systemd/system/getty@.service.d/term.conf
