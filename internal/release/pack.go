@@ -30,11 +30,16 @@ import (
 // Name is the release's name, which its tarball and directory carry.
 func Name(version string) string { return "spin-machine-" + version + "-linux-" + build.Arch }
 
-// TraceableKernel is the name the lab's kernel of release version is published under beside the
-// release: its kernel built from the same source and config with lockdown forced to none, so the
-// ledger can read a scheduler trace (kernel/README.md). Never in the tarball nor anything spin
-// boots, and named lab-only for whoever reads the release's files.
-func TraceableKernel(version string) string { return Name(version) + ".lab-only-traceable.bzImage" }
+// TraceableVmlinux is the name the lab's kernel of release version is published under beside the
+// release: its vmlinux built from the same source and config with lockdown forced to none, so the
+// ledger can read a scheduler trace (kernel/README.md), and entered through PVH as the release's is.
+// Never in the tarball nor anything spin boots, and named lab-only for whoever reads the release's
+// files.
+func TraceableVmlinux(version string) string { return Name(version) + ".lab-only-traceable.vmlinux" }
+
+// TraceableBzImage is the name the traceable kernel was published under until #697: a bzImage,
+// which releases up to v20261123.07 boot, and the lab still fetches for a ledger of one of them.
+func TraceableBzImage(version string) string { return Name(version) + ".lab-only-traceable.bzImage" }
 
 // Options is what a release is packed from.
 type Options struct {

@@ -527,6 +527,11 @@ func TestTheLedgersTextShowsWhatMatters(t *testing.T) {
 	if strings.Contains(text, "quiet") || strings.Contains(text, " d 9.6") || strings.Count(text, "others under") != 1 {
 		t.Errorf("the table shows what it should leave out:\n%s", text)
 	}
+	// A boot that entered a vmlinux through PVH ran no decompressor, and the window says so.
+	l.PVH = true
+	if pvh := l.Text("t"); !strings.Contains(pvh, "      20.0  the firmware, the kernel's PVH entry and its setup, to the kernel's clock\n") || strings.Contains(pvh, "decompression") {
+		t.Errorf("a PVH boot's window before the kernel's clock:\n%s", pvh)
+	}
 	bare := Ledger{Windows: l.Windows[:1]}.Text("t")
 	if strings.Contains(bare, "owners from") || strings.Contains(bare, "in the journal") || strings.Contains(bare, "lost events") {
 		t.Errorf("a ledger of one window, no marks and no breaks:\n%s", bare)

@@ -70,6 +70,18 @@ func Signed(ctx context.Context, pins *versions.Versions, tag, dir, name string)
 	return path, verify(ctx, pins, path)
 }
 
+// Assets are the names of the files published with release tag.
+func Assets(ctx context.Context, tag string) ([]string, error) {
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "gh", "release", "view", tag, "-R", Repo, "--json", "assets", "-q", ".assets[].name")
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing release %s's files: %w: %s", tag, err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	return strings.Fields(string(out)), nil
+}
+
 // download puts the files names of release tag in dir.
 func download(ctx context.Context, tag, dir string, names ...string) error {
 	args := []string{"release", "download", tag, "-R", Repo, "-D", dir}

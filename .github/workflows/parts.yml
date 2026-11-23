@@ -244,7 +244,7 @@ jobs:
       # before it is released and not after, when the release has no traceable kernel and no
       # ledger (#558). Its own cache tag, written by main as the release kernel's is, keeps
       # release.yml's job warm. ~10 min more cold (parts run 45071066129); the version only names
-      # the bzImage, which nothing here publishes.
+      # the vmlinux, which nothing here publishes.
       - name: Build the traceable kernel
         env:
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

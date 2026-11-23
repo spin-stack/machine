@@ -229,7 +229,7 @@ func printfEscaped(b []byte) string {
 func TestTheTraceableKernelIsTheReleaseKernelLessLockdown(t *testing.T) {
 	dir := checkout(t)
 	put(t, filepath.Join(dir, "kernel/Dockerfile"), "FROM x", 0o644)
-	published := filepath.Join(dir, "_output/release", release.TraceableKernel("v1"))
+	published := filepath.Join(dir, "_output/release", release.TraceableVmlinux("v1"))
 	calls := fakes(t, map[string]string{"docker": kernelDocker("")})
 	if _, stderr, status := verb(t, "release", "traceable-kernel", "--version", "v1"); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
@@ -238,10 +238,10 @@ func TestTheTraceableKernelIsTheReleaseKernelLessLockdown(t *testing.T) {
 	if !strings.Contains(got, "KERNEL_LOCKDOWN=confidentiality") || !strings.Contains(got, "KERNEL_LOCKDOWN=none --build-arg KERNEL_NPROC=8 --output type=local,dest="+filepath.Join(dir, "_output/traceable")+" ") {
 		t.Errorf("docker was not asked for both kernels:\n%s", got)
 	}
-	if read(t, published) != read(t, filepath.Join(dir, "_output/traceable/kernel/bzImage")) {
+	if read(t, published) != read(t, filepath.Join(dir, "_output/traceable/kernel/vmlinux")) {
 		t.Error("the traceable kernel was not put beside the release")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "_output/kernel/bzImage")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "_output/kernel/vmlinux")); err != nil {
 		t.Errorf("the release kernel was not built: %v", err)
 	}
 	_ = os.Remove(published)
@@ -698,7 +698,7 @@ func TestProvenanceIsRefusedOutsideAWorkflow(t *testing.T) {
 func TestSignChecksEveryBundleAndThatNothingIsLeftUnattested(t *testing.T) {
 	dir := checkout(t)
 	rel := filepath.Join(dir, "_output/release")
-	for _, f := range []string{"r.tar.gz", "r.tar.gz.sha256", "machine.env", "r.cdx.json", release.TraceableKernel("v1")} {
+	for _, f := range []string{"r.tar.gz", "r.tar.gz.sha256", "machine.env", "r.cdx.json", release.TraceableVmlinux("v1")} {
 		put(t, filepath.Join(rel, f), f, 0o644)
 	}
 	// cosign writes each bundle it is asked for.

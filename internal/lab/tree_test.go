@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spin-stack/machine/internal/elftest"
 	"github.com/spin-stack/machine/internal/release"
 )
 
@@ -35,6 +36,7 @@ func fakeRelease(t *testing.T, kernel string) string {
 		"bin/spin-machine":       []byte("spin-machine"),
 		"qemu/qboot.bin":         []byte("qboot"),
 		"qemu/linuxboot_dma.bin": []byte("rom"),
+		"qemu/pvh.bin":           []byte("pvh rom"),
 		"image/rootfs.qcow2":     []byte("base"),
 		"kernel/vmlinux":         []byte("elf"),
 	}
@@ -144,7 +146,7 @@ func TestAPartPutIntoATreeIsACopyAndTheBaseIsUntouched(t *testing.T) {
 	if fi, err := os.Lstat(filepath.Join(tr.Dir, "kernel/bzImage")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
 		t.Error("a part put into the tree is still a link")
 	}
-	if tr.Manifest.Parts["kernel"].Source != newKernel || tr.Manifest.Parts["qemu"].Source != newQEMU || tr.Manifest.Parts["firmware"].Source != newQEMU {
+	if tr.Manifest.Parts["kernel"].Source != newKernel+", a bzImage entered through its decompressor" || tr.Manifest.Parts["qemu"].Source != newQEMU || tr.Manifest.Parts["firmware"].Source != newQEMU {
 		t.Errorf("the manifest's sources: %+v", tr.Manifest.Parts)
 	}
 	sum, _ := fileSHA256(newKernel)
@@ -372,7 +374,7 @@ func TestAKernelOrQEMUFromARunIsTheRunsBuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tr.Manifest.Parts["kernel"].Source != "run 11" || tr.Manifest.Parts["qemu"].Source != "run 22" ||
+	if tr.Manifest.Parts["kernel"].Source != "run 11, a bzImage entered through its decompressor" || tr.Manifest.Parts["qemu"].Source != "run 22" ||
 		!strings.HasSuffix(read(t, filepath.Join(tr.Dir, "kernel/bzImage")), "run kernel") ||
 		read(t, filepath.Join(tr.Dir, "qemu/qboot.bin")) != "run qboot" {
 		t.Errorf("the run's parts: %+v", tr.Manifest.Parts)
@@ -400,30 +402,60 @@ func TestAKernelOrQEMUFromARunIsTheRunsBuild(t *testing.T) {
 	}
 }
 
+// A kernel that randomizes itself is entered through PVH: put at kernel/vmlinux with the tree's
+// bzImage gone, which would be another kernel, and the manifest says so. A run since the
+// bzImage was dropped built only that.
+func TestAVmlinuxThatRandomizesItselfIsBootedThroughPVH(t *testing.T) {
+	base := fakeRelease(t, "release kernel")
+	cache := t.TempDir()
+	s := Sources{Checkout: checkoutRoot(t), Cache: cache, Log: io.Discard}
+	write(t, filepath.Join(cache, "runs/11/vmlinux/vmlinux-abc/vmlinux"), pvhKernel())
+	given := filepath.Join(t.TempDir(), "vmlinux")
+	write(t, given, pvhKernel())
+	for what, source := range map[string]string{"run:11": "run 11", given: given} {
+		tr, err := MakeTree(filepath.Join(t.TempDir(), "p"), TreeSpec{Name: "p", From: base, Kernel: what}, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		booted, err := tr.Kernel()
+		if err != nil || booted != filepath.Join(tr.Dir, "kernel/vmlinux") || read(t, booted) != string(pvhKernel()) {
+			t.Errorf("%s: the tree boots %q, %v", what, booted, err)
+		}
+		if fileExists(filepath.Join(tr.Dir, "kernel/bzImage")) {
+			t.Errorf("%s: the release's bzImage was left beside the kernel put in", what)
+		}
+		sum, _ := fileSHA256(given)
+		if p := tr.Manifest.Parts["kernel"]; p.Source != source+", a vmlinux entered through PVH" || p.SHA256 != sum {
+			t.Errorf("%s: the manifest's kernel: %+v", what, p)
+		}
+	}
+}
+
+func pvhKernel() []byte { return elftest.Kernel([]uint32{18, 19}, []byte{1, 0, 0, 0}) }
+
 // A release's traceable kernel is downloaded beside the release once its signature is release.yml's,
-// kept in the cache, and booted from there; one that is not signed is not kept.
+// kept in the cache, and booted from there; one that is not signed is not kept. A release publishes
+// its vmlinux from #697 on, entered through PVH as the release's own, and before it a bzImage.
 func TestATraceableKernelIsTheSignedOneBesideTheRelease(t *testing.T) {
 	base := fakeRelease(t, "release kernel")
 	cache, pub, bin := t.TempDir(), t.TempDir(), t.TempDir()
-	name := release.TraceableKernel("v1")
-	write(t, filepath.Join(pub, name), bzImage("traceable kernel"))
-	write(t, filepath.Join(pub, name+".sigstore.json"), []byte("{}"))
-	gh := `d=""; while [ $# -gt 0 ]; do case "$1" in -D) d=$2;; -p) [ -f "` + pub + `/$2" ] && cp "` + pub + `/$2" "$d/";; esac; shift; done`
+	old, now := release.TraceableBzImage("v1"), release.TraceableVmlinux("v2")
+	write(t, filepath.Join(pub, "v1", old), bzImage("traceable kernel"))
+	write(t, filepath.Join(pub, "v1", old+".sigstore.json"), []byte("{}"))
+	write(t, filepath.Join(pub, "v2", now), pvhKernel())
+	write(t, filepath.Join(pub, "v2", now+".sigstore.json"), []byte("{}"))
+	write(t, filepath.Join(pub, "v3", "nothing"), nil)
+	gh := `tag=$3; [ "$2" = view ] && exec ls "` + pub + `/$tag"
+d=""; while [ $# -gt 0 ]; do case "$1" in -D) d=$2;; -p) [ -f "` + pub + `/$tag/$2" ] && cp "` + pub + `/$tag/$2" "$d/";; esac; shift; done`
 	write(t, filepath.Join(bin, "gh"), []byte("#!/bin/sh\n"+gh+"\n"))
 	write(t, filepath.Join(bin, "go"), []byte("#!/bin/sh\nexit 1\n"))
-	if err := os.Chmod(filepath.Join(bin, "gh"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(filepath.Join(bin, "go"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	s := Sources{Checkout: checkoutRoot(t), Cache: cache, Log: io.Discard}
 	spec := TreeSpec{Name: "t", From: base, Kernel: "traceable:v1"}
 	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err == nil || !strings.Contains(err.Error(), "signature") {
 		t.Errorf("an unsigned traceable kernel: %v", err)
 	}
-	if fileExists(filepath.Join(cache, "traceable", "v1", name)) {
+	if fileExists(filepath.Join(cache, "traceable", "v1", old)) {
 		t.Error("an unsigned traceable kernel was kept")
 	}
 	write(t, filepath.Join(bin, "go"), []byte("#!/bin/sh\nexit 0\n"))
@@ -431,14 +463,33 @@ func TestATraceableKernelIsTheSignedOneBesideTheRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tr.Manifest.Parts["kernel"].Source != "release v1's traceable kernel" || !strings.HasSuffix(read(t, filepath.Join(tr.Dir, "kernel/bzImage")), "traceable kernel") {
-		t.Errorf("the tree's kernel: %+v", tr.Manifest.Parts["kernel"])
+	if tr.Manifest.Parts["kernel"].Source != "release v1's traceable kernel, a bzImage entered through its decompressor" ||
+		!strings.HasSuffix(read(t, filepath.Join(tr.Dir, "kernel/bzImage")), "traceable kernel") || fileExists(filepath.Join(tr.Dir, "kernel/vmlinux")) {
+		t.Errorf("v1's tree's kernel: %+v", tr.Manifest.Parts["kernel"])
 	}
-	if err := os.Remove(filepath.Join(pub, name)); err != nil {
+
+	spec.Kernel = "traceable:v2"
+	tr, err = MakeTree(filepath.Join(t.TempDir(), "t"), spec, s)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err != nil {
-		t.Errorf("a traceable kernel in the cache was asked of GitHub again: %v", err)
+	if booted, _ := tr.Kernel(); tr.Manifest.Parts["kernel"].Source != "release v2's traceable kernel, a vmlinux entered through PVH" ||
+		booted != filepath.Join(tr.Dir, "kernel/vmlinux") || read(t, booted) != string(pvhKernel()) {
+		t.Errorf("v2's tree boots %s: %+v", booted, tr.Manifest.Parts["kernel"])
+	}
+
+	spec.Kernel = "traceable:v3"
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err == nil || !strings.Contains(err.Error(), "publishes no traceable kernel") {
+		t.Errorf("a release with none: %v", err)
+	}
+	if err := os.RemoveAll(pub); err != nil {
+		t.Fatal(err)
+	}
+	for _, tag := range []string{"v1", "v2"} {
+		spec.Kernel = "traceable:" + tag
+		if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err != nil {
+			t.Errorf("%s's traceable kernel in the cache was asked of GitHub again: %v", tag, err)
+		}
 	}
 }
 
