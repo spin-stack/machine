@@ -1,7 +1,6 @@
 added /etc/apt/keyrings/docker.asc
 added /etc/apt/sources.list.d/docker.sources
 added /etc/apt/sources.list.d/resolute.sources
-modified /etc/containerd/config.toml
 added /etc/default/locale
 added /etc/docker/daemon.json
 added /etc/environment.d/10-user-sockets.conf

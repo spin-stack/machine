@@ -25,10 +25,11 @@ one-line pointer to a section of this document.
 | The scripts | `image/mkosi.postinst.chroot` | In the tree, in this order: `install-dev-tools.sh`, `configure-system.sh`, the licence texts collected, the rebuilt packages held, `optimize-systemd.sh`, then `rootfs/` copied over `/`, then the staging directory deleted. |
 | The filesystem | `image/build.sh` | Installs the pressure sender, empties `/etc/machine-id` and removes the rest of the identity, writes `licenses.txt` and `packages.txt` beside the image, checks the rebuilt packages are held, checks the inventory (below), makes a partitionless ext4 with this repository's own `mkfs.ext4`, checks it, opens it and asserts what follows, and wraps it in a read-only qcow2. |
 
-**Why `rootfs/` is copied last.** `containerd.io` ships `/etc/containerd/config.toml` as a
-conffile and installs during `install-dev-tools.sh`. A file already at that path stops dpkg at a
-conffile prompt with no tty (`end of file on stdin at conffile prompt`, 2026-09-07). So nothing in
-`mkosi.extra` reaches its final path until the packages are in. The enable links
+**Why `rootfs/` is copied last.** A file already at the path of a conffile a package installs
+during `install-dev-tools.sh` stops dpkg at a conffile prompt with no tty (`end of file on stdin at
+conffile prompt`, 2026-09-07, when `rootfs/` replaced containerd.io's
+`/etc/containerd/config.toml`, until #510). So nothing in `mkosi.extra` reaches its final path
+until the packages are in. The enable links
 `optimize-systemd.sh` makes for `docker.socket` and `containerd.socket` point at files from
 `rootfs/` and dangle until the copy.
 
@@ -513,7 +514,6 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 |---|---|---|---|---|
 | `docker.socket`, `containerd.socket`, `sockets.target.wants/containerd.socket`; `multi-user.target.wants/docker.service` and `multi-user.target.wants/containerd.service` removed | deferred | dockerd and containerd start at the first connection to their socket, not at boot: when a workspace first runs `docker` (or anything that dials `/run/docker.sock` or containerd's socket), never before, and never if it does not. A checkpoint taken before that holds neither daemon. | measured: +13.9 [+11.4, +18.2] cold, +55.7 [+12.0, +73.9] restored, +40.7 [+33.5, +59.0] restored into prestarted (lab 45034963004) | Deferred: the first `docker` command waits for dockerd and containerd to start, 0.47 s from the command to `docker info` answering on two vCPUs (`boot:workspace`, lab 45036254377; one vCPU not timed). Later commands do not wait. The image's `docker.socket` is mode 0666, group root, where Docker's is 0660, group docker: any local user reaches the daemon (#509). |
 | `/etc/docker/daemon.json` | configuration | Container logs rotate at 10 MB, 3 files, so a long-running container does not fill the overlay; default address pools of /24s. | function | Nothing. |
-| `/etc/containerd/config.toml` | configuration | Replaces containerd.io's file, which disables the CRI plugin, with one that enables it (runc, systemd cgroups, a pause image from registry.k8s.io). | unmeasured, no recorded reason (#510) | Nothing missing; containerd loads a plugin docker does not use. |
 | `/etc/apt/sources.list.d/docker.sources`, `/etc/apt/keyrings/docker.asc` | added | Docker's repository, so `apt upgrade` updates docker in a workspace. The key is a file in `rootfs/` (fingerprint `9DC858229FC7DD38854AE2D88D81803C0EBFCD88`, no expiry), not fetched at build: the build installs the pinned packages by their SHA-256 and never reads Docker's repository. | function | Nothing. |
 | `/etc/apt/sources.list.d/resolute.sources` | added | mkosi writes the archive's sources: the release, `-updates` and `-security`, with `deb-src`. Ubuntu's installer writes `ubuntu.sources` with the same pockets. | function | Nothing. |
 | `/etc/systemd/journald.conf.d/volatile.conf` | configuration | The journal lives in `/run` (RAM), capped at 4 MB, uncompressed, not forwarded to the console or syslog. | measured, with the flush's mask: +6.1 [+2.3, +15.8] cold, +6.5 [+3.1, +13.1] prestarted, restored in noise (lab 45034963004) | The journal does not survive a reboot of the workspace, and 4 MB holds little: a busy workspace's journal rotates in minutes (#514). |
@@ -883,7 +883,7 @@ it rather than going stale. On v20261122.03 (lab 45036254377):
 | A daemon ready at login | The first `docker` command waits 0.47 s for dockerd and containerd (two vCPUs). | `docker.socket` (deferred) |
 
 Issues this review opened, each a decision still to make: the docker socket's mode (#509),
-containerd's CRI plugin (#510), the packages a workspace gets
+the packages a workspace gets
 (#512), `/etc/.updated` instead of five masks (#513), the journal's size and persistence (#514),
 and the host keys from the first dispatch (#515).
 
