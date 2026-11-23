@@ -134,7 +134,8 @@ release.yml  compat.yml ; spin-machine-dev release version ; release ; release n
              release provenance ; release sign ; release tag ; then the publish action ;
              traceable: spin-machine-dev release traceable-kernel ; release provenance ;
              release sign ; release upload ;
-             report.yml ; pause: spin-machine-dev lab check checkpoint-pause ;
+             report.yml ; pause: spin-machine-dev lab check checkpoint-pause|logind|workspace ;
+                    on a failure, spin-machine-dev releases failed TAG ;
              task trace ; task ship-it:wake
 refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|openssh|builders
 report.yml   task bin ; task vsock ; spin-machine-dev releases measure TAG... ; then in main's
@@ -318,6 +319,7 @@ spin-machine-dev releases site --out OUT                          the same as a 
 spin-machine-dev releases schema TAG...                           each release's QEMU's query-qmp-schema, in internal/qmpdef/testdata/released, which go test holds the machine package to
 spin-machine-dev releases propose [--branch B] [--title T]        the records and schemas this checkout wrote, as a pull request against main
 spin-machine-dev releases flag LADDER_JSON... [--run URL]         an issue for each ladder's newest release whose goal number regressed
+spin-machine-dev releases failed TAG --steps JSON [--run URL]     an issue for each functional check, a step in the job's steps context, the release failed
 spin-machine-dev releases withdraw TAG --reason TEXT --issue N    mark a release withdrawn on GitHub and in its record, so nothing adopts it
 spin-machine-dev releases restore TAG                             undo withdraw
 ```

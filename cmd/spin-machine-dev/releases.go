@@ -44,7 +44,7 @@ much as a release does. Two records from different runs are compared by measurin
 	c.PersistentFlags().StringVar(&dir, "dir", "docs/releases", "the records' directory; the page is DIR.md")
 	c.AddCommand(releasesRecord(&dir), releasesMeasure(), releasesMissing(&dir), releasesShow(&dir),
 		releasesCompare(&dir), releasesDoc(&dir), releasesSite(&dir), releasesSchema(), releasesPropose(&dir),
-		releasesWithdraw(&dir), releasesRestore(&dir), releasesFlag())
+		releasesWithdraw(&dir), releasesRestore(&dir), releasesFlag(), releasesFailed())
 	return c
 }
 
