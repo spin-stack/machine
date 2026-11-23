@@ -384,7 +384,7 @@ func TestTheKernelIsCompiledFromItsConfigurationWithoutNamedAddressSpaces(t *tes
 			t.Errorf("calls:\n%s\nwant %q in them", got, want)
 		}
 	}
-	if strings.Contains(got, "lib/a.o") || strings.Contains(got, "bzImage") {
+	if strings.Contains(got, "lib/a.o") || strings.Contains(got, "vmlinux") {
 		t.Errorf("calls:\n%s\nprepare compiled a touched file, which the tracer would then not see", got)
 	}
 
@@ -395,19 +395,19 @@ func TestTheKernelIsCompiledFromItsConfigurationWithoutNamedAddressSpaces(t *tes
 	}
 }
 
-// The decompressor and the host tools are built only through the bzImage, with flags of their
-// own: prepare builds it untraced, and compile again over each touched file.
-func TestTheKernelsBzImageOnlyFilesAreBuiltThroughTheBzImage(t *testing.T) {
+// The host tools are built only through vmlinux, with flags of their own: prepare builds it
+// untraced, and compile again over each touched file.
+func TestTheKernelsHostToolsAreBuiltThroughVmlinux(t *testing.T) {
 	calls := fakeTools(t, "")
 	src, root := t.TempDir(), t.TempDir()
 	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config CC_HAS_NAMED_AS\n\tdef_bool y\n")
 	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
-	touched := []string{"lib/a.c", "arch/x86/boot/compressed/misc.c", "kernel/b.c", "arch/x86/tools/relocs.c"}
+	touched := []string{"lib/a.c", "kernel/b.c", "arch/x86/tools/relocs.c"}
 	if err := prepareKernel(context.Background(), root, src, touched, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if got := read(t, calls); !strings.HasSuffix(got, " bzImage\n") {
-		t.Errorf("prepare's calls:\n%s\nwant the bzImage last", got)
+	if got := read(t, calls); !strings.HasSuffix(got, " vmlinux\n") {
+		t.Errorf("prepare's calls:\n%s\nwant vmlinux last", got)
 	}
 }
 
@@ -416,7 +416,7 @@ func TestTheKernelsBzImageOnlyFilesAreBuiltThroughTheBzImage(t *testing.T) {
 func TestTheKernelCompilesEachTouchedFileAgain(t *testing.T) {
 	calls := fakeTools(t, "")
 	src := t.TempDir()
-	touched := []string{"lib/a.c", "arch/x86/boot/compressed/misc.c", "kernel/b.c", "arch/x86/tools/relocs.c"}
+	touched := []string{"lib/a.c", "kernel/b.c", "arch/x86/tools/relocs.c"}
 	if err := compileKernel(context.Background(), "", src, touched, io.Discard); err == nil || !strings.Contains(err.Error(), "prepare it first") {
 		t.Errorf("an unprepared tree: %v", err)
 	}
@@ -431,8 +431,8 @@ func TestTheKernelCompilesEachTouchedFileAgain(t *testing.T) {
 	if err := compileKernel(context.Background(), "", src, touched, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if got := read(t, calls); !strings.HasSuffix(got, " lib/a.o kernel/b.o\nmake -C "+src+" ARCH=x86_64 -j"+jobs()+" bzImage\n") {
-		t.Errorf("calls:\n%s\nwant each object, and the bzImage for the files only it builds", got)
+	if got := read(t, calls); !strings.HasSuffix(got, " lib/a.o kernel/b.o\nmake -C "+src+" ARCH=x86_64 -j"+jobs()+" vmlinux\n") {
+		t.Errorf("calls:\n%s\nwant each object, and vmlinux for the host tools only it builds", got)
 	}
 	for _, f := range touched {
 		if fi, err := os.Stat(filepath.Join(src, f)); err != nil || !fi.ModTime().After(old) {

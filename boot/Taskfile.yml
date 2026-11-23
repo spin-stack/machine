@@ -119,7 +119,7 @@ tasks:
       - |
         set -euo pipefail
         kernel=()
-        if [ -f {{.OUTPUT_ABS}}/kernel/bzImage ]; then kernel=(--kernel {{.OUTPUT_ABS}}/kernel/bzImage); fi
+        if [ -f {{.OUTPUT_ABS}}/kernel/vmlinux ]; then kernel=(--kernel {{.OUTPUT_ABS}}/kernel/vmlinux); fi
         here=$(go run ./cmd/spin-machine-dev lab tree here --qemu {{.QEMU | default .OUTPUT_ABS}} "${kernel[@]}" --spin-machine here)
         echo "SPIN_MACHINE_OUTPUT=$here" >> "${GITHUB_ENV:-/dev/stdout}"
 

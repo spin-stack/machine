@@ -77,7 +77,7 @@ jobs:
         run: go tool task patched-build-deps
 
       # Before the tracer starts: what is built here is not extracted, and the analysis reads only
-      # what the step under it compiles (the kernel's bzImage, built here when a touched file is one
+      # what the step under it compiles (the kernel's vmlinux, built here when a touched file is one
       # only it builds, would be the whole kernel).
       - name: Build what compiling the touched files needs, untraced
         if: ${{ matrix.build-mode == 'manual' }}

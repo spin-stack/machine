@@ -168,16 +168,15 @@ func (p Part) build(ctx context.Context, root string, step func(ctx context.Cont
 // one a compiler without named address spaces builds.
 const namedAddressSpaces = "config CC_HAS_NAMED_AS\n\tdef_bool "
 
-// bzImageOnly are the directories whose files only the bzImage's build compiles, each with flags
-// of its own: the decompressor, after vmlinux, whose symbols misc.c includes as ../voffset.h, and
-// the host tools vmlinux is post-processed with (relocs). Made as objects of vmlinux, misc.o found
-// no voffset.h and relocs.o failed on vmlinux's -Werror (codeql.yml job 137883774299,
-// 2026-11-23), so a touched file there makes the bzImage, which compiles each the way it is built.
-var bzImageOnly = []string{"arch/x86/boot/compressed/", "arch/x86/tools/"}
+// hostTools is the directory of the host tools vmlinux is post-processed with (relocs), built with
+// flags of their own. Made as an object of vmlinux, relocs.o failed on vmlinux's -Werror
+// (codeql.yml job 137883774299, 2026-11-23), so a touched file there makes vmlinux, whose build
+// compiles the tools the way they are built.
+const hostTools = "arch/x86/tools/"
 
 // prepareKernel configures the tree as kernel/Dockerfile does, from the series' configuration but
 // without named address spaces, and makes what the touched files are compiled with: the headers
-// every object needs, and the bzImage when a touched file is one only it builds. Built here,
+// every object needs, and vmlinux when a touched file is a host tool. Built here,
 // untraced, the kernel is not extracted whole: the analysis reads only what compileKernel then
 // rebuilds.
 func prepareKernel(ctx context.Context, root, src string, touched []string, out io.Writer) error {
@@ -218,7 +217,7 @@ func prepareKernel(ctx context.Context, root, src string, touched []string, out 
 	}
 	goal := "prepare"
 	if _, ok := kernelObjects(touched); ok {
-		goal = "bzImage"
+		goal = "vmlinux"
 	}
 	return shown(ctx, out, "", "make", "-C", src, "ARCH=x86_64", "-j"+jobs(), goal)
 }
@@ -235,13 +234,13 @@ func compileKernel(ctx context.Context, _, src string, touched []string, out io.
 			return fmt.Errorf("touching %s: %w", f, err)
 		}
 	}
-	objects, bzImage := kernelObjects(touched)
-	// The objects first, and the bzImage on its own after them: asked for together, make built one
+	objects, tools := kernelObjects(touched)
+	// The objects first, and vmlinux on its own after them: asked for together, make built one
 	// object twice at once, as an object and as part of vmlinux, and fixdep lost its .d file
 	// (2026-11-23).
 	goals := [][]string{objects}
-	if bzImage {
-		goals = append(goals, []string{"bzImage"})
+	if tools {
+		goals = append(goals, []string{"vmlinux"})
 	}
 	for _, g := range goals {
 		if err := shown(ctx, out, "", "make", append([]string{"-C", src, "ARCH=x86_64", "-j" + jobs()}, g...)...); err != nil {
@@ -252,18 +251,18 @@ func compileKernel(ctx context.Context, _, src string, touched []string, out io.
 }
 
 // kernelObjects is the objects of the touched files make builds as objects, and whether a touched
-// file is one only the bzImage builds.
+// file is a host tool, which only vmlinux's build compiles.
 func kernelObjects(touched []string) ([]string, bool) {
 	var objects []string
-	bzImage := false
+	tools := false
 	for _, f := range touched {
-		if slices.ContainsFunc(bzImageOnly, func(dir string) bool { return strings.HasPrefix(f, dir) }) {
-			bzImage = true
+		if strings.HasPrefix(f, hostTools) {
+			tools = true
 			continue
 		}
 		objects = append(objects, strings.TrimSuffix(f, filepath.Ext(f))+".o")
 	}
-	return objects, bzImage
+	return objects, tools
 }
 
 // compileQEMU configures the tree for the one target the machine builds and makes the

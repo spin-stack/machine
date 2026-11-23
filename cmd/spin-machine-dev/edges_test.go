@@ -21,14 +21,9 @@ import (
 	"github.com/spin-stack/machine/machine"
 )
 
-// kernelFixture is a relocatable bzImage and a vmlinux that randomizes itself, as kernel/Dockerfile
-// leaves them.
+// kernelFixture is a vmlinux that randomizes itself, as kernel/Dockerfile leaves it.
 func kernelFixture(t *testing.T, out string) {
 	t.Helper()
-	bz := make([]byte, 0x300)
-	copy(bz[0x202:], "HdrS")
-	bz[0x234] = 1
-	put(t, filepath.Join(out, "kernel/bzImage"), string(bz), 0o644)
 	put(t, filepath.Join(out, "kernel/vmlinux"), string(vmlinuxFixture()), 0o644)
 	for _, f := range []string{"kernel/kernel-config", "kernel/sources", "kernel/patches/0001-k.patch"} {
 		put(t, filepath.Join(out, f), f, 0o644)
@@ -243,7 +238,7 @@ func TestAnOSVScanThatFailsIsNotAFinding(t *testing.T) {
 func TestAShellIsSystemdIn2GiBAndTwoCPUsByDefault(t *testing.T) {
 	dir := checkout(t)
 	out := filepath.Join(dir, "_output")
-	for _, f := range []string{"bin/qemu-system-x86_64", "kernel/bzImage", "image/rootfs.qcow2"} {
+	for _, f := range []string{"bin/qemu-system-x86_64", "kernel/vmlinux", "image/rootfs.qcow2"} {
 		put(t, filepath.Join(out, f), "x", 0o644)
 	}
 	put(t, filepath.Join(out, "bin/spin-machine"), "#!/bin/sh\necho \"$*\" > "+filepath.Join(dir, "boot")+"\n", 0o755)

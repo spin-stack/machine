@@ -198,10 +198,8 @@ func shipped(o Options, top, share string) ([]file, error) {
 	files = append(files,
 		file{filepath.Join(o.Root, "qemu/qboot/COPYING"), at("qemu/qboot-COPYING"), "qboot's licence", 0o644},
 		// vmlinux is what the machine boots, through PVH, the kernel moving itself to a random
-		// base (#645), and what a reader of the kernel's symbols opens. The bzImage, the same kernel with
-		// a decompressor, is what spin's hack/machine/place.go asks a release for.
-		file{fromOut("kernel/bzImage"), at("kernel/bzImage"), "the guest kernel", 0o644},
-		file{fromOut("kernel/vmlinux"), at("kernel/vmlinux"), "the guest kernel as an ELF", 0o644},
+		// base (#645), and what a reader of the kernel's symbols opens. No bzImage since #660.
+		file{fromOut("kernel/vmlinux"), at("kernel/vmlinux"), "the guest kernel", 0o644},
 		file{fromOut("kernel/kernel-config"), at("kernel/kernel-config"), "the kernel config", 0o644},
 		// What the kernel compiled, one source or header a line: what `cves` judges a release's
 		// kernel against the kernel CNA's CVEs with.
@@ -378,7 +376,6 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 	each = append(each,
 		struct{ path, version string }{"qemu/qboot.bin", qboot.Pin},
 		struct{ path, version string }{"kernel/vmlinux", version("kernel")},
-		struct{ path, version string }{"kernel/bzImage", version("kernel")},
 		struct{ path, version string }{"image/rootfs.qcow2", o.Version},
 	)
 	for _, f := range each {
