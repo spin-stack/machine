@@ -1,0 +1,122 @@
+From: Hou Wenlong <houwenlong.hwl@antgroup.com>
+Date: Mon, 26 Jan 2026 21:33:51 +0800
+Subject: [PATCH] x86/relocs: Cleanup cmdline options
+
+Move all cmdline options to global variables to make code cleaner and to
+facilitate the addition of new cmdline options.
+
+Signed-off-by: Hou Wenlong <houwenlong.hwl@antgroup.com>
+---
+ arch/x86/tools/relocs.c        | 12 +++++-------
+ arch/x86/tools/relocs.h        | 14 ++++++++------
+ arch/x86/tools/relocs_common.c | 13 +++++--------
+ 3 files changed, 18 insertions(+), 21 deletions(-)
+
+diff --git a/arch/x86/tools/relocs.c b/arch/x86/tools/relocs.c
+index 5ea9bc7ee..4d3d53391 100644
+--- a/arch/x86/tools/relocs.c
++++ b/arch/x86/tools/relocs.c
+@@ -127,7 +127,7 @@ static int is_reloc(enum symtype type, const char *sym_name)
+ 	return sym_regex[type] && !regexec(&sym_regex_c[type], sym_name, 0, NULL, 0);
+ }
+ 
+-static void regex_init(int use_real_mode)
++static void regex_init(void)
+ {
+         char errbuf[128];
+         int err;
+@@ -950,7 +950,7 @@ static int write32_as_text(uint32_t v, FILE *f)
+ 	return fprintf(f, "\t.long 0x%08"PRIx32"\n", v) > 0 ? 0 : -1;
+ }
+ 
+-static void emit_relocs(int as_text, int use_real_mode)
++static void emit_relocs(void)
+ {
+ 	int i;
+ 	int (*write_reloc)(uint32_t, FILE *) = write32;
+@@ -1049,11 +1049,9 @@ static void print_reloc_info(void)
+ # define process process_32
+ #endif
+ 
+-void process(FILE *fp, int use_real_mode, int as_text,
+-	     int show_absolute_syms, int show_absolute_relocs,
+-	     int show_reloc_info)
++void process(FILE *fp)
+ {
+-	regex_init(use_real_mode);
++	regex_init();
+ 	read_ehdr(fp);
+ 	read_shdrs(fp);
+ 	read_strtabs(fp);
+@@ -1075,5 +1073,5 @@ void process(FILE *fp, int use_real_mode, int as_text,
+ 		return;
+ 	}
+ 
+-	emit_relocs(as_text, use_real_mode);
++	emit_relocs();
+ }
+diff --git a/arch/x86/tools/relocs.h b/arch/x86/tools/relocs.h
+index 4c49c8244..5ade07ac2 100644
+--- a/arch/x86/tools/relocs.h
++++ b/arch/x86/tools/relocs.h
+@@ -30,10 +30,12 @@ enum symtype {
+ 	S_NSYMTYPES
+ };
+ 
+-void process_32(FILE *fp, int use_real_mode, int as_text,
+-		int show_absolute_syms, int show_absolute_relocs,
+-		int show_reloc_info);
+-void process_64(FILE *fp, int use_real_mode, int as_text,
+-		int show_absolute_syms, int show_absolute_relocs,
+-		int show_reloc_info);
++extern int show_absolute_syms;
++extern int show_absolute_relocs;
++extern int show_reloc_info;
++extern int as_text;
++extern int use_real_mode;
++
++void process_32(FILE *fp);
++void process_64(FILE *fp);
+ #endif /* RELOCS_H */
+diff --git a/arch/x86/tools/relocs_common.c b/arch/x86/tools/relocs_common.c
+index 6634352a2..ee8a9fafc 100644
+--- a/arch/x86/tools/relocs_common.c
++++ b/arch/x86/tools/relocs_common.c
+@@ -1,6 +1,9 @@
+ // SPDX-License-Identifier: GPL-2.0
+ #include "relocs.h"
+ 
++int show_absolute_syms, show_absolute_relocs, show_reloc_info;
++int as_text, use_real_mode;
++
+ void die(char *fmt, ...)
+ {
+ 	va_list ap;
+@@ -18,8 +21,6 @@ static void usage(void)
+ 
+ int main(int argc, char **argv)
+ {
+-	int show_absolute_syms, show_absolute_relocs, show_reloc_info;
+-	int as_text, use_real_mode;
+ 	const char *fname;
+ 	FILE *fp;
+ 	int i;
+@@ -73,13 +74,9 @@ int main(int argc, char **argv)
+ 	}
+ 	rewind(fp);
+ 	if (e_ident[EI_CLASS] == ELFCLASS64)
+-		process_64(fp, use_real_mode, as_text,
+-			   show_absolute_syms, show_absolute_relocs,
+-			   show_reloc_info);
++		process_64(fp);
+ 	else
+-		process_32(fp, use_real_mode, as_text,
+-			   show_absolute_syms, show_absolute_relocs,
+-			   show_reloc_info);
++		process_32(fp);
+ 	fclose(fp);
+ 	return 0;
+ }
+-- 
+2.53.0
+

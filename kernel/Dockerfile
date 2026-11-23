@@ -278,17 +278,17 @@ RUN <<EOT
     ! grep -q "CONFIG_VT=y" .config || (echo "ERROR: CONFIG_VT is back; there is no VGA and no virtual console here (see above)!" ; exit 1)
     grep -q "CONFIG_OVERLAY_FS=y" .config || (echo "ERROR: CONFIG_OVERLAY_FS not enabled!" ; exit 1)
 
-    # The machine boots the bzImage, through its setup code and the decompressor in
-    # arch/x86/boot/compressed, because that decompressor is where KASLR happens: it picks the
-    # random physical and virtual base and sets KASLR_FLAG, which RANDOMIZE_MEMORY reads in
-    # turn. The PVH entry into vmlinux, which this machine booted until 2026-11-19, skips it:
-    # three PVH boots all had _text at ffffffff81000000 with both options =y. boot:lockdown
-    # asks the booted kernel.
+    # The machine enters vmlinux through PVH, with no decompressor (#645). The decompressor is
+    # where a bzImage's KASLR happens, and a vmlinux entered through PVH ran where it was linked,
+    # ffffffff81000000, with RANDOMIZE_BASE and RANDOMIZE_MEMORY both =y (three boots, until
+    # 2026-11-19). RELOCATABLE_UNCOMPRESSED_KERNEL (patches/0014-0020) has the kernel move its
+    # own virtual base at startup_64, from a relocation table the relocs tool writes into it,
+    # and QEMU (qemu/patches/0008) puts it at a random physical base. PVH is the entry itself.
+    # boot:kaslr asks the booted kernel.
     #
-    # LZ4 is the payload's compression, the fastest to decompress of the ones x86 offers: x86
-    # does not select HAVE_KERNEL_UNCOMPRESSED, so KERNEL_UNCOMPRESSED is not a choice here.
-    # It changes the bzImage only, not vmlinux.
-    for opt in RELOCATABLE RANDOMIZE_BASE RANDOMIZE_MEMORY KERNEL_LZ4; do
+    # The bzImage is still built and shipped (spin's hack/machine/place.go names it), and its
+    # decompressor randomizes as it did, from the same table.
+    for opt in RELOCATABLE RANDOMIZE_BASE RANDOMIZE_MEMORY PVH RELOCATABLE_UNCOMPRESSED_KERNEL KERNEL_LZ4; do
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig (the kernel would not be randomized)!"; exit 1; }
     done
 
@@ -513,6 +513,54 @@ RUN <<EOT
     # that was compiled is read.
     grep -qF 'need_btf_vmlinux(env)' kernel/bpf/verifier.c || lost 0013 "bpf_check parses vmlinux BTF for every program"
 
+    # 0014-0016: the relocs tool wrote the table into .data.reloc. It ends in the last 32-bit
+    # relocation; a table it never filled ends in the zero it was reserved with, and the kernel
+    # then runs where it was linked. A table that does not fit fails the link itself: relocs dies
+    # naming the CONFIG_RELOCATION_TABLE_SIZE it needs. What it uses is printed, so a config
+    # change that grows it is seen before it reaches the reserve.
+    reloc=$(readelf -SW vmlinux | awk '{for (i=1;i<=NF;i++) if ($i==".data.reloc") print $(i+3), $(i+4)}')
+    [ -n "$reloc" ] || lost 0016 "no .data.reloc section"
+    set -- $reloc
+    off=$((0x$1)); size=$((0x$2))
+    used=$(od -An -v -t u4 -j "$off" -N "$size" vmlinux | tr -s ' ' '\n' | grep -v '^$' |
+        awk 'NR > 1 && $1 != 0 && !n { n = NR } END { print n ? (NR - n + 2) * 4 : 0 }')
+    [ "$used" -gt 0 ] || lost 0015 "the relocs tool did not fill .data.reloc"
+    echo "relocation table: $used of $size bytes"
+
+    # 0017: startup_64 relocates the kernel before it computes its own physical-to-virtual offset.
+    dis startup_64 | grep -q '<__pi___relocate_kernel>' || lost 0017 "startup_64 does not relocate the kernel"
+
+    # 0017's code runs before the kernel has relocated itself, so it may not call through the
+    # GOT or an absolute address, and may not call instrumentation that is not there yet: an
+    # ftrace hook (__fentry__), KASAN, KCOV, UBSAN or the stack protector. Under PIE, a call
+    # to __fentry__ through the GOT in a PVM guest's self-relocation kept the guest from
+    # starting (virt-pvm/linux#11, fixed by dropping CC_FLAGS_FTRACE there). The RFC puts the
+    # code in arch/x86/boot/startup, whose Makefile builds it without those flags; this asks
+    # the object that was compiled, kaslr.c with lib/kaslr.c and lib/cmdline.c included in it,
+    # so a config or Makefile change cannot put one back unseen. Its relocations, not vmlinux:
+    # the linker relaxes a GOT load away, and objtool turns __fentry__ calls into NOPs.
+    kobj=arch/x86/boot/startup/kaslr.pi.o
+    [ -f "$kobj" ] || kobj=arch/x86/boot/startup/kaslr.o
+    if [ ! -f "$kobj" ]; then
+        lost 0017 "no arch/x86/boot/startup/kaslr.o to check"
+    else
+        echo "pre-relocation functions ($kobj): $(nm --defined-only "$kobj" | awk '$2 ~ /[tT]/ { print $3 }' | tr '\n' ' ')"
+        bad=$(objdump -dr "$kobj" | grep -E 'R_X86_64_(GOT|REX_GOT)|__fentry__|__(asan|kasan|ubsan|sanitizer_cov|stack_chk)_?' | sort -u)
+        [ -z "$bad" ] || lost 0017 "the code that runs before relocation is instrumented or goes through the GOT: $bad"
+    fi
+
+    # 0018: the decompressor applies the same table to a bzImage, and no vmlinux.relocs of its own.
+    grep -qF 'output_len = VO___relocation_end - VO__text;' arch/x86/boot/compressed/misc.c ||
+        lost 0018 "the decompressor does not read .data.reloc"
+
+    # 0019 and 0020: a kernel that moved itself says so, so RANDOMIZE_MEMORY moves the direct map,
+    # vmalloc and vmemmap; and it draws its base from RDRAND and RDTSC, read from the registers
+    # that hold them. Both are early startup code with no symbol of their own, so the source is read.
+    grep -qF 'bp->hdr.loadflags |= KASLR_FLAG;' arch/x86/boot/startup/kaslr.c ||
+        lost 0019 "a kernel that relocated itself does not set KASLR_FLAG"
+    grep -A1 -F 'flag == X86_FEATURE_RDRAND' arch/x86/boot/startup/kaslr.c | grep -qF 'native_cpuid_ecx(0x1)' ||
+        lost 0020 "has_cpuflag reads RDRAND from a register that does not hold it"
+
     [ "$failed" = 0 ] || exit 1
     echo "kernel patches: each is in this vmlinux"
 EOT
@@ -542,18 +590,19 @@ RUN <<EOT
         exit 1
     fi
 
-    # Strip the ELF symbol table from the vmlinux that ships. Until 2026-11-19 QEMU entered
-    # this file through PVH, and QEMU's load_elf() reads and qsort()s the symbol table of every
-    # kernel it loads — 42k entries here. The bzImage QEMU loads now is made from the unstripped
-    # vmlinux in the tree, so the strip changes only the shipped file. Nothing in this stack
+    # Strip the ELF symbol table from the vmlinux that ships. QEMU enters this file through PVH
+    # (as it did until 2026-11-19, and again since #645), and QEMU's load_elf() reads and
+    # qsort()s the symbol table of every kernel it loads — 42k entries here. .data.reloc, the
+    # table the kernel relocates itself from, is an allocated section and survives. Nothing in this stack
     # asks the stripped file for a symbol: the guest resolves its own names
     # through CONFIG_KALLSYMS, which lives in the loaded image data and is untouched by
     # this.
     #
     # PT_LOAD is byte-identical either way (30.68 MB), so the guest boots the same bits;
-    # what goes away is 5.1 MB of file and, when QEMU loaded it, the parse and sort of it.
+    # what goes away is 5.1 MB of file and the parse and sort of it.
     #
-    # Measured while QEMU loaded vmlinux: qemu_launch 36.1 ms -> 24.3 ms, guest boot unchanged.
+    # Measured while QEMU loaded vmlinux (before 2026-11-19): qemu_launch 36.1 ms -> 24.3 ms,
+    # guest boot unchanged.
     cp vmlinux /build/vmlinux
     strip -s /build/vmlinux
 
@@ -575,7 +624,8 @@ RUN <<EOT
     btf=$(readelf -SW /build/vmlinux | awk '{for (i=1;i<=NF;i++) if ($i==".BTF") print $(i+4)}')
     printf 'BTF: %d bytes\n' "0x$btf"
 
-    # The bzImage the machine boots. `make all` builds it on x86 from the vmlinux above, so it
+    # The bzImage, which spin's hack/machine/place.go still asks a release for and an older
+    # machine boots. `make all` builds it on x86 from the vmlinux above, so it
     # is reproducible when vmlinux is. Asserted from its setup header
     # (Documentation/arch/x86/boot.rst) rather than its name: "HdrS" at 0x202, which QEMU and
     # qboot look for before treating a file as a bzImage (without it QEMU tries it as a
