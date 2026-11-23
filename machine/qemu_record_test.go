@@ -65,7 +65,9 @@ var fakeMachine = map[string]string{
 		{"name": "vendor", "type": "string", "value": "GenuineIntel"}, {"name": "family", "type": "uint64", "value": 6},
 		{"name": "sse2", "type": "bool", "value": true}, {"name": "avx512f", "type": "bool", "value": true},
 		{"name": "vmx", "type": "bool", "value": false}, {"name": "sse4-1", "type": "bool", "value": true},
-		{"name": "migratable", "type": "bool", "value": true}]`,
+		{"name": "migratable", "type": "bool", "value": true}, {"name": "x-consistent-cache", "type": "bool", "value": false},
+		{"name": "l3-cache", "type": "bool", "value": true}, {"name": "phys-bits", "type": "uint32", "value": 46},
+		{"name": "model-id", "type": "string", "value": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz"}]`,
 }
 
 // fakeRAMBlocks is x-query-ramblock's answer for fakeMachine.
@@ -115,7 +117,8 @@ func fakeTarget(t *testing.T) Target {
 // What Target reads of a machine: each device it was started with by its slot or its type, with
 // every property but what is one VM's, what changes while it runs, its links and its children;
 // none of what was hot-plugged and no disk's place; the machine's own options; every RAM block
-// but fw_cfg's; and the features its vCPU has on, by their canonical names.
+// but fw_cfg's; the features its vCPU has on, by their canonical names; and its properties that
+// shape CPUID, but none of its other switches.
 func TestTargetIsWhatTheMachineRuns(t *testing.T) {
 	f := &fakeQEMU{answer: answering}
 	m := f.attach(t)
@@ -154,9 +157,12 @@ func TestTargetIsWhatTheMachineRuns(t *testing.T) {
 		{"ram pc.ram", "134217728"},
 	}
 	want := Target{
-		VMM:      "qemu 11.2.0",
-		Formats:  []string{FormatMappedRAM, FormatStream},
-		CPU:      CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx512f", "sse2"}},
+		VMM:     "qemu 11.2.0",
+		Formats: []string{FormatMappedRAM, FormatStream},
+		CPU: CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx512f", "sse2"}, Properties: map[string]string{
+			"family": "6", "l3-cache": "true", "model-id": "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz", "phys-bits": "46",
+			"x-consistent-cache": "false",
+		}},
 		Hardware: Hardware{exact: wantExact, atLeast: []count{{"device 1a.0 max_target", 15}}},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -322,11 +328,13 @@ func TestResumeRefusesAnotherMachine(t *testing.T) {
 	}
 }
 
-// A named model is read off the vCPU like host: the features it has on, of the model's own flags.
+// A named model is read off the vCPU like host: the features it has on, of the model's own flags,
+// and the properties it has of those the record holds: no host-cache-info, which only host's and
+// max's vCPUs have.
 func TestCPUOfANamedModel(t *testing.T) {
 	vcpu := path("/machine/unattached/device[0]", `[{"name": "type", "type": "string", "value": "Skylake-Server-v4-x86_64-cpu"},
 		{"name": "vendor", "type": "string", "value": "GenuineIntel"}, {"name": "avx512f", "type": "bool", "value": true},
-		{"name": "avx2", "type": "bool", "value": false}]`)
+		{"name": "avx2", "type": "bool", "value": false}, {"name": "family", "type": "uint64", "value": 6}]`)
 	f := &fakeQEMU{answer: func(c call) string {
 		if c.Command == "query-cpu-model-expansion" {
 			return ret(`{"model": {"name": "base", "props": {"avx512f": true, "avx2": true, "model-id": "x"}}}`)
@@ -337,7 +345,7 @@ func TestCPUOfANamedModel(t *testing.T) {
 		return answering(c)
 	}}
 	got, err := f.attach(t).CPU(ctx(t))
-	if want := (CPU{Vendor: "GenuineIntel", Model: "Skylake-Server-v4", Features: []string{"avx512f"}}); err != nil || !reflect.DeepEqual(got, want) {
+	if want := (CPU{Vendor: "GenuineIntel", Model: "Skylake-Server-v4", Features: []string{"avx512f"}, Properties: map[string]string{"family": "6"}}); err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("CPU = %+v, %v, want %+v", got, err, want)
 	}
 	if got := f.sent("query-cpu-model-expansion")[0]["model"]; !reflect.DeepEqual(got, map[string]any{"name": "Skylake-Server-v4"}) {

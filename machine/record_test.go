@@ -63,7 +63,8 @@ func (f facts) machine(t *testing.T) Hardware {
 	return m
 }
 
-var spinsCPU = CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx2", "sse4.1", "xsave"}}
+var spinsCPU = CPU{Vendor: "GenuineIntel", Model: "host", Features: []string{"avx2", "sse4.1", "xsave"},
+	Properties: map[string]string{"family": "6", "phys-bits": "46", "x-consistent-cache": "false"}}
 
 // target is a QEMU 11.2.0 machine of spin's shape, changed by edit.
 func target(t *testing.T, edit func(*Target, facts)) Target {
@@ -71,6 +72,7 @@ func target(t *testing.T, edit func(*Target, facts)) Target {
 	f := spinsMachine()
 	tg := Target{VMM: "qemu 11.2.0", Formats: []string{FormatMappedRAM, FormatStream}, CPU: spinsCPU}
 	tg.CPU.Features = slices.Clone(spinsCPU.Features)
+	tg.CPU.Properties = maps.Clone(spinsCPU.Properties)
 	if edit != nil {
 		edit(&tg, f)
 	}
@@ -169,6 +171,22 @@ func TestCanResume(t *testing.T) {
 			want: []Difference{{Part: "cpu features", Here: "amx-tile avx512f", Rule: Same}}},
 		{name: "one feature here the guest was not shown", here: func(t *Target, _ facts) { t.CPU.Features = append(t.CPU.Features, "avx512f") },
 			want: []Difference{{Part: "cpu features", Here: "avx512f", Rule: Same}}},
+		// Leaf 2 holds 0xFF on one side and QEMU's descriptors on the other, which glibc reads
+		// as another L2 under host (#569).
+		{name: "leaf 2 with cache descriptors here", saved: func(t *Target, _ facts) { t.CPU.Properties["x-consistent-cache"] = "true" },
+			want: []Difference{{Part: "cpu x-consistent-cache", Checkpoint: "true", Here: "false", Rule: Same}}},
+		{name: "a host with fewer physical address bits", here: func(t *Target, _ facts) { t.CPU.Properties["phys-bits"] = "39" },
+			want: []Difference{{Part: "cpu phys-bits", Checkpoint: "46", Here: "39", Rule: Same}}},
+		{name: "a property only here", here: func(t *Target, _ facts) { t.CPU.Properties["host-cache-info"] = "false" },
+			want: []Difference{{Part: "cpu host-cache-info", Here: "false", Rule: Same}}},
+		// A record from before #569 holds no property: it says nothing of which side of
+		// x-consistent-cache=off it was taken on, and is refused by each.
+		{name: "a checkpoint from before the record held the CPU's properties", saved: func(t *Target, _ facts) { t.CPU.Properties = nil },
+			want: []Difference{
+				{Part: "cpu family", Here: "6", Rule: Same},
+				{Part: "cpu phys-bits", Here: "46", Rule: Same},
+				{Part: "cpu x-consistent-cache", Here: "false", Rule: Same},
+			}},
 		{name: "another vendor and model", here: func(t *Target, _ facts) { t.CPU.Vendor, t.CPU.Model = "AuthenticAMD", "EPYC-Genoa-v1" },
 			want: []Difference{
 				{Part: "cpu vendor", Checkpoint: "GenuineIntel", Here: "AuthenticAMD", Rule: Same},
@@ -285,6 +303,39 @@ func TestARecordHasOneForm(t *testing.T) {
 	}
 	if err := CanResume(Saved{Format: FormatMappedRAM, From: back}, tg); err != nil {
 		t.Errorf("a Target read back does not resume into itself: %v", err)
+	}
+}
+
+// A Saved a spin-machine wrote before #569 has no "properties" in its CPU: read back, it is
+// refused by each property the machine resumed into holds, x-consistent-cache among them.
+func TestARecordFromBeforeThePropertiesIsRefusedByEach(t *testing.T) {
+	here := target(t, nil)
+	b, err := json.Marshal(Saved{Format: FormatMappedRAM, From: here})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written struct {
+		Format string                     `json:"format"`
+		From   map[string]json.RawMessage `json:"from"`
+	}
+	if err := json.Unmarshal(b, &written); err != nil {
+		t.Fatal(err)
+	}
+	written.From["cpu"], _ = json.Marshal(CPU{Vendor: here.CPU.Vendor, Model: here.CPU.Model, Features: here.CPU.Features})
+	old, _ := json.Marshal(written)
+	if strings.Contains(string(old), "properties") {
+		t.Fatalf("the record from before #569 is %s", old)
+	}
+	var saved Saved
+	if err := json.Unmarshal(old, &saved); err != nil {
+		t.Fatal(err)
+	}
+	var r *Refusal
+	if err := CanResume(saved, here); !errors.As(err, &r) || !strings.Contains(err.Error(), "cpu x-consistent-cache: checkpoint none, here false") {
+		t.Errorf("CanResume of a record from before #569 = %v, want a refusal naming x-consistent-cache", err)
+	}
+	if len(r.Differences) != len(here.CPU.Properties) {
+		t.Errorf("refused by %v, want each of %v", r.Differences, here.CPU.Properties)
 	}
 }
 
