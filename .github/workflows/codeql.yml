@@ -1,29 +1,24 @@
 name: CodeQL
 
 # CodeQL's C/C++ analysis of the files the machine's patches touch, in the trees its builds make:
-# each part's pinned upstream source with its patches applied (spin-machine-dev patched tree), every
-# other C file taken out, analysed without a build (build-mode none). Every result in a touched file
-# goes to code scanning, under the part's category; a result on a line the patches added or changed
-# fails the job (spin-machine-dev patched scope), and upstream's own do not (#653).
+# each part's pinned upstream source with its patches applied (spin-machine-dev patched tree).
+# The kernel and QEMU are compiled under CodeQL's tracer, only the files their patches touch
+# (spin-machine-dev patched compile); qboot, systemd and OpenSSH are analysed without a build, from
+# a tree with every other C file taken out. Every result in a touched file goes to code scanning,
+# under the part's category; a result on a line the patches added or changed fails the job, and so
+# does a touched C file the analysis did not extract (spin-machine-dev patched scope). Upstream's
+# own results decide nothing (#653).
 #
-# On a change to a patch, a pin a patched tree is made from, or this; on main; and weekly, for the
-# queries CodeQL adds.
+# Beside them, the analysis of this repository's own Go and workflows (`own`).
+#
+# The patched trees on a change that reaches one, on main, and weekly, for the queries CodeQL adds.
 
 on:
+  # No paths: the analysis of this repository's own Go and workflows runs on every change, as
+  # default setup would, and `changed` below says whether a patched tree can differ.
   pull_request:
-    paths: &paths
-      - kernel/patches/**
-      - qemu/patches/**
-      - qemu/qboot/*.patch
-      - image/systemd/*.patch
-      - image/openssh/*.patch
-      - versions.yaml
-      - internal/patched/**
-      - cmd/spin-machine-dev/patched.go
-      - .github/workflows/codeql.yml
   push:
     branches: [main]
-    paths: *paths
   schedule:
     - cron: "41 4 * * 1"
   workflow_dispatch:
@@ -39,7 +34,37 @@ env:
   GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
+  # Whether the change can reach a patched tree: a patch, a pin a tree is made from, or how the
+  # trees are made and scoped. No base (the schedule, a dispatch) is true.
+  changed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      patched: ${{ steps.patched.outputs.build }}
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Does the change reach a patched tree
+        id: patched
+        run: spin-machine-dev changed --base "$BASE" --pins kernel,qemu,qboot,systemd-source,openssh-source kernel/patches 'kernel/config-*' qemu/patches qemu/qboot image/systemd image/openssh internal/patched cmd/spin-machine-dev/patched.go .github/workflows/codeql.yml
+
   analyze:
+    needs: changed
+    if: ${{ needs.changed.outputs.patched == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -48,7 +73,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [kernel, qemu, qboot, systemd, openssh]
+        part: [qboot, systemd, openssh]
+        build-mode: [none]
+        # Their files include headers only their builds generate: compiled, under the tracer
+        # (internal/patched, Part).
+        include:
+          - part: kernel
+            build-mode: manual
+          - part: qemu
+            build-mode: manual
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,9 +104,17 @@ jobs:
         uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           languages: c-cpp
-          build-mode: none
+          build-mode: ${{ matrix.build-mode }}
           source-root: _output/patched/${{ matrix.part }}/src
           queries: security-extended
+
+      - name: What a traced build needs
+        if: ${{ matrix.build-mode == 'manual' }}
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bc bison flex libelf-dev libssl-dev dwarves ninja-build libglib2.0-dev libpixman-1-dev python3-venv
+
+      - name: Compile what the patches touch, traced
+        if: ${{ matrix.build-mode == 'manual' }}
+        run: spin-machine-dev patched compile ${{ matrix.part }}
 
       - name: Analyze
         uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
@@ -92,3 +133,43 @@ jobs:
         with:
           sarif_file: _output/patched/${{ matrix.part }}/scoped.sarif
           category: patched-${{ matrix.part }}
+
+  # This repository's own Go and its workflows, which default setup cannot analyse beside this
+  # advanced workflow (#653).
+  own:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: actions
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        if: ${{ matrix.language == 'go' }}
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: own-${{ matrix.language }}
+          output: _output/codeql/${{ matrix.language }}

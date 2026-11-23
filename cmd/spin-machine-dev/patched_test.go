@@ -52,7 +52,9 @@ func TestPatchedScopeExitsOneOnAResultOnAnAddedLine(t *testing.T) {
 	put(t, filepath.Join(dir, "upstream/auth2.c"), "a\nb\n", 0o644)
 	put(t, filepath.Join(dir, "src/auth2.c"), "a\nB\n", 0o644)
 	sarif := func(line string) string {
-		return `{"runs":[{"results":[{"ruleId":"cpp/x","message":{"text":"bad"},"locations":[{"physicalLocation":` +
+		return `{"runs":[{"invocations":[{"toolExecutionNotifications":[{"descriptor":{"id":"cpp/diagnostics/successfully-extracted-files"},` +
+			`"locations":[{"physicalLocation":{"artifactLocation":{"uri":"auth2.c"}}}]}]}],` +
+			`"results":[{"ruleId":"cpp/x","message":{"text":"bad"},"locations":[{"physicalLocation":` +
 			`{"artifactLocation":{"uri":"auth2.c"},"region":{"startLine":` + line + `}}}]}]}]}`
 	}
 	put(t, filepath.Join(dir, "sarif/cpp.sarif"), sarif("2"), 0o644)
@@ -63,6 +65,10 @@ func TestPatchedScopeExitsOneOnAResultOnAnAddedLine(t *testing.T) {
 	put(t, filepath.Join(dir, "sarif/cpp.sarif"), sarif("1"), 0o644)
 	if _, stderr, status := verb(t, "patched", "scope", "openssh"); status != 0 || !strings.Contains(stderr, "openssh: no result on a line the patches added") {
 		t.Errorf("upstream's result: status %d, %s", status, stderr)
+	}
+	put(t, filepath.Join(dir, "sarif/cpp.sarif"), `{"runs":[{"results":[]}]}`, 0o644)
+	if _, stderr, status := verb(t, "patched", "scope", "openssh"); status != 2 || !strings.Contains(stderr, "auth2.c (not extracted)") {
+		t.Errorf("a SARIF that read nothing: status %d, %s", status, stderr)
 	}
 	if _, stderr, status := verb(t, "patched", "scope", "qemu"); status != 2 || !strings.Contains(stderr, "make the tree first") {
 		t.Errorf("no tree: status %d, %s", status, stderr)
