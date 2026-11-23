@@ -17,7 +17,7 @@ import (
 func loginTargetEdit(checkout string, supervisorEarly bool) (Edit, error) {
 	units := filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", "usr", "lib", "systemd", "system")
 	e := Edit{Files: map[string]string{}, Links: map[string]string{
-		"/etc/systemd/system/default.target":                                         "/usr/lib/systemd/system/spin-machine-login.target",
+		"/etc/systemd/system/default.target":                                           "/usr/lib/systemd/system/spin-machine-login.target",
 		"/etc/systemd/system/spin-machine-login.target.wants/spin-lab-forward.service": "/etc/systemd/system/spin-lab-forward.service",
 	}}
 	for _, u := range []string{"spin-machine-login.target", "spin-machine-boot-rest.service"} {
