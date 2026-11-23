@@ -48,7 +48,7 @@
     stays, and `spin-machine-dev bump qemu` prints what newer types change against it. After the
     bump: `spin-machine-dev build qemu`, `spin-machine-dev verify qemu args` (args holds patches
     0001-0004, qemu/README.md, "The patches"), then `task boot:record boot:patches boot:compat boot:checkpoint-pause boot:finish-migrate`
-    (boot:patches holds 0002's guest half and 0005)
+    (boot:patches holds 0002's guest half, 0005 and 0006)
     (or `spin-machine-dev lab dispatch check:TARGET` with the bump's parts.yml run, on the bench).
     checkpoint-pause is for a QEMU that stops the guest early again (~200 ms against ~15, held
     under 50), and finish-migrate for a migration that reorders migration_completion_end and
