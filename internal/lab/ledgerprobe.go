@@ -121,6 +121,7 @@ func (ledgerProbe) Name() string { return ledgerName }
 func (ledgerProbe) About() string {
 	return "a boot accounted for from the moment before QEMU is exec'd to the first login, from a scheduler trace from the kernel's start: ledgers kept beside result.json"
 }
+
 // Options are the shape's, and #611's experiment: QEMU traced for the split before the kernel's
 // clock (prekernel.go), and QEMU under strace for its ioctls' own times.
 func (ledgerProbe) Options() []Option {
