@@ -25,12 +25,20 @@ writes as before, through the same paths.
 
 Counted from the source for this machine's six virtio devices, 19
 vectors, each requested at probe: 19 writes of four MMIO accesses to
-the MSI-X table BAR, 76 exits by the first login. Nested on the bench
-fleet an exit costs ~6.7 us, about 0.5 ms, not yet measured.
+the MSI-X table BAR, 76 exits by the first login, of which 56 were measured
+gone. Nested on the bench fleet an exit costs ~6.7 us, about 0.4 ms.
 
 The one behaviour that changes is for a device that loses its MSI-X
 table without the PCI core restoring it: an affinity change to the CPU
 it already targets no longer happens to repair the entry.
+
+Measured on the bench fleet (nested KVM, Xeon 6975P-C, one vCPU, the
+workspace's shape), alone this patch moved the first SSH login by less
+than the noise. With the other four patches that remove exits from
+device setup (the IO-APIC table, the state save at add, virtio's
+capabilities, queue_select, the MSI message), the cold first login was
+9.2 ms faster, 95% interval [6.0, 12.2], over 120 interleaved boots a
+side (2026-11-23), and a restored guest's login did not move.
 
 Local patch for this machine. Not upstream.
 
