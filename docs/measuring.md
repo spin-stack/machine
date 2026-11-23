@@ -230,6 +230,14 @@ published beside release TAG, lab-only: the release's source and config with
 the release kernel's (#536). Releases before the first one built with it have none. `releases
 measure` takes one ledger of each release on it, beside its boot chart, and its record keeps it as
 `docs/releases/TAG-ledger.txt`.
+
+**It boots the way the release boots.** A release from #697 on publishes its traceable kernel as
+a vmlinux that randomizes itself, verified as the release's is, and the tree boots it through
+PVH as the release boots its own. Up to v20261123.07 it was a bzImage, and `traceable:TAG` still
+fetches that for those releases. So the ledgers of v20261123.07 and of every release after it
+until #697 booted through a decompressor their release no longer ran, and their window before the
+kernel's clock reads ~20 ms long. The tree's manifest names the kernel and how the machine
+enters it, and the ledger names that window by it.
 `--append` takes `lab.LedgerAppend` as it stands in internal/lab/ledgerprobe.go: the scheduler's
 tracepoints from the kernel's start, on CLOCK_MONOTONIC, into a 2 MiB buffer that drops what
 does not fit rather than the boot.
@@ -298,7 +306,8 @@ trace lost events. A switch away from a task the CPU was not running counts as a
 So the span before the kernel's clock is three parts, which add up to `kernel_zero` by
 construction: `before_qemu`, spin-machine to its exec of QEMU; `qemu_start`, QEMU's start and the
 held start's monitor to the guest's first instruction; and `guest_to_zero`, the firmware, the
-bzImage's decompression and the kernel's setup until its clock runs. A sched offset that puts the
+kernel's entry (through PVH, or a bzImage's decompression) and the kernel's setup until its clock
+runs. A sched offset that puts the
 machine's running before QEMU's exec refuses the ledger, as a journal without the line does.
 `kernel_zero` read 77 to 95 ms in six boots, the first the longest (lab 45110630795, bench,
 spin's shape, v20261123.04, 2026-11-23, recomputed from the run's journals with the lag):
