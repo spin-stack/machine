@@ -1,0 +1,196 @@
+name: Sanitize
+
+# QEMU's carried patches under AddressSanitizer and UndefinedBehaviorSanitizer (#653): on a change
+# to qemu/patches, the qemu pin or what builds and reads the sanitized QEMU, and weekly.
+#
+# boots: the release's configuration built from the patched tree with both sanitizers (patched
+# sanitized), as the QEMU of the newest release's tree, running what reaches each patch: the
+# machine's record and its checkpoints (0001, 0003, 0006, 0007), what a guest sees of each patch,
+# the SCSI scan past max_target and a restored TSC among them (0002, 0005), checkpoints' pauses,
+# every release's checkpoint resumed (0005), and the goal probes' boots and restores. Every
+# process writes its start and its reports to a log, and `patched reports` fails on any report,
+# naming the patch whose file it stopped in or upstream, and on logs that record no process.
+#
+# fuzz: QEMU's generic-fuzz over virtio-scsi with 0002's max_target, built with clang under both
+# sanitizers (qemu-fuzz), for half an hour on the weekly run and five minutes on a change.
+#
+# A lab build: dynamically linked against the runner's libraries, because neither sanitizer's
+# runtime links into a static musl binary as the release's is. Nothing ships it. A report on the
+# weekly run is filed as an issue, once for each kind and place (patched reports --file-issues).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sanitize-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  changed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      build: ${{ steps.qemu.outputs.build }}
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      # A scheduled or dispatched run has no base, and builds.
+      - name: Does the change reach the sanitized QEMU
+        id: qemu
+        run: spin-machine-dev changed --base "$BASE" --part qemu internal/patched cmd/spin-machine-dev/patched.go .github/workflows/sanitize.yml
+
+  boots:
+    needs: changed
+    if: needs.changed.outputs.build == 'true'
+    runs-on: runs-on/fleet=kvm/env=production
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      issues: write
+      packages: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Load vhost_vsock
+        run: spin-machine-dev vsock
+
+      - name: What building QEMU here needs
+        run: go tool task sanitize-deps
+
+      # The firmware the sanitized QEMU boots with: the release's, so a machine's record is the
+      # one the release's QEMU gives and a release's checkpoint resumes.
+      - name: Main's published QEMU, for its firmware
+        run: spin-machine-dev fetch qemu
+
+      - name: Build the patched QEMU under ASan and UBSan
+        run: go tool task sanitized
+
+      - name: The newest release, with the sanitized QEMU
+        run: go tool task boot:here QEMU="$SPIN_SANITIZED"
+
+      - name: The machine's record, its checkpoints and its resumes
+        run: go tool task boot:record
+
+      - name: What a guest sees of each QEMU patch
+        run: go tool task boot:patches
+
+      # Here it is the saves the sanitizers watch. The guest on a host short of memory is left out:
+      # the sanitized QEMU's own heap is what would decide it, and with 4 GiB left the OOM killer
+      # took the test (sanitize run 45235332661).
+      - name: Checkpoints of a busy guest
+        env:
+          SPIN_PAUSE_SAVES: "3"
+        run: go tool task boot:checkpoint-pause SKIP=/short_of_memory$
+
+      - name: A checkpoint of every release whose machine is this one resumes here
+        run: spin-machine-dev lab compat --here "$SPIN_MACHINE_OUTPUT"
+
+      - name: The first login's boots
+        run: spin-machine-dev lab run ssh-first --tree "sanitized=--from $SPIN_MACHINE_OUTPUT" --reps 3
+
+      - name: The first login's restores
+        run: spin-machine-dev lab run restore-first --tree "sanitized=--from $SPIN_MACHINE_OUTPUT --spin-machine here" --reps 3
+
+      - name: Fail on a sanitizer report, naming the patch it stopped in
+        if: ${{ !cancelled() && env.SPIN_SANITIZED != '' }}
+        env:
+          RUN: ${{ github.event_name == 'schedule' && format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) || '' }}
+        run: spin-machine-dev patched reports --file-issues "$RUN"
+
+      - name: Keep the sanitizers' logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sanitizer-boots
+          path: _output/patched/qemu/sanitizer/
+          if-no-files-found: ignore
+
+  fuzz:
+    needs: changed
+    if: needs.changed.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: What building QEMU here needs
+        run: go tool task sanitize-deps
+
+      - name: generic-fuzz over virtio-scsi with max_target
+        env:
+          FUZZTIME: ${{ github.event_name == 'schedule' && '1800' || '300' }}
+        run: go tool task qemu-fuzz
+
+      - name: Fail on a sanitizer report, naming the patch it stopped in
+        if: ${{ !cancelled() }}
+        env:
+          RUN: ${{ github.event_name == 'schedule' && format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) || '' }}
+        run: spin-machine-dev patched reports --file-issues "$RUN"
+
+      - name: Keep the crashes and the sanitizers' logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sanitizer-fuzz
+          path: |
+            _output/patched/qemu/crashes/
+            _output/patched/qemu/sanitizer/
+          if-no-files-found: ignore

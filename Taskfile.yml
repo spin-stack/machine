@@ -125,6 +125,43 @@ tasks:
       - sudo apt-get update -q
       - sudo apt-get install -y -q --no-install-recommends bc bison flex libelf-dev libssl-dev dwarves ninja-build libglib2.0-dev libpixman-1-dev python3-venv
 
+  sanitize-deps:
+    desc: What `spin-machine-dev patched sanitized` and `patched fuzzer` need to build QEMU on this host (sanitize.yml runs it by this name).
+    cmds:
+      - sudo apt-get update -q
+      - sudo apt-get install -y -q --no-install-recommends build-essential clang libclang-rt-dev ninja-build python3-venv pkg-config libglib2.0-dev libpixman-1-dev libaio-dev liburing-dev libcap-ng-dev libseccomp-dev
+
+  sanitized:
+    desc: >-
+      QEMU's patched tree built under ASan and UBSan with the release's configuration (spin-machine-dev
+      patched sanitized), its directory and the sanitizers' options exported to the steps after in
+      CI. Needs the release's firmware in _output/qemu (spin-machine-dev fetch qemu).
+    deps: [bin]
+    cmds:
+      - '{{.SPIN_MACHINE_DEV}} patched tree qemu'
+      - '{{.SPIN_MACHINE_DEV}} patched sanitized >> "${GITHUB_ENV:-/dev/stdout}"'
+
+  qemu-fuzz:
+    desc: >-
+      QEMU's generic-fuzz over a virtio-scsi controller with qemu/patches/0002's max_target at
+      spin's 15 and a disk at target 3, for FUZZTIME seconds (default 1800), under ASan and UBSan
+      (spin-machine-dev patched fuzzer). A crash leaves its input in _output/patched/qemu/crashes;
+      spin-machine-dev patched reports names it.
+    vars:
+      FUZZTIME: '{{.FUZZTIME | default "1800"}}'
+      CRASHES: '{{.OUTPUT_ABS}}/patched/qemu/crashes'
+    deps: [bin]
+    cmds:
+      - '{{.SPIN_MACHINE_DEV}} patched tree qemu'
+      - '{{.SPIN_MACHINE_DEV}} patched fuzzer > {{.OUTPUT_ABS}}/patched/qemu/fuzzer.env'
+      - |
+        set -euo pipefail
+        set -a; . {{.OUTPUT_ABS}}/patched/qemu/fuzzer.env; set +a
+        mkdir -p {{.CRASHES}}
+        QEMU_FUZZ_ARGS='-machine q35 -nodefaults -device virtio-scsi-pci,id=scsi0,num_queues=8,max_target=15 -device scsi-hd,drive=disk0,bus=scsi0.0,scsi-id=3 -drive file=null-co://,id=disk0,if=none,format=raw' \
+        QEMU_FUZZ_OBJECTS='scsi* virtio*' \
+          "$SPIN_FUZZER" --fuzz-target=generic-fuzz -max_total_time={{.FUZZTIME}} -artifact_prefix={{.CRASHES}}/
+
   test:
     desc: Test the machine definition, under the race detector, with its coverage in coverage.out and held to a floor.
     vars:
