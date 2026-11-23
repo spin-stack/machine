@@ -391,6 +391,7 @@ has 217 packages against 293.
 | `dbus-broker`, not `dbus-daemon` | configuration | The broker is what Ubuntu's systemd prefers; it is smaller and starts faster. | unmeasured | Nothing known: the bus and its activation are the same. |
 | `bubblewrap`, `socat`, `ripgrep` | added | What Codex's and Claude Code's sandboxes need to run a command: bwrap, socat as the proxy, rg to find the files to protect (#221). | function | Nothing. |
 | The docker-ce packages (`docker-ce`, `docker-ce-cli`, `docker-ce-rootless-extras`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`), from Docker's pool for resolute | added | Docker and containerd in a workspace. Each `.deb` is pinned by version and SHA-256 in `versions.yaml` and checked before it is installed, so a build installs those bytes or fails. | function | Nothing; `apt upgrade` in a workspace moves them to what Docker's repository serves then. |
+| `tzdata`, `e2fsprogs`, `fuse3` | added | Zones by name, formatting a hotplugged disk, FUSE for a user ("The package list"). | function | Nothing. |
 | Task, git-lfs, BuildKit in `/usr/local/bin` (`/usr/local/bin/task`, `/usr/local/bin/git-lfs`, `/usr/local/bin/buildctl`, `/usr/local/bin/buildkitd`, `/usr/local/bin/buildkit-runc`, `/usr/local/bin/buildkit-cni-bridge`, `/usr/local/bin/buildkit-cni-firewall`, `/usr/local/bin/buildkit-cni-host-local`, `/usr/local/bin/buildkit-cni-loopback`) | added | Tools a workspace expects, at versions pinned by SHA-256 in `versions.yaml`. | function | Nothing; `apt` does not know them, so `apt upgrade` leaves them. |
 | `/usr/libexec/spin-machine-pressure` | added | The pressure probe's guest half (docs/machine.md, "Pressure"). | see `spin-machine-pressure.timer` | Nothing. |
 | Not installed, compared with the minimal cloud image | removed | A workspace boots in a VM spin provides: no cloud-init, netplan, snapd, apport, unattended-upgrades, ubuntu-pro-client, kbd and console-setup, microcode (the host's), lxd agents, or time daemon (chrony; time is the host's). | function | See the next table. |
@@ -400,11 +401,9 @@ checked in a booted release by `task boot:workspace`:
 
 | Not installed | What a workspace notices |
 |---|---|
-| `tzdata` | No `/usr/share/zoneinfo` and no `/etc/localtime`: the clock reads UTC, `TZ=Europe/Madrid` is ignored, and a program that loads a zone by name (Python's `zoneinfo`, Java, a database) fails. `apt install tzdata` restores it. |
 | `python3` | No Python. Ubuntu's minimal image has it for cloud-init. |
-| `e2fsprogs` | No `mkfs.ext4` or `fsck.ext4` in the guest, so a disk attached to a running workspace cannot be formatted from inside it. |
 | `lsb-release` | No `lsb_release`, which some install scripts call; `/etc/os-release` is there. |
-| `xxd`, `screen`, `fdisk`, `parted`, `usbutils`, `fuse3` | The tools are absent; the kernel has FUSE, `fusermount3` is not there. |
+| `xxd`, `screen`, `fdisk`, `parted`, `usbutils` | The tools are absent. |
 | `systemd-resolved` | Name resolution is `files dns` from a `resolv.conf` the guest is handed; no `resolvectl`, and it cannot be installed (see systemd above). |
 
 Restoring any of these is a decision with no boot cost to measure (a package's files are not on
@@ -551,6 +550,13 @@ explains it.
   archive being wrong. **patch** beside diffutils: only `diff` arrived with what brings it.
   **unzip**, because a release asset downloaded with curl is usually a `.zip`; there is no zip.
 - **locales**, because the cache pre-warm calls `locale-gen` and `iconvconfig`.
+- **tzdata, e2fsprogs and fuse3** (#512), three things a workspace cannot work around from inside:
+  a zone loaded by name (Python's `zoneinfo`, Java, a database), a disk attached to a running
+  workspace formatted and checked (`mkfs.ext4`, `fsck.ext4`), and FUSE, which the kernel has and
+  `fusermount3` mounts for a user. `/etc/localtime` is tzdata's link to `Etc/UTC`, so the clock
+  still reads UTC. e2fsprogs enables `e2scrub_reap.service` in `multi-user.target` and
+  `e2scrub_all.timer`, as on Ubuntu; both find no LVM and do nothing. python3, lsb-release and the
+  smaller tools stay out: each is one `apt install` away.
 - **RemoveFiles** removes the identity files and the caches. `/etc/resolv.conf` is the sharpest: the
   guest bind-mounts one in and refuses to mount over a file that is not there, so a stale one baked
   in would be the one every container reads. `/etc/machine-id` is handled in `build.sh` instead,
@@ -863,7 +869,9 @@ nothing to give back is cheap.
 database is whole and `apt-get check` passes; `en_US.UTF-8` sets without a warning; localhost
 resolves; spin has sudo; `/tmp` is a tmpfs; debugfs mounts by hand; docker answers on its socket and
 runs a container. Since #509 it also checks that the socket is 0660, group docker, that `spin` runs
-a container through that group, and that a uid outside it is refused. `boot:logind` checks sessions, user services and logout. The release workflow runs
+a container through that group, and that a uid outside it is refused. Since #512 it loads a zone
+by name, formats, mounts and checks a disk the host attaches while the guest runs, and finds
+`fusermount3` and `/dev/fuse`. `boot:logind` checks sessions, user services and logout. The release workflow runs
 both on the release's own image (`release.yml`, the bench job), so a release that loses one fails
 there.
 
@@ -877,11 +885,10 @@ it rather than going stale. On v20261122.03 (lab 45036254377):
 | A journal kept across a reboot | The journal is `/run/log/journal/…/system.journal`, in RAM, 4 MB. | `volatile.conf` (#514) |
 | Unattended apt | No `apt-daily.timer` or `apt-daily-upgrade.timer`. | the timers |
 | apt's package lists | `apt install` says "Unable to locate package" until `apt update` has run once. | `/var/lib/apt/lists/` |
-| Time zones | No tzdata: the clock reads UTC and `TZ` is ignored. | `tzdata` (#512) |
 | `timedatectl` | It fails: timedated is masked. | `systemd-timedated.service` |
 | tracefs | `/sys/kernel/tracing` is empty: `lockdown=confidentiality` keeps tracefs's files out, mounted or not. | `sys-kernel-tracing.mount` |
 | debugfs and `/dev/hugepages` at boot | Neither is mounted. debugfs mounts by hand; hugetlbfs is mounted by whoever wants it. | `sys-kernel-debug.mount`, `dev-hugepages.mount` |
-| Some tools | No `python3`, `lsb_release`, `mkfs.ext4`, `man` or `xxd`. | the packages table (#512) |
+| Some tools | No `python3`, `lsb_release`, `man` or `xxd`. | the packages table (#512) |
 | A daemon ready at login | The first `docker` command waits 0.47 s for dockerd and containerd (two vCPUs). | `docker.socket` (deferred) |
 
 Issues this review opened, each a decision still to make: the packages a workspace gets

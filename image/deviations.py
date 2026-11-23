@@ -21,7 +21,7 @@ MADE_BY_PACKAGES = {
     "passwd", "passwd-", "group", "group-", "shadow", "shadow-", "gshadow", "gshadow-", "subuid",
     "subuid-", "subgid", "subgid-", ".pwd.lock", "shells", "hosts", "hosts.allow", "hosts.deny",
     "networks", "mtab", "ld.so.cache", "environment", "inputrc", "profile", "modules",
-    "ca-certificates.conf", "vconsole.conf", "locale.gen",
+    "ca-certificates.conf", "vconsole.conf", "locale.gen", "localtime",
 }
 
 # What maintainer scripts make under the surfaces on every Ubuntu without recording it: systemd's

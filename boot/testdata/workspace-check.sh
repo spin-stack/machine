@@ -27,7 +27,8 @@ lost "apt's package lists before an apt update" sh -c 'ls /var/lib/apt/lists/*_P
 
 must "en_US.UTF-8 is a locale" sh -c 'locale -a | grep -qx en_US.utf8'
 must "the default locale sets without a warning" sh -c 'test -z "$(LANG=en_US.UTF-8 locale 2>&1 >/dev/null)"'
-lost "time zones (tzdata)" test -e /usr/share/zoneinfo/Europe/Madrid
+must "a zone by name (tzdata)" sh -c 'h=$(TZ=Europe/Madrid date -d @0 +%H) && test "$h" = 01 || { echo "$h"; exit 1; }'
+must "/etc/localtime is UTC" sh -c 'test "$(date +%Z)" = UTC'
 lost "timedatectl" timedatectl status
 
 must "localhost resolves" getent hosts localhost
@@ -47,7 +48,20 @@ must "docker's socket is Docker's, 0660 and group docker" sh -c 'm=$(stat -c "%a
 must "spin runs a container, through the docker group" su -l spin -c 'docker run --rm --network none ws-check /task --version'
 must "a user outside the docker group is refused" sh -c '! HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups docker info >/dev/null 2>&1'
 
-for tool in python3 lsb_release mkfs.ext4 man xxd; do
+must "fusermount3 is there, for the kernel's FUSE" sh -c 'fusermount3 -V && test -c /dev/fuse'
+
+# The host attaches an empty disk when it reads the line below, as spin attaches one to a running
+# workspace.
+echo "WS waiting for a disk"
+disk=
+for _ in $(seq 100); do
+    for d in /sys/block/sd*; do grep -qa ws "$d/device/vpd_pg80" 2>/dev/null && disk=${d##*/}; done
+    [ -n "$disk" ] && break
+    sleep 0.2
+done
+must "a hotplugged disk formats, mounts and checks" sh -c "test -n '$disk' && mkfs.ext4 -q -F /dev/$disk && mkdir -p /mnt/ws && mount /dev/$disk /mnt/ws && touch /mnt/ws/x && umount /mnt/ws && fsck.ext4 -n /dev/$disk"
+
+for tool in python3 lsb_release man xxd; do
     if command -v "$tool" >/dev/null; then echo "WS has $tool"; else echo "WS absent $tool"; fi
 done
 
