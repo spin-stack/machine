@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/spin-stack/machine/machine"
 )
 
 // TestEveryProbeMeasuresATree is the VM lane: every probe once over a tree made from a built
@@ -135,12 +137,12 @@ func TestTheLabTalksToGitHub(t *testing.T) {
 	}
 	// A release's traceable kernel, its signature checked: from the first release built with one.
 	if tag := os.Getenv("SPIN_LAB_TRACEABLE"); tag != "" {
-		bz, err := src.traceable(tag)
+		k, err := src.traceable(tag)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := isBzImage(bz); err != nil {
-			t.Fatal(err)
+		if machine.PVH(k) != nil && isBzImage(k) != nil {
+			t.Fatalf("%s is neither a vmlinux the machine enters through PVH nor a bzImage", k)
 		}
 	}
 	if id := os.Getenv("SPIN_LAB_RUN"); id != "" {

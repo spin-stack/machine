@@ -73,17 +73,31 @@ type NamedEdit struct {
 	Edit Edit   `json:"edit"`
 }
 
-// partFiles are the parts of a tree, and the file under it each is checked by.
+// partFiles are the parts of a tree, and the file under it each is checked by. The kernel's is the
+// one the tree boots, which machine.OpenRelease picks (partFile).
 var partFiles = map[string]string{
 	"qemu":         "bin/qemu-system-x86_64",
 	"firmware":     "qemu/" + machine.DefaultBIOS,
-	"kernel":       "kernel/bzImage",
+	"kernel":       "kernel/vmlinux or kernel/bzImage",
 	"image":        "image/rootfs.qcow2",
 	"spin-machine": "bin/spin-machine",
 }
 
 // partFile is the file under dir that part name is checked by.
-func partFile(dir, name string) string { return filepath.Join(dir, partFiles[name]) }
+func partFile(dir, name string) (string, error) {
+	if name != "kernel" {
+		return filepath.Join(dir, partFiles[name]), nil
+	}
+	r, err := machine.OpenRelease(dir)
+	if err != nil {
+		return "", err
+	}
+	s, err := r.Spec("")
+	if err != nil {
+		return "", err
+	}
+	return s.Kernel, nil
+}
 
 const manifestName = "manifest.json"
 
@@ -118,7 +132,10 @@ func (t *Tree) check() error {
 		if !ok || p.Source == "" {
 			return fmt.Errorf("tree %s: the manifest does not say where its %s came from", t.Manifest.Name, name)
 		}
-		file := partFile(t.Dir, name)
+		file, err := partFile(t.Dir, name)
+		if err != nil {
+			return fmt.Errorf("tree %s: %w", t.Manifest.Name, err)
+		}
 		if _, err := os.Stat(file); err != nil {
 			return fmt.Errorf("tree %s has no %s: %w", t.Manifest.Name, name, err)
 		}
@@ -130,7 +147,7 @@ func (t *Tree) check() error {
 			return err
 		}
 		if sum != p.SHA256 {
-			return fmt.Errorf("tree %s: %s is %s, and its manifest says %s", t.Manifest.Name, partFiles[name], sum, p.SHA256)
+			return fmt.Errorf("tree %s: %s is %s, and its manifest says %s", t.Manifest.Name, file, sum, p.SHA256)
 		}
 	}
 	return nil
@@ -144,6 +161,9 @@ func (t *Tree) SpinMachine() string { return filepath.Join(t.Dir, "bin", "spin-m
 
 // QEMUImg is the tree's qemu-img, which makes its overlays.
 func (t *Tree) QEMUImg() string { return filepath.Join(t.Dir, "bin", "qemu-img") }
+
+// Kernel is the kernel every boot of the tree boots: its vmlinux entered through PVH, or its bzImage.
+func (t *Tree) Kernel() (string, error) { return partFile(t.Dir, "kernel") }
 
 // Rootfs is the base image every overlay of the tree is backed by. It is never opened for writing.
 func (t *Tree) Rootfs() string { return filepath.Join(t.Dir, "image", "rootfs.qcow2") }
@@ -161,9 +181,9 @@ type TreeSpec struct {
 	// a directory laid out as a release (_output after `spin-machine-dev build`).
 	From string
 	// Kernel and QEMU replace those parts: "run:N" for a parts.yml run (or a Kernel or QEMU workflow run from before it), or a path
-	// (a bzImage; a directory holding bin/qemu-system-x86_64 and qemu/). Kernel is also
-	// "traceable:vYYYYMMDD.NN", the kernel published beside that release with lockdown forced to
-	// none, which the ledger reads a trace from (release.TraceableKernel).
+	// (a vmlinux that randomizes itself or a bzImage; a directory holding bin/qemu-system-x86_64 and
+	// qemu/). Kernel is also "traceable:vYYYYMMDD.NN", the kernel published beside that release with
+	// lockdown forced to none, which the ledger reads a trace from (Sources.traceable).
 	Kernel, QEMU string
 	// SpinMachine is "here" for this checkout's, built; "release" for the one built from the
 	// commit the From tree's machine.env names, which is the machine that release defined: spin
@@ -300,7 +320,11 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 	}
 	for _, name := range []string{"kernel", "qemu", "spin-machine"} {
 		p := m.Parts[name]
-		if p.SHA256, err = fileSHA256(partFile(dir, name)); err != nil {
+		file, err := partFile(dir, name)
+		if err != nil {
+			return nil, fmt.Errorf("tree %s: %w", spec.Name, err)
+		}
+		if p.SHA256, err = fileSHA256(file); err != nil {
 			return nil, err
 		}
 		m.Parts[name] = p

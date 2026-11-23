@@ -32,7 +32,7 @@ type Ledger struct {
 	FirstLogin float64 `json:"first_login"`
 	// KernelZero is where the kernel's clock read 0 on the host's, and KernelZeroError half the
 	// width of the narrowest bracket the trips gave it: before it is QEMU, the firmware and the
-	// kernel's decompression, which no clock in the guest sees.
+	// kernel's entry (a bzImage's decompression, or PVH's), which no clock in the guest sees.
 	KernelZero      float64 `json:"kernel_zero"`
 	KernelZeroError float64 `json:"kernel_zero_error"`
 	// QEMUExec is where spin-machine exec'd QEMU, and QEMUExecError half the bracket the host's
@@ -42,9 +42,13 @@ type Ledger struct {
 	// Running is where the machine went to running and its vCPU ran the guest's first instruction:
 	// KernelZero less the kvm-clock the kernel read as it made kvm-clock the scheduler's clock, which
 	// QEMU zeroed at that moment (schedOffset). From QEMUExec to Running is QEMU's start and the held
-	// start's monitor; from Running to KernelZero, the firmware, the bzImage's decompression and the
-	// kernel's setup until its clock runs.
+	// start's monitor; from Running to KernelZero, the firmware, the kernel's entry and its setup
+	// until its clock runs.
 	Running float64 `json:"running"`
+	// PVH is whether the machine entered a vmlinux through PVH, with no decompressor (#645), and not
+	// a bzImage: what the time from Running to KernelZero holds. A ledger from before #697 has
+	// none, and booted a bzImage.
+	PVH bool `json:"pvh,omitempty"`
 	// LoginEnd is the login's command's exit on the kernel's clock: where the trace's account ends.
 	LoginEnd float64 `json:"login_end"`
 	// Residue is FirstLogin less KernelZero and LoginEnd: what the host waited for after the
@@ -685,7 +689,11 @@ func (l Ledger) Text(title string) string {
 	fmt.Fprintf(&b, "%8s %8s %8.1f  before the kernel's clock (±%.2f)\n", "", "0.0", l.KernelZero, l.KernelZeroError)
 	fmt.Fprintf(&b, "%26.1f  spin-machine, to its exec of QEMU (±%.2f)\n", l.QEMUExec, l.QEMUExecError)
 	fmt.Fprintf(&b, "%26.1f  QEMU's start and the held start, to the guest's first instruction\n", l.Running-l.QEMUExec)
-	fmt.Fprintf(&b, "%26.1f  the firmware, the decompression and the kernel's setup, to the kernel's clock\n", l.KernelZero-l.Running)
+	entry := "the firmware, the decompression and the kernel's setup, to the kernel's clock"
+	if l.PVH {
+		entry = "the firmware, the kernel's PVH entry and its setup, to the kernel's clock"
+	}
+	fmt.Fprintf(&b, "%26.1f  %s\n", l.KernelZero-l.Running, entry)
 	for _, w := range l.Windows {
 		fmt.Fprintf(&b, "%8.1f %8.1f %8.1f  %s\n", w.Start, w.End, w.End-w.Start, w.Name)
 		var rest float64
