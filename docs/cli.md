@@ -119,7 +119,8 @@ ci.yml       task lint ; task test ; task coverage ; task mutate ; task bin ;
 parts.yml    changed: spin-machine-dev changed --base $BASE --pins ... <paths>, once a part
              qemu:    spin-machine-dev build qemu --cache-registry ; vsock ; verify args ;
                       publish qemu (main)
-             kernel:  spin-machine-dev build kernel --cache-registry
+             kernel:  spin-machine-dev build kernel --cache-registry ;
+                      release traceable-kernel --cache-registry
              image:   spin-machine-dev build e2fsprogs ; spin-machine-dev build image
              parts:   spin-machine-dev needs
 compat.yml   changed: spin-machine-dev changed --base $BASE --pins ... <paths>, for the machine,
