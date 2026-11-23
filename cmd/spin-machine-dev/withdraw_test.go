@@ -218,6 +218,58 @@ esac`})
 	}
 }
 
+// A functional check the release failed is an issue named for the release and the check, with the
+// run, once; a step that passed, or was skipped after another failed, is none.
+func TestReleasesFailedOpensAnIssueForAFailedCheck(t *testing.T) {
+	checkout(t)
+	steps := `{"logind":{"outcome":"failure","conclusion":"failure","outputs":{}},"workspace":{"outcome":"skipped","conclusion":"skipped","outputs":{}}}`
+	calls := fakes(t, map[string]string{"gh": `case "$1 $2" in
+"issue list") echo '[{"title":"v1 failed boot:logind","url":"https://x/issues/1"}]';;
+"issue create") echo https://x/issues/9;;
+esac`})
+	if _, stderr, status := verb(t, "releases", "failed", "v2", "--steps", steps, "--run", "https://x/runs/5"); status != 0 ||
+		!strings.Contains(stderr, "v2 failed boot:logind: https://x/issues/9") {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	got := read(t, calls)
+	for _, want := range []string{
+		"gh issue create -R spin-stack/machine --title v2 failed boot:logind --body v2 failed boot:logind in release.yml's pause job, on the bench fleet (https://x/runs/5).",
+		"gh workflow run withdraw.yml -R spin-stack/machine -f tag=v2",
+		"spin-machine-dev lab dispatch logind --tree 'release=--from release:v2'",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in what gh ran:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "issue create") != 1 {
+		t.Errorf("a skipped check opened an issue too:\n%s", got)
+	}
+
+	calls = fakes(t, map[string]string{"gh": `[ "$1 $2" = "issue list" ] && echo '[{"title":"v2 failed boot:logind","url":"https://x/issues/9"}]'; exit 0`})
+	if _, stderr, status := verb(t, "releases", "failed", "v2", "--steps", steps); status != 0 || strings.Contains(read(t, calls), "issue create") ||
+		!strings.Contains(stderr, "https://x/issues/9") {
+		t.Errorf("opened again: exit %d, %q, gh ran %q", status, stderr, read(t, calls))
+	}
+	calls = fakes(t, map[string]string{"gh": "exit 1"})
+	if _, stderr, status := verb(t, "releases", "failed", "v2", "--steps", `{"logind":{"outcome":"success"}}`); status != 0 ||
+		!strings.Contains(stderr, "v2: no check failed") || read(t, calls) != "" {
+		t.Errorf("nothing failed: exit %d, %q, gh ran %q", status, stderr, read(t, calls))
+	}
+
+	for name, gh := range map[string]string{
+		"no issues listed": "exit 1",
+		"no issue opened":  `[ "$1 $2" = "issue list" ] && echo '[]' && exit 0; exit 1`,
+	} {
+		fakes(t, map[string]string{"gh": gh})
+		if _, _, status := verb(t, "releases", "failed", "v2", "--steps", steps); status != 2 {
+			t.Errorf("%s: exit %d", name, status)
+		}
+	}
+	if _, _, status := verb(t, "releases", "failed", "v2", "--steps", "{"); status != 2 {
+		t.Errorf("steps that are not JSON: exit %d", status)
+	}
+}
+
 // A withdrawal's record is proposed on a branch and under a title of its own: the release's own
 // name was its measurement's.
 func TestAWithdrawalIsProposedUnderItsOwnName(t *testing.T) {

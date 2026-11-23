@@ -262,6 +262,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      # The issue releases failed opens for a functional check the release failed.
+      issues: write
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.release.outputs.version }}
@@ -291,11 +293,22 @@ jobs:
       # boots each change's machine with the release's base image. It ran nowhere until #467 found
       # v20261122.03's first login failing `systemctl --user` on 10 of 10 bench boots.
       - name: A first login has its session and its user bus
+        id: logind
         run: spin-machine-dev lab check logind --tree "release=--from release:$VERSION"
       # What a workspace expects of the release's own image, and what docs/image.md says it gives up
       # (boot:workspace). Here and not in compat, for the same reason as the step above.
       - name: A workspace has what it expects
+        id: workspace
         run: spin-machine-dev lab check workspace --tree "release=--from release:$VERSION"
+
+      # A failed functional check is a regression (docs/releasing.md, "Withdrawing a release"), and
+      # a red release run is easy to miss: an issue for each check that failed, named for the
+      # release and the check (#595). Only the checks have an id, so only they are in steps.
+      - name: Open an issue for a failed check
+        if: failure()
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        run: spin-machine-dev releases failed "$VERSION" --steps "$STEPS" --run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
   # Where the release's time went, the jobs of compat and report included: the critical path on
   # the run's summary, and trace.html, every job and step on one time axis, as an artifact. Run

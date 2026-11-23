@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -239,19 +241,11 @@ once a release is measured.`,
 // already open or closed, when there is one.
 func openRegression(ctx context.Context, c *cobra.Command, r lab.Record, worse []string, run string) (string, error) {
 	repo, title := github().Repo, regressionTitle(r.Release, r.Against.Release)
-	raw, err := gh(ctx, "issue", "list", "-R", repo, "--state", "all", "--limit", "200", "--json", "title,url")
-	if err != nil {
-		return "", fmt.Errorf("looking for %q among the issues: %w", title, err)
-	}
-	var issues []struct{ Title, URL string }
-	if err := json.Unmarshal([]byte(raw), &issues); err != nil {
-		return "", fmt.Errorf("reading the issues: %w", err)
-	}
-	for _, i := range issues {
-		if i.Title == title {
-			say(c, "%s: %s", title, i.URL)
-			return i.URL, nil
+	if url, err := issueTitled(ctx, title); err != nil || url != "" {
+		if url != "" {
+			say(c, "%s: %s", title, url)
 		}
+		return url, err
 	}
 	commits, err := gh(ctx, "api", "repos/"+repo+"/compare/"+r.Against.Release+"..."+r.Release,
 		"--jq", `.commits[] | "- " + .sha[0:12] + " " + (.commit.message | split("\n")[0])`)
@@ -276,5 +270,100 @@ func openRegression(ctx context.Context, c *cobra.Command, r lab.Record, worse [
 		return "", fmt.Errorf("opening %q: %w", title, err)
 	}
 	say(c, "%s: %s", title, url)
+	return url, nil
+}
+
+// issueTitled is the URL of the issue titled title, open or closed, or "" when there is none: an
+// issue a verb opens once is looked for by its title before it is opened again.
+func issueTitled(ctx context.Context, title string) (string, error) {
+	raw, err := gh(ctx, "issue", "list", "-R", github().Repo, "--state", "all", "--limit", "200", "--json", "title,url")
+	if err != nil {
+		return "", fmt.Errorf("looking for %q among the issues: %w", title, err)
+	}
+	var issues []struct{ Title, URL string }
+	if err := json.Unmarshal([]byte(raw), &issues); err != nil {
+		return "", fmt.Errorf("reading the issues: %w", err)
+	}
+	for _, i := range issues {
+		if i.Title == title {
+			return i.URL, nil
+		}
+	}
+	return "", nil
+}
+
+// failedTitle is the issue failed opens for release's check: one each pair, which failed looks for
+// before it opens another.
+func failedTitle(release, check string) string {
+	return release + " failed boot:" + check
+}
+
+func releasesFailed() *cobra.Command {
+	var steps, run string
+	c := &cobra.Command{
+		Use:   "failed TAG --steps JSON",
+		Short: "Open an issue for each of a release's functional checks that failed",
+		Long: `Read --steps, a job's steps context as GitHub writes it (toJSON(steps)), and open an issue for
+each step whose outcome is failure, named for the release and the check, TAG failed boot:ID, with
+the run. A failed functional check is a regression (docs/releasing.md, "Withdrawing a release"),
+and a red release run is easy to miss when releases come several times a day. Only a step with an
+id is in the context, so the job gives its checks theirs, named for the boot target each runs. One
+issue a check: one already open or closed is not opened again. release.yml's pause job runs it
+when a step failed.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			var outcomes map[string]struct {
+				Outcome string `json:"outcome"`
+			}
+			if err := json.Unmarshal([]byte(steps), &outcomes); err != nil {
+				return couldNot(fmt.Errorf("reading --steps, a job's steps context: %w", err))
+			}
+			failed := 0
+			for _, check := range slices.Sorted(maps.Keys(outcomes)) {
+				if outcomes[check].Outcome != "failure" {
+					continue
+				}
+				failed++
+				url, err := openFailed(c.Context(), args[0], check, run)
+				if err != nil {
+					return couldNot(err)
+				}
+				say(c, "%s: %s", failedTitle(args[0], check), url)
+				if err := summary(failedTitle(args[0], check) + ": " + url + "\n"); err != nil {
+					return couldNot(err)
+				}
+			}
+			if failed == 0 {
+				say(c, "%s: no check failed", args[0])
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&steps, "steps", "", "the job's steps context, as JSON")
+	c.Flags().StringVar(&run, "run", "", "the URL of the run whose log says why")
+	return c
+}
+
+// openFailed opens the issue for release's failed check and answers its URL: the one already open
+// or closed, when there is one.
+func openFailed(ctx context.Context, release, check, run string) (string, error) {
+	repo, title := github().Repo, failedTitle(release, check)
+	if url, err := issueTitled(ctx, title); err != nil || url != "" {
+		return url, err
+	}
+	where := "on the bench fleet"
+	if run != "" {
+		where += " (" + run + ")"
+	}
+	body := release + " failed boot:" + check + " in release.yml's pause job, " + where + ". " +
+		"A failed functional check is a regression by docs/releasing.md, \"Withdrawing a release\".\n\n" +
+		"Read the step's log. If the release is at fault, withdraw it:\n\n" +
+		"```\ngh workflow run withdraw.yml -R " + repo + " -f tag=" + release + " -f reason=\"...\" -f issue=THIS\n```\n\n" +
+		"If the bench was, close this saying why, and check the release again: " +
+		"`spin-machine-dev lab dispatch " + check + " --tree 'release=--from release:" + release + "'`.\n"
+	url, err := gh(ctx, "issue", "create", "-R", repo, "--title", title, "--body", body)
+	if err != nil {
+		return "", fmt.Errorf("opening %q: %w", title, err)
+	}
 	return url, nil
 }
