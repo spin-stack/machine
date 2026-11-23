@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -60,7 +61,7 @@ type balloonTarget struct {
 // for: a machine resumes its own checkpoint after everything a workspace does to it while it runs,
 // and refuses by name each difference QEMU loads silently (an extra device, a larger BIOS, more
 // base RAM), while letting a machine with more hotplug targets take the checkpoint. And the BIOS
-// block it reads is the BIOS file's size.
+// block it reads is the BIOS file's size, and the vCPU's x-consistent-cache what -cpu gives it.
 //
 // A missing entry in the record's per-VM or run-time lists makes a machine refuse its own
 // checkpoint, which the first part fails on; a QEMU bump that changes what the record reads fails
@@ -102,6 +103,23 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 		}
 	})
 
+	t.Run("the record holds the switch -cpu gives leaf 2", func(t *testing.T) {
+		if got := base.CPU.Properties["x-consistent-cache"]; got != "false" {
+			t.Errorf("the record's x-consistent-cache is %q, want false as -cpu gives it, among %v", got, base.CPU.Properties)
+		}
+	})
+	// A machine of v20261122.06, before -cpu set x-consistent-cache=off; and a checkpoint a
+	// spin-machine wrote before the record held the vCPU's properties (#569).
+	leaf2FF := base
+	leaf2FF.CPU.Properties = maps.Clone(base.CPU.Properties)
+	leaf2FF.CPU.Properties["x-consistent-cache"] = "true"
+	before := base
+	before.CPU.Properties = nil
+	var eachProperty []string
+	for _, n := range slices.Sorted(maps.Keys(base.CPU.Properties)) {
+		eachProperty = append(eachProperty, "cpu "+n)
+	}
+
 	noVsock, _ := r.target(func(s *machine.Spec) { s.VsockCID = 0 })
 	seabios, _ := r.target(func(s *machine.Spec) { s.BIOS = "bios-256k.bin" })
 	moreRAM, _ := r.target(func(s *machine.Spec) { s.Memory.BaseMB = 256 })
@@ -117,6 +135,8 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 		{"more base RAM here", base, moreRAM, []string{"machine memory.size", "ram 0000:00:1e.0/mem.growth", "ram pc.ram"}},
 		{"more hotplug targets here", base, moreTargets, nil},
 		{"fewer hotplug targets here", moreTargets, base, []string{"device 1a.0 max_target"}},
+		{"leaf 2 at 0xFF in the checkpoint's machine", leaf2FF, base, []string{"cpu x-consistent-cache"}},
+		{"a checkpoint from before the record held the vCPU's properties", before, base, eachProperty},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := machine.CanResume(machine.Saved{Format: machine.FormatMappedRAM, From: tc.from}, tc.to)

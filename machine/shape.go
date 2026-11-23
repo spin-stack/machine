@@ -63,11 +63,13 @@ func (s Spec) cpuArg() string {
 	cpu += ",-vmx,-svm"
 	// CPUID leaf 2 with QEMU's own cache descriptors, where QEMU's default answers 0xFF ("see
 	// leaf 4"). Every process glibc starts asks for its cache sizes 12 times, and each 0xFF sends
-	// it round leaf 4's subleaves, ~32 CPUID exits a process. Leaves 2 and 4 describe the same
-	// caches, QEMU's model of them (env->cache_info), so a guest reads the same sizes either way.
-	// On the bench (nested), spin's shape, v20261122.06: CPUID exits from boot to the first login
-	// 3727 → 2176, first login −10.3 [−14.2, −4.0], 40 boots a side, restored login within noise
-	// (labs 45083473855, 45083473790, 45083754801, 2026-11-22, #565). It is an x- property, so a
+	// it round leaf 4's subleaves, ~32 CPUID exits a process. Under host the two leaves do not
+	// agree: legacy-cache is on, so leaf 2 describes legacy_intel_cpuid2_cache_info, a 2 MiB 8-way
+	// L2, and leaf 4 legacy_intel_cache_info, 4 MiB 16-way, and glibc now reads the 2 MiB (QEMU
+	// 11.2.0-rc0's target/i386/cpu.c, read 2026-11-22, #586). The record holds the switch
+	// (cpuidProperties), so no checkpoint crosses it. On the bench (nested), spin's shape,
+	// v20261122.06: CPUID exits from boot to the first login 3727 → 2176, first login −10.3
+	// [−14.2, −4.0], 40 boots a side, restored login within noise (labs 45083473855, 45083473790, 45083754801, 2026-11-22, #565). It is an x- property, so a
 	// QEMU that renames it fails qemu_accepts_test, not a boot.
 	cpu += ",x-consistent-cache=off"
 	for _, f := range s.CPUWithout {

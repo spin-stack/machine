@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -13,19 +14,54 @@ import (
 	"github.com/spin-stack/machine/qmp"
 )
 
-// CPU is the CPU a guest is shown: who made it, the model it is presented as, and every feature
-// it has. A guest asks CPUID once, at boot, and never again, so a checkpoint carries the CPU it
-// was shown and resumes only where the same CPU is shown.
+// CPU is the CPU a guest is shown: who made it, the model it is presented as, every feature it
+// has, and the vCPU's properties that shape what CPUID answers besides its features. A guest's
+// kernel reads CPUID at boot and keeps what it read, and a process started after a resume reads
+// it again, from the machine it resumed into, so a checkpoint carries the CPU it was shown and
+// resumes only where the same CPU is shown.
 type CPU struct {
 	Vendor string `json:"vendor"`
 	// Model is the named model the guest is shown, or host when it is shown the host's own.
 	Model string `json:"model"`
 	// Features are the names of the features the guest has, sorted.
 	Features []string `json:"features,omitempty"`
+	// Properties are the vCPU's properties in cpuidProperties, by name, each as QEMU reads it back
+	// from the running vCPU. A record from before they were held has none (#569).
+	Properties map[string]string `json:"properties,omitempty"`
 }
 
-// differences are the ways a guest shown saved would find here another CPU: its vendor, its model
-// and its set of features, each the same.
+// cpuidProperties are the vCPU's properties that shape CPUID and are not a feature bit, which
+// the record holds: the ones -cpu sets (cpuArg), and the ones the host model takes from the host
+// (host-cpu.c's host_cpu_max_instance_init, kvm-cpu.c's kvm_cpu_max_instance_init), with the
+// cache switches x-consistent-cache works with. Read in QEMU 11.2.0-rc0's target/i386 (#569):
+//
+//   - x-consistent-cache, l3-cache, legacy-cache, host-cache-info: which cache model leaves 2, 4
+//     and 0x80000005-6 describe. Under host, legacy-cache is on and x-consistent-cache=off makes
+//     leaf 2 describe legacy_intel_cpuid2_cache_info (a 2 MiB 8-way L2) where leaf 4 describes
+//     legacy_intel_cache_info (4 MiB 16-way), so a process glibc starts reads another L2 from
+//     either side of the switch. host-cache-info is only host's and max's, and a named model's
+//     vCPU has none to read.
+//   - family, model, stepping, model-id: leaf 1 and the brand string, the host's under host.
+//   - level, xlevel: the highest leaves, KVM's under host.
+//   - phys-bits, guest-phys-bits: leaf 0x80000008, the host's under host (host-phys-bits).
+//   - pmu: leaf 0xA, which KVM's host model turns on.
+//
+// Left out: migratable, enforce, check and x-force-features decide which features are on, which
+// Features holds; a vCPU's topology ids are its slot, and the topology is the machine's
+// (Hardware's machine smp); the other switches (hv-*, kvm, vmware-cpuid-freq, cpuid-0xb, the
+// x-vendor-cpuid-only pair and the rest of x86_cpu_properties) are at the machine type's
+// defaults, which QEMU keeps for pc-q35-11.1 across versions, until -cpu sets one, and
+// TestTheRecordHoldsWhatTheCPUIsGiven fails a -cpu option that is neither a feature nor here. MSRs (lbr-fmt, ucode-rev,
+// lmce) are not CPUID.
+var cpuidProperties = []string{
+	"family", "guest-phys-bits", "host-cache-info", "l3-cache", "legacy-cache", "level", "model",
+	"model-id", "phys-bits", "pmu", "stepping", "x-consistent-cache", "xlevel",
+}
+
+// differences are the ways a guest shown saved would find here another CPU: its vendor, its model,
+// its set of features and each of its properties, each the same. A property one side has and the
+// other does not is a difference: a record from before the properties were held is refused by
+// each, because nothing in it says which side of x-consistent-cache=off it was taken on (#569).
 //
 // The same set, and not a subset of here's: a guest that was told an instruction exists executes
 // it, and on a CPU without it that is an invalid opcode long after the resume reported success;
@@ -47,6 +83,20 @@ func (saved CPU) differences(here CPU) []Difference {
 	gone, added := without(saved.Features, here.Features), without(here.Features, saved.Features)
 	if len(gone) > 0 || len(added) > 0 {
 		ds = append(ds, Difference{Part: "cpu features", Checkpoint: strings.Join(gone, " "), Here: strings.Join(added, " "), Rule: Same})
+	}
+	names := slices.Collect(maps.Keys(saved.Properties))
+	for n := range here.Properties {
+		if _, ok := saved.Properties[n]; !ok {
+			names = append(names, n)
+		}
+	}
+	slices.Sort(names)
+	for _, n := range names {
+		was, ok := saved.Properties[n]
+		is, has := here.Properties[n]
+		if ok != has || was != is {
+			ds = append(ds, Difference{Part: "cpu " + n, Checkpoint: was, Here: is, Rule: Same})
+		}
 	}
 	return ds
 }
@@ -107,7 +157,8 @@ type cpuDefinition struct {
 // A feature is a name QEMU's static expansion of the model lists as a flag: the CPUID features,
 // one canonical name each. The vCPU and the full expansion also answer to aliases (sse4.1, sse4-1
 // and sse4_1 are one feature) and to switches that are no CPUID bit (migratable, check, pmu,
-// l3-cache), which the static expansion leaves out (QEMU 11.2.0-rc0, 2026-11-21).
+// l3-cache), which the static expansion leaves out (QEMU 11.2.0-rc0, 2026-11-21). The switches
+// that shape CPUID are read off the same vCPU into Properties.
 func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
 	cpus, err := qmp.Do(ctx, m.c, queryCPUsFast, qmp.None{})
 	if err != nil {
@@ -136,7 +187,13 @@ func (m *QEMU) CPU(ctx context.Context) (CPU, error) {
 		}
 	}
 	slices.Sort(on)
-	return CPU{Vendor: vcpu.text("vendor"), Model: model, Features: on}, nil
+	props := map[string]string{}
+	for _, name := range cpuidProperties {
+		if v := vcpu.value(name); v != nil {
+			props[name] = qomValue(v)
+		}
+	}
+	return CPU{Vendor: vcpu.text("vendor"), Model: model, Features: on, Properties: props}, nil
 }
 
 // expand is the static expansion of model: its properties as QEMU would give a vCPU of it.
