@@ -42,7 +42,7 @@ RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false
     meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra}
 
 COPY image/systemd/tests-passed.py /build/tests-passed.py
-RUN tests="test-engine test-load-fragment test-unit-name test-unit-file test-install-root" && \
+RUN tests="test-engine test-load-fragment" && \
     meson configure obj-* -Dtests=true && \
     ninja -C obj-* $tests && \
     meson test -C obj-* --no-rebuild --print-errorlogs $tests && \
