@@ -551,7 +551,7 @@ func TestAGuestLostAgainAndAgainIsOneGuestLost(t *testing.T) {
 	if err := x.w.register(7); err != nil {
 		t.Fatal(err)
 	}
-	end := func(i int) chan struct{} {
+	end := func(i int) *os.File {
 		r, w, err := os.Pipe()
 		if err != nil {
 			t.Fatal(err)
@@ -561,23 +561,24 @@ func TestAGuestLostAgainAndAgainIsOneGuestLost(t *testing.T) {
 		l.mu.Lock()
 		x.w.conn = r // as take makes it, without take's pace
 		l.mu.Unlock()
-		done := make(chan struct{})
-		go func() { l.serve(r, x.w); close(done) }()
-		return done
+		return r
 	}
 	before := runtime.NumGoroutine()
-	first := end(0)
+	first := make(chan struct{})
+	go func(r *os.File) { l.serve(r, x.w); close(first) }(end(0))
 	for waiting := false; !waiting; time.Sleep(time.Millisecond) {
 		l.mu.Lock()
 		waiting = x.w.lost != nil
 		l.mu.Unlock()
 	}
+	// The later ends are served on this goroutine, so that the count below sees only what serve
+	// left: a goroutine of the test's own, past its last statement, read as one left (#582).
 	const ends = lineBurst / 4 // two lines an end, well within the guest's line burst
 	for i := 1; i < ends; i++ {
-		select {
-		case <-end(i):
-		case <-time.After(answerWait / 2):
-			t.Fatalf("end %d waited while the first's GuestLost waits", i)
+		start := time.Now()
+		l.serve(end(i), x.w)
+		if waited := time.Since(start); waited >= answerWait/2 {
+			t.Fatalf("end %d waited %v while the first's GuestLost waits", i, waited)
 		}
 	}
 	if n := runtime.NumGoroutine(); n > before+1 {
@@ -588,7 +589,7 @@ func TestAGuestLostAgainAndAgainIsOneGuestLost(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0].(GuestLost).Err.Error(), fmt.Sprintf("bad%d", ends-1)) {
 		t.Fatalf("%d ends told %+v, not one GuestLost with the last error", ends, got)
 	}
-	<-end(ends)
+	l.serve(end(ends), x.w)
 	if got := x.pressures(); len(got) != 2 {
 		t.Errorf("the loss after a GuestLost told %d, not a second GuestLost", len(got)-1)
 	}
