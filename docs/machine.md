@@ -598,9 +598,12 @@ as given instead of asking the machine.
 A `*machine.Refusal` in `Resume`'s error, matched with `errors.As`, is the one answer that says
 the checkpoint will not resume into a machine like this one, so a retry on this host fails the
 same way. spin answers it by trying the next host and, once every host has refused, booting the
-workspace from its disk. `Resume` refuses three things this way, each before QEMU reads a byte:
+workspace from its disk. `Resume` refuses four things this way, each before QEMU reads a byte:
 
 - what `CanResume` refuses;
+- a state file whose length is not the `Saved.Length` its checkpoint recorded (part
+  `state length`): a state cut short or partly copied. A checkpoint saved before the length was
+  recorded has none, and resumes without the check;
 - a format this QEMU does not read (part `format`), which only a `here` that claims more formats
   than QEMU reads lets past `CanResume`;
 - a `Saved.Added` that does not parse (part `added`).
@@ -614,8 +617,9 @@ tells a state no QEMU can load from a host that failed to read it (QEMU 11.2.0-r
 2026-11-22). The `MIGRATION` event carries the status alone. Every failure of the load ends at the
 same label in `process_incoming_migration_co`, which puts the reason on stderr and exits. That
 covers a section QEMU rejects, a state file that ends early, the host's read failing (both of
-which `qemu_fill_buffer` reports as `-EIO`), and userfaultfd refused to a fast load. So a truncated
-state is not a `Refusal`, and `task boot:record` asserts it on a real one (`events_test.go`). spin
-keeps the memory and retries it, which is safe. A state that no QEMU can load then stays suspended
-instead of booting its disk. #546 is how the machine could tell a truncated state apart.
+which `qemu_fill_buffer` reports as `-EIO`), and userfaultfd refused to a fast load. So the state's
+length is checked before QEMU is asked to load it, and `task boot:record` holds a real truncated
+state to a `Refusal` with the state never read (`events_test.go`, #546). A state of the right length
+whose bytes changed in place still fails as a plain error. spin keeps the memory and retries it,
+which is safe, and such a state stays suspended instead of booting its disk.
 

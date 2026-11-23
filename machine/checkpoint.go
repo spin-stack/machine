@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -135,6 +136,12 @@ type Saved struct {
 	// while the guest ran - in a form only the VMM reads. It is not the machine: From is what the
 	// machine was started with.
 	Added json.RawMessage `json:"added,omitempty"`
+	// Length is the state file's length in bytes as Checkpoint wrote it, which Resume holds the
+	// file it is handed to before QEMU reads a byte: a state cut short or partly copied is the
+	// checkpoint's own failure, and QEMU's load says only that it failed (#546). It does not
+	// catch bytes changed in place. Zero is a checkpoint from before it was recorded, which
+	// resumes without the check.
+	Length int64 `json:"length,omitempty"`
 }
 
 // Checkpoint formats. A QEMU without mapped-ram, or told to load without it, cannot read a
@@ -421,6 +428,10 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	if err != nil {
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: %w", err)
 	}
+	st, err := to.Stat()
+	if err != nil {
+		return Saved{}, Cost{}, fmt.Errorf("checkpointing: reading the length of the state it wrote: %w", err)
+	}
 	info, err := qmp.Do(ctx, m.c, queryMigrate, qmp.None{})
 	if err != nil {
 		return Saved{}, Cost{}, fmt.Errorf("checkpointing: reading what it cost: %w", err)
@@ -431,7 +442,7 @@ func (m *QEMU) Checkpoint(ctx context.Context, to *os.File, save SaveOptions, se
 	}
 	tell(save.Phases, SaveCompleted{At: completedAt, Cost: cost})
 	m.then = save.Phases
-	return Saved{Format: FormatMappedRAM, From: from, Added: again}, cost, nil
+	return Saved{Format: FormatMappedRAM, From: from, Added: again, Length: st.Size()}, cost, nil
 }
 
 // finishPoll is how long finished waits between two asks. QEMU leaves finish-migrate as soon as its
@@ -555,11 +566,14 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 // the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor does not see, so QEMU needs a
 // full userfaultfd (userfaults).
 //
-// A *Refusal in its error is the checkpoint itself: CanResume's, a format this QEMU does not
-// read, or a Saved.Added it cannot read. Every other error, a load that failed among them
+// A *Refusal in its error is the checkpoint itself: CanResume's, a state file of another length
+// than Saved.Length, a format this QEMU does not read, or a Saved.Added it cannot read. Every other error, a load that failed among them
 // (loadEnded), may be this host or this try, and is not typed.
 func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error {
 	if err := CanResume(saved, here); err != nil {
+		return fmt.Errorf("resuming: %w", err)
+	}
+	if err := holdsWhatWasWritten(state, saved); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
 	fast := loadsFast(state, saved)
@@ -662,6 +676,25 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	tell(load.Phases, GuestRunning{At: time.Now()})
 	if fast {
 		m.then, m.data = load.Phases, data
+	}
+	return nil
+}
+
+// holdsWhatWasWritten refuses a state whose length is not the one its checkpoint recorded
+// (Saved.Length), a *Refusal: QEMU reads a state cut short until it ends, then exits with the
+// reason on its stderr and the monitor told only that the load failed, which a host's failed
+// read says too (QEMU 11.2.0-rc0, process_incoming_migration_co's fail: label, #546). A file
+// that cannot be asked its length is this host's, and not typed.
+func holdsWhatWasWritten(state *os.File, saved Saved) error {
+	if saved.Length == 0 {
+		return nil
+	}
+	st, err := state.Stat()
+	if err != nil {
+		return fmt.Errorf("reading the state's length: %w", err)
+	}
+	if st.Size() != saved.Length {
+		return &Refusal{[]Difference{{Part: "state length", Checkpoint: strconv.FormatInt(saved.Length, 10), Here: strconv.FormatInt(st.Size(), 10), Rule: Same}}}
 	}
 	return nil
 }
