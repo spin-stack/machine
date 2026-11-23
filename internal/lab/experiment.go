@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -175,36 +174,26 @@ func (e Experiment) Run(ctx context.Context) (*Result, error) {
 	return r, nil
 }
 
-// optionsOf is the options tree t boots with: the run's, with the tree's own shape options in their
-// place. Only the shape: the rows and the login are the run's, one for every tree, since a table
-// compares the trees row by row and one key logs into every machine.
+// optionsOf is the options tree t boots with: the run's, with the tree's own in their place. The
+// rows and the login stay the run's, one for every tree, since a table compares the trees row by
+// row and one key logs into every machine: a tree's option that would change either is refused.
 func optionsOf(p Probe, run Options, t *Tree) (Options, error) {
 	if len(t.Manifest.Options) == 0 {
 		return run, nil
 	}
-	o := maps.Clone(run)
-	for _, name := range slices.Sorted(maps.Keys(t.Manifest.Options)) {
-		if name == "login" || !slices.ContainsFunc(shape, func(s Option) bool { return s.Name == name }) {
-			return nil, fmt.Errorf("tree %s: %s is not a shape option a tree can set; a tree sets %s", t.Name(), name, treeOptionNames())
-		}
-		o[name] = t.Manifest.Options[name]
+	if _, ok := t.Manifest.Options["login"]; ok {
+		return nil, fmt.Errorf("tree %s: login is the run's, since one key logs into every machine of it", t.Name())
 	}
+	o := maps.Clone(run)
+	maps.Copy(o, t.Manifest.Options)
 	o, err := settle(p, o)
 	if err != nil {
 		return nil, fmt.Errorf("tree %s: %w", t.Name(), err)
 	}
-	return o, nil
-}
-
-// treeOptionNames are the options a tree can set: the shape's, but the login.
-func treeOptionNames() string {
-	var names []string
-	for _, s := range shape {
-		if s.Name != "login" {
-			names = append(names, s.Name)
-		}
+	if !slices.Equal(p.Rows(o), p.Rows(run)) {
+		return nil, fmt.Errorf("tree %s: its options make the rows %v, and the run's are %v: a table compares the trees row by row", t.Name(), p.Rows(o), p.Rows(run))
 	}
-	return strings.Join(names, ", ")
+	return o, nil
 }
 
 // Scratch is where an experiment's overlays and states go, and the device that is: TMPDIR when it

@@ -282,8 +282,9 @@ table and record says the shape it measured. A record that names none booted tha
 
 A tree takes the same `--opt` for its own boots, in place of the run's, so that two shapes are two
 trees of one interleaved run instead of two runs: `--tree 'plug=--from release' --tree
-'start=--from release --opt memory=2048 --opt plugged=0'`. It sets any shape option but `login`,
-since one key logs into every machine of a run. The table lists each tree's options beside its
+'start=--from release --opt memory=2048 --opt plugged=0'`. It sets any of the probe's options but
+`login`, since one key logs into every machine of a run, and but one that changes the probe's rows,
+since the table compares the trees row by row. The table lists each tree's options beside its
 parts.
 
 Two options make a boot spin's after it starts as well. `plugged=MIB` (default 2048) sizes the
