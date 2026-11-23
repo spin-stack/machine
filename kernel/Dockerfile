@@ -141,7 +141,7 @@ COPY kernel/patches/ /usr/src/patches/
 ARG CHECKPATCH_VERSION
 ARG CHECKPATCH_SHA256
 RUN mkdir /usr/src/checkpatch && cd /usr/src/checkpatch && \
-    curl -o checkpatch.pl -fsSL "https://raw.githubusercontent.com/torvalds/linux/${CHECKPATCH_VERSION}/scripts/checkpatch.pl" && \
+    curl -o checkpatch.pl -fsSL --retry 5 --retry-all-errors "https://raw.githubusercontent.com/torvalds/linux/${CHECKPATCH_VERSION}/scripts/checkpatch.pl" && \
     echo "${CHECKPATCH_SHA256}  checkpatch.pl" | sha256sum -c - && \
     cp /usr/src/linux/scripts/spelling.txt /usr/src/linux/scripts/const_structs.checkpatch . && \
     failed=0 && \
