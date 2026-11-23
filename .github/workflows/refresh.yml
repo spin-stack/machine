@@ -83,8 +83,8 @@ jobs:
   # A job of its own for each source, as apk's: the refresh leaves the checkout on the branch it
   # proposed. Ubuntu's archive serves only the source resolute publishes now, so image/systemd and
   # image/openssh fail to build from the day it moves until the pin follows; this proposes the move
-  # that day. parts.yml builds the pull request, and for openssh that build is also where a patch
-  # in image/openssh that no longer applies without fuzz to the new source fails.
+  # that day. parts.yml builds the pull request, and that build is also where a patch in
+  # image/systemd or image/openssh that no longer applies without fuzz to the new source fails.
   sources:
     if: github.ref == 'refs/heads/main' && github.event.schedule != '17 7 * * 1'
     runs-on: ubuntu-24.04

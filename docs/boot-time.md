@@ -204,6 +204,7 @@ them for boot time.
 | `rootfstype=ext4` | machine/cmdline.go | lead (11-19) | laptop | - |
 | `quiet`, `loglevel=3`, `panic=1`, `net.ifnames=0`, `biosdevname=0`, cgroup v2, `memhp_default_state` | machine/cmdline.go | console, function | - | - |
 | systemd built from Ubuntu's source with the `stage1` profile | image/systemd | first login −47, −38, −47: no BPF verifier in PID 1 | ladder | labs 44531842773, 44537549305, 44538877783 |
+| systemd's drop-in candidate names derived once per unit, not once per lookup directory: upstream #42858 (v262), backported to 259 | image/systemd/0001-dropin-derive-candidate-names-once.patch | first login −6.5 [−9.9, −1.3], 100 a side against systemd rebuilt without it; PID 1's CPU before the login 56.0 → 52.4, p50 of 5 ledgers. Prior art: Eric Curtin's PR, `manager_enumerate()` 45.35 → 38.81 ms (50 runs, ~270 units, a container); Yocto's backport to 259.5 | measured | labs 45090299768, 45090326943 |
 | systemd's tools linked static | image/systemd | −10 and −1, inside the noise | ladder | the same |
 | SELinux off, `pcre2` on | image/systemd | function | - | - |
 | `-O ^orphan_file` | image/build.sh | lead (11-19) | laptop | - |
@@ -354,6 +355,7 @@ and a row measured in another shape than spin's has such a reason.
 | `systemd-user-sessions` without its ExecStart (it removes a /run/nologin the image never writes), its ExecStop kept | −0.6 [−5.2, +1.5] at 60 boots | spin | the same | 11-22 |
 | Mask `sshd-socket-generator`, again on spin's path | +0.8 [−4.0, +4.7] at 60 boots | spin | the same | 11-22 |
 | `DefaultMemoryAccounting=no`, for cheaper unit cgroups | +4.1 [+0.8, +7.1] at 60 boots, worse; sshd accepting +6.2 [+2.2, +8.0]. The cause is not measured | spin | the same | 11-22 |
+| No unit made for a `RequiresMountsFor=` prefix with no unit file (`unit_add_mount_dependencies` checks the unit name map before it loads one) | −1.0 [−4.3, +3.9] at 100 boots, and PID 1's CPU before the login 57.2 against 56.0, p50 of 5: not separable. Whether the stubs went in those boots was not observed (no debug boot of the arm) | spin | labs 45090299768, 45090326943 | 11-23 |
 | `pam_selinux` (twice) and `pam_mail` out of sshd's PAM stack: SELinux is off and there is no mail | −1.9 [−4.9, +2.8] at 60 boots | spin | lab 44979726719 | 11-22 |
 | `nsswitch.conf` without the `db` entries libnss-db would serve (kept since 09, never measured); reverted to Ubuntu's | taking it back +0.8 [−8.4, +5.2] cold, restored in noise | spin | lab 45034963004 | 11-22 |
 | The manager's timeouts at 15 s and 10 s, the watchdogs off (`fast-boot.conf`); reverted to systemd's defaults | taking it back +0.3 [−5.2, +3.3] cold, restored in noise | spin | lab 45034963004 | 11-22 |

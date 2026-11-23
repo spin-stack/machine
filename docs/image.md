@@ -20,7 +20,7 @@ one-line pointer to a section of this document.
 | Stage | Where | What it does |
 |---|---|---|
 | The toolchain | `image/Dockerfile` | Ubuntu 26.04 by digest, mkosi from its release tarball by SHA-256, both from `versions.yaml`. The digests of Task, git-lfs and BuildKit are passed in as environment for the tree. mkosi cannot run under BuildKit (it unshares namespaces), so `spin-machine-dev build image` runs this container with `--cap-add SYS_ADMIN`. |
-| Two rebuilt packages | `image/systemd`, `image/openssh` | Ubuntu's own systemd and OpenSSH source packages, rebuilt and versioned `+spin1`. systemd is built with Debian's `stage1` profile (no BPF framework in PID 1, no SELinux, audit, TPM2, homed). OpenSSH carries `userauth-delay-failures.patch`. Their rows are under "Packages". |
+| Two rebuilt packages | `image/systemd`, `image/openssh` | Ubuntu's own systemd and OpenSSH source packages, rebuilt and versioned `+spin1`. systemd is built with Debian's `stage1` profile (no BPF framework in PID 1, no SELinux, audit, TPM2, homed) and carries upstream's drop-in lookup change (#42858). OpenSSH carries `userauth-delay-failures.patch`. Their rows are under "Packages". |
 | The tree | `image/mkosi.conf` | mkosi installs the `Packages=` list from the archive, with the two rebuilt packages offered from a local repository. `WithDocs=no` keeps documentation out (the per-package copyright files stay). `RemoveFiles=` removes identity and caches. `mkosi.extra` is staged under `/usr/local/lib/spin-base`, not at its final paths. |
 | The scripts | `image/mkosi.postinst.chroot` | In the tree, in this order: `install-dev-tools.sh`, `configure-system.sh`, the licence texts collected, the rebuilt packages held, `optimize-systemd.sh`, then `rootfs/` copied over `/`, then the staging directory deleted. |
 | The filesystem | `image/build.sh` | Installs the pressure sender, empties `/etc/machine-id` and removes the rest of the identity, writes `licenses.txt` and `packages.txt` beside the image, checks the rebuilt packages are held, checks the inventory (below), makes a partitionless ext4 with this repository's own `mkfs.ext4`, checks it, opens it and asserts what follows, and wraps it in a read-only qcow2. |
@@ -133,6 +133,15 @@ fixes are Ubuntu's. What changes is the build:
   loads it.
 - `systemd-executor` (exec'd for every unit PID 1 starts), udevd and its helpers, systemctl and
   journalctl link libsystemd-shared in statically. PID 1, journald and logind have no such option.
+- One patch, `image/systemd/0001-dropin-derive-candidate-names-once.patch`, applied after
+  Ubuntu's own without fuzz: upstream's #42858 (v262), backported. PID 1 looked for a unit's
+  drop-in directories by working out its candidate names (the name, its template, its "-"
+  prefixes) again for each of ~12 lookup directories and 4 suffixes, for every unit it loads. It
+  now works them out once per name. First login −6.5 ms [−9.9, −1.3], 100 boots a side against
+  systemd rebuilt without it, and PID 1's CPU before the login 56.0 → 52.4 ms, p50 of 5 ledgers
+  (labs 45090299768, 45090326943, 2026-11-23). The Dockerfile fails when the patch no longer
+  applies, and when its function is not in the source it built. A release ships the patch as
+  `usr/share/spin-stack/systemd/`.
 
 Measured on the bench fleet, 20 boots of each interleaved, the first SSH login: stage1 −47, −38
 and −47 ms against the archive's systemd (labs 44531842773, 44537549305, 44538877783); static over

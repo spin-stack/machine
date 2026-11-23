@@ -54,7 +54,7 @@ func tree(t *testing.T) (root, out string) {
 	t.Helper()
 	root, out = t.TempDir(), t.TempDir()
 	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/mtrr.patch", "qemu/qboot/pam.patch", "qemu/patches/0001-a.patch",
-		"image/openssh/a.patch"} {
+		"image/openssh/a.patch", "image/systemd/s.patch"} {
 		put(t, filepath.Join(root, f), f, 0o644)
 	}
 	for _, b := range append(slices.Clone(build.QEMUBinaries), build.E2fsprogsBinaries...) {
@@ -124,15 +124,15 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755,
 		share + "bin/debugfs": 0o755, share + "qemu/qboot.bin": 0o644, share + "qemu/qboot-mtrr.patch": 0o644, share + "qemu/qboot-pam.patch": 0o644,
 		share + "qemu/qboot-COPYING": 0o644, share + "qemu/patches/0001-a.patch": 0o644, share + "kernel/patches/0001-k.patch": 0o644,
-		share + "openssh/a.patch": 0o644, share + "kernel/bzImage": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
+		share + "openssh/a.patch": 0o644, share + "systemd/s.patch": 0o644, share + "kernel/bzImage": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
 		share + "e2fsprogs/mke2fs.conf": 0o644, share + "packages.txt": 0o644}
 	for f, mode := range want {
 		if m, ok := got[f]; !ok || m != mode {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 32 {
-		t.Errorf("the tarball holds %d files, want 32: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 33 {
+		t.Errorf("the tarball holds %d files, want 33: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return
@@ -220,6 +220,7 @@ func TestAReleaseMissingAnythingIsRefused(t *testing.T) {
 		{"every qboot patch", "root:qemu/qboot/*.patch", "qboot's patch"},
 		{"every kernel patch", "out:kernel/patches", "kernel patch"},
 		{"every OpenSSH patch", "root:image/openssh/*.patch", "OpenSSH patch"},
+		{"every systemd patch", "root:image/systemd/*.patch", "systemd patch"},
 		{"the base image", "out:image/rootfs.qcow2", "the base image"},
 		{"an apk database", "out:sbom/qemu.apk", "qemu.apk"},
 		{"the package list", "out:packages.txt", "package list"},

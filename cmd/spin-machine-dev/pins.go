@@ -78,7 +78,8 @@ func refreshCmd() *cobra.Command {
 
   kernel   the newest release of the kernel's series, and never past it (versions.yaml's note);
            most of what a stable release fixes is fixed before it is called a CVE
-  systemd  the systemd source package the archive publishes now
+  systemd  the systemd source package the archive publishes now; parts.yml's image build on the
+           pull request applies every patch in image/systemd to it without fuzz, as for openssh
   openssh  the openssh source package the archive publishes now; parts.yml's image build on the
            pull request applies every patch in image/openssh to it without fuzz, and fails there
            when one no longer applies

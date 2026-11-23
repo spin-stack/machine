@@ -179,6 +179,7 @@ func shipped(o Options, top, share string) ([]file, error) {
 		{filepath.Join(o.Root, "qemu/patches/*.patch"), "qemu/patches/", "QEMU patch"},
 		{fromOut("kernel/patches/*.patch"), "kernel/patches/", "kernel patch"},
 		{filepath.Join(o.Root, "image/openssh/*.patch"), "openssh/", "OpenSSH patch"},
+		{filepath.Join(o.Root, "image/systemd/*.patch"), "systemd/", "systemd patch"},
 	} {
 		found, _ := filepath.Glob(d.glob)
 		if len(found) == 0 {
@@ -320,7 +321,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		return nil, err
 	}
 	parts = append(parts, sbom.New(subject("base-image", o.Version), image, nil, o.Epoch))
-	// QEMU, qboot, the kernel and OpenSSH are built with this repository's patches: each is in its
+	// QEMU, qboot, the kernel, systemd and OpenSSH are built with this repository's patches: each is in its
 	// component's pedigree, so the SBOM does not say upstream's source is what was compiled.
 	pins, err := sbom.Pins(o.Pins, strings.Fields("qemu qboot e2fsprogs kernel ubuntu systemd-source openssh-source task git-lfs buildkit")...)
 	if err != nil {
@@ -331,6 +332,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		"qboot":          filepath.Join(o.Root, "qemu/qboot"),
 		"kernel":         filepath.Join(o.Out, "kernel/patches"),
 		"openssh-source": filepath.Join(o.Root, "image/openssh"),
+		"systemd-source": filepath.Join(o.Root, "image/systemd"),
 	}
 	for i, c := range pins {
 		dir, ok := patches[c.Name]

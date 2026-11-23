@@ -114,8 +114,9 @@ systemd %s+spin1
   packages: those in usr/share/spin-stack/packages.txt at %s+spin1
             (systemd, systemd-sysv, udev, libsystemd0, libsystemd-shared, libudev1,
             libpam-systemd and the rest of that source's binary packages the image installs)
-  source:   Ubuntu's source package, unpatched: %s
-            and the tarballs it names beside it
+  source:   Ubuntu's source package: %s
+            and the tarballs it names beside it, with usr/share/spin-stack/systemd/*.patch
+            applied to it after Ubuntu's own (each says what it changes and why)
   sha256:   %s (the .dsc, which holds the tarballs' checksums)
   built by: image/systemd/Dockerfile: Debian's stage1 build profile, SELinux disabled and
             systemd-executor, udevd, systemctl and journalctl linked statically against
