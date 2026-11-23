@@ -196,7 +196,7 @@ owns both ends: a sender in the guest and the listener on the host. spin keeps w
 the host's own PSI, ranking, attribution and what to do about it.
 
 ```go
-l, err := machine.ListenPressure()  // once per host, as root: vsock port 1032
+l, err := machine.ListenPressure()  // once per host, as root: vsock port machine.PressurePort, 1032
 defer l.Close()
 p, err := machine.Start(ctx, spec, machine.StartOptions{
 	Pressure: l.Watch(func(e machine.Pressure) { /* must not block */ }),
@@ -319,8 +319,39 @@ stall memory 150000 1000000 8123    a trigger fired: resource, threshold, window
 oom 4                               the guest's OOM kills so far
 ```
 
+**A machine Start did not start.** A runner that restarts finds the machines its predecessor
+started still running, and reconnects their monitors with `Attach`. `PressureWatch.Adopt` puts a
+watch on one of them, as `StartOptions.Pressure` puts one on a machine `Start` starts:
+
+```go
+a, err := l.Watch(notify).Adopt(cid, pid) // the guest's vsock CID, QEMU's pid
+defer a.Close()                           // when QEMU exits, or the runner lets the machine go
+```
+
+This is the contract spin's `qemu.Attach` relies on (spin-stack/spin#1684, #679):
+
+- **What it hears.** Adopt registers the CID with the listener, reads QEMU's cgroup from
+  `/proc/PID/cgroup` and arms the same triggers on it. The watch then hears the guest's Stalls and
+  OOMKills, the host's Stalls, `GuestLost`, and each cgroup limit's `Limited`. It hears no
+  `SlowCommand` and no `DiskLimit`'s `Limited`, since both are read through the monitor `Start`
+  connected, and an adopted machine has none (#679).
+- **What it refuses.** What `Start` refuses: a CID of 0, a QEMU in its caller's own cgroup, and
+  triggers the caller cannot arm, as when it is not root. It also refuses a watch that is another
+  machine's and a CID another watch holds. A refused Adopt holds nothing.
+- **The guest.** Its sender lost the old listener with the runner that held it, and dials again
+  by itself, 1 s after that and backing off to 30 s while nobody listens. The first count of OOM
+  kills the watch hears is the base: the kills before it were the watch before's to report.
+- **Close is the caller's.** QEMU is not the caller's child after a restart, so nothing here waits
+  on it. The caller closes the watch when its pidfd says QEMU has exited or when it detaches. Close
+  frees the CID, ends the guest's connection with no `GuestLost` and closes the triggers. A second
+  Close does nothing. The pid is read once, by Adopt, and a pid freed before then may name another
+  process. A caller holding QEMU's pidfd asks it after Adopt whether QEMU still runs, and closes the
+  watch if not.
+
 **What spin does to adopt it.** It makes one `ListenPressure` at the runner's start and passes
-`Watch` to each `Start`, with each QEMU in its cgroup through `Cmd`, as it already does. Its pressure
+`Watch` to each `Start`, with each QEMU in its cgroup through `Cmd`, as it already does, and to
+`Adopt` for each machine it takes back after a restart. Its list of vsock ports names the
+listener's as `machine.PressurePort`. Its pressure
 handler then takes `Stall{Seen: Guest, Resource: MemoryPressure}` where its runner took the guest
 supervisor's `POST /v2/memory-pressure` on port 1027. The supervisor's notice, and the runner's
 handler for it, are then deleted: the trigger they arm is the same, 150 ms in 1 s.

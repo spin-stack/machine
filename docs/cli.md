@@ -489,7 +489,7 @@ What is not a probe is a check, pass or fail, and stays a Go test with its `boot
 `firmware`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug`, `actuators` (what SetMemory down and one vCPU cost, docs/machine.md), `compat` (every release whose machine is this one, through `lab compat`),
 `hotadd`, `logind`, `lockdown`, `sshd-delay`, `shell` (`spin-machine-dev shell` reaches a root prompt under systemd), `workspace` (what a workspace expects of the image, docs/image.md) and `finish-migrate` (a checkpoint continued at once on two busy CPUs, which a qemu bump runs). Two probes not yet ported stay Go tests too: `firmware-stages` and `waits`.
 `lab check TARGET` runs one on any tree here. lab.yml's `check:TARGET` runs `firmware`,
-`firmware-stages`, `waits`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug`, `actuators`, `sshd-delay`, `shell`, `logind` and `workspace`, the targets its `probe` input
+`firmware-stages`, `waits`, `record`, `rollback`, `checkpoint-pause`, `cpu-plug`, `actuators`, `sshd-delay`, `shell`, `logind`, `workspace` and `pressure` (the pressure probe, Adopt's included, docs/machine.md), the targets its `probe` input
 lists.
 
 lab.yml's experiment is one step, `task lab:ci`, after `task vsock`. The step makes the trees its

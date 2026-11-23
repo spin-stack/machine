@@ -42,32 +42,11 @@ func TestThePressureProbeReportsEachPressure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := newGuestRoot(t, out, base)
-	sender, err := os.ReadFile(os.Getenv("SPIN_PRESSURE_SENDER"))
-	if err != nil {
-		t.Fatalf("reading the sender task boot:pressure built (SPIN_PRESSURE_SENDER): %v", err)
-	}
 	check, err := os.ReadFile(filepath.Join("testdata", "pressure-check.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	root.write("/usr/libexec/spin-machine-pressure", string(sender))
-	root.debugfs("set_inode_field /usr/libexec/spin-machine-pressure mode 0100755")
-	for _, unit := range []string{"spin-machine-pressure.service", "spin-machine-pressure.timer"} {
-		path := "/usr/lib/systemd/system/" + unit
-		text, err := os.ReadFile(filepath.Join("..", "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", path))
-		if err != nil {
-			t.Fatal(err)
-		}
-		root.write(path, string(text))
-	}
-	root.debugfs("symlink /etc/systemd/system/timers.target.wants/spin-machine-pressure.timer /usr/lib/systemd/system/spin-machine-pressure.timer")
-	root.write("/pressure-check.sh", string(check))
-	// OOMPolicy=continue: by default systemd stops a service one of whose processes the OOM killer
-	// killed, and the check would end at its oom phase.
-	root.write("/etc/systemd/system/pressure-check.service", "[Unit]\nAfter=multi-user.target\n[Service]\nType=oneshot\n"+
-		"OOMPolicy=continue\nExecStart=/bin/sh /pressure-check.sh\nStandardOutput=journal+console\nStandardError=journal+console\n")
-	root.debugfs("symlink /etc/systemd/system/multi-user.target.wants/pressure-check.service /etc/systemd/system/pressure-check.service")
+	root := newPressureRoot(t, out, base, string(check))
 
 	lim, limDev := newLimitDisk(t, os.Getenv("SPIN_PRESSURE_DISK_DIR"))
 
@@ -283,6 +262,201 @@ func TestThePressureProbeReportsEachPressure(t *testing.T) {
 	if after.Guest == nil || after.Guest.OOMKills == 0 {
 		t.Errorf("the balloon reported no OOM kill: %+v", after.Guest)
 	}
+}
+
+// TestAnAdoptedMachinesPressureIsHeard is Adopt's lane: a machine started with one listener's
+// watch, as a runner starts it, and adopted into a second listener's once the first is closed, as
+// the runner that replaces it does. The guest of the release in SPIN_MACHINE_OUTPUT, with this
+// checkout's sender, runs three loops on its one vCPU (testdata/pressure-adopt.sh), and QEMU's
+// cgroup is held at cpu.max once adopted. The adopted watch must hear the guest's CPU stall, the
+// host's and cpu.max's Limited; once closed, its CID must be another watch's to take. Root, for
+// the host's triggers and the cgroup QEMU runs in, KVM and /dev/vhost-vsock: task boot:pressure.
+func TestAnAdoptedMachinesPressureIsHeard(t *testing.T) {
+	if os.Getenv("SPIN_PRESSURE_TEST") != "1" {
+		t.Skip("set SPIN_PRESSURE_TEST=1, as root, to adopt a machine's pressure: task boot:pressure")
+	}
+	if os.Geteuid() != 0 {
+		t.Fatal("the host's triggers and QEMU's cgroup need root: task boot:pressure runs this under sudo")
+	}
+	out := outputDir(t)
+	rel, err := OpenRelease(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := rel.Rootfs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	check, err := os.ReadFile(filepath.Join("testdata", "pressure-adopt.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := newPressureRoot(t, out, base, string(check))
+
+	cgroup := filepath.Join("/sys/fs/cgroup", fmt.Sprintf("spin-pressure-adopt-%d", os.Getpid()))
+	if err := os.Mkdir(cgroup, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(cgroup) })
+	dir, err := os.Open(cgroup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dir.Close() }()
+
+	// heard is what each watch was told, by the watch's name.
+	var mu sync.Mutex
+	heard := map[string][]Pressure{}
+	watch := func(l *PressureListener, name string) *PressureWatch {
+		return l.Watch(func(p Pressure) {
+			mu.Lock()
+			defer mu.Unlock()
+			heard[name] = append(heard[name], p)
+		})
+	}
+	// until waits for the watch named to have been told a Pressure that ok takes.
+	until := func(ctx context.Context, name, what string, ok func(Pressure) bool) {
+		t.Helper()
+		for {
+			mu.Lock()
+			for _, p := range heard[name] {
+				if ok(p) {
+					mu.Unlock()
+					return
+				}
+			}
+			mu.Unlock()
+			select {
+			case <-ctx.Done():
+				t.Fatalf("the %s watch was never told %s: %v", name, what, ctx.Err())
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}
+	stall := func(v Vantage) func(Pressure) bool {
+		return func(p Pressure) bool {
+			s, ok := p.(Stall)
+			return ok && s.Seen == v && s.Resource == CPUPressure
+		}
+	}
+
+	started, err := ListenPressure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := rel.Spec("kvm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.BootCPUs, spec.Memory.BaseMB = 1, 1024
+	spec.Places = []Place{{Serial: "root"}}
+	spec.VsockCID = 4000 + os.Getpid()%10000
+	c := DefaultCmdline()
+	c.Root, c.Init = "/dev/vda", "/sbin/init"
+	spec.Cmdline = c
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+	console := &consoleText{news: make(chan struct{}, 1)}
+	p, err := Start(ctx, spec, StartOptions{Pressure: watch(started, "started"), Console: console, Cmd: func(c *exec.Cmd) {
+		c.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true, CgroupFD: int(dir.Fd())}
+	}})
+	if err != nil {
+		_ = started.Close()
+		t.Fatal(err)
+	}
+	defer p.Kill()
+	f, err := os.OpenFile(root.path, os.O_RDWR, 0) // #nosec G304 -- the root this test made
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	if err := p.Boot(ctx, Disk{Serial: "root", Images: []Image{{File: f, Format: "raw"}}}); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		for {
+			if strings.Contains(console.String(), "PRESSURE_CHECK_FAILED") {
+				t.Errorf("the guest's check failed:\n%s", console.String())
+				cancel()
+				return
+			}
+			select {
+			case <-console.news:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	until(ctx, "started", "the guest's CPU stall", stall(Guest))
+
+	// The runner that started the machine is gone, and its listener with it.
+	if err := started.Close(); err != nil {
+		t.Fatal(err)
+	}
+	next, err := ListenPressure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = next.Close() }()
+	adopted, err := watch(next, "adopted").Adopt(uint32(spec.VsockCID), p.Pid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adopted.Close()
+	if err := os.WriteFile(filepath.Join(cgroup, "cpu.max"), []byte("20000 100000"), 0); err != nil {
+		t.Fatal(err)
+	}
+	until(ctx, "adopted", "the guest's CPU stall", stall(Guest))
+	until(ctx, "adopted", "the host's CPU stall", stall(Host))
+	until(ctx, "adopted", "cpu.max's Limited", func(p Pressure) bool {
+		l, ok := p.(Limited)
+		return ok && l.Limit == CPUMax
+	})
+
+	adopted.Close()
+	again, err := watch(next, "again").Adopt(uint32(spec.VsockCID), p.Pid())
+	if err != nil {
+		t.Fatalf("the CID of a machine let go: %v", err)
+	}
+	defer again.Close()
+	until(ctx, "again", "the guest's CPU stall", stall(Guest))
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, name := range []string{"started", "adopted", "again"} {
+		for _, p := range heard[name] {
+			t.Logf("%-7s %T %+v", name, p, p)
+		}
+	}
+}
+
+// newPressureRoot is a private raw copy of the release's root with this checkout's sender
+// (SPIN_PRESSURE_SENDER) and its units, and check, a script run once multi-user.target is reached,
+// its output on the console. OOMPolicy=continue: by default systemd stops a service one of whose
+// processes the OOM killer killed, and a check would end at its oom phase.
+func newPressureRoot(t *testing.T, out, base, check string) *guestRoot {
+	t.Helper()
+	root := newGuestRoot(t, out, base)
+	sender, err := os.ReadFile(os.Getenv("SPIN_PRESSURE_SENDER"))
+	if err != nil {
+		t.Fatalf("reading the sender task boot:pressure built (SPIN_PRESSURE_SENDER): %v", err)
+	}
+	root.write("/usr/libexec/spin-machine-pressure", string(sender))
+	root.debugfs("set_inode_field /usr/libexec/spin-machine-pressure mode 0100755")
+	for _, unit := range []string{"spin-machine-pressure.service", "spin-machine-pressure.timer"} {
+		path := "/usr/lib/systemd/system/" + unit
+		text, err := os.ReadFile(filepath.Join("..", "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		root.write(path, string(text))
+	}
+	root.debugfs("symlink /etc/systemd/system/timers.target.wants/spin-machine-pressure.timer /usr/lib/systemd/system/spin-machine-pressure.timer")
+	root.write("/pressure-check.sh", check)
+	root.write("/etc/systemd/system/pressure-check.service", "[Unit]\nAfter=multi-user.target\n[Service]\nType=oneshot\n"+
+		"OOMPolicy=continue\nExecStart=/bin/sh /pressure-check.sh\nStandardOutput=journal+console\nStandardError=journal+console\n")
+	root.debugfs("symlink /etc/systemd/system/multi-user.target.wants/pressure-check.service /etc/systemd/system/pressure-check.service")
+	return root
 }
 
 // newLimitDisk is a disk of 256 MiB written in a directory of dir, which must be on a block
