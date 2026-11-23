@@ -20,9 +20,10 @@ if echo none > /sys/kernel/security/lockdown 2>/dev/null; then
 fi
 grep -q '\[confidentiality\]' /sys/kernel/security/lockdown
 
-# The kernel is at a random address (KASLR). It is the bzImage's decompressor that picks one.
-# Until 2026-11-19 the machine entered vmlinux through PVH, which skips it, and the kernel ran
-# where it was linked, ffffffff81000000, with CONFIG_RANDOMIZE_BASE=y all the same. So the address
+# The kernel is at a random address (KASLR). Until 2026-11-19 the machine entered a vmlinux
+# through PVH that could not move, and the kernel ran where it was linked, ffffffff81000000, with
+# CONFIG_RANDOMIZE_BASE=y all the same. The vmlinux entered now moves itself (#645), and
+# boot:kaslr asks where across boots; this asks one boot. So the address
 # is asked of the kernel: _text, readable to root once kptr_restrict is 0, and not the linked
 # one. A randomized kernel lands on that one 2 MiB slot about once in 480 boots (the slots of a
 # 1 GiB kernel image space, less the first 16 MiB and the kernel's own size), so a failure here
