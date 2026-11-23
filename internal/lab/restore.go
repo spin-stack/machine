@@ -24,7 +24,8 @@ import (
 )
 
 // restoreFirst is the goal's second number: a checkpoint restored to the same first login. Each
-// tree is booted cold, logged into, saved with `spin-machine save` - which ends it - and later
+// tree is booted cold, logged into, left to finish its boot (bootFinished), saved with
+// `spin-machine save` - which ends it - and later
 // restored with `boot --restore` and `spin-machine restore`, and logged into again, from the
 // moment before QEMU is exec'd.
 //
@@ -71,6 +72,7 @@ func (restoreFirst) Metrics() []Metric {
 	return []Metric{
 		{"state", "MiB", "the saved state's blocks on the disk (a mapped-ram state's length is its RAM ceiling)"},
 		{"cold_login", "ms", "the cold boot's first login"},
+		{"finished", "ms", "the cold boot's guest saying its boot is over (bootFinished), from the moment before QEMU is exec'd"},
 		{"save", "ms", "`spin-machine save`, which ends the machine"},
 		{"read", "ms", "the state's data read, sequentially, from the disk (the cached row)"},
 		{"listening", "ms", "the restoring QEMU's monitor accepting a connection: its chardevs made, its machine not yet"},
@@ -216,6 +218,7 @@ func coldSave(m *Measurement, channels ...string) error {
 		return err
 	}
 	m.RecordMs("cold_login", c.login)
+	m.RecordMs("finished", c.finished)
 	m.RecordMs("save", c.save)
 	m.Record("state", c.stateMiB)
 	m.State = c.checkpoint
@@ -226,7 +229,7 @@ func coldSave(m *Measurement, channels ...string) error {
 // saved is a checkpoint and what making it took.
 type saved struct {
 	*checkpoint
-	login, save time.Duration
+	login, finished, save time.Duration
 	// stateMiB is the state's blocks on the disk and not its length: a mapped-ram state is as long
 	// as the machine's RAM at its ceilings, and what was never written is holes.
 	stateMiB float64
@@ -255,6 +258,10 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 	if err := plugged(); err != nil {
 		return nil, err
 	}
+	if err := bootFinished(m, c.cid); err != nil {
+		return nil, err
+	}
+	c.finished = time.Since(t0)
 	if err := touch(m, c.cid); err != nil {
 		return nil, err
 	}
@@ -277,6 +284,32 @@ func saveCold(m *Measurement, prefix string, channels ...string) (*saved, error)
 	}
 	c.stateMiB = float64(st.Sys().(*syscall.Stat_t).Blocks*512) / (1 << 20)
 	return c, nil
+}
+
+// finishedCommand returns once the guest's boot is over, as docs/measuring.md ("When a checkpoint
+// is taken") defines it: the system manager out of its start, multi-user.target active and no job
+// queued, and the logging-in user's manager out of its own start. multi-user.target and the empty
+// queue are there because is-system-running alone can say running too soon: a unit that starts
+// part of the boot once the first jobs are done (#581's Type=idle one) finds a queue that was
+// empty for a moment, and the manager has called its start finished by then.
+const finishedCommand = `timeout 60 sh -c '
+s=$(systemctl is-system-running --wait)
+case $s in running|degraded) ;; *) echo "the system manager is $s"; exit 1;; esac
+until systemctl is-active -q multi-user.target && [ -z "$(systemctl list-jobs --no-legend)" ]; do sleep 0.02; done
+s=$(systemctl --user is-system-running --wait)
+case $s in running|degraded) ;; *) echo "the user manager is $s"; exit 1;; esac
+' || { systemctl list-jobs --no-pager; exit 1; }`
+
+// bootFinished returns once the guest on cid has finished its boot. A probe that saves waits for
+// it first: spin checkpoints an empty workspace, a project's or a prebuild long after its boot,
+// never while the boot is still running (#578), and a state saved mid-boot carries the boot's
+// remaining jobs into every restore of it.
+// mutate-lane: TestEveryProbeMeasuresATree
+func bootFinished(m *Measurement, cid uint32) error {
+	if _, _, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, finishedCommand); err != nil {
+		return Miss("the guest's boot did not finish: %v", err)
+	}
+	return nil
 }
 
 // touch writes the touched option's MiB into a tmpfs in the guest on cid, which its checkpoint then

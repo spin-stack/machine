@@ -140,6 +140,9 @@ func runDelayCold(m *Measurement) error {
 	if err := plugged(); err != nil {
 		return err
 	}
+	if err := bootFinished(m, c.cid); err != nil {
+		return err
+	}
 	if c.steal, err = guestSteal(m, c.cid); err != nil {
 		return err
 	}
