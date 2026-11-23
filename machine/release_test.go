@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spin-stack/machine/internal/elftest"
 )
 
 // tree writes a release-shaped directory containing exactly the given files.
@@ -26,7 +29,7 @@ func tree(t *testing.T, files ...string) string {
 	return dir
 }
 
-var whole = []string{qemuName, qemuImgName, kernelName, filepath.Join(firmwareDir, kernelROM), filepath.Join(firmwareDir, DefaultBIOS)}
+var whole = []string{qemuName, qemuImgName, bzImageName, filepath.Join(firmwareDir, bzImageROM), filepath.Join(firmwareDir, DefaultBIOS)}
 
 func TestOpenReleaseNamesWhatIsMissing(t *testing.T) {
 	// One file at a time, because a release with a hole in it is the failure
@@ -48,12 +51,51 @@ func TestOpenReleaseNamesWhatIsMissing(t *testing.T) {
 	}
 }
 
-// A release from before v20261119.02 carries a vmlinux and pvh.bin and no bzImage. Nothing
-// enters a vmlinux any more, so it is refused, and the refusal names what it lacks.
+// A release from before v20261119.02 carries a vmlinux that cannot move, pvh.bin and no
+// bzImage. Entered, it ran where it was linked, so it is refused, and the refusal names what it
+// lacks.
 func TestOpenReleaseRefusesAReleaseWithoutABzImage(t *testing.T) {
-	old := tree(t, qemuName, qemuImgName, "kernel/vmlinux", filepath.Join(firmwareDir, "pvh.bin"), filepath.Join(firmwareDir, DefaultBIOS))
-	if _, err := OpenRelease(old); err == nil || !strings.Contains(err.Error(), kernelName) {
+	old := tree(t, qemuName, qemuImgName, vmlinuxName, filepath.Join(firmwareDir, pvhROM), filepath.Join(firmwareDir, DefaultBIOS))
+	if _, err := OpenRelease(old); err == nil || !strings.Contains(err.Error(), bzImageName) {
 		t.Errorf("OpenRelease of a release without a bzImage returned %v", err)
+	}
+	// Nor is an ELF with the entry note alone: QEMU would enter it where it was linked.
+	writeKernel(t, filepath.Join(old, vmlinuxName), elftest.Kernel([]uint32{xenPhys32Entry}, nil))
+	if _, err := OpenRelease(old); err == nil || !strings.Contains(err.Error(), bzImageName) {
+		t.Errorf("OpenRelease of a release whose vmlinux cannot move returned %v", err)
+	}
+}
+
+// A vmlinux that QEMU places at a random physical base and that moves its own virtual base is
+// what a release boots, through PVH, whether a bzImage is beside it or not; and pvh.bin, the
+// option ROM that enters it, is then part of a whole release.
+func TestOpenReleaseBootsAVmlinuxThatRandomizesItself(t *testing.T) {
+	dir := tree(t, qemuName, qemuImgName, bzImageName, filepath.Join(firmwareDir, bzImageROM), filepath.Join(firmwareDir, DefaultBIOS))
+	writeKernel(t, filepath.Join(dir, vmlinuxName), elftest.Kernel([]uint32{xenPhys32Entry, xenPhys32Reloc}, nil))
+	if _, err := OpenRelease(dir); err == nil || !strings.Contains(err.Error(), pvhROM) {
+		t.Errorf("OpenRelease without pvh.bin returned %v", err)
+	}
+	writeKernel(t, filepath.Join(dir, firmwareDir, pvhROM), nil)
+	r, err := OpenRelease(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := r.Spec("kvm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Kernel != filepath.Join(dir, vmlinuxName) {
+		t.Errorf("the release boots %s, not its vmlinux", s.Kernel)
+	}
+	if !slices.Contains(s.Files(), filepath.Join(dir, firmwareDir, pvhROM)) {
+		t.Errorf("a machine of it opens %v, without pvh.bin", s.Files())
+	}
+}
+
+func writeKernel(t *testing.T, path string, b []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -145,7 +187,7 @@ func TestSpecTakesItsPathsFromTheRelease(t *testing.T) {
 		// The rest of a machine is about one VM and is the caller's to fill in.
 		want := Spec{
 			QEMU:     filepath.Join(dir, qemu),
-			Kernel:   filepath.Join(dir, kernelName),
+			Kernel:   filepath.Join(dir, bzImageName),
 			Firmware: filepath.Join(dir, firmwareDir),
 			Accel:    accel,
 		}

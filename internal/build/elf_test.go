@@ -11,23 +11,45 @@ import (
 	"testing"
 
 	"github.com/spin-stack/go-tools/versions"
+
+	"github.com/spin-stack/machine/internal/elftest"
 )
 
-// A whole kernel is a relocatable bzImage and an ELF beside it. A Go binary is an ELF.
+// A whole kernel is a relocatable bzImage and, beside it, a vmlinux that randomizes itself.
 func TestAWholeKernelVerifies(t *testing.T) {
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	out := t.TempDir()
 	b, _ := os.ReadFile(bzImage(t, "HdrS", 1))
-	v, _ := os.ReadFile(self)
+	v := elftest.Kernel([]uint32{18, 19}, []byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0x10, 0, 0, 0})
 	for p, body := range map[string][]byte{"kernel/bzImage": b, "kernel/vmlinux": v} {
 		_ = os.MkdirAll(filepath.Dir(filepath.Join(out, p)), 0o755)
 		_ = os.WriteFile(filepath.Join(out, p), body, 0o644)
 	}
 	if err := VerifyKernel(Options{Out: out}); err != nil {
 		t.Errorf("a whole kernel: %v", err)
+	}
+}
+
+// A vmlinux that would run where it was linked is refused, each way it can: QEMU cannot place it
+// (no PHYS32_RELOC note), it cannot move itself (no .data.reloc), or the relocs tool never filled
+// the table it reserved.
+func TestAVmlinuxThatCannotMoveIsRefused(t *testing.T) {
+	filled := []byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0x10, 0, 0, 0}
+	for _, tc := range []struct {
+		what  string
+		notes []uint32
+		reloc []byte
+		says  string
+	}{
+		{"no PVH entry", []uint32{19}, filled, "note 18"},
+		{"no PHYS32_RELOC", []uint32{18}, filled, "note 19"},
+		{"no .data.reloc", []uint32{18, 19}, nil, "no .data.reloc"},
+		{"an unfilled table", []uint32{18, 19}, []byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0}, "empty"},
+	} {
+		path := filepath.Join(t.TempDir(), "vmlinux")
+		_ = os.WriteFile(path, elftest.Kernel(tc.notes, tc.reloc), 0o644)
+		if err := SelfRandomizing(path); err == nil || !strings.Contains(err.Error(), tc.says) {
+			t.Errorf("%s: %v, want an error saying %q", tc.what, err, tc.says)
+		}
 	}
 }
 

@@ -142,8 +142,8 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 33 {
-		t.Errorf("the tarball holds %d files, want 33: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 34 {
+		t.Errorf("the tarball holds %d files, want 34: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return

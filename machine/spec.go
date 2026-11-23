@@ -206,7 +206,8 @@ type Spec struct {
 
 	// Firmware is the directory QEMU loads option ROMs and BIOS blobs from. It
 	// is the `qemu/` directory of a release; without it the machine cannot find
-	// the BIOS, nor linuxboot_dma.bin, the option ROM QEMU adds for the bzImage.
+	// the BIOS, nor the option ROM QEMU enters the kernel with: pvh.bin for an ELF
+	// kernel, linuxboot_dma.bin for a bzImage.
 	Firmware string
 
 	// BIOS is the firmware the machine runs, a file in Firmware: DefaultBIOS when
@@ -432,7 +433,7 @@ func (s Spec) validate() error {
 		return fmt.Errorf("%d disks arriving later, and the controller addresses %d",
 			s.HotplugDisks, maxHotplugDisks)
 	}
-	if err := isBzImage(s.Kernel); err != nil {
+	if err := bootable(s.Kernel); err != nil {
 		return err
 	}
 	if err := s.Cmdline.validate(); err != nil {
