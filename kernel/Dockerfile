@@ -657,6 +657,8 @@ EOT
 # bzImage, with flags of their own: `make C=2 arch/x86/boot/compressed/misc.o` compiles one with
 # vmlinux's and fails (job 137873298240). So the patched side rebuilds them through the bzImage
 # with V=1, which prints the sparse command kbuild ran for each, and both sides run that command.
+# That log holds bytes grep takes for binary, and it then prints no line: it is read with -a
+# (job 137883284845).
 # The upstream side cannot rebuild the bzImage: its vmlinux would link through 0016's postlink
 # with 0015's relocs taken out. arch/x86/tools is left out by name: host programs, which C=
 # never checks.
@@ -688,7 +690,7 @@ RUN <<EOT
         make ARCH=${KERNEL_ARCH} V=1 C=1 bzImage > /tmp/sparse-bzimage.log 2>&1 || {
             cat /tmp/sparse-bzimage.log; echo "ERROR: make V=1 C=1 bzImage failed"; exit 1; }
         for f in $boot; do
-            grep -E "^ *sparse .* $f\$" /tmp/sparse-bzimage.log | tail -1 > "/tmp/sparse-cmd-$(echo "$f" | tr / _)"
+            grep -aE "^ *sparse .* $f\$" /tmp/sparse-bzimage.log | tail -1 > "/tmp/sparse-cmd-$(echo "$f" | tr / _)"
             [ -s "/tmp/sparse-cmd-$(echo "$f" | tr / _)" ] || {
                 echo "ERROR: the bzImage's build ran no sparse over $f"; exit 1; }
         done
