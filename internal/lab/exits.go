@@ -38,6 +38,9 @@ import (
 // idle as well as its wake-up. The MSRs, ports, MMIO addresses and CPUID leaves behind the exits,
 // and the exits split between the guest's kernel and the rest (its userspace, the firmware and the
 // decompressor, which run at low addresses), are kept beside result.json for a person to read.
+// The MMIO and port exits are also put on the guest function that made them, through the guest's
+// kallsyms (#566). That names the accessor, such as pci_mmcfg_read: its callers come from a guest
+// trace with stacks, which a tree booting the traceable kernel with ftrace= has kept.
 //
 // The host is the run's alone: every exit the histograms see is this guest's.
 type exitsProbe struct{}
