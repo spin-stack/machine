@@ -67,6 +67,7 @@ func TestTheKernelMovesEveryBoot(t *testing.T) {
 		if m == nil {
 			t.Fatalf("boot %d: no KASLR line on the console:\n%s", i+1, console)
 		}
+		t.Logf("boot %d: %s", i+1, regexp.MustCompile(`KASLR cpu [^\r\n]*`).FindString(console))
 		t.Logf("boot %d: _text %s, Kernel code at %s, lowest vmalloc %s, lowest unix socket %s", i+1, m[1], m[2], m[3], m[4])
 		for j, what := range []string{"text", "phys", "vmalloc", "directmap"} {
 			v, err := strconv.ParseUint(m[j+1], 16, 64)

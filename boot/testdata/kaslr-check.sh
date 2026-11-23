@@ -20,5 +20,6 @@ test -n "$text" && test -n "$phys" && test -n "$vmalloc" && test -n "$directmap"
 test "$phys" != 00000000
 
 trap - EXIT
+echo "KASLR cpu $(grep -m1 "^flags" /proc/cpuinfo | grep -ow "rdrand\|ds_cpl\|tsc" | sort -u | tr "\n" " ")"
 echo "KASLR text=$text phys=$phys vmalloc=$vmalloc directmap=$directmap"
 echo KASLR_CHECK_OK
