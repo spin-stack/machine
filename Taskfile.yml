@@ -155,6 +155,27 @@ tasks:
         fi
       - coverfloor {{.COVERAGE_FLOOR}} coverage.out
 
+  fuzz:
+    desc: >-
+      Each Go fuzz target (func FuzzX: what the machine parses from outside, a checkpoint's record
+      and QMP's replies, #653) for FUZZTIME (default 60s) each. A failing input is written to the
+      package's testdata/fuzz, where go test runs it from then on: commit it with the fix.
+    vars:
+      FUZZTIME: '{{.FUZZTIME | default "60s"}}'
+    env:
+      SPIN_MACHINE_OUTPUT: /nonexistent
+    cmds:
+      # The targets are found, not listed: a list is how one goes missing. Minimizing an input
+      # that adds coverage takes up to a minute by default, which a bounded run spends idle.
+      - |
+        set -eu
+        go test -list '^Fuzz' ./... | awk '/^Fuzz/ { t[n++] = $1 } /^ok / { for (i = 0; i < n; i++) print $2, t[i]; n = 0 }' > "${TMPDIR:-/tmp}/fuzz-targets"
+        [ -s "${TMPDIR:-/tmp}/fuzz-targets" ] || { echo "no fuzz targets found" >&2; exit 1; }
+        while read -r pkg target; do
+          echo "== $pkg $target"
+          go test -run '^$' -fuzz "^$target\$" -fuzztime {{.FUZZTIME}} -fuzzminimizetime 5s "$pkg"
+        done < "${TMPDIR:-/tmp}/fuzz-targets"
+
   lint:
     desc: >-
       Everything CI checks that is not a build: formatting, vet, the Taskfiles parse, every

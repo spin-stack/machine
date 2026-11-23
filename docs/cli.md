@@ -162,7 +162,9 @@ the release that needed them.
 
 What a person types is spin-machine-dev. The Taskfile is go-tools' gates, the same in every
 spin-stack repository (`test`, `lint`, `mutate`, `coverage`), and CI's plumbing:
-`bin`, `git:app` (git as the release app), `trace` and `ship-it:wake`. The probes' targets
+`bin`, `git:app` (git as the release app), `trace` and `ship-it:wake`. `fuzz` runs each Go fuzz target
+(`func FuzzX`: a checkpoint's record and QMP's replies) for `FUZZTIME` each, as ci.yml's `fuzz`
+job does; an input one fails on is committed under the package's `testdata/fuzz` with the fix. The probes' targets
 (`boot:*`), `lab`, `lab:ci` and `vsock` run what the verbs built.
 
 `versions`, `bump`, `release`, `lint:workflows` and `consumers` are not written here: the
