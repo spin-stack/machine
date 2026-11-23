@@ -20,13 +20,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spin-stack/machine/internal/elftest"
 	"github.com/spin-stack/machine/machine"
 )
 
-// compatDir is a release or a machine whose QEMU says it is version, with a bzImage.
+// compatDir is a release or a machine whose QEMU says it is version, with a bzImage and what
+// machine.OpenRelease asks of a release that boots one.
 func compatDir(t *testing.T, dir, version string) {
 	t.Helper()
-	write(t, filepath.Join(dir, "kernel", "bzImage"), []byte("bzImage"))
+	for _, f := range []string{"kernel/bzImage", "bin/qemu-img", "qemu/linuxboot_dma.bin", "qemu/" + machine.DefaultBIOS} {
+		write(t, filepath.Join(dir, f), []byte(f))
+	}
 	write(t, filepath.Join(dir, "bin", "qemu-system-x86_64"), []byte("#!/bin/sh\necho 'QEMU emulator version "+version+" (v"+version+")'\n"))
 }
 
@@ -135,12 +139,17 @@ func TestCompatResumesEveryReleaseUntilOneIsRefused(t *testing.T) {
 	}
 }
 
-// A release from before v20261119.02 carries no bzImage, and no spin-machine since boots it:
-// Compat stops there with a row that says so, rather than failing on what it cannot open.
-func TestCompatStopsAtTheFirstReleaseWithoutABzImage(t *testing.T) {
+// A release from before v20261119.02 carries a vmlinux that runs where it was linked and no
+// bzImage, and no spin-machine since boots it: Compat stops there with a row that says so, rather
+// than failing on what it cannot open. A release from #660 on carries no bzImage either, and a
+// vmlinux that randomizes itself, which the machine boots: it is checked.
+func TestCompatStopsAtTheFirstReleaseTheMachineDoesNotBoot(t *testing.T) {
 	here := t.TempDir()
 	compatDir(t, here, "11.1.90")
 	src, rel := compatReleases(t, map[string]string{"v2": "11.1.3", "v1": "11.1.3"})
+	_ = os.Remove(filepath.Join(rel("v2"), "kernel", "bzImage"))
+	write(t, filepath.Join(rel("v2"), "kernel", "vmlinux"), elftest.Kernel([]uint32{18, 19}, []byte{0x10, 0, 0, 0}))
+	write(t, filepath.Join(rel("v2"), "qemu", "pvh.bin"), []byte("pvh"))
 	if err := os.Rename(filepath.Join(rel("v1"), "kernel", "bzImage"), filepath.Join(rel("v1"), "kernel", "vmlinux")); err != nil {
 		t.Fatal(err)
 	}
@@ -153,14 +162,20 @@ func TestCompatStopsAtTheFirstReleaseWithoutABzImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []CompatRow{{Release: "v2", Resumed: true}, {Release: "v1", NoBzImage: true}}
+	if len(rows) == 2 && !strings.Contains(rows[1].Why, "bzImage") {
+		t.Errorf("v1's row does not say what is missing: %q", rows[1].Why)
+	}
+	if len(rows) == 2 {
+		rows[1].Why = ""
+	}
+	want := []CompatRow{{Release: "v2", Resumed: true}, {Release: "v1", Unbootable: true}}
 	if !reflect.DeepEqual(rows, want) {
 		t.Errorf("rows\n%+v\nwant\n%+v", rows, want)
 	}
 	if !reflect.DeepEqual(resumed, []string{rel("v2")}) {
 		t.Errorf("resumed %v: not past the release without a bzImage", resumed)
 	}
-	if table := CompatTable(rows); !strings.Contains(table, "| v1 | not checked: it carries no bzImage") {
+	if table := CompatTable(rows); !strings.Contains(table, "| v1 | not checked: this machine boots neither") {
 		t.Errorf("no row for v1 in:\n%s", table)
 	}
 }

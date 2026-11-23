@@ -213,10 +213,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Ends in verifying it (spin-machine-dev verify kernel), which reads the bzImage's setup header (a relocatable
-      # bzImage, or KASLR is off) and checks vmlinux's Xen PVH notes survived the strip.
-      # Without either, the failure is a VM that does not start or a kernel at a fixed
-      # address, in whichever lane boots one next.
+      # Ends in verifying it (spin-machine-dev verify kernel), which checks vmlinux's Xen PVH notes
+      # survived the strip and its relocation table is filled. Without either, the failure is a
+      # VM that does not start or a kernel at a fixed address, in whichever lane boots one next.
       #
       # And what it produced, by sha256, on the run's summary: a pull request that changes the
       # config, or bumps the Debian toolchain the kernel is compiled with, changes every guest's
@@ -234,7 +233,6 @@ jobs:
         with:
           name: vmlinux-${{ github.sha }}
           path: |
-            _output/kernel/bzImage
             _output/kernel/vmlinux
             _output/kernel/kernel-config
           retention-days: 30

@@ -129,7 +129,7 @@ func Summary(o Options, part string) ([]string, error) {
 			}
 		}
 	case "kernel":
-		for _, f := range []struct{ label, path string }{{"kernel", "kernel/vmlinux"}, {"bzImage", "kernel/bzImage"}, {"config", "kernel/kernel-config"}} {
+		for _, f := range []struct{ label, path string }{{"kernel", "kernel/vmlinux"}, {"config", "kernel/kernel-config"}} {
 			if err = add(f.label, f.path); err != nil {
 				break
 			}

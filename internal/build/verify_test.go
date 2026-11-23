@@ -121,55 +121,15 @@ func TestANewerMachineTypeIsSaidAndNotFailed(t *testing.T) {
 	}
 }
 
-// bzImage is a setup header as a bzImage carries one.
-func bzImage(t *testing.T, magic string, relocatable byte) string {
-	t.Helper()
-	b := make([]byte, 0x300)
-	copy(b[0x202:], magic)
-	b[0x234] = relocatable
-	path := filepath.Join(t.TempDir(), "bzImage")
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-func TestABzImageIsBootableOnlyRelocatable(t *testing.T) {
-	if err := Relocatable(bzImage(t, "HdrS", 1)); err != nil {
-		t.Errorf("a relocatable bzImage: %v", err)
-	}
-	if err := Relocatable(bzImage(t, "HdrX", 1)); err == nil || !strings.Contains(err.Error(), "HdrS") {
-		t.Errorf("no HdrS: %v", err)
-	}
-	if err := Relocatable(bzImage(t, "HdrS", 0)); err == nil || !strings.Contains(err.Error(), "not relocatable") {
-		t.Errorf("not relocatable: %v", err)
-	}
-	short := filepath.Join(t.TempDir(), "short")
-	if err := os.WriteFile(short, make([]byte, 0x234), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := Relocatable(short); err == nil {
-		t.Error("a file shorter than a setup header passed")
-	}
-	if err := Relocatable(filepath.Join(t.TempDir(), "none")); err == nil {
-		t.Error("no file passed")
-	}
-}
-
 func TestAKernelWithoutItsPartsIsRefused(t *testing.T) {
 	out := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(out, "kernel"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyKernel(Options{Out: out}); err == nil || !strings.Contains(err.Error(), "no kernel") {
-		t.Errorf("no bzImage: %v", err)
-	}
-	b, _ := os.ReadFile(bzImage(t, "HdrS", 1))
-	_ = os.WriteFile(filepath.Join(out, "kernel/bzImage"), b, 0o644)
 	if err := VerifyKernel(Options{Out: out}); err == nil || !strings.Contains(err.Error(), "ELF") {
 		t.Errorf("no vmlinux: %v", err)
 	}
-	_ = os.WriteFile(filepath.Join(out, "kernel/vmlinux"), b, 0o644)
+	_ = os.WriteFile(filepath.Join(out, "kernel/vmlinux"), make([]byte, 0x300), 0o644)
 	if err := VerifyKernel(Options{Out: out}); err == nil || !strings.Contains(err.Error(), "ELF") {
 		t.Errorf("a vmlinux that is not an ELF: %v", err)
 	}
@@ -348,14 +308,14 @@ func TestToolsIsAStaticSpinMachine(t *testing.T) {
 func TestASummaryIsEachPartsHashes(t *testing.T) {
 	out := t.TempDir()
 	qemuTree(t, out)
-	for _, f := range []string{"kernel/vmlinux", "kernel/bzImage", "kernel/kernel-config", "image/rootfs.qcow2"} {
+	for _, f := range []string{"kernel/vmlinux", "kernel/kernel-config", "image/rootfs.qcow2"} {
 		_ = os.MkdirAll(filepath.Dir(filepath.Join(out, f)), 0o755)
 		_ = os.WriteFile(filepath.Join(out, f), []byte(f), 0o644)
 	}
 	sum := func(f string) string { s, _ := FileSHA256(filepath.Join(out, f)); return s }
 	for part, want := range map[string][]string{
 		"qemu":      {"qemu sha256: " + sum("bin/qemu-system-x86_64")},
-		"kernel":    {"kernel sha256: " + sum("kernel/vmlinux"), "bzImage sha256: " + sum("kernel/bzImage"), "config sha256: " + sum("kernel/kernel-config")},
+		"kernel":    {"kernel sha256: " + sum("kernel/vmlinux"), "config sha256: " + sum("kernel/kernel-config")},
 		"image":     {"rootfs.qcow2 sha256: " + sum("image/rootfs.qcow2")},
 		"e2fsprogs": nil,
 	} {
@@ -368,7 +328,7 @@ func TestASummaryIsEachPartsHashes(t *testing.T) {
 	if got, _ := Summary(Options{Out: out}, "qemu"); len(got) != 2 || !strings.Contains(got[1], "pc-q35-99.0") {
 		t.Errorf("a newer machine type is not in QEMU's summary: %q", got)
 	}
-	_ = os.Remove(filepath.Join(out, "kernel/bzImage"))
+	_ = os.Remove(filepath.Join(out, "kernel/kernel-config"))
 	if _, err := Summary(Options{Out: out}, "kernel"); err == nil {
 		t.Error("a summary of a part not there gave no error")
 	}

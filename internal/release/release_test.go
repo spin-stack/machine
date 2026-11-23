@@ -64,7 +64,7 @@ func tree(t *testing.T) (root, out string) {
 	for _, f := range build.Firmware {
 		put(t, filepath.Join(out, "qemu", f), f, 0o644)
 	}
-	for _, f := range []string{"e2fsprogs/mke2fs.conf", "kernel/bzImage", "kernel/vmlinux", "kernel/kernel-config", "kernel/sources",
+	for _, f := range []string{"e2fsprogs/mke2fs.conf", "kernel/vmlinux", "kernel/kernel-config", "kernel/sources",
 		"kernel/patches/0001-k.patch", "image/rootfs.qcow2", "licenses.txt"} {
 		put(t, filepath.Join(out, f), f, 0o644)
 	}
@@ -135,15 +135,15 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755,
 		share + "bin/debugfs": 0o755, share + "qemu/qboot.bin": 0o644, share + "qemu/qboot-mtrr.patch": 0o644, share + "qemu/qboot-pam.patch": 0o644,
 		share + "qemu/qboot-COPYING": 0o644, share + "qemu/patches/0001-a.patch": 0o644, share + "kernel/patches/0001-k.patch": 0o644,
-		share + "openssh/a.patch": 0o644, share + "systemd/s.patch": 0o644, share + "kernel/bzImage": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
+		share + "openssh/a.patch": 0o644, share + "systemd/s.patch": 0o644, share + "kernel/vmlinux": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
 		share + "e2fsprogs/mke2fs.conf": 0o644, share + "packages.txt": 0o644}
 	for f, mode := range want {
 		if m, ok := got[f]; !ok || m != mode {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 34 {
-		t.Errorf("the tarball holds %d files, want 34: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 33 {
+		t.Errorf("the tarball holds %d files, want 33: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return
@@ -236,6 +236,8 @@ func TestAReleaseMissingAnythingIsRefused(t *testing.T) {
 		{"the licence", "root:LICENSE", "the licence"},
 		{"qemu-img", "out:bin/qemu-img", "the qemu-img binary"},
 		{"an option ROM", "out:qemu/linuxboot_dma.bin", "firmware linuxboot_dma.bin"},
+		{"the kernel the machine boots", "out:kernel/vmlinux", "the guest kernel"},
+		{"the option ROM it enters the kernel with", "out:qemu/pvh.bin", "firmware pvh.bin"},
 		{"every qboot patch", "root:qemu/qboot/*.patch", "qboot's patch"},
 		{"every kernel patch", "out:kernel/patches", "kernel patch"},
 		{"every OpenSSH patch", "root:image/openssh/*.patch", "OpenSSH patch"},

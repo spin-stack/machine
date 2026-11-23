@@ -56,7 +56,7 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `bin/mkfs.ext4`, `bin/debugfs`, `bin/e2fsck`, `bin/dumpe2fs`, `e2fsprogs/mke2fs.conf` | static e2fsprogs, and the defaults an ext4 for this kernel is made with |
 | `qemu/qboot.bin` and the other ROMs | qboot.bin is the BIOS a machine boots with |
 | `qemu/patches/`, `qemu/qboot-*.patch`, `qemu/qboot-COPYING` | the changes this tree makes to QEMU and qboot, shipped with the binaries built from them |
-| `kernel/bzImage`, `kernel/vmlinux`, `kernel/kernel-config` | the kernel a machine boots, and the same kernel as an ELF |
+| `kernel/vmlinux`, `kernel/kernel-config` | the kernel a machine boots, through PVH, and its configuration. No `kernel/bzImage` since #660 |
 | `kernel/sources` | every source and header the kernel compiled, which `spin-machine-dev cves` judges CVEs against |
 | `kernel/patches/` | the changes this tree makes to the kernel |
 | `image/rootfs.qcow2` | the base image, read-only (0444) |

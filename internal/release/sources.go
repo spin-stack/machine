@@ -93,7 +93,7 @@ e2fsprogs %s
             named there; their sources are the Alpine package sources for that release
 
 Linux %s
-  binary:   usr/share/spin-stack/kernel/bzImage and usr/share/spin-stack/kernel/vmlinux
+  binary:   usr/share/spin-stack/kernel/vmlinux
   source:   %s
   sha256:   %s
   built by: kernel/Dockerfile, with the patches shipped alongside the binary in

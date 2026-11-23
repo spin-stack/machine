@@ -33,7 +33,8 @@ const (
 
 	// The kernel the machine boots, and the option ROM QEMU enters it with. A release whose
 	// vmlinux randomizes itself (PVH) boots it through PVH, with no decompressor (#645); one
-	// from v20261119.02 to #645 boots its bzImage, whose decompressor picks KASLR's base. Until
+	// from v20261119.02 to #645 boots its bzImage, whose decompressor picks KASLR's base: the lab
+	// and compat still open those (internal/lab), and a release from #660 on carries no bzImage. Until
 	// 2026-11-19 the machine entered a vmlinux that could not move, through PVH, and _text was
 	// ffffffff81000000 at every boot: such a release has neither, and is refused.
 	vmlinuxName = "kernel/vmlinux"

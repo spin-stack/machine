@@ -59,7 +59,7 @@ spin-machine-dev clean [--cache]      remove _output; with --cache, the BuildKit
 A part's build first empties what it writes. `--output type=local` writes files and removes none,
 so a file the build stopped producing would otherwise stay, indistinguishable from one it
 produces. The build ends in its verification: the binaries run here and only the CI QEMU can
-emulate, the kernel is a vmlinux that randomizes itself through PVH with a relocatable bzImage beside it, and the e2fsprogs
+emulate, the kernel is a vmlinux that randomizes itself through PVH, and the e2fsprogs
 tools answer the pinned version. `verify --help` says each.
 
 ## Keeping the pins current
