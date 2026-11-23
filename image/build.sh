@@ -288,17 +288,12 @@ cmp -s /work/pressure.bin /out/guest/spin-machine-pressure && test -x /work/pres
     echo "ERROR: /usr/libexec/spin-machine-pressure is not in the image as built" >&2
     exit 1; }
 rm -f /work/pressure.bin
-stat_in_image /etc/systemd/system/timers.target.wants/spin-machine-pressure.timer |
-        grep -qF '/usr/lib/systemd/system/spin-machine-pressure.timer' || {
-    echo "ERROR: spin-machine-pressure.timer is not wanted by timers.target" >&2
+stat_in_image /etc/systemd/system/multi-user.target.wants/spin-machine-pressure.service |
+        grep -qF '/usr/lib/systemd/system/spin-machine-pressure.service' || {
+    echo "ERROR: spin-machine-pressure.service is not wanted by multi-user.target, which the boot's rest starts after the first login's units" >&2
     exit 1; }
-"$bin/debugfs" -R "cat /usr/lib/systemd/system/spin-machine-pressure.timer" /work/base.raw 2>/dev/null |
-        grep -qx 'OnBootSec=10s' || {
-    echo "ERROR: spin-machine-pressure.timer does not start the sender 10 s after the boot, past the first login" >&2
-    exit 1; }
-"$bin/debugfs" -R "cat /usr/lib/systemd/system/spin-machine-pressure.service" /work/base.raw 2>/dev/null |
-        grep -q '^WantedBy=' && {
-    echo "ERROR: spin-machine-pressure.service is enabled itself, and would start beside the first login" >&2
+in_image /usr/lib/systemd/system/spin-machine-pressure.timer && {
+    echo "ERROR: spin-machine-pressure.timer is back; the sender starts with the boot's rest" >&2
     exit 1; }
 for f in sshd-vsock.socket.d/10-lane.conf sshd@.service.d/10-lane.conf systemd-logind.service.d/10-lane.conf \
          systemd-logind-varlink.socket.d/20-lane.conf user-runtime-dir@.service.d/10-lane.conf \

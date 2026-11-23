@@ -393,7 +393,7 @@ has 224 packages against 293 (217 before #512).
 | The docker-ce packages (`docker-ce`, `docker-ce-cli`, `docker-ce-rootless-extras`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`), from Docker's pool for resolute | added | Docker and containerd in a workspace. Each `.deb` is pinned by version and SHA-256 in `versions.yaml` and checked before it is installed, so a build installs those bytes or fails. | function | Nothing; `apt upgrade` in a workspace moves them to what Docker's repository serves then. |
 | `tzdata`, `e2fsprogs`, `fuse3` | added | Zones by name, formatting a hotplugged disk, FUSE for a user ("The package list"). | function | Nothing. |
 | Task, git-lfs, BuildKit in `/usr/local/bin` (`/usr/local/bin/task`, `/usr/local/bin/git-lfs`, `/usr/local/bin/buildctl`, `/usr/local/bin/buildkitd`, `/usr/local/bin/buildkit-runc`, `/usr/local/bin/buildkit-cni-bridge`, `/usr/local/bin/buildkit-cni-firewall`, `/usr/local/bin/buildkit-cni-host-local`, `/usr/local/bin/buildkit-cni-loopback`) | added | Tools a workspace expects, at versions pinned by SHA-256 in `versions.yaml`. | function | Nothing; `apt` does not know them, so `apt upgrade` leaves them. |
-| `/usr/libexec/spin-machine-pressure` | added | The pressure probe's guest half (docs/machine.md, "Pressure"). | see `spin-machine-pressure.timer` | Nothing. |
+| `/usr/libexec/spin-machine-pressure` | added | The pressure probe's guest half (docs/machine.md, "Pressure"). | see `spin-machine-pressure.service` | Nothing. |
 | Not installed, compared with the minimal cloud image | removed | A workspace boots in a VM spin provides: no cloud-init, netplan, snapd, apport, unattended-upgrades, ubuntu-pro-client, kbd and console-setup, microcode (the host's), lxd agents, or time daemon (chrony; time is the host's). | function | See the next table. |
 
 What a workspace notices among the packages the minimal cloud image has and this one does not,
@@ -520,7 +520,7 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 | `tmp.mount.d/10-size.conf` | configuration | `/tmp` is a tmpfs capped at 25% of memory. It is in RAM, so a workspace that fills it takes memory, and a cap keeps one runaway from taking all of it. | function | `/tmp` larger than a quarter of memory. |
 | `lru-gen.conf` | configuration | MGLRU's `min_ttl_ms=1000`, so the kernel's OOM killer acts before a guest thrashes. | measured, memory (`47aa681`; docs/log.md, 09-28) | Nothing. |
 | `/etc/udev/rules.d/40-spin-hotadd.rules` | added | A hot-plugged CPU comes online. Without it, a core attached to a running workspace stays offline. | function; `boot:hotadd`, `boot:cpu-plug` | Nothing. |
-| `spin-machine-pressure.service`, `spin-machine-pressure.timer`, `timers.target.wants/spin-machine-pressure.timer` | added, deferred | The pressure probe's sender, started by a timer 10 s after the boot, at idle priority. | measured: adding it moved neither number (labs 44926664003, 44926917170) | Deferred: the host gets no pressure reports for the first 10 s (#401). |
+| `spin-machine-pressure.service`, `multi-user.target.wants/spin-machine-pressure.service` | added, deferred | The pressure probe's sender, started with `multi-user.target`, which the boot's rest starts after the first login's units (#581), at idle priority. | measured: neither number moved (labs 45120950183, 45120950314) | Deferred: the host gets no pressure reports for the boot's first ~0.3-0.4 s, which end before the first login. |
 
 ## Details of the deviations
 
@@ -868,11 +868,16 @@ to the host over vsock as they happen (docs/machine.md, "Pressure"). At the lowe
 idle CPU and IO classes), since it reports on a guest whose CPU may be what is short. As root,
 because a trigger with a window under 2 s is root's alone. Out of the OOM killer's way
 (`OOMScoreAdjust=-900`), which otherwise took it in the OOM it was reporting (`task boot:pressure`,
-2026-11-21); it holds a few MiB. Started 10 s after the boot: ordered after `multi-user.target` alone
-it started beside the first login, 2.6-3.3 ms more between sshd accepting and the login in three runs
-([+1.1, +4.7] at 20 boots, [+2.1, +4.9] and [+1.5, +4.2] at 40; labs 44921602512, 44924252325,
-44924755505), the last with `Type=idle`, which did not move it. On a restore it is already running
-with its triggers armed and dials the host again by itself.
+2026-11-21); it holds a few MiB. Started with `multi-user.target`, which `spin-machine-boot-rest.service` starts
+once the first login's units are up (#581): in a ledger of spin's shape it started at 0.37-0.38 s
+on the kernel's clock, after the login (lab 45120692382, 5 boots). Moving it there from a timer 10 s
+after the boot moved neither number: bench, spin's shape and login, 20 a side against v20261123.04,
+first login −0.8 [−7.8, +4.8] (lab 45120950183), restored −0.8 [−2.9, +2.1] evicted and −0.4
+[−3.6, +0.8] cached, the state +2.1 MiB since the sender is running when it is saved (lab
+45120950314). Before #581 it was ordered after `multi-user.target` alone and started beside the
+first login: 2.6-3.3 ms more between sshd accepting and the login in three runs (labs 44921602512,
+44924252325, 44924755505), which is why it waited for a timer until #401. On a restore it is
+already running with its triggers armed and dials the host again by itself.
 
 ### Timers
 
