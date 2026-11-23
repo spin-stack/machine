@@ -878,7 +878,7 @@ idle CPU and IO classes), since it reports on a guest whose CPU may be what is s
 because a trigger with a window under 2 s is root's alone. Out of the OOM killer's way
 (`OOMScoreAdjust=-900`), which otherwise took it in the OOM it was reporting (`task boot:pressure`,
 2026-11-21); it holds a few MiB. Started with `multi-user.target`, which `spin-machine-boot-rest.service` starts
-once the first login's units are up (#581): in a ledger of spin's shape it started at 0.37-0.38 s
+once the first login's units are up (#581): in a ledger of spin's shape it started at 0.39-0.40 s
 on the kernel's clock, after the login (lab 45120692382, 5 boots). Moving it there from a timer 10 s
 after the boot moved neither number: bench, spin's shape and login, 20 a side against v20261123.04,
 first login −0.8 [−7.8, +4.8] (lab 45120950183), restored −0.8 [−2.9, +2.1] evicted and −0.4
