@@ -1,0 +1,196 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 17:17:56 -0300
+Subject: [PATCH] hw/core/loader: copy an ELF kernel into guest RAM beside the
+ main loop
+
+A kernel given to -kernel as an ELF file (PVH on x86) is mapped since
+commit 816b9fe450 ("elf-ops.h: Map into memory the ELF to load", 2019),
+and its PT_LOAD segments become ROM blobs that point into the mapping.
+The machine's first reset then copies them into guest RAM on the main
+thread, before the main loop starts: for a 40 MB vmlinux, 37.4 MB of
+data, that copy was 9.1 ms of QEMU's start (p50 of 20, p95 9.3, a nested
+KVM host), and the monitor answered nothing until it was done.
+
+At the first reset, before any vCPU has run, copy the segments that lie
+wholly in one RAM region of system memory in a thread of their own, and
+wait for it before anything reads that RAM: the vCPUs' start (a VM
+change state handler that runs first), a migration's setup, the next
+reset (which a snapshot's load begins with) and QEMU's exit.  The main
+loop answers the monitor while the copy runs.  A machine made for an
+incoming migration copies nothing at reset, as before.  Later resets
+copy on the main thread, as before.
+
+A monitor command that reads guest memory before the vCPUs first start
+(pmemsave, dump-guest-memory) can read a kernel half copied.
+---
+ hw/core/loader.c | 129 +++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 129 insertions(+)
+
+diff --git a/hw/core/loader.c b/hw/core/loader.c
+index 5cbfba0a8..bb1c298ea 100644
+--- a/hw/core/loader.c
++++ b/hw/core/loader.c
+@@ -64,6 +64,8 @@
+ #include "hw/core/boards.h"
+ #include "qemu/cutils.h"
+ #include "system/runstate.h"
++#include "migration/misc.h"
++#include "qemu/thread.h"
+ #include "tcg/debuginfo.h"
+ 
+ #include <zlib.h>
+@@ -1239,10 +1241,129 @@ ssize_t rom_add_option(const char *file, int32_t bootindex)
+     return rom_add_file(file, "genroms", 0, bootindex, true, NULL, NULL);
+ }
+ 
++/*
++ * A machine's first reset, before any vCPU has run, copies an ELF kernel's
++ * segments into guest RAM in a thread of their own, so that QEMU's main loop
++ * starts while they are copied.  The copy is waited for before the guest or
++ * a migration can read that RAM: the vCPUs' start, a migration's setup, the
++ * next reset, which a snapshot's load begins with, and QEMU's exit.  For a 40 MB vmlinux
++ * the copy was 9.1 ms of a cold boot's QEMU start (bench, nested, #698).
++ */
++typedef struct RomCopy {
++    void *host;
++    const void *data;
++    size_t datasize;
++    size_t romsize;
++    MemoryRegion *mr;
++    hwaddr offset;
++} RomCopy;
++
++static GArray *rom_copies;
++static QemuThread rom_copy_thread;
++static bool rom_copying;
++
++static void *rom_copy_run(void *unused)
++{
++    for (guint i = 0; i < rom_copies->len; i++) {
++        RomCopy *c = &g_array_index(rom_copies, RomCopy, i);
++
++        memcpy(c->host, c->data, c->datasize);
++        memset(c->host + c->datasize, 0, c->romsize - c->datasize);
++    }
++    return NULL;
++}
++
++static void rom_copy_wait(void)
++{
++    if (!rom_copying) {
++        return;
++    }
++    qemu_thread_join(&rom_copy_thread);
++    rom_copying = false;
++    for (guint i = 0; i < rom_copies->len; i++) {
++        RomCopy *c = &g_array_index(rom_copies, RomCopy, i);
++
++        memory_region_set_dirty(c->mr, c->offset, c->romsize);
++        memory_region_unref(c->mr);
++    }
++    g_array_set_size(rom_copies, 0);
++}
++
++static void rom_copy_vm_state(void *unused, bool running, RunState state)
++{
++    if (running) {
++        rom_copy_wait();
++    }
++}
++
++static int rom_copy_migration(NotifierWithReturn *notifier,
++                              MigrationEvent *e, Error **errp)
++{
++    if (e->type == MIG_EVENT_SETUP) {
++        rom_copy_wait();
++    }
++    return 0;
++}
++
++static NotifierWithReturn rom_copy_migration_notifier;
++
++static void rom_copy_exit(Notifier *n, void *data)
++{
++    rom_copy_wait();
++}
++
++static Notifier rom_copy_exit_notifier = { .notify = rom_copy_exit };
++
++/*
++ * Queue @rom's copy for the thread when it is an ELF segment that lies
++ * wholly in one RAM region of system memory; false when it is copied here.
++ */
++static bool rom_copy_queue(Rom *rom)
++{
++    MemoryRegionSection section;
++
++    if (!rom->mapped_file || rom->mr || rom->isrom ||
++        (rom->as && rom->as != &address_space_memory)) {
++        return false;
++    }
++    section = memory_region_find(get_system_memory(), rom->addr, rom->romsize);
++    if (!section.mr) {
++        return false;
++    }
++    if (!memory_region_is_ram(section.mr) || memory_region_is_rom(section.mr) ||
++        memory_region_is_romd(section.mr) ||
++        int128_get64(section.size) != rom->romsize) {
++        memory_region_unref(section.mr);
++        return false;
++    }
++    if (!rom_copies) {
++        rom_copies = g_array_new(false, false, sizeof(RomCopy));
++        qemu_add_vm_change_state_handler_prio(rom_copy_vm_state, NULL, INT_MIN);
++        migration_add_notifier(&rom_copy_migration_notifier,
++                               rom_copy_migration);
++        qemu_add_exit_notifier(&rom_copy_exit_notifier);
++    }
++    g_array_append_val(rom_copies, ((RomCopy) {
++        .host = memory_region_get_ram_ptr(section.mr) +
++                section.offset_within_region,
++        .data = rom->data,
++        .datasize = rom->datasize,
++        .romsize = rom->romsize,
++        .mr = section.mr,
++        .offset = section.offset_within_region,
++    }));
++    trace_loader_write_rom(rom->name, rom->addr, rom->datasize, rom->isrom);
++    return true;
++}
++
+ static void rom_reset(void *unused)
+ {
++    static bool reset_before;
++    bool first = !reset_before;
+     Rom *rom;
+ 
++    reset_before = true;
++    rom_copy_wait();
+     QTAILQ_FOREACH(rom, &roms, next) {
+         if (rom->fw_file) {
+             continue;
+@@ -1266,6 +1387,9 @@ static void rom_reset(void *unused)
+         if (rom->data == NULL) {
+             continue;
+         }
++        if (first && rom_copy_queue(rom)) {
++            continue;
++        }
+         if (rom->mr) {
+             void *host = memory_region_get_ram_ptr(rom->mr);
+             memcpy(host, rom->data, rom->datasize);
+@@ -1291,6 +1415,11 @@ static void rom_reset(void *unused)
+ 
+         trace_loader_write_rom(rom->name, rom->addr, rom->datasize, rom->isrom);
+     }
++    if (rom_copies && rom_copies->len) {
++        qemu_thread_create(&rom_copy_thread, "rom-copy", rom_copy_run, NULL,
++                           QEMU_THREAD_JOINABLE);
++        rom_copying = true;
++    }
+ }
+ 
+ /* Return true if two consecutive ROMs in the ROM list overlap */
+-- 
+2.53.0
+
