@@ -463,6 +463,14 @@ boot `--kernel traceable:TAG` with the function tracer on the accessors and thei
 trace_options=func_stack_trace,nooverwrite trace_clock=mono trace_buf_size=8M'`. A tree whose
 command line carries `ftrace=` has the guest's trace kept as `TREE-REP.ftrace.txt` (#566).
 
+`stall` is whether a guest's small synced writes stall QEMU's monitor on a host disk another
+process saturates (#391). After the login each row starts its load: the guest's 4 KiB `dd
+oflag=dsync` writes, four host streams of 1 MiB O_DIRECT writes on the scratch disk, or both. It
+then times `calls` query-status round trips (default 200) `interval` ms apart (default 100),
+sampling QEMU's main and monitor threads' state and `wchan` every 0.5 ms across each. A round
+trip over 20 ms also takes both threads' kernel stacks, and is written to
+`TREE-ROW-REP.stalls.txt` beside result.json.
+
 `lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
 compare. Use `--host bench` (nested, the default) unless the question is nested against metal. `--ref` names the branch whose lab.yml and probes run (default
