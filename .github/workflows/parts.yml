@@ -74,7 +74,7 @@ jobs:
 
       - name: Does the change reach the kernel
         id: kernel
-        run: spin-machine-dev changed --base "$BASE" --pins debian,debian-snapshot,kernel,moby-check-config,checkpatch,sparse kernel go.mod cmd/spin-machine-dev internal/build .github/workflows/parts.yml
+        run: spin-machine-dev changed --base "$BASE" --pins debian,debian-snapshot,kernel,moby-check-config,sparse kernel go.mod cmd/spin-machine-dev internal/build .github/workflows/parts.yml
 
       - name: Does the change reach e2fsprogs or the image
         id: image

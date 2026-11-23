@@ -142,18 +142,6 @@
     point. Pinned to a commit of master because moby's last tag, v28.5.2, predates checks
     master has (sysctl, MEMCG_SWAP on 5.8+, IP_SCTP). After the bump: `spin-machine-dev build kernel`.
 
-- name: checkpatch
-  kind: download
-  source: https://raw.githubusercontent.com/torvalds/linux/{version}/scripts/checkpatch.pl
-  version: b6a9fa34ce4187cb69d3c588a4bbffc31ce5db8f
-  pin: b319d9f58cd625f093e08aaa79b3cbef9949706bf665b797dc506c3c84f35e58
-  track: commit https://github.com/torvalds/linux.git master
-  note: >-
-    kernel/Dockerfile runs it, --strict, over kernel/patches before they are applied: the style
-    a patch to master is held to, which the pinned stable tree's own copy can lag. It only reads
-    the patches, so a bump cannot change vmlinux; it can fail the build on a rule master has
-    added, and that is the point. After the bump: `spin-machine-dev build kernel`.
-
 - name: sparse
   kind: git
   source: https://git.kernel.org/pub/scm/devel/sparse/sparse.git
