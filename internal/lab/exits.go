@@ -3,6 +3,7 @@
 package lab
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,8 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	xssh "golang.org/x/crypto/ssh"
 
 	"github.com/spin-stack/machine/internal/qmpdef"
 	"github.com/spin-stack/machine/qmp"
@@ -81,6 +85,9 @@ const (
 	// The guest's kernel runs in the upper half of the address space and its userspace in the lower.
 	exitsInKernel = "hist:keys=exit_reason:sort=hitcount.descending if guest_rip >= 18446603336221196288"
 	exitsInUser   = "hist:keys=exit_reason,isa:sort=hitcount.descending if guest_rip < 18446603336221196288"
+	// The MMIO and port exits by the guest's instruction, which the guest's own kallsyms names
+	// (exitSites): the code that made them, where the MMIO histogram says only the address (#566).
+	exitsBySite = "hist:keys=exit_reason,guest_rip:sort=hitcount.descending if exit_reason == 49 || exit_reason == 30"
 )
 
 // exitsTriggers are the files the triggers go in, in the order they are armed.
@@ -95,6 +102,7 @@ var exitsTriggers = []struct{ file, trigger string }{
 	{"events/kvm/kvm_cpuid/trigger", exitsByLeaf},
 	{"events/kvm/kvm_exit/trigger", exitsInKernel},
 	{"events/kvm/kvm_exit/trigger", exitsInUser},
+	{"events/kvm/kvm_exit/trigger", exitsBySite},
 }
 
 // exitsHists are the histograms kept, by the name they are kept under.
@@ -104,7 +112,7 @@ var exitsHists = []struct{ name, file string }{
 	{"ports", "events/kvm/kvm_pio/hist"},
 	{"MMIO (type 0 read unsatisfied, 1 read, 2 write)", "events/kvm/kvm_mmio/hist"},
 	{"CPUID leaves", "events/kvm/kvm_cpuid/hist"},
-	{"exits from the guest's kernel, then from below it (userspace, firmware, decompressor)", "events/kvm/kvm_exit/hist"},
+	{"exits from the guest's kernel, then from below it (userspace, firmware, decompressor), then MMIO and ports by guest_rip", "events/kvm/kvm_exit/hist"},
 }
 
 // exitsScript arms (or, with disarm, removes) the host's triggers, as root. Disarming ignores
@@ -187,6 +195,29 @@ func (exitsProbe) Measure(_ context.Context, m *Measurement) error {
 		return Miss("the host's trace timed no exit: kvm_exit and kvm_entry never paired")
 	}
 
+	asRoot := ""
+	if m.Key.User() != "root" {
+		asRoot = "sudo -n "
+	}
+	_, kallsyms, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, asRoot+"awk '$2 ~ /^[tT]$/' /proc/kallsyms")
+	if err != nil {
+		return Miss("reading the guest's kallsyms: %v", err)
+	}
+	sites := exitSites(hist.String(), parseKallsyms(kallsyms))
+	for _, st := range sites {
+		m.Detail("site\x00"+st.Reason+" "+st.Function, float64(st.Count))
+	}
+	if strings.Contains(m.Tree.Manifest.Append, "ftrace=") {
+		_, trace, err := m.Key.Run(cid, xssh.KeyExchangeMLKEM768X25519, asRoot+"sh -c 'T=/sys/kernel/tracing; mountpoint -q $T || mount -t tracefs tracefs $T; echo 0 > $T/tracing_on; cat $T/trace'")
+		if err != nil {
+			return Miss("fetching the guest's trace: %v", err)
+		}
+		name := fmt.Sprintf("%s-%d.ftrace.txt", m.Tree.Name(), m.Rep+1)
+		if err := os.WriteFile(filepath.Join(m.Keep, name), []byte(trace), 0o644); err != nil { //nolint:gosec // for a person to read
+			return fmt.Errorf("keeping %s: %w", name, err)
+		}
+	}
+
 	m.RecordMs("first_login", login)
 	for _, name := range []string{"exits", "io_exits", "mmio_exits", "halt_exits", "irq_exits"} {
 		m.Record(name, float64(stats["vcpu/"+name]))
@@ -217,6 +248,10 @@ func (exitsProbe) Measure(_ context.Context, m *Measurement) error {
 		fmt.Fprintf(&kept, "%-40s %d\n", name, stats[name])
 	}
 	fmt.Fprintf(&kept, "\n%s", hist.String())
+	kept.WriteString("\n== MMIO and port exits by the guest's function (guest_rip through its kallsyms)\n")
+	for _, st := range sites {
+		fmt.Fprintf(&kept, "%-16s %7d  %s\n", st.Reason, st.Count, st.Function)
+	}
 	name := fmt.Sprintf("%s-%d.exits.txt", m.Tree.Name(), m.Rep+1)
 	if err := os.WriteFile(filepath.Join(m.Keep, name), []byte(kept.String()), 0o644); err != nil { //nolint:gosec // for a person to read
 		return fmt.Errorf("keeping %s: %w", name, err)
@@ -241,6 +276,70 @@ func parseExitHist(text string) map[uint32]exitCost {
 			out[r] = c
 		}
 	}
+	return out
+}
+
+// exitSite is the exits of one reason made by one function of the guest's kernel.
+type exitSite struct {
+	Reason, Function string
+	Count            uint64
+}
+
+// guestSymbol is a text symbol of the guest's kernel at its address in this boot, KASLR applied.
+type guestSymbol struct {
+	Addr uint64
+	Name string
+}
+
+// parseKallsyms reads the guest's /proc/kallsyms, text symbols only, sorted by address. A kernel
+// that hides its addresses shows every one as 0, and gives nothing to resolve against.
+func parseKallsyms(text string) []guestSymbol {
+	var out []guestSymbol
+	for line := range strings.Lines(text) {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		addr, err := strconv.ParseUint(f[0], 16, 64)
+		if err != nil || addr == 0 {
+			continue
+		}
+		out = append(out, guestSymbol{addr, f[2]})
+	}
+	slices.SortFunc(out, func(a, b guestSymbol) int { return cmp.Compare(a.Addr, b.Addr) })
+	return out
+}
+
+// exitSites reads the histogram of exits keyed by reason and guest_rip, such as
+// "{ exit_reason:         49, guest_rip: 18446744071583234567 } hitcount:        625", and sums
+// each reason's exits by the guest function the instruction is in, most first. An instruction
+// below the kernel's symbols (the firmware, the decompressor, userspace) is "below the kernel",
+// and with no symbols an instruction is its address.
+func exitSites(text string, syms []guestSymbol) []exitSite {
+	sum := map[[2]string]uint64{}
+	for line := range strings.Lines(text) {
+		var r uint32
+		var rip, n uint64
+		if c, _ := fmt.Sscanf(line, "{ exit_reason: %d, guest_rip: %d } hitcount: %d", &r, &rip, &n); c != 3 {
+			continue
+		}
+		fn := "below the kernel"
+		if len(syms) == 0 {
+			fn = fmt.Sprintf("%#x", rip)
+		} else if i, found := slices.BinarySearchFunc(syms, rip, func(s guestSymbol, a uint64) int { return cmp.Compare(s.Addr, a) }); found {
+			fn = syms[i].Name
+		} else if i > 0 {
+			fn = syms[i-1].Name
+		}
+		sum[[2]string{vmxReason(r), fn}] += n
+	}
+	out := make([]exitSite, 0, len(sum))
+	for k, n := range sum {
+		out = append(out, exitSite{k[0], k[1], n})
+	}
+	slices.SortFunc(out, func(a, b exitSite) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.Reason, b.Reason), cmp.Compare(a.Function, b.Function))
+	})
 	return out
 }
 
@@ -377,6 +476,22 @@ func (exitsProbe) Detail(r *Result) string {
 			line += fmt.Sprintf(" %14.0f", v)
 		}
 		if nonzero {
+			fmt.Fprintln(&b, line)
+		}
+	}
+	fmt.Fprintf(&b, "\n  %-60s", "MMIO AND PORT EXITS BY GUEST FUNCTION (p50, 5+)")
+	for _, t := range r.Trees {
+		fmt.Fprintf(&b, " %14s", t.Name)
+	}
+	fmt.Fprintln(&b)
+	for _, site := range keys("site\x00") {
+		line, shown := fmt.Sprintf("  %-60s", site), false
+		for _, t := range r.Trees {
+			v, _ := p50(t.Name, "site\x00"+site)
+			shown = shown || v >= 5
+			line += fmt.Sprintf(" %14.0f", v)
+		}
+		if shown {
 			fmt.Fprintln(&b, line)
 		}
 	}
