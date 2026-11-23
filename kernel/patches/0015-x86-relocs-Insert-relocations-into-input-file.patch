@@ -1,0 +1,173 @@
+From: Hou Wenlong <houwenlong.hwl@antgroup.com>
+Date: Mon, 26 Jan 2026 21:33:52 +0800
+Subject: [PATCH] x86/relocs: Insert relocations into input file
+
+Add a command line option to insert relocations into a reserved section
+named ".data.reloc" section of the input file. This allows for
+relocation of the uncompressed kernel and is same as the implementation
+in MIPS.
+
+Signed-off-by: Hou Wenlong <houwenlong.hwl@antgroup.com>
+---
+ arch/x86/tools/relocs.c        | 56 ++++++++++++++++++++++++++++++----
+ arch/x86/tools/relocs.h        |  1 +
+ arch/x86/tools/relocs_common.c | 13 ++++++--
+ 3 files changed, 61 insertions(+), 9 deletions(-)
+
+diff --git a/arch/x86/tools/relocs.c b/arch/x86/tools/relocs.c
+index 4d3d53391..33ef98701 100644
+--- a/arch/x86/tools/relocs.c
++++ b/arch/x86/tools/relocs.c
+@@ -735,6 +735,17 @@ static void walk_relocs(int (*process)(struct section *sec, Elf_Rel *rel,
+ 	}
+ }
+ 
++static struct section *sec_lookup(const char *name)
++{
++	int i;
++
++	for (i = 0; i < shnum; i++)
++		if (!strcmp(sec_name(i), name))
++			return &secs[i];
++
++	return NULL;
++}
++
+ #if ELF_BITS == 64
+ 
+ static int do_reloc64(struct section *sec, Elf_Rel *rel, ElfW(Sym) *sym,
+@@ -950,7 +961,7 @@ static int write32_as_text(uint32_t v, FILE *f)
+ 	return fprintf(f, "\t.long 0x%08"PRIx32"\n", v) > 0 ? 0 : -1;
+ }
+ 
+-static void emit_relocs(void)
++static void emit_relocs(FILE *f)
+ {
+ 	int i;
+ 	int (*write_reloc)(uint32_t, FILE *) = write32;
+@@ -1001,21 +1012,54 @@ static void emit_relocs(void)
+ 		for (i = 0; i < relocs32.count; i++)
+ 			write_reloc(relocs32.offset[i], stdout);
+ 	} else {
++		FILE *outf = stdout;
++
++		if (keep_relocs) {
++			struct section *sec_reloc;
++			uint32_t size_needed;
++			unsigned long offset;
++
++			sec_reloc = sec_lookup(".data.reloc");
++			if (!sec_reloc)
++				die("Could not find relocation data section\n");
++
++			size_needed = (1 + relocs32.count) * sizeof(uint32_t);
++#if ELF_BITS == 64
++			size_needed += (1 + relocs64.count) * sizeof(uint32_t);
++#endif
++			if (size_needed > sec_reloc->shdr.sh_size)
++				die("Relocations overflow available space!\n" \
++				    "Please adjust CONFIG_RELOCATION_TABLE_SIZE " \
++				    "to at least 0x%08x\n", (size_needed + 0x1000) & ~0xFFF);
++
++			/*
++			 * Place the relocations at the end of section to ensure
++			 * compatibility with backward traversal during handling
++			 * relocations.
++			 */
++			offset = sec_reloc->shdr.sh_offset + sec_reloc->shdr.sh_size -
++				 size_needed;
++			if (fseek(f, offset, SEEK_SET) < 0)
++				die("Seek to %ld failed: %s\n", offset, strerror(errno));
++
++			outf = f;
++		}
++
+ #if ELF_BITS == 64
+ 		/* Print a stop */
+-		write_reloc(0, stdout);
++		write_reloc(0, outf);
+ 
+ 		/* Now print each relocation */
+ 		for (i = 0; i < relocs64.count; i++)
+-			write_reloc(relocs64.offset[i], stdout);
++			write_reloc(relocs64.offset[i], outf);
+ #endif
+ 
+ 		/* Print a stop */
+-		write_reloc(0, stdout);
++		write_reloc(0, outf);
+ 
+ 		/* Now print each relocation */
+ 		for (i = 0; i < relocs32.count; i++)
+-			write_reloc(relocs32.offset[i], stdout);
++			write_reloc(relocs32.offset[i], outf);
+ 	}
+ }
+ 
+@@ -1073,5 +1117,5 @@ void process(FILE *fp)
+ 		return;
+ 	}
+ 
+-	emit_relocs();
++	emit_relocs(fp);
+ }
+diff --git a/arch/x86/tools/relocs.h b/arch/x86/tools/relocs.h
+index 5ade07ac2..05a6e80e8 100644
+--- a/arch/x86/tools/relocs.h
++++ b/arch/x86/tools/relocs.h
+@@ -35,6 +35,7 @@ extern int show_absolute_relocs;
+ extern int show_reloc_info;
+ extern int as_text;
+ extern int use_real_mode;
++extern int keep_relocs;
+ 
+ void process_32(FILE *fp);
+ void process_64(FILE *fp);
+diff --git a/arch/x86/tools/relocs_common.c b/arch/x86/tools/relocs_common.c
+index ee8a9fafc..66a9a83b7 100644
+--- a/arch/x86/tools/relocs_common.c
++++ b/arch/x86/tools/relocs_common.c
+@@ -2,7 +2,7 @@
+ #include "relocs.h"
+ 
+ int show_absolute_syms, show_absolute_relocs, show_reloc_info;
+-int as_text, use_real_mode;
++int as_text, use_real_mode, keep_relocs;
+ 
+ void die(char *fmt, ...)
+ {
+@@ -15,7 +15,7 @@ void die(char *fmt, ...)
+ 
+ static void usage(void)
+ {
+-	die("relocs [--abs-syms|--abs-relocs|--reloc-info|--text|--realmode]" \
++	die("relocs [--abs-syms|--abs-relocs|--reloc-info|--text|--realmode|--keep]" \
+ 	    " vmlinux\n");
+ }
+ 
+@@ -55,6 +55,10 @@ int main(int argc, char **argv)
+ 				use_real_mode = 1;
+ 				continue;
+ 			}
++			if (strcmp(arg, "--keep") == 0) {
++				keep_relocs = 1;
++				continue;
++			}
+ 		}
+ 		else if (!fname) {
+ 			fname = arg;
+@@ -65,7 +69,10 @@ int main(int argc, char **argv)
+ 	if (!fname) {
+ 		usage();
+ 	}
+-	fp = fopen(fname, "r");
++	if (keep_relocs)
++		fp = fopen(fname, "r+");
++	else
++		fp = fopen(fname, "r");
+ 	if (!fp) {
+ 		die("Cannot open %s: %s\n", fname, strerror(errno));
+ 	}
+-- 
+2.53.0
+
