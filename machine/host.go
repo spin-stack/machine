@@ -30,7 +30,7 @@ func (s Spec) Files() []string {
 	if s.Initrd != "" {
 		files = append(files, s.Initrd)
 	}
-	for _, f := range []string{s.bios(), kernelROM, vapicROM} {
+	for _, f := range []string{s.bios(), kernelROM(s.Kernel), vapicROM} {
 		files = append(files, filepath.Join(s.Firmware, f))
 	}
 	return files

@@ -186,7 +186,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "not a bzImage") {
+	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "neither a bzImage") {
 		t.Errorf("a --kernel that is not a bzImage: %v", err)
 	}
 }
