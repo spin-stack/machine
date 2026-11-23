@@ -468,7 +468,9 @@ tree, as `EPT_MISCONFIG pci_mmcfg_read` and the like. An accessor is a leaf, so 
 boot `--kernel traceable:TAG` with the function tracer on the accessors and their stacks, such as
 `--append 'ftrace=function ftrace_filter=pci_mmcfg_read,native_io_apic_read
 trace_options=func_stack_trace,nooverwrite trace_clock=mono trace_buf_size=8M'`. A tree whose
-command line carries `ftrace=` has the guest's trace kept as `TREE-REP.ftrace.txt` (#566).
+command line carries `ftrace=` has the guest's trace kept as `TREE-REP.ftrace.txt` (#566). The EPT violations are kept by the guest-physical address they faulted, in
+128 MiB buckets: the base memory below 128 MiB, what virtio-mem plugs from 4 GiB, and the first
+touch of each MMIO page (#568).
 
 `lab dispatch` starts lab.yml, waits for it, and prints its result. Each run is its own bench
 instance, so dispatches go at once and the fleet queues past its cap. `lab dispatch` is the way to
