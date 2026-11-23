@@ -64,9 +64,10 @@ func recordsDir(dir string) (string, error) {
 // for, against the release before it in the ladder. The older releases have no record of their
 // own from it: each record is the release a run was made for (releases measure).
 //
-// The charts releases measure drew of that release and its ledger, in measured beside the ladder,
-// are kept beside the record as RELEASE-bootchart.svg, RELEASE-plot.svg and RELEASE-ledger.txt,
-// and the record names them.
+// The charts releases measure drew of that release, their dependency view and its ledger, in
+// measured beside the ladder, are kept beside the record as RELEASE-bootchart.svg, RELEASE-plot.svg,
+// RELEASE-chain.txt, RELEASE-order.dot, RELEASE-order.svg and RELEASE-ledger.txt, and the record
+// names them.
 func recordNewest(dir string, l *lab.Ladder, measured, run string) (lab.Record, error) {
 	records := l.Records()
 	if len(records) == 0 {
@@ -82,12 +83,14 @@ func recordNewest(dir string, l *lab.Ladder, measured, run string) (lab.Record, 
 		return lab.Record{}, fmt.Errorf("making %s: %w", dir, err)
 	}
 	chart, plot := lab.ChartFiles(r.Release+lab.ChartSuffix, 1)
+	chain, order, graph := lab.DependencyFiles(r.Release+lab.ChartSuffix, 1)
 	ledger, _, _, _ := lab.LedgerFiles(r.Release+lab.LedgerSuffix, 1)
 	for _, c := range []struct {
 		from, to string
 		field    *string
 	}{{chart, r.Release + "-bootchart.svg", &r.Bootchart}, {plot, r.Release + "-plot.svg", &r.Plot},
-		{ledger, r.Release + "-ledger.txt", &r.Ledger}} {
+		{chain, r.Release + "-chain.txt", &r.Chain}, {order, r.Release + "-order.dot", &r.Order},
+		{graph, r.Release + "-order.svg", &r.Graph}, {ledger, r.Release + "-ledger.txt", &r.Ledger}} {
 		from := filepath.Join(measured, c.from)
 		if !exists(from) {
 			continue
@@ -133,7 +136,8 @@ func releasesRecord(dir *string) *cobra.Command {
 		Short: "Write the record of each ladder.json's newest release, replacing one before it, and the page",
 		Long: `Write the record of each ladder.json's newest release - the release that ladder was measured for -
 replacing a record of it, and then the page, DIR.md and DIR.svg, from every record. The release's
-boot charts that releases measure drew beside the ladder.json are kept beside its record. report.yml
+boot charts, their dependency view and its ledger, which releases measure took beside the
+ladder.json, are kept beside its record. report.yml
 records what releases measure measured with main's spin-machine-dev, whichever commit measured it,
 so the page proposed is the one main's test holds the records to.`,
 		Args: cobra.MinimumNArgs(1),
@@ -420,7 +424,7 @@ at https://spin-stack.github.io/spin-machine/ from every merge that changes a re
 				if err := lab.WriteRecord(filepath.Join(kept, r.Release+".json"), r); err != nil {
 					return couldNot(err)
 				}
-				for _, chart := range []string{r.Bootchart, r.Plot, r.Ledger} {
+				for _, chart := range []string{r.Bootchart, r.Plot, r.Chain, r.Order, r.Graph, r.Ledger} {
 					if chart == "" {
 						continue
 					}

@@ -90,7 +90,8 @@ measured after (docs/log.md, 11-23).
 
 A boot chart shows where a boot's time went: which processes ran, when, and what they waited
 for. It finds where to look, and a number then decides (rule 4). Each release has one in
-docs/releases (`RELEASE-bootchart.svg`, linked from docs/releases.md), and any tree gets one
+docs/releases (`RELEASE-bootchart.svg`, with its dependency view as `RELEASE-chain.txt`,
+`RELEASE-order.dot` and `RELEASE-order.svg`, linked from docs/releases.md), and any tree gets one
 from the lab:
 
 ```

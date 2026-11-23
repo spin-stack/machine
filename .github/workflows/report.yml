@@ -7,7 +7,8 @@ name: Report
 # QEMU RSS as diagnostics, and the no-systemd floor beside the release, a bound (docs/measuring.md,
 # rule 8) - written to docs/releases/RELEASE.json with the release before it and
 # each Δ against it, one boot of the release drawn beside it (RELEASE-bootchart.svg and
-# RELEASE-plot.svg, docs/measuring.md, "Boot charts"), and docs/releases.md written again from every record (spin-machine-dev
+# RELEASE-plot.svg, and its dependency view, RELEASE-chain.txt and RELEASE-order.dot and .svg,
+# docs/measuring.md, "Boot charts"), and docs/releases.md written again from every record (spin-machine-dev
 # releases, docs/cli.md). The records are proposed as a pull request as the release app, so the
 # checks on it run.
 #
@@ -91,13 +92,17 @@ jobs:
       - name: Load vhost_vsock
         run: go tool task vsock
 
+      # graphviz draws the bootchart probe's ordering graph, which it keeps as dot without it.
+      - name: Install graphviz
+        run: go tool task graphviz
+
       # Unquoted: one word a release.
       - name: Measure each release with the one before it
         run: spin-machine-dev releases measure $VERSIONS --reps 20
 
       # Every sample, which a record keeps only the p50 and p95 of: lab show DIR reads one release's.
-      # Only the ladders and each release's boot charts and ledger: a release's tarball, downloaded beside them,
-      # is 1.5 GB (run 44734233084).
+      # Only the ladders and each release's boot charts, dependency view and ledger: a release's
+      # tarball, downloaded beside them, is 1.5 GB (run 44734233084).
       - name: Keep the ladders
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -107,6 +112,8 @@ jobs:
             _output/lab/measured/*/ladder.json
             _output/lab/measured/*/bootchart.json
             _output/lab/measured/*/*.svg
+            _output/lab/measured/*/*.chain.txt
+            _output/lab/measured/*/*.order.dot
             _output/lab/measured/*/ledger.json
             _output/lab/measured/*/*.ledger.*
             _output/lab/measured/*/*.trace.txt
