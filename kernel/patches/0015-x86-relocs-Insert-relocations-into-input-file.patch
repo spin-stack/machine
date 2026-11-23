@@ -10,7 +10,7 @@ in MIPS.
 Signed-off-by: Hou Wenlong <houwenlong.hwl@antgroup.com>
 [ spin-stack/machine: forward-ported to 7.3.5 for #645, and made
   checkpatch --strict clean: no line continuations
-  inside die()'s arguments. ]
+  inside die()'s arguments, and its message's second line unsplit. ]
 Assisted-by: LLM
 ---
  arch/x86/tools/relocs.c        | 56 ++++++++++++++++++++++++++++++----
@@ -70,8 +70,8 @@ index 4d3d53391..33ef98701 100644
 +#endif
 +			if (size_needed > sec_reloc->shdr.sh_size)
 +				die("Relocations overflow available space!\n"
-+				    "Please adjust CONFIG_RELOCATION_TABLE_SIZE "
-+				    "to at least 0x%08x\n", (size_needed + 0x1000) & ~0xFFF);
++				    "Please adjust CONFIG_RELOCATION_TABLE_SIZE to at least 0x%08x\n",
++				    (size_needed + 0x1000) & ~0xFFF);
 +
 +			/*
 +			 * Place the relocations at the end of section to ensure
