@@ -30,8 +30,7 @@ func loginTargetEdit(checkout string, supervisorEarly bool) (Edit, error) {
 	if supervisorEarly {
 		e.Files["/etc/systemd/system/spin-lab-forward.service.d/zz-early.conf"] = "[Unit]\nDefaultDependencies=no\nConflicts=shutdown.target\nBefore=shutdown.target\n"
 	}
-	e.Setup = `test -e "$MNT/etc/systemd/system/spin-lab-forward.service" || { echo "the login-target edits stand on spin's path: boot them with login=spin" >&2; exit 1; }
-test "$(readlink "$MNT/etc/systemd/system/default.target")" != /usr/lib/systemd/system/spin-machine-login.target || { echo "the release's default target is this checkout's already" >&2; exit 1; }
+	e.Setup = `test "$(readlink "$MNT/etc/systemd/system/default.target")" != /usr/lib/systemd/system/spin-machine-login.target || { echo "the release's default target is this checkout's already" >&2; exit 1; }
 `
 	return e, nil
 }
