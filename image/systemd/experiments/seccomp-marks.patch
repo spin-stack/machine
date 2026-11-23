@@ -16,7 +16,7 @@ index 0543e39..1f1f13b 100644
 +#define SPIN_MARK(name, expr) ({                                                \
 +                usec_t _t0 = spin_cpu_now();                                    \
 +                int _r = (expr);                                                \
-+                log_info("spin-seccomp-mark %s %s %" PRIu64 "us r=%i",          \
++                log_warning("spin-seccomp-mark %s %s %" PRIu64 "us r=%i",          \
 +                         params->unit_id ?: "?", name, spin_cpu_now() - _t0, _r); \
 +                _r;                                                             \
 +        })
@@ -35,7 +35,7 @@ index 0543e39..1f1f13b 100644
                  }
  
                  log_debug("Set up %smount namespace", delegate ? "delegated " : "");
-+                log_info("spin-seccomp-mark %s mount_namespace %" PRIu64 "us r=%i", params->unit_id ?: "?", spin_cpu_now() - spin_ns_t0, r);
++                log_warning("spin-seccomp-mark %s mount_namespace %" PRIu64 "us r=%i", params->unit_id ?: "?", spin_cpu_now() - spin_ns_t0, r);
          }
  
          if (needs_sandboxing &&
@@ -154,7 +154,7 @@ index 0543e39..1f1f13b 100644
 +        {
 +                struct timespec spin_ts;
 +                assert_se(clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &spin_ts) == 0);
-+                log_info("spin-seccomp-mark %s executor_total %" PRIu64 "us r=0", params->unit_id ?: "?", timespec_load(&spin_ts));
++                log_warning("spin-seccomp-mark %s executor_total %" PRIu64 "us r=0", params->unit_id ?: "?", timespec_load(&spin_ts));
 +        }
          r = fexecve_or_execve(executable_fd, executable, final_argv, accum_env);
  

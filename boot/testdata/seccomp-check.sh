@@ -18,5 +18,5 @@ for u in systemd-journald systemd-logind user@0; do
 	echo "SECCOMP-FILTERS $u main=$main probe=$(sed -n 's/^filters //p' "$f")"
 	echo "SECCOMP-TABLE $u $(grep -v '^filters ' "$f" | gzip -9 | base64 -w0)"
 done
-journalctl -b -o cat | grep '^spin-seccomp-mark' | sed 's/^/SECCOMP-MARK /' || true
+{ journalctl -b -o cat; dmesg; } | grep -o 'spin-seccomp-mark.*' | sed 's/^/SECCOMP-MARK /' || true
 echo SECCOMP_CHECK_OK
