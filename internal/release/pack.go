@@ -192,8 +192,9 @@ func shipped(o Options, top, share string) ([]file, error) {
 	}
 	files = append(files,
 		file{filepath.Join(o.Root, "qemu/qboot/COPYING"), at("qemu/qboot-COPYING"), "qboot's licence", 0o644},
-		// The bzImage is what the machine boots, its decompressor where KASLR happens; vmlinux,
-		// the same kernel as an ELF, is for what reads its symbols and for a debugger.
+		// vmlinux is what the machine boots, through PVH, the kernel moving itself to a random
+		// base (#645), and what a reader of the kernel's symbols opens. The bzImage, the same kernel with
+		// a decompressor, is what spin's hack/machine/place.go asks a release for.
 		file{fromOut("kernel/bzImage"), at("kernel/bzImage"), "the guest kernel", 0o644},
 		file{fromOut("kernel/vmlinux"), at("kernel/vmlinux"), "the guest kernel as an ELF", 0o644},
 		file{fromOut("kernel/kernel-config"), at("kernel/kernel-config"), "the kernel config", 0o644},
