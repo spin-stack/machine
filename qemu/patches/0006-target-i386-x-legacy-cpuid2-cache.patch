@@ -1,0 +1,64 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Mon, 23 Nov 2026 00:00:00 -0300
+Subject: [PATCH] target/i386: x-legacy-cpuid2-cache, leaf 0x2 from the cache
+ model leaf 0x4 describes
+
+x-consistent-cache=off puts QEMU's cache descriptors in CPUID leaf 0x2
+instead of 0xFF ("see leaf 0x4").  glibc asks for its cache sizes at
+every process start, and a 0xFF sends each query round leaf 0x4's
+subleaves, each a CPUID exit.
+
+Under a model with no cache model of its own, host and max among them,
+legacy-cache is on, and with it x-consistent-cache=off sets
+enable_legacy_cpuid2_cache.  Leaf 0x2 then describes
+legacy_intel_cpuid2_cache_info (L2 2 MiB 8-way) while leaf 0x4
+describes legacy_intel_cache_info (L2 4 MiB 16-way): the inconsistency
+commit 6699e5dc864b ("i386/cpu: Present same cache model in CPUID 0x2 &
+0x4") removed for newer machines by answering 0xFF.
+
+x-legacy-cpuid2-cache=off keeps the descriptors and drops the
+inconsistency: leaf 0x2 encodes env->cache_info, the model leaf 0x4
+encodes.  legacy_intel_cache_info has a descriptor for each of its
+caches (0x2C, 0x30, 0x49 since commit 67d54014afcf, 0x4D).  The default,
+on, is QEMU's behaviour without the patch.
+---
+diff --git a/target/i386/cpu.h b/target/i386/cpu.h
+index 3945e90..70a2948 100644
+--- a/target/i386/cpu.h
++++ b/target/i386/cpu.h
+@@ -2468,6 +2468,13 @@ struct ArchCPU {
+      */
+     bool consistent_cache;
+ 
++    /*
++     * If true, a legacy cache model without consistent_cache describes
++     * legacy_intel_cpuid2_cache_info in CPUID leaf 0x2, as QEMU before 10.1
++     * did.  If false, leaf 0x2 describes the cache model leaf 0x4 does.
++     */
++    bool legacy_cpuid2_cache;
++
+     /* Compatibility bits for old machine types.
+      * If true decode the CPUID Function 0x8000001E_ECX to support multiple
+      * nodes per processor
+diff --git a/target/i386/cpu.c b/target/i386/cpu.c
+index eab0d5a..9a00b50 100644
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -10346,7 +10346,7 @@ static void x86_cpu_realizefn(DeviceState *dev, Error **errp)
+         env->cache_info = *cache_info;
+     } else {
+         /* Build legacy cache information */
+-        if (!cpu->consistent_cache) {
++        if (!cpu->consistent_cache && cpu->legacy_cpuid2_cache) {
+             env->enable_legacy_cpuid2_cache = true;
+         }
+ 
+@@ -10885,6 +10885,8 @@ static const Property x86_cpu_properties[] = {
+      */
+     DEFINE_PROP_BOOL("legacy-cache", X86CPU, legacy_cache, true),
+     DEFINE_PROP_BOOL("x-consistent-cache", X86CPU, consistent_cache, true),
++    DEFINE_PROP_BOOL("x-legacy-cpuid2-cache", X86CPU, legacy_cpuid2_cache,
++                     true),
+     DEFINE_PROP_BOOL("legacy-multi-node", X86CPU, legacy_multi_node, false),
+     DEFINE_PROP_BOOL("xen-vapic", X86CPU, xen_vapic, false),
+ 
