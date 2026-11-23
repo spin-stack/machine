@@ -103,9 +103,11 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 		}
 	})
 
-	t.Run("the record holds the switch -cpu gives leaf 2", func(t *testing.T) {
-		if got := base.CPU.Properties["x-consistent-cache"]; got != "false" {
-			t.Errorf("the record's x-consistent-cache is %q, want false as -cpu gives it, among %v", got, base.CPU.Properties)
+	t.Run("the record holds the switches -cpu gives leaf 2", func(t *testing.T) {
+		for _, p := range []string{"x-consistent-cache", "x-legacy-cpuid2-cache"} {
+			if got := base.CPU.Properties[p]; got != "false" {
+				t.Errorf("the record's %s is %q, want false as -cpu gives it, among %v", p, got, base.CPU.Properties)
+			}
 		}
 	})
 	// A machine of v20261122.07, before -cpu set x-consistent-cache=off; and a checkpoint a

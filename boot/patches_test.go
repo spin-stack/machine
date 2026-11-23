@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +53,17 @@ func TestTheGuestSeesWhatEachPatchGivesIt(t *testing.T) {
 			"qemu/qboot/mtrr.patch", "/proc/mtrr has an uncachable range",
 			"MTRR", `grep -c uncachable /proc/mtrr`,
 			func(a string) bool { n, err := strconv.Atoi(a); return err == nil && n > 0 },
+		},
+		{
+			// glibc reads the L2 from leaf 2's descriptors and the kernel from leaf 4. Without the
+			// patch's switch leaf 2 describes legacy_intel_cpuid2_cache_info: glibc said
+			// 2097152/8 where the kernel said 4194304/16 (lab 45100482399, #586).
+			"qemu/patches/0006 (x-legacy-cpuid2-cache)", "glibc's L2 (leaf 2) the kernel's (leaf 4), size/ways",
+			"LEAF2", `c=/sys/devices/system/cpu/cpu0/cache/index2; echo $(getconf LEVEL2_CACHE_SIZE)/$(getconf LEVEL2_CACHE_ASSOC) $(($(sed 's/K$//' $c/size)*1024))/$(cat $c/ways_of_associativity)`,
+			func(a string) bool {
+				glibc, kernel, ok := strings.Cut(a, " ")
+				return ok && glibc == kernel && glibc != "0/0"
+			},
 		},
 	} {
 		g.type_(t, "echo "+c.name+"-$({ "+c.ask+"; } 2>&1 | tr -d '\\n')-END")
