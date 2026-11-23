@@ -126,6 +126,15 @@ jobs:
       - name: Keep the results in the touched files, and fail on one in a line the patches added
         run: spin-machine-dev patched scope ${{ matrix.part }}
 
+      # The analysis' own SARIF, whose diagnostics say what it extracted, for a scope that failed.
+      - name: Keep the SARIF
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-${{ matrix.part }}
+          path: _output/patched/${{ matrix.part }}/sarif
+          retention-days: 14
+
       # The touched files' results, whether or not the step above failed on one.
       - name: Upload to code scanning
         if: ${{ !cancelled() && hashFiles(format('_output/patched/{0}/scoped.sarif', matrix.part)) != '' }}
