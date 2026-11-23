@@ -26,8 +26,8 @@ done
 // journalSizeEdit raises the volatile journal's cap from 4 MB (#514).
 var journalSizeEdit = Edit{Setup: `f="$MNT/etc/systemd/journald.conf.d/volatile.conf"
 grep -qx 'RuntimeMaxUse=4M' "$f"
-sed -i 's/^RuntimeMaxUse=4M$/RuntimeMaxUse=16M/' "$f"
-grep -qx 'RuntimeMaxUse=16M' "$f"
+sed -i 's/^RuntimeMaxUse=4M$/RuntimeMaxUse=8M/' "$f"
+grep -qx 'RuntimeMaxUse=8M' "$f"
 `}
 
 // pressureRestEdit starts the pressure sender with multi-user.target, which the boot's rest

@@ -7,6 +7,7 @@ usage() { journalctl --disk-usage 2>&1 | sed 's/.*take up //'; }
 echo "JR MemTotal $(awk '/MemTotal/ {print $2}' /proc/meminfo) kB; /run size,used kB $(df -k --output=size,used /run | tail -1)"
 grep -h '^Runtime' /etc/systemd/journald.conf.d/*.conf | sed 's/^/JR conf /'
 journalctl -b -u systemd-journald -o cat --no-pager | grep -i 'runtime journal' | sed 's/^/JR journald: /'
+echo "JR root $(df -k --output=size,avail / | tail -1)"
 echo "JR at start: $(usage); $(journalctl -q --no-pager | wc -l) lines; oldest $(oldest)"
 d=$(mktemp -d)
 mkdir -p "$d/bin"
@@ -25,6 +26,8 @@ while [ "$(date +%s)" -lt "$end" ]; do
         echo JOURNAL_CHECK_FAILED
         exit 0
     fi
+    docker rmi -f jr-busy > /dev/null 2>&1
+    docker builder prune -af > /dev/null 2>&1
     n=$((n + 1))
     if [ "$(date +%s)" -ge "$next" ]; then
         echo "JR $(( $(date +%s) - start )) s, $n builds: $(usage); $(journalctl -q --no-pager | wc -l) lines; oldest $(oldest)"
