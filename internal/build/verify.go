@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/spin-stack/machine/machine"
 )
 
 // QEMUBinaries are what the QEMU build ships. qemu-img is not a convenience: a container's
@@ -22,11 +24,12 @@ import (
 // without it gives a container nowhere to write.
 var QEMUBinaries = []string{"qemu-system-x86_64", "qemu-system-x86_64-tcg", "qemu-img"}
 
-// Firmware is what every consumer of QEMU needs beside it. linuxboot_dma.bin is the option ROM QEMU
-// adds when -kernel is a bzImage, the kernel the machine boots; efi-virtio.rom is the option ROM of
+// Firmware is what every consumer of QEMU needs beside it. pvh.bin is the option ROM QEMU adds
+// when -kernel is an ELF kernel, the vmlinux the machine boots, and linuxboot_dma.bin the one it
+// adds for a bzImage, which a release from before #645 boots; efi-virtio.rom is the option ROM of
 // the one NIC this build keeps, and a VM given a virtio-net-pci without it does not start; qboot.bin is the BIOS the machine boots with
 // (machine.DefaultBIOS), built beside QEMU from qemu/qboot/.
-var Firmware = []string{"bios.bin", "bios-256k.bin", "linuxboot_dma.bin", "kvmvapic.bin", "efi-virtio.rom", "qboot.bin"}
+var Firmware = []string{"bios.bin", "bios-256k.bin", "linuxboot_dma.bin", "pvh.bin", "kvmvapic.bin", "efi-virtio.rom", "qboot.bin"}
 
 // qbootSize is the ROM window qboot is linked for.
 const qbootSize = 64 << 10
@@ -87,20 +90,44 @@ func VerifyQEMU(o Options) error {
 	return nil
 }
 
-// VerifyKernel asserts the kernel is one QEMU can enter and this machine can boot: a relocatable
-// bzImage, which is what the machine boots and where KASLR picks a base, and the same kernel as the
-// ELF it was linked as, which spin reads symbols from (spin-stack/spin's hack/machine/place.go).
+// VerifyKernel asserts the kernel is one QEMU can enter and this machine can boot at a random
+// base: the vmlinux the machine enters through PVH, which spin also reads symbols from
+// (spin-stack/spin's hack/machine/place.go), able to randomize itself (SelfRandomizing), and the
+// relocatable bzImage beside it, which spin's place.go still asks a release for.
 func VerifyKernel(o Options) error {
-	bz := filepath.Join(o.Out, "kernel", "bzImage")
-	if err := Relocatable(bz); err != nil {
+	if err := Relocatable(filepath.Join(o.Out, "kernel", "bzImage")); err != nil {
 		return err
 	}
-	vmlinux := filepath.Join(o.Out, "kernel", "vmlinux")
-	f, err := elf.Open(vmlinux)
-	if err != nil {
-		return fmt.Errorf("reading %s as an ELF: %w", vmlinux, err)
+	return SelfRandomizing(filepath.Join(o.Out, "kernel", "vmlinux"))
+}
+
+// SelfRandomizing is whether the vmlinux at path can be put at a random base with no
+// decompressor (#645): the Xen notes QEMU enters it and places it at a random physical base by
+// (machine.PVH, qemu/patches/0008), and a filled relocation table in .data.reloc, which it moves
+// its own virtual base with (kernel/patches/0014-0017). The table's last word is a relocation
+// the relocs tool wrote; an unfilled table ends in the 0 it was reserved with, and the kernel
+// stays where it was linked, booting all the same. boot:kaslr asks the kernel that boots.
+func SelfRandomizing(path string) error {
+	if err := machine.PVH(path); err != nil {
+		return err
 	}
-	return f.Close()
+	f, err := elf.Open(path)
+	if err != nil {
+		return fmt.Errorf("reading %s as an ELF: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	sec := f.Section(".data.reloc")
+	if sec == nil || sec.Size < 4 {
+		return fmt.Errorf("%s has no .data.reloc: the kernel cannot move its virtual base", path)
+	}
+	last := make([]byte, 4)
+	if _, err := sec.ReadAt(last, int64(sec.Size)-4); err != nil {
+		return fmt.Errorf("reading %s's .data.reloc: %w", path, err)
+	}
+	if f.ByteOrder.Uint32(last) == 0 {
+		return fmt.Errorf("%s's .data.reloc is empty: the relocs tool did not fill it, and the kernel would run where it was linked", path)
+	}
+	return nil
 }
 
 // Relocatable is whether path is a bzImage whose setup header says relocatable: "HdrS" at 0x202,

@@ -17,10 +17,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/spin-stack/machine/internal/build"
+	"github.com/spin-stack/machine/internal/elftest"
 	"github.com/spin-stack/machine/machine"
 )
 
-// kernelFixture is a relocatable bzImage and a vmlinux carrying a Xen note, as kernel/Dockerfile
+// kernelFixture is a relocatable bzImage and a vmlinux that randomizes itself, as kernel/Dockerfile
 // leaves them.
 func kernelFixture(t *testing.T, out string) {
 	t.Helper()
@@ -28,21 +29,16 @@ func kernelFixture(t *testing.T, out string) {
 	copy(bz[0x202:], "HdrS")
 	bz[0x234] = 1
 	put(t, filepath.Join(out, "kernel/bzImage"), string(bz), 0o644)
-	var note bytes.Buffer
-	_ = binary.Write(&note, binary.LittleEndian, []uint32{4, 4, 18})
-	note.WriteString("Xen\x00\x00\x00\x00\x01")
-	var b bytes.Buffer
-	h := elf.Header64{Type: uint16(elf.ET_EXEC), Machine: uint16(elf.EM_X86_64), Version: uint32(elf.EV_CURRENT),
-		Phoff: 64, Ehsize: 64, Phentsize: 56, Phnum: 1, Shentsize: 64}
-	copy(h.Ident[:], elf.ELFMAG)
-	h.Ident[elf.EI_CLASS], h.Ident[elf.EI_DATA], h.Ident[elf.EI_VERSION] = byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)
-	_ = binary.Write(&b, binary.LittleEndian, h)
-	_ = binary.Write(&b, binary.LittleEndian, elf.Prog64{Type: uint32(elf.PT_NOTE), Off: 120, Filesz: uint64(note.Len()), Memsz: uint64(note.Len())})
-	b.Write(note.Bytes())
-	put(t, filepath.Join(out, "kernel/vmlinux"), b.String(), 0o644)
+	put(t, filepath.Join(out, "kernel/vmlinux"), string(vmlinuxFixture()), 0o644)
 	for _, f := range []string{"kernel/kernel-config", "kernel/sources", "kernel/patches/0001-k.patch"} {
 		put(t, filepath.Join(out, f), f, 0o644)
 	}
+}
+
+// vmlinuxFixture is a vmlinux that verify kernel takes for one that randomizes itself: both Xen
+// notes and a filled .data.reloc.
+func vmlinuxFixture() []byte {
+	return elftest.Kernel([]uint32{18, 19}, []byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0x10, 0, 0, 0})
 }
 
 // everything is a whole built _output: what every part's build leaves, and spin-machine.

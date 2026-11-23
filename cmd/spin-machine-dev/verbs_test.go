@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -205,12 +206,21 @@ func kernelDocker(extra string) string {
 mkdir -p "$dest/kernel"; head -c 1024 /dev/zero > "$dest/kernel/bzImage"
 printf HdrS | dd of="$dest/kernel/bzImage" bs=1 seek=514 conv=notrunc 2>/dev/null
 printf '\001' | dd of="$dest/kernel/bzImage" bs=1 seek=564 conv=notrunc 2>/dev/null
-cp /proc/self/exe "$dest/kernel/vmlinux"
+printf '` + printfEscaped(vmlinuxFixture()) + `' > "$dest/kernel/vmlinux"
 if [ "$lockdown" = none ]; then
 	printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"
 else
 	printf 'CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_BPF_LSM=y\n' > "$dest/kernel/kernel-config"
 fi`
+}
+
+// printfEscaped is b as a printf format of octal escapes, which sh's printf writes back as b.
+func printfEscaped(b []byte) string {
+	var s strings.Builder
+	for _, c := range b {
+		fmt.Fprintf(&s, "\\%03o", c)
+	}
+	return s.String()
 }
 
 // The traceable kernel is the release kernel with lockdown forced to none and nothing else: it is
