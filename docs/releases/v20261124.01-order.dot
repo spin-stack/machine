@@ -1,0 +1,22 @@
+digraph systemd {
+	"user-0.slice"->"user.slice" [color="green"];
+	"systemd-journald.service"->"-.mount" [color="green"];
+	"systemd-journald.service"->"systemd-journald.socket" [color="green"];
+	"systemd-tmpfiles-setup.service"->"systemd-journald.socket" [color="green"];
+	"systemd-tmpfiles-setup.service"->"systemd-journald.service" [color="green"];
+	"spin-supervisor.service"->"systemd-journald.socket" [color="green"];
+	"spin-supervisor.service"->"ssh.service" [color="green"];
+	"spin-supervisor.service"->"sysinit.target" [color="green"];
+	"sysinit.target"->"systemd-journald.service" [color="green"];
+	"sysinit.target"->"systemd-tmpfiles-setup.service" [color="green"];
+	"systemd-journald.socket"->"-.mount" [color="green"];
+	"user-runtime-dir@0.service"->"systemd-journald.socket" [color="green"];
+	"user-runtime-dir@0.service"->"user-0.slice" [color="green"];
+	"-.mount"->"-.slice" [color="green"];
+	"user.slice"->"-.slice" [color="green"];
+	"ssh.service"->"systemd-journald.socket" [color="green"];
+	"ssh.service"->"-.mount" [color="green"];
+	"user@0.service"->"systemd-journald.socket" [color="green"];
+	"user@0.service"->"user-runtime-dir@0.service" [color="green"];
+	"user@0.service"->"user-0.slice" [color="green"];
+}
