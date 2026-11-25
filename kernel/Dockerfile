@@ -253,6 +253,14 @@ RUN <<EOT
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig!"; exit 1; }
     done
     grep -q '^CONFIG_DEFAULT_NET_SCH="fq_codel"' .config || { echo "ERROR: the default qdisc is not fq_codel!"; exit 1; }
+
+    # A TPM through either interface QEMU gives one, tpm-crb or tpm-tis, which #719 measures
+    # against each other: /dev/tpm0 and /dev/tpmrm0 for what measures the guest, and the driver
+    # patches/0027 hooks shirudo's register through.
+    for opt in TCG_TPM TCG_TIS TCG_CRB; do
+        grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} not enabled (no TPM in the guest)!"; exit 1; }
+    done
+
     for opt in BOOTPARAM_HUNG_TASK_PANIC BOOTPARAM_SOFTLOCKUP_PANIC; do
         ! grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} would turn a report into a panic!"; exit 1; }
     done
@@ -476,7 +484,9 @@ RUN <<EOT
     lost() { echo "ERROR: patches/$1 is not in this vmlinux: $2"; failed=1; }
     for f in vfs_read ftrace_check_for_weak_functions trace_eval_init trace_format_open \
             raw_pci_read raw_pci_write pci_setup_device early_quirks btf_vmlinux_defer \
-            enable_IO_APIC pci_bus_add_device vp_modern_probe; do
+            enable_IO_APIC pci_bus_add_device vp_modern_probe cgroup_attach_task cgroup_can_fork \
+            bpf_lsm_task_cgroup_attach bpf_lsm_tpm_command bpf_lsm_mm_read_access mm_access \
+            tpm_common_write; do
         dis "$f" | grep -q "<$f>:" || { echo "ERROR: no function $f in vmlinux; the check that names it reads nothing"; failed=1; }
     done
 
@@ -595,6 +605,35 @@ RUN <<EOT
     # source that was compiled is read.
     grep -qF 'cfg->dest_apicid == old_cfg.dest_apicid' arch/x86/kernel/apic/msi.c ||
         lost 0025 "msi_set_affinity writes an unchanged message"
+
+    # 0026-0031 are shirudo's (versions.yaml's shirudo): LSM hooks its BPF programs attach to, and
+    # what its sleepable programs may do. A hook is a bpf_lsm_<hook> a program attaches to and a
+    # security_<hook> the kernel calls where the operation is decided.
+    # 0026: a task's move between cgroups, by a cgroup.procs write and by CLONE_INTO_CGROUP.
+    for f in cgroup_attach_task cgroup_can_fork; do
+        dis "$f" | grep -q '<security_task_cgroup_attach>' || lost 0026 "$f does not ask the LSMs about the move"
+    done
+
+    # 0027: every command written to /dev/tpm0 or /dev/tpmrm0, before it is sent.
+    dis tpm_common_write | grep -q '<security_tpm_command>' || lost 0027 "tpm_common_write sends a command no LSM saw"
+
+    # 0028: a security.bpf. xattr is read for the LSM program without the calling task's permission.
+    grep -A1 -F 'if (match_security_bpf_prefix(name))' fs/bpf_fs_kfuncs.c | grep -qF 'return 0;' ||
+        lost 0028 "bpf_xattr_read_permission asks the calling task's permission for a security.bpf. label"
+
+    # 0029: sleepable programs on inode_mkdir and the other five hooks. The set is BTF ids, read in
+    # the source.
+    grep -qF 'BTF_ID(func, bpf_lsm_inode_mkdir)' kernel/bpf/bpf_lsm.c ||
+        lost 0029 "a sleepable LSM program cannot attach to inode_mkdir"
+
+    # 0030: dentry->d_parent is a trusted pointer to the verifier.
+    grep -A2 -F 'BTF_TYPE_SAFE_TRUSTED_OR_NULL(struct dentry) {' kernel/bpf/verifier.c | grep -qF 'struct dentry *d_parent;' ||
+        lost 0030 "the verifier does not trust dentry->d_parent"
+
+    # 0031: the read-only access CAP_PERFMON grants to another task's memory asks the LSMs first.
+    # may_access_mm is static and inlined into mm_access.
+    { dis mm_access; dis may_access_mm; } | grep -q '<security_mm_read_access>' ||
+        lost 0031 "mm_access grants CAP_PERFMON a read no LSM saw"
 
     [ "$failed" = 0 ] || exit 1
     echo "kernel patches: each is in this vmlinux"

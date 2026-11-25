@@ -1,0 +1,140 @@
+From: KP Singh <kpsingh@kernel.org>
+Date: Wed, 28 Oct 2026 16:26:25 +0100
+Subject: [PATCH] tpm: Let LSMs inspect userspace commands
+
+Shirudo keeps the key that authorizes its TPM NV writes inside the TPM.
+Another process can recreate that key and ask the TPM to sign. An LSM
+therefore needs the target index of an NV_Extend command to decide
+whether the caller may change Shirudo's register. A check made when the
+TPM device is opened would miss inherited descriptors.
+
+Call a new tpm_command hook after copying the command from userspace and
+validating its header. Pass the device file, copied command, and the
+header's declared length while the buffer is locked. The hook runs
+before both direct transmission and nonblocking queueing. The declared
+length keeps any trailing write bytes out of the policy decision.
+
+Link: https://github.com/shirudo-dev/shirudo/pull/57
+Signed-off-by: KP Singh <kpsingh@kernel.org>
+[ spin-stack/machine: from shirudo's testing/kernel/patches, at
+  versions.yaml's shirudo pin. ]
+---
+ drivers/char/tpm/tpm-dev-common.c | 13 +++++++++++--
+ include/linux/lsm_hook_defs.h     |  2 ++
+ include/linux/security.h          |  8 ++++++++
+ security/security.c               | 18 ++++++++++++++++++
+ 4 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/char/tpm/tpm-dev-common.c b/drivers/char/tpm/tpm-dev-common.c
+index ee91f456f..6700423e0 100644
+--- a/drivers/char/tpm/tpm-dev-common.c
++++ b/drivers/char/tpm/tpm-dev-common.c
+@@ -13,6 +13,7 @@
+  * Device file system interface to the TPM
+  */
+ #include <linux/poll.h>
++#include <linux/security.h>
+ #include <linux/slab.h>
+ #include <linux/uaccess.h>
+ #include <linux/workqueue.h>
+@@ -184,6 +185,7 @@ ssize_t tpm_common_write(struct file *file, const char __user *buf,
+ 			 size_t size, loff_t *off)
+ {
+ 	struct file_priv *priv = file->private_data;
++	struct tpm_header *header;
+ 	int ret = 0;
+ 
+ 	if (size > TPM_BUFSIZE)
+@@ -206,12 +208,19 @@ ssize_t tpm_common_write(struct file *file, const char __user *buf,
+ 		goto out;
+ 	}
+ 
+-	if (size < 6 ||
+-	    size < be32_to_cpu(*((__be32 *)(priv->data_buffer + 2)))) {
++	header = (struct tpm_header *)priv->data_buffer;
++	if (size < sizeof(*header) ||
++	    be32_to_cpu(header->length) < sizeof(*header) ||
++	    size < be32_to_cpu(header->length)) {
+ 		ret = -EINVAL;
+ 		goto out;
+ 	}
+ 
++	ret = security_tpm_command(file, priv->data_buffer,
++				   be32_to_cpu(header->length));
++	if (ret)
++		goto out;
++
+ 	priv->response_length = 0;
+ 	priv->response_read = false;
+ 	*off = 0;
+diff --git a/include/linux/lsm_hook_defs.h b/include/linux/lsm_hook_defs.h
+index f71a626b0..dc8f7cfa4 100644
+--- a/include/linux/lsm_hook_defs.h
++++ b/include/linux/lsm_hook_defs.h
+@@ -189,6 +189,8 @@ LSM_HOOK(int, 0, inode_setintegrity, const struct inode *inode,
+ LSM_HOOK(int, 0, kernfs_init_security, struct kernfs_node *kn_dir,
+ 	 struct kernfs_node *kn)
+ LSM_HOOK(int, 0, file_permission, struct file *file, int mask)
++LSM_HOOK(int, 0, tpm_command, struct file *file,
++	 const u8 *command, size_t command_len)
+ LSM_HOOK(int, 0, file_alloc_security, struct file *file)
+ LSM_HOOK(void, LSM_RET_VOID, file_release, struct file *file)
+ LSM_HOOK(void, LSM_RET_VOID, file_free_security, struct file *file)
+diff --git a/include/linux/security.h b/include/linux/security.h
+index 273fb813c..a703ca18e 100644
+--- a/include/linux/security.h
++++ b/include/linux/security.h
+@@ -476,6 +476,8 @@ int security_inode_setintegrity(const struct inode *inode,
+ int security_kernfs_init_security(struct kernfs_node *kn_dir,
+ 				  struct kernfs_node *kn);
+ int security_file_permission(struct file *file, int mask);
++int security_tpm_command(struct file *file, const u8 *command,
++			 size_t command_len);
+ int security_file_alloc(struct file *file);
+ void security_file_release(struct file *file);
+ void security_file_free(struct file *file);
+@@ -1155,6 +1157,12 @@ static inline int security_file_permission(struct file *file, int mask)
+ 	return 0;
+ }
+ 
++static inline int security_tpm_command(struct file *file,
++				       const u8 *command, size_t command_len)
++{
++	return 0;
++}
++
+ static inline int security_file_alloc(struct file *file)
+ {
+ 	return 0;
+diff --git a/security/security.c b/security/security.c
+index f5ea1a57a..99047aedf 100644
+--- a/security/security.c
++++ b/security/security.c
+@@ -2415,6 +2415,24 @@ int security_file_permission(struct file *file, int mask)
+ 	return call_int_hook(file_permission, file, mask);
+ }
+ 
++/**
++ * security_tpm_command() - Check a userspace TPM command
++ * @file: TPM device file
++ * @command: TPM command copied from userspace
++ * @command_len: length declared in the validated command header
++ *
++ * Check a command before the TPM driver queues or sends it. The command
++ * remains in the device buffer until this call returns.
++ *
++ * Return: Returns 0 if permission is granted.
++ */
++int security_tpm_command(struct file *file, const u8 *command,
++			 size_t command_len)
++{
++	return call_int_hook(tpm_command, file, command, command_len);
++}
++EXPORT_SYMBOL_GPL(security_tpm_command);
++
+ /**
+  * security_file_alloc() - Allocate and init a file's LSM blob
+  * @file: the file
+-- 
+2.53.0
+
