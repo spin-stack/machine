@@ -1,0 +1,114 @@
+From: Daniel Borkmann <daniel@iogearbox.net>
+Date: Tue, 17 Nov 2026 12:20:31 +0000
+Subject: [PATCH] mm: Let LSMs check read-only remote mm access under
+ CAP_PERFMON
+
+Since commit 0c555a3c1bc9 ("mm,procfs: allow read-only remote mm access
+under CAP_PERFMON"), mm_access() grants a read-mode access to a caller
+with CAP_PERFMON or CAP_SYS_ADMIN after ptrace_may_access() refused it.
+The refusal may have come from an LSM's ptrace_access_check hook, which
+then has no say: /proc/<pid>/environ, maps, smaps, numa_maps, pagemap
+and auxv of a task the LSM keeps others away from open all the same.
+
+Shirudo marks the processes that run its runtime binary and refuses
+every ptrace access to them from tasks without its authority. With the
+perfmon path, root reads their environment and their memory layout.
+
+Call a new mm_read_access hook before mm_access() grants a read-mode
+access that way. It sees the target task and the PTRACE_MODE flags of
+the access, as ptrace_access_check does, and is consulted only on the
+CAP_PERFMON path, so an access ptrace_may_access() allows is not
+checked twice.
+
+Signed-off-by: Daniel Borkmann <daniel@iogearbox.net>
+[ spin-stack/machine: from shirudo's testing/kernel/patches, at
+  versions.yaml's shirudo pin. ]
+---
+ include/linux/lsm_hook_defs.h |  1 +
+ include/linux/security.h      |  7 +++++++
+ kernel/fork.c                 |  3 ++-
+ security/security.c           | 17 +++++++++++++++++
+ 4 files changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/lsm_hook_defs.h b/include/linux/lsm_hook_defs.h
+index dc8f7cfa4..d782285b7 100644
+--- a/include/linux/lsm_hook_defs.h
++++ b/include/linux/lsm_hook_defs.h
+@@ -36,6 +36,7 @@ LSM_HOOK(int, 0, binder_transfer_file, const struct cred *from,
+ LSM_HOOK(int, 0, ptrace_access_check, struct task_struct *child,
+ 	 unsigned int mode)
+ LSM_HOOK(int, 0, ptrace_traceme, struct task_struct *parent)
++LSM_HOOK(int, 0, mm_read_access, struct task_struct *task, unsigned int mode)
+ LSM_HOOK(int, 0, capget, const struct task_struct *target, kernel_cap_t *effective,
+ 	 kernel_cap_t *inheritable, kernel_cap_t *permitted)
+ LSM_HOOK(int, 0, capset, struct cred *new, const struct cred *old,
+diff --git a/include/linux/security.h b/include/linux/security.h
+index a703ca18e..11d964bb5 100644
+--- a/include/linux/security.h
++++ b/include/linux/security.h
+@@ -341,6 +341,7 @@ int security_binder_transfer_file(const struct cred *from,
+ 				  const struct cred *to, const struct file *file);
+ int security_ptrace_access_check(struct task_struct *child, unsigned int mode);
+ int security_ptrace_traceme(struct task_struct *parent);
++int security_mm_read_access(struct task_struct *task, unsigned int mode);
+ int security_capget(const struct task_struct *target,
+ 		    kernel_cap_t *effective,
+ 		    kernel_cap_t *inheritable,
+@@ -690,6 +691,12 @@ static inline int security_ptrace_traceme(struct task_struct *parent)
+ 	return cap_ptrace_traceme(parent);
+ }
+ 
++static inline int security_mm_read_access(struct task_struct *task,
++					  unsigned int mode)
++{
++	return 0;
++}
++
+ static inline int security_capget(const struct task_struct *target,
+ 				   kernel_cap_t *effective,
+ 				   kernel_cap_t *inheritable,
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 5efceb8d5..2f5675cc2 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -1402,7 +1402,8 @@ static bool may_access_mm(struct mm_struct *mm, struct task_struct *task, unsign
+ 		return true;
+ 	if (ptrace_may_access(task, mode))
+ 		return true;
+-	if ((mode & PTRACE_MODE_READ) && perfmon_capable())
++	if ((mode & PTRACE_MODE_READ) && perfmon_capable() &&
++	    !security_mm_read_access(task, mode))
+ 		return true;
+ 	return false;
+ }
+diff --git a/security/security.c b/security/security.c
+index 99047aedf..d83125ccf 100644
+--- a/security/security.c
++++ b/security/security.c
+@@ -609,6 +609,23 @@ int security_ptrace_traceme(struct task_struct *parent)
+ 	return call_int_hook(ptrace_traceme, parent);
+ }
+ 
++/**
++ * security_mm_read_access() - Check a read-only access granted by CAP_PERFMON
++ * @task: task whose memory is accessed
++ * @mode: PTRACE_MODE flags of the access, read mode
++ *
++ * mm_access() grants a read-only access to the memory of @task to a caller
++ * with CAP_PERFMON even when ptrace_may_access(), and so the
++ * ptrace_access_check hook, refused it. Check that access before it is
++ * granted that way.
++ *
++ * Return: Returns 0 if permission is granted.
++ */
++int security_mm_read_access(struct task_struct *task, unsigned int mode)
++{
++	return call_int_hook(mm_read_access, task, mode);
++}
++
+ /**
+  * security_capget() - Get the capability sets for a process
+  * @target: target process
+-- 
+2.53.0
+
