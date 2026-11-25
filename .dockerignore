@@ -1,0 +1,5 @@
+# Nothing a Dockerfile copies: BuildKit walked them for every build. mkosi's cache under .cache is
+# root's, and a systemd build after an image build stopped on it (permission denied).
+.cache
+_output
+.git
