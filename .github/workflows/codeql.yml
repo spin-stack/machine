@@ -5,8 +5,9 @@ name: CodeQL
 # The kernel and QEMU are compiled under CodeQL's tracer, only the files their patches touch
 # (spin-machine-dev patched compile); qboot, systemd and OpenSSH are analysed without a build, from
 # a tree with every other C file taken out. A result on a line the patches added or changed fails
-# the job and goes to code scanning, under the part's category; so does a touched C file the
-# analysis did not extract (spin-machine-dev patched scope). Upstream's own results in the touched
+# the job and goes to code scanning, under the part's category, unless a codeql[<rule>] comment
+# the patch put on the line before says why it stays; so does a touched C file the analysis did
+# not extract (spin-machine-dev patched scope). Upstream's own results in the touched
 # files are kept as the job's artifact, not sent to code scanning: an alert nobody here fixes is noise, and
 # would block a merge once a ruleset requires CodeQL (#653).
 #
@@ -89,7 +90,10 @@ jobs:
           languages: c-cpp
           build-mode: ${{ matrix.build-mode }}
           source-root: _output/patched/${{ matrix.part }}/src
+          # As own's: a result under a codeql[<rule>] comment a patch added, which says why it
+          # stays, is reported suppressed, and scope passes it.
           queries: security-extended
+          packs: codeql/cpp-queries:AlertSuppression.ql
 
       - name: Compile what the patches touch, traced
         if: ${{ matrix.build-mode == 'manual' }}
