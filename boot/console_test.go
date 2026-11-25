@@ -66,18 +66,20 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 		case <-ctx.Done():
 		}
 		text := console.String()
-		if strings.Contains(text, ok) {
-			return text
-		}
 		if strings.Contains(text, failed) || ctx.Err() != nil {
 			t.Fatalf("guest check failed: %v\n%s\nQEMU %s", ctx.Err(), text, p.Kill())
+		}
+		// Before the end is seen, so what the guest printed with its last line is still answered
+		// by a machine that runs.
+		said(p.QEMU, text)
+		if strings.Contains(text, ok) {
+			return text
 		}
 		select {
 		case <-p.Exited():
 			t.Fatalf("guest check failed: QEMU %s\n%s", p.Wait(), text)
 		default:
 		}
-		said(p.QEMU, text)
 	}
 }
 
