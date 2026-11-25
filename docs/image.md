@@ -191,6 +191,11 @@ tell them apart, and `mkosi.postinst.chroot` holds them. `build.sh` reads the he
 own status, not apt-mark's word. An image that took the archive's systemd boots and pays again for
 everything built out; one that took the archive's sshd logs in and every login sleeps twice.
 
+The `+spin1` changelog entry `dch` writes carries the date of the entry before it, Ubuntu's, and not
+the build's: dpkg-buildpackage takes `SOURCE_DATE_EPOCH` from it, and systemd its time epoch, so a
+wall-clock date made two builds of one commit two different systemd binaries and changelogs
+(2026-11-25).
+
 ### The filesystem
 
 `build.sh` turns the tree into a partitionless ext4 wrapped in a read-only qcow2.
@@ -203,6 +208,10 @@ everything built out; one that took the archive's sshd logs in and every login s
   of one commit against the same archive make the same image. The userland comes from a live
   archive, so two builds days apart can install other versions, and `packages.txt` says which;
   what a release contains is the checksum in `machine.env`.
+- **A fixed directory hash seed** (`-E hash_seed=`): mkfs.ext4 draws one at random, and it orders
+  every hashed directory's index, so two builds of one tree differed in their blocks. The seed is
+  public, so a guest's user who knows it can make names collide in a directory that user writes,
+  and slow that directory's lookups down: the guest's own disk, never another workspace's.
 - **`licenses.txt` and `packages.txt` beside the image, at the root of the tree.** That is where a
   release carries them: one each for the whole machine. `packages.txt` is the only record of what
   the image is made of without booting it (the tree is thrown away, the qcow2 is opaque, dpkg's

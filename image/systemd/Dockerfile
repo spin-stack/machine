@@ -37,6 +37,9 @@ RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "${SYSTEMD_SOURCE_VERSION}+spin1" --distribution resolute \
             "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}, $(cd /build/patches && echo *.patch)." && \
+    prev="$(dpkg-parsechangelog --offset 1 --count 1 -SDate)" && \
+    sed -i "1,/^ -- /s/^\( -- .*>  \).*/\1${prev}/" debian/changelog && \
+    test "$(dpkg-parsechangelog -SDate)" = "${prev}" && \
     CONFFLAGS_UPSTREAM="${extra}" dpkg-buildpackage -b -uc -us -j"$(nproc)" && \
     meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra}
 

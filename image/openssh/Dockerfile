@@ -27,6 +27,9 @@ RUN for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "1:${OPENSSH_SOURCE_VERSION}+spin1" --distribution resolute \
             "Rebuilt by spin-machine with $(cd /build/patches && echo *.patch)." && \
+    prev="$(dpkg-parsechangelog --offset 1 --count 1 -SDate)" && \
+    sed -i "1,/^ -- /s/^\( -- .*>  \).*/\1${prev}/" debian/changelog && \
+    test "$(dpkg-parsechangelog -SDate)" = "${prev}" && \
     dpkg-buildpackage -b -uc -us -j"$(nproc)"
 
 COPY image/openssh/regress-ran.sh /build/regress-ran.sh
