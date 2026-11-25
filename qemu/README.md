@@ -13,7 +13,7 @@ it still builds and starts every machine, so nothing else would. `verify args` a
 binary with no guest (`TestEachQEMUPatchDoesItsJob`, every push against the published QEMU in
 ci.yml and every QEMU parts.yml builds). `boot:patches` asks a guest of spin's shape what only a
 guest sees (`patches_test.go`, compat.yml on every change that reaches the machine, QEMU or the
-kernel). None is in QEMU 11.2.0-rc0, the tree they apply to without fuzz, and none has been
+kernel). None is in QEMU 11.2.0-rc1, the tree they apply to without fuzz, and none has been
 posted upstream.
 
 | Patch | What and why | Earns | Held by |
