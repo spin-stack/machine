@@ -21,7 +21,7 @@ func TestTheSiteIsThePageAsHTML(t *testing.T) {
 		"158.9 ms p50 in one run and 167.0 in another",
 		"<code>spin-machine-dev releases compare A B</code>",
 		"<svg xmlns=\"http://www.w3.org/2000/svg\"",
-		"<title>v2 cold: p50 321, p95 321 ms</title>",
+		"<title>v2 cold, its own run: p50 321, p95 321 ms</title>",
 		"<th>cold boot to first login</th><th>Δ</th>",
 		"<tr><td>v2</td><td>321 / 321</td><td>-19.0 [-19.0, -19.0]</td><td>152 / 152</td><td></td><td>296 / 296</td><td>-</td></tr>",
 		// html/template writes a + as &#43;, which a browser shows as +.

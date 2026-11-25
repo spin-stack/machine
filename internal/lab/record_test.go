@@ -93,7 +93,7 @@ func TestTheDocChartsAndTablesTheReleases(t *testing.T) {
 	}
 	for _, want := range []string{
 		"158.9 ms p50 in one run and 167.0 in another",
-		"\n![First SSH login, p50 and p95, release by release](kept.svg)\n",
+		"\n![" + chartTitle + "](kept.svg)\n",
 		"| v1 | 340 / 340 |  | - |  | - | - |",
 		"| v2 | 321 / 321 | -19.0 [-19.0, -19.0] | 152 / 152 |  | 296 / 296 | - |",
 		// v1 is the first in its run: it has no Δ, and the page says why.
