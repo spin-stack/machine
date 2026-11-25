@@ -24,7 +24,7 @@ func spinsMachine() facts {
 	return facts{
 		exact: map[string]string{
 			"accel":                       "kvm",
-			"machine type":                "pc-q35-11.1",
+			"machine type":                "pc-q35-11.2",
 			"machine smp.cpus":            "1",
 			"machine smp.maxcpus":         "16",
 			"machine memory.size":         "134217728",

@@ -149,7 +149,7 @@ const (
 var readRecord = []string{
 	cpuFast, cpuVCPU, cpuExpansion,
 	`{"return": {"enabled": "kvm", "present": ["kvm", "tcg"]}}`,
-	`{"return": [{"properties": [{"name": "type", "type": "string", "value": "pc-q35-11.1-machine"}, ` +
+	`{"return": [{"properties": [{"name": "type", "type": "string", "value": "pc-q35-11.2-machine"}, ` +
 		`{"name": "smp", "type": "SMPConfiguration", "value": {"cpus": 1}}, {"name": "memory", "type": "x", "value": {"size": 1}}, ` +
 		`{"name": "hpet", "type": "bool", "value": false}, {"name": "acpi", "type": "OnOffAuto", "value": "on"}, ` +
 		`{"name": "sata", "type": "bool", "value": false}, {"name": "smbus", "type": "bool", "value": false}]}, ` +

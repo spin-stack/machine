@@ -564,7 +564,7 @@ such as a NIC's MTU or `ICH9-LPC.disable_s3`. The record names each of them. It 
   release's QEMU has that switch, so `task boot:compat` refuses every release's checkpoints by
   it, v20261123.03 first, `cpu x-legacy-cpuid2-cache: checkpoint none, here false (same)` (CI
   run 45104443218, 2026-11-23).
-- the machine: its **versioned** type (`machine.Type`, `pc-q35-11.1`), the accelerator,
+- the machine: its **versioned** type (`machine.Type`, `pc-q35-11.2`), the accelerator,
   each `-machine` option, `-smp` and `-m`, as QEMU reads them back.
 - every device the machine was started with. A device on the root complex is named by its slot
   (`device 02.0`), any other by its type (`device i8257/2` for the second one on its bus). Each

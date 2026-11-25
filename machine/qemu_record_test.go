@@ -21,7 +21,7 @@ import (
 // fakeMachine is what a QEMU answers about itself, path by path: a small machine with a device of
 // each kind the record reads or leaves out.
 var fakeMachine = map[string]string{
-	"/machine": `[{"name": "type", "type": "string", "value": "pc-q35-11.1-machine"},
+	"/machine": `[{"name": "type", "type": "string", "value": "pc-q35-11.2-machine"},
 		{"name": "smp", "type": "SMPConfiguration", "value": {"cpus": 1, "maxcpus": 16}},
 		{"name": "memory", "type": "MemorySizeConfiguration", "value": {"size": 134217728}},
 		{"name": "hpet", "type": "bool", "value": false}, {"name": "acpi", "type": "OnOffAuto", "value": "on"},
@@ -153,7 +153,7 @@ func TestTargetIsWhatTheMachineRuns(t *testing.T) {
 		{"machine smbus", "false"},
 		{"machine smp.cpus", "1"},
 		{"machine smp.maxcpus", "16"},
-		{"machine type", "pc-q35-11.1"},
+		{"machine type", "pc-q35-11.2"},
 		{"ram pc.bios", "65536"},
 		{"ram pc.ram", "134217728"},
 	}
@@ -207,7 +207,7 @@ func TestTargetRefusesWhatItCannotRead(t *testing.T) {
 		{"no device to read", failsReading("/machine/q35/mch"), "reading the machine's devices"},
 		{"no RAM blocks", fails("x-query-ramblock"), "listing the machine's RAM blocks"},
 		{"a machine that is not a machine type", path("/machine", `[{"name": "type", "type": "string", "value": "none"}]`), `"none", not a machine type`},
-		{"an option it cannot read back", path("/machine", `[{"name": "type", "type": "string", "value": "pc-q35-11.1-machine"}]`), "no smp to read back"},
+		{"an option it cannot read back", path("/machine", `[{"name": "type", "type": "string", "value": "pc-q35-11.2-machine"}]`), "no smp to read back"},
 		{"a device on the root complex with no slot", path("/machine/q35/mch", `[{"name": "type", "type": "string", "value": "mch"}]`), "has no slot"},
 		{"a count that is not one", path("/machine/peripheral/scsi0", `[{"name": "type", "type": "string", "value": "virtio-scsi-pci"},
 			{"name": "addr", "type": "str", "value": 208}, {"name": "max_target", "type": "str", "value": "many"}]`), "not a count"},
