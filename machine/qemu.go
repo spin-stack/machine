@@ -196,7 +196,7 @@ func (m *QEMU) End() (End, bool) { return qmp.Last(m.c, shutdownEvent) }
 // End as GuestShutdown. A guest whose init does not answer the button runs on.
 //
 // Not ctrl-alt-del, which spin's runner sent: QEMU takes the keys and the guest never sees them,
-// because its kernel has no i8042 or AT keyboard driver (kernel/config-7.3-x86_64). Booted to
+// because its kernel has no i8042 or AT keyboard driver (kernel/config-7.4-x86_64). Booted to
 // systemd, a machine sent the keys ran on until it was killed, and one whose button was pressed
 // powered off 0.64 s later (laptop, QEMU 11.2.0-rc0, v20261120.04's image, 2026-11-21).
 func (m *QEMU) Shutdown(ctx context.Context) error {
