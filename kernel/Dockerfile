@@ -83,7 +83,6 @@ ARG KERNEL_SHA256
 # from the same file (`spin-machine-dev build kernel` derives it from the version).
 ARG KERNEL_SERIES
 ARG KERNEL_ARCH="x86_64"
-ARG KERNEL_NPROC="16"
 
 # moby's check-config.sh, with the SELinux and AppArmor checks removed: they are host
 # policy, not kernel features this guest needs, and they fail a config that is correct.
@@ -435,7 +434,6 @@ EOT
 FROM kernel-build-base AS kernel-build
 
 ARG KERNEL_ARCH
-ARG KERNEL_NPROC
 
 # No cache mount: kernel compilation is not incremental between builds, so Docker's layer
 # cache is the effective one.
@@ -457,7 +455,7 @@ ARG KERNEL_NPROC
 # only the make step uncached, buildkit took the step that copies vmlinux out from the
 # first build's cache, and the comparison compared a file with itself.
 ARG DEBIAN_SNAPSHOT
-RUN cd linux && make ARCH=${KERNEL_ARCH} -j${KERNEL_NPROC} \
+RUN cd linux && make ARCH=${KERNEL_ARCH} -j"$(nproc)" \
         KBUILD_BUILD_TIMESTAMP="$(date -u -d "$(echo "${DEBIAN_SNAPSHOT}" | cut -c1-8)")" \
         KBUILD_BUILD_USER=spin-machine KBUILD_BUILD_HOST=build \
         vmlinux

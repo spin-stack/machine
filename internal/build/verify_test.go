@@ -274,7 +274,7 @@ func TestThePublishedQEMUIsTaggedWithThePinnedVersion(t *testing.T) {
 	}
 	args, _ := Args(v, qemuPins...)
 	want := "buildx build --file qemu/Dockerfile --target runtime --platform linux/amd64 --cache-from type=registry,ref=" + CacheRegistry + ":qemu " +
-		strings.Join(args, " ") + " --build-arg JOBS=4 --label org.opencontainers.image.source=https://github.com/spin-stack/spin-machine --tag ghcr.io/spin-stack/spin-machine/qemu:" + version + " --push ."
+		strings.Join(args, " ") + " --label org.opencontainers.image.source=https://github.com/spin-stack/spin-machine --tag ghcr.io/spin-stack/spin-machine/qemu:" + version + " --push ."
 	if got := calls(t, log); len(got) != 1 || got[0] != want {
 		t.Errorf("publish ran %q, want %q", got, want)
 	}

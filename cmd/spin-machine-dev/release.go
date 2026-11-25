@@ -157,14 +157,15 @@ func releaseTraceableKernelCmd() *cobra.Command {
 		Use:    "traceable-kernel --version <version>",
 		Short:  "Build the lab's traceable kernel of a release into _output/release, beside it and never in it",
 		Hidden: true,
-		Long: `Build the release's kernel (as build kernel does, into _output) and a second one from the same
-source and config with lockdown forced to none instead of confidentiality, into _output/traceable,
-then hold the second's config to the first's: that one option swapped and every other as the
-release has it. Its vmlinux, which build verified as the release's (both Xen notes and a filled
-.data.reloc), is put in _output/release as the release's traceable kernel, to be signed and
-published beside the release for the lab's ledger, which reads a scheduler trace that lockdown
-takes away (kernel/README.md), and boots it through PVH as the release boots its own (#697). It
-enters no tarball and nothing spin boots.`,
+		Long: `Build the release's kernel with lockdown forced to none instead of confidentiality, from the same
+source and config, into _output/traceable, and hold its config to the series' committed one
+(kernel/config-<series>-<arch>): that one option swapped and every other as the release has it.
+The release kernel is not built: its build fails unless olddefconfig leaves the committed file
+exactly as it is, so that file is the release kernel's config. The vmlinux, which build verified
+as it verifies the release's (both Xen notes and a filled .data.reloc), is put in _output/release
+as the release's traceable kernel, to be signed and published beside the release for the lab's
+ledger, which reads a scheduler trace that lockdown takes away (kernel/README.md), and boots it
+through PVH as the release boots its own (#697). It enters no tarball and nothing spin boots.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			w, err := open()
@@ -178,16 +179,17 @@ enters no tarball and nothing spin boots.`,
 			if err != nil {
 				return couldNot(err)
 			}
-			o := f.options(c, w)
-			if _, err := build.Make(c.Context(), o, kernel); err != nil {
+			series, err := build.KernelSeries(w.pins)
+			if err != nil {
 				return couldNot(err)
 			}
-			t := o
+			t := f.options(c, w)
 			t.Out, t.Traceable = filepath.Join(w.out, "traceable"), true
 			if _, err := build.Make(c.Context(), t, kernel); err != nil {
 				return couldNot(err)
 			}
-			if err := build.TraceableConfig(filepath.Join(o.Out, "kernel", "kernel-config"), filepath.Join(t.Out, "kernel", "kernel-config")); err != nil {
+			committed := filepath.Join(w.root, "kernel", "config-"+series+"-"+build.Arch)
+			if err := build.TraceableConfig(committed, filepath.Join(t.Out, "kernel", "kernel-config")); err != nil {
 				return couldNot(err)
 			}
 			to := filepath.Join(w.out, "release", release.TraceableVmlinux(version))

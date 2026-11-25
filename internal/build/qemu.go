@@ -90,8 +90,7 @@ func PublishQEMU(ctx context.Context, o Options) error {
 	cmd := []string{"buildx", "build", "--file", "qemu/Dockerfile", "--target", "runtime", "--platform", "linux/amd64",
 		"--cache-from", "type=registry,ref=" + CacheRegistry + ":qemu"}
 	cmd = append(cmd, args...)
-	cmd = append(cmd, "--build-arg", "JOBS=4",
-		"--label", "org.opencontainers.image.source=https://github.com/"+sourceRepo(PublishedQEMU),
+	cmd = append(cmd, "--label", "org.opencontainers.image.source=https://github.com/"+sourceRepo(PublishedQEMU),
 		"--tag", PublishedQEMU+":"+version, "--push", ".")
 	return docker(ctx, o, cmd...)
 }

@@ -198,19 +198,14 @@ mkdir -p "$dest/bin" "$dest/e2fsprogs"; : > "$dest/e2fsprogs/mke2fs.conf"
 for b in mkfs.ext4 e2fsck dumpe2fs debugfs; do printf '#!/bin/sh\necho mke2fs ` + version + `\n' > "$dest/bin/$b"; chmod +x "$dest/bin/$b"; done`
 }
 
-// kernelDocker is a docker whose kernel build writes a vmlinux that verifies, and the
-// config they were built with: lockdown as KERNEL_LOCKDOWN asks, and extra in the one built with
-// none.
+// kernelDocker is a docker whose kernel build writes a vmlinux that verifies, and the config it
+// was built with: the release's with lockdown forced to none, and extra.
 func kernelDocker(extra string) string {
-	return `dest=""; lockdown=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; KERNEL_LOCKDOWN=*) lockdown=${a#KERNEL_LOCKDOWN=};; esac; done
+	return `dest=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; esac; done
 [ -n "$dest" ] || exit 0
 mkdir -p "$dest/kernel"
 printf '` + printfEscaped(vmlinuxFixture()) + `' > "$dest/kernel/vmlinux"
-if [ "$lockdown" = none ]; then
-	printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"
-else
-	printf 'CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_BPF_LSM=y\n' > "$dest/kernel/kernel-config"
-fi`
+printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"`
 }
 
 // printfEscaped is b as a printf format of octal escapes, which sh's printf writes back as b.
@@ -223,24 +218,32 @@ func printfEscaped(b []byte) string {
 }
 
 // The traceable kernel is the release kernel with lockdown forced to none and nothing else: it is
-// put beside the release only then, and an option that moved with it is refused by name.
+// put beside the release only then, and an option that moved with it is refused by name. The
+// release kernel's config is the series' committed file, so the release kernel is not compiled.
 func TestTheTraceableKernelIsTheReleaseKernelLessLockdown(t *testing.T) {
 	dir := checkout(t)
 	put(t, filepath.Join(dir, "kernel/Dockerfile"), "FROM x", 0o644)
+	w, _ := open()
+	series, err := build.KernelSeries(w.pins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(dir, "kernel", "config-"+series+"-"+build.Arch),
+		"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_BPF_LSM=y\n", 0o644)
 	published := filepath.Join(dir, "_output/release", release.TraceableVmlinux("v1"))
 	calls := fakes(t, map[string]string{"docker": kernelDocker("")})
 	if _, stderr, status := verb(t, "release", "traceable-kernel", "--version", "v1"); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
 	got := read(t, calls)
-	if !strings.Contains(got, "KERNEL_LOCKDOWN=confidentiality") || !strings.Contains(got, "KERNEL_LOCKDOWN=none --build-arg KERNEL_NPROC=8 --output type=local,dest="+filepath.Join(dir, "_output/traceable")+" ") {
-		t.Errorf("docker was not asked for both kernels:\n%s", got)
+	if strings.Contains(got, "KERNEL_LOCKDOWN=confidentiality") || !strings.Contains(got, "KERNEL_LOCKDOWN=none --output type=local,dest="+filepath.Join(dir, "_output/traceable")+" ") {
+		t.Errorf("docker was not asked for the traceable kernel alone:\n%s", got)
 	}
 	if read(t, published) != read(t, filepath.Join(dir, "_output/traceable/kernel/vmlinux")) {
 		t.Error("the traceable kernel was not put beside the release")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "_output/kernel/vmlinux")); err != nil {
-		t.Errorf("the release kernel was not built: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "_output/kernel")); err == nil {
+		t.Error("the release kernel was built")
 	}
 	_ = os.Remove(published)
 	fakes(t, map[string]string{"docker": kernelDocker(`CONFIG_KPROBES=y\n`)})
@@ -287,7 +290,7 @@ func TestBuildMakesWhatIsStaleAndSaysWhatItMade(t *testing.T) {
 	e, _ := w.pins.Get("e2fsprogs")
 	calls := fakes(t, map[string]string{"docker": e2fsprogsDocker(e.Version), "go": ""})
 
-	stdout, stderr, status := verb(t, "build", "e2fsprogs", "spin-machine", "--json", "--jobs", "2", "--cache-registry", "--cache-export=false")
+	stdout, stderr, status := verb(t, "build", "e2fsprogs", "spin-machine", "--json", "--cache-registry", "--cache-export=false")
 	if status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}

@@ -4,7 +4,6 @@ FROM ${UBUNTU_IMAGE} AS build
 
 ARG SYSTEMD_SOURCE_VERSION
 ARG SYSTEMD_SOURCE_SHA256
-ARG JOBS=8
 ENV DEBIAN_FRONTEND=noninteractive \
     DEB_BUILD_PROFILES="stage1 nocheck noinsttest nodoc" \
     DEB_BUILD_OPTIONS="nocheck nodoc noautodbgsym"
@@ -38,7 +37,7 @@ RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "${SYSTEMD_SOURCE_VERSION}+spin1" --distribution resolute \
             "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}, $(cd /build/patches && echo *.patch)." && \
-    CONFFLAGS_UPSTREAM="${extra}" dpkg-buildpackage -b -uc -us -j"${JOBS}" && \
+    CONFFLAGS_UPSTREAM="${extra}" dpkg-buildpackage -b -uc -us -j"$(nproc)" && \
     meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra}
 
 COPY image/systemd/tests-passed.py /build/tests-passed.py

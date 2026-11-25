@@ -148,14 +148,14 @@ jobs:
       - name: Load vhost_vsock
         run: spin-machine-dev vsock
 
-      # Reads the lanes' caches and writes none back: main's lanes keep them current. --jobs is
-      # the lanes' 4 and not this runner's cores: it is a build argument (JOBS, KERNEL_NPROC), so
-      # another value is another cache key from the first RUN that follows it, and without it this
-      # step compiled QEMU and the kernel again on every push - 8 of compat's 12 minutes, on a
-      # release's critical path (release 44641240861, every builder RUN step uncached).
+      # Reads the lanes' caches and writes none back: main's lanes keep them current. No build
+      # argument depends on the runner (a compile takes its parallelism from nproc inside the RUN),
+      # so this runner hits the lanes' cache: a runner-sized argument once missed it, and this step
+      # compiled QEMU and the kernel again on every push - 8 of compat's 12 minutes, on a release's
+      # critical path (release 44641240861, every builder RUN step uncached).
       - name: Build this change's QEMU
         if: needs.changed.outputs.qemu == 'true'
-        run: spin-machine-dev build qemu --jobs 4 --cache-registry --cache-export=false
+        run: spin-machine-dev build qemu --cache-registry --cache-export=false
 
       # Main's QEMU of the pinned version, in seconds: the change does not reach it. Compiled here
       # it took ~4 of a run's ~10 minutes, from a cache that missed (run 44974499826).
@@ -165,7 +165,7 @@ jobs:
 
       - name: Build this change's kernel
         if: needs.changed.outputs.kernel == 'true'
-        run: spin-machine-dev build kernel --jobs 4 --cache-registry --cache-export=false
+        run: spin-machine-dev build kernel --cache-registry --cache-export=false
 
       # The newest release, checked against its sha256 and its signature, as the machine before;
       # this change's machine is the same tree with the QEMU above and the kernel built, if any,

@@ -110,14 +110,14 @@ jobs:
       # The firmware the sanitized QEMU boots with: the release's, so a machine's record is the
       # one the release's QEMU gives and a release's checkpoint resumes. Main publishes a QEMU only
       # for its own pin, so a change that reaches the release's QEMU builds it, reading main's
-      # lanes' cache as compat.yml does (--jobs 4 is their cache key).
+      # lanes' cache as compat.yml does.
       - name: Main's published QEMU, for its firmware
         if: needs.changed.outputs.release-qemu != 'true'
         run: spin-machine-dev fetch qemu
 
       - name: This change's QEMU, for its firmware
         if: needs.changed.outputs.release-qemu == 'true'
-        run: spin-machine-dev build qemu --jobs 4 --cache-registry --cache-export=false
+        run: spin-machine-dev build qemu --cache-registry --cache-export=false
 
       - name: Build the patched QEMU under ASan and UBSan
         run: go tool task sanitized
