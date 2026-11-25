@@ -84,7 +84,7 @@ The guest's root is not the kernel's. The kernel runs two LSMs, `lockdown` and `
   `/sys/kernel/security/lockdown` lowers it. Root can then neither rewrite the running kernel
   (kexec, `/dev/port`, MSRs, ACPI table overrides) nor read it (kprobes, `bpf_probe_read_kernel`,
   perf on the kernel).
-- **`/dev/mem` and `/proc/kcore`** are not built at all, rather than left to lockdown.
+- **`/dev/mem`, `/dev/port` and `/proc/kcore`** are not built at all, rather than left to lockdown.
 - **The BPF LSM** is there so a consumer can enforce policy in the guest with programs it loads
   before handing the machine to its tenant. Lockdown is what makes such policy hold: without
   it, root reads or rewrites the kernel those programs live in.

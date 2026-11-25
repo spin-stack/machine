@@ -31,10 +31,10 @@ Assisted-by: LLM
  1 file changed, 1 insertion(+)
 
 diff --git a/kernel/trace/Kconfig b/kernel/trace/Kconfig
-index 6587450cf..969908605 100644
+index 35d043b19..efadbf671 100644
 --- a/kernel/trace/Kconfig
 +++ b/kernel/trace/Kconfig
-@@ -895,6 +895,7 @@ config FTRACE_MCOUNT_USE_CC
+@@ -903,6 +903,7 @@ config FTRACE_MCOUNT_USE_CC
  	depends on $(cc-option,-mrecord-mcount)
  	depends on !FTRACE_MCOUNT_USE_PATCHABLE_FUNCTION_ENTRY
  	depends on DYNAMIC_FTRACE

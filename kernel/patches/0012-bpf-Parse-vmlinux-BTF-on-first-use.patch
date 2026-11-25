@@ -1,7 +1,7 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Sun, 22 Nov 2026 00:34:17 -0300
-Subject: [PATCH] bpf: Parse vmlinux BTF on first use, not at the first
- kfunc registration
+Subject: [PATCH] bpf: Parse vmlinux BTF on first use, not at the first kfunc
+ registration
 
 The first register_btf_kfunc_id_set() of the boot parses vmlinux BTF,
 4.6 MB of it, and every later kfunc set, kfunc destructor and struct_ops
@@ -38,10 +38,10 @@ Assisted-by: LLM
  3 files changed, 182 insertions(+), 16 deletions(-)
 
 diff --git a/include/linux/bpf.h b/include/linux/bpf.h
-index 0ecb9418d..a662631aa 100644
+index 1dd9db16f..392757a23 100644
 --- a/include/linux/bpf.h
 +++ b/include/linux/bpf.h
-@@ -3102,6 +3102,8 @@ static inline s32 bpf_call_args_imm(s16 idx)
+@@ -3274,6 +3274,8 @@ static inline s32 bpf_call_args_imm(s16 idx)
  #endif
  
  struct btf *bpf_get_btf_vmlinux(void);
@@ -51,10 +51,10 @@ index 0ecb9418d..a662631aa 100644
  /* Map specifics */
  struct xdp_frame;
 diff --git a/kernel/bpf/btf.c b/kernel/bpf/btf.c
-index d870bc5e5..c7835844a 100644
+index 49fcd32d4..79227c6c7 100644
 --- a/kernel/bpf/btf.c
 +++ b/kernel/bpf/btf.c
-@@ -6509,6 +6509,7 @@ struct btf *btf_parse_vmlinux(void)
+@@ -6936,6 +6936,7 @@ struct btf *btf_parse_vmlinux(void)
  	bpf_ctx_convert.t = btf_type_by_id(btf, bpf_ctx_convert_btf_id[0]);
  	err = btf_alloc_id(btf);
  	if (err) {
@@ -62,7 +62,7 @@ index d870bc5e5..c7835844a 100644
  		btf_free(btf);
  		btf = ERR_PTR(err);
  	}
-@@ -9240,8 +9241,75 @@ u32 *btf_kfunc_is_modify_return(const struct btf *btf, u32 kfunc_btf_id,
+@@ -10147,8 +10148,75 @@ u32 *btf_kfunc_is_modify_return(const struct btf *btf, u32 kfunc_btf_id,
  	return btf_kfunc_id_set_contains(btf, BTF_KFUNC_HOOK_FMODRET, kfunc_btf_id);
  }
  
@@ -138,7 +138,7 @@ index d870bc5e5..c7835844a 100644
  {
  	struct btf *btf;
  	int ret, i;
-@@ -9354,8 +9422,37 @@ static int btf_check_dtor_kfuncs(struct btf *btf, const struct btf_id_dtor_kfunc
+@@ -10261,8 +10329,37 @@ static int btf_check_dtor_kfuncs(struct btf *btf, const struct btf_id_dtor_kfunc
  }
  
  /* This function must be invoked only from initcalls/module init functions */
@@ -176,7 +176,7 @@ index d870bc5e5..c7835844a 100644
  {
  	struct btf_id_dtor_kfunc_tab *tab;
  	struct btf *btf;
-@@ -10034,7 +10131,31 @@ bpf_struct_ops_find(struct btf *btf, u32 type_id)
+@@ -10969,7 +11066,31 @@ bpf_struct_ops_find(struct btf *btf, u32 type_id)
  	return NULL;
  }
  
@@ -209,10 +209,10 @@ index d870bc5e5..c7835844a 100644
  	struct bpf_verifier_log *log;
  	struct btf *btf;
 diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
-index 5f874979b..1743d9500 100644
+index 9b228ffbe..d3c781694 100644
 --- a/kernel/bpf/verifier.c
 +++ b/kernel/bpf/verifier.c
-@@ -308,6 +308,11 @@ static const char *btf_type_name(const struct btf *btf, u32 id)
+@@ -321,6 +321,11 @@ static const char *btf_type_name(const struct btf *btf, u32 id)
  
  static DEFINE_MUTEX(bpf_verifier_lock);
  static DEFINE_MUTEX(btf_vmlinux_lock);
@@ -224,7 +224,7 @@ index 5f874979b..1743d9500 100644
  static DEFINE_MUTEX(bpf_percpu_ma_lock);
  
  __printf(2, 3) static void verbose(void *private_data, const char *fmt, ...)
-@@ -20690,27 +20695,65 @@ int bpf_check_attach_btf_id_multi(struct btf *btf, struct bpf_prog *prog, u32 bt
+@@ -23259,27 +23264,65 @@ int bpf_check_attach_btf_id_multi(struct btf *btf, struct bpf_prog *prog, u32 bt
  
  struct btf *bpf_get_btf_vmlinux(void)
  {
@@ -306,3 +306,6 @@ index 5f874979b..1743d9500 100644
  /*
   * The add_fd_from_fd_array() is executed only if fd_array_cnt is non-zero. In
   * this case expect that every file descriptor in the array is either a map or
+-- 
+2.53.0
+

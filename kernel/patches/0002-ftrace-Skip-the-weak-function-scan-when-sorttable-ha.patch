@@ -30,10 +30,10 @@ Assisted-by: LLM
  1 file changed, 8 insertions(+)
 
 diff --git a/kernel/trace/ftrace.c b/kernel/trace/ftrace.c
-index 164fbc07b..9c575b927 100644
+index 6654da9d1..250ccce13 100644
 --- a/kernel/trace/ftrace.c
 +++ b/kernel/trace/ftrace.c
-@@ -4405,6 +4405,14 @@ static __init void ftrace_check_work_func(struct work_struct *work)
+@@ -4410,6 +4410,14 @@ static __init void ftrace_check_work_func(struct work_struct *work)
  
  static int __init ftrace_check_for_weak_functions(void)
  {

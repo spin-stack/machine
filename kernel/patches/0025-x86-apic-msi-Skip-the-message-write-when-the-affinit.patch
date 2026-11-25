@@ -48,7 +48,7 @@ Assisted-by: LLM
  1 file changed, 12 insertions(+)
 
 diff --git a/arch/x86/kernel/apic/msi.c b/arch/x86/kernel/apic/msi.c
-index 66bc5d3e7..7fb7c25f8 100644
+index da5f44a80..3b72da05a 100644
 --- a/arch/x86/kernel/apic/msi.c
 +++ b/arch/x86/kernel/apic/msi.c
 @@ -48,6 +48,18 @@ msi_set_affinity(struct irq_data *irqd, const struct cpumask *mask, bool force)

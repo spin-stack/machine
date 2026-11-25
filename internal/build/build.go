@@ -320,6 +320,8 @@ func KernelSeries(v *versions.Versions) (string, error) {
 	}
 	major, rest, _ := strings.Cut(e.Version, ".")
 	minor, _, _ := strings.Cut(rest, ".")
+	// A release candidate's series is the release it leads to: 7.4-rc4 builds from config-7.4.
+	minor, _, _ = strings.Cut(minor, "-rc")
 	if major == "" || minor == "" {
 		return "", fmt.Errorf("the kernel's version %q has no major.minor", e.Version)
 	}

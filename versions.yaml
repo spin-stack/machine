@@ -99,11 +99,15 @@
 
 - name: kernel
   kind: download
-  source: https://cdn.kernel.org/pub/linux/kernel/v{major}.x/linux-{version}.tar.xz
-  version: 7.3.6
-  pin: 8183d475a76a0faffa92d6cd500af421f589dfd0300a0f1060bb875e11d45723
+  source: https://git.kernel.org/torvalds/t/linux-{version}.tar.gz
+  version: 7.4-rc4
+  pin: 9f13091e6dd2d3576ad86e0c42ffa76b9993805a3f3a00f06981b242ea48aef9
   track: kernel
   note: >-
+    On a release candidate, 7.4-rc4 since 2026-11-25: 7.4 is the first series with the BPF
+    signed loader's ABI that shirudo needs (#720), and the source is the gzip tarball
+    git.kernel.org makes of torvalds' tag, which kernel/Dockerfile fetches for an -rc. Back on
+    cdn.kernel.org's .tar.xz with 7.4's first stable release.
     kernel/Dockerfile. A new kernel for every guest's next boot; checkpoints keep resuming, each
     on the kernel it was saved with, which the machine's record leaves out. The configuration
     is the series', kernel/config-<major>.<minor>-x86_64, so a release within the series moves

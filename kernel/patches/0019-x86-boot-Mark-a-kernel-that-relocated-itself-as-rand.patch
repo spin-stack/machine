@@ -1,7 +1,6 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Mon, 23 Nov 2026 13:21:38 -0300
-Subject: [PATCH] x86/boot: Mark a kernel that relocated itself as
- randomized
+Subject: [PATCH] x86/boot: Mark a kernel that relocated itself as randomized
 
 __relocate_kernel() moves the kernel's virtual base and does not tell
 the rest of the kernel. kaslr_enabled() reads KASLR_FLAG in the boot
@@ -24,7 +23,7 @@ Assisted-by: LLM
  1 file changed, 11 insertions(+)
 
 diff --git a/arch/x86/boot/startup/kaslr.c b/arch/x86/boot/startup/kaslr.c
-index fb07c31e2..308384701 100644
+index 975e883af..8594ca34e 100644
 --- a/arch/x86/boot/startup/kaslr.c
 +++ b/arch/x86/boot/startup/kaslr.c
 @@ -104,6 +104,10 @@ void __init __relocate_kernel(unsigned long p2v_offset, struct boot_params *bp)

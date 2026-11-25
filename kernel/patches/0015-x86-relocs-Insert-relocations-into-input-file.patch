@@ -19,7 +19,7 @@ Assisted-by: LLM
  3 files changed, 61 insertions(+), 9 deletions(-)
 
 diff --git a/arch/x86/tools/relocs.c b/arch/x86/tools/relocs.c
-index 4d3d53391..33ef98701 100644
+index 4d3d53391..48105ced1 100644
 --- a/arch/x86/tools/relocs.c
 +++ b/arch/x86/tools/relocs.c
 @@ -735,6 +735,17 @@ static void walk_relocs(int (*process)(struct section *sec, Elf_Rel *rel,
@@ -128,7 +128,7 @@ index 5ade07ac2..05a6e80e8 100644
  void process_32(FILE *fp);
  void process_64(FILE *fp);
 diff --git a/arch/x86/tools/relocs_common.c b/arch/x86/tools/relocs_common.c
-index ee8a9fafc..66a9a83b7 100644
+index ee8a9fafc..e973af890 100644
 --- a/arch/x86/tools/relocs_common.c
 +++ b/arch/x86/tools/relocs_common.c
 @@ -2,7 +2,7 @@

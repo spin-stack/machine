@@ -226,12 +226,36 @@ func TestInputsThatWouldUndercountAreRefused(t *testing.T) {
 }
 
 func TestAVersionThatIsNotOneIsRefused(t *testing.T) {
-	for _, s := range []string{"7.3-rc1", "", "7.-1"} {
+	for _, s := range []string{"7.3-rc", "7.3-rc0", "7.3.1-rc1", "", "7.-1"} {
 		if _, err := ParseKernelVersion(s); err == nil {
 			t.Errorf("%q parsed", s)
 		}
 	}
 	if v, err := ParseKernelVersion("7.3.3"); err != nil || v.String() != "7.3.3" {
 		t.Errorf("7.3.3: %v, %v", v, err)
+	}
+}
+
+// A release candidate comes after every release of the series before it and before its own
+// first release, so a fix in 7.4 is not taken for one 7.4-rc4 has.
+func TestAReleaseCandidateIsBeforeItsRelease(t *testing.T) {
+	rc, err := ParseKernelVersion("7.4-rc4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		other string
+		want  int
+	}{{"7.3.99", 1}, {"7.4", -1}, {"7.4.0", -1}, {"7.4.1", -1}} {
+		o, _ := parseVersion(tc.other)
+		if got := rc.compare(o); got != tc.want {
+			t.Errorf("7.4-rc4 against %s: %d, want %d", tc.other, got, tc.want)
+		}
+	}
+	if rc.series() != "7.4" || rc.String() != "7.4-rc" {
+		t.Errorf("series %q, String %q", rc.series(), rc.String())
+	}
+	if release, _ := ParseKernelVersion("7.4.0"); release.String() != "7.4.0" {
+		t.Errorf("7.4.0 prints as %q", release.String())
 	}
 }

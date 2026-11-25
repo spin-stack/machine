@@ -28,6 +28,9 @@ rewrite, about 9 ms once; the copy of the maps stays allocated; and the
 modules' own eval maps, applied when a module loads, are not deferred.
 
 Assisted-by: LLM
+[ spin-stack/machine: forward-ported to 7.4: trace.h no longer
+  declares ftrace_set_clr_event, so the declarations go beside
+  trace_event_update_all by themselves. ]
 ---
  kernel/trace/trace.c                | 57 +++++++++++++++++++++++++----
  kernel/trace/trace.h                |  2 +
@@ -39,10 +42,10 @@ Assisted-by: LLM
  7 files changed, 60 insertions(+), 8 deletions(-)
 
 diff --git a/kernel/trace/trace.c b/kernel/trace/trace.c
-index b3699913e..2f8f9a485 100644
+index 65b9d6764..bf79548e7 100644
 --- a/kernel/trace/trace.c
 +++ b/kernel/trace/trace.c
-@@ -9169,30 +9169,71 @@ extern struct trace_eval_map *__start_ftrace_eval_maps[];
+@@ -9181,30 +9181,71 @@ extern struct trace_eval_map *__start_ftrace_eval_maps[];
  extern struct trace_eval_map *__stop_ftrace_eval_maps[];
  
  struct workqueue_struct *trace_init_wq __initdata;
@@ -123,16 +126,15 @@ index b3699913e..2f8f9a485 100644
  }
  
 diff --git a/kernel/trace/trace.h b/kernel/trace/trace.h
-index 3749485a7..124c71dae 100644
+index 1fec567e7..b6cdd00e2 100644
 --- a/kernel/trace/trace.h
 +++ b/kernel/trace/trace.h
-@@ -2288,12 +2288,14 @@ static inline const char *get_syscall_name(int syscall)
+@@ -2287,11 +2287,13 @@ static inline const char *get_syscall_name(int syscall)
  #ifdef CONFIG_EVENT_TRACING
  void trace_event_init(void);
  void trace_event_update_all(struct trace_eval_map **map, int len, struct module *mod);
 +void trace_eval_ensure(void);
  /* Used from boot time tracer */
- extern int ftrace_set_clr_event(struct trace_array *tr, char *buf, int set);
  extern int trigger_process_regex(struct trace_event_file *file, char *buff);
  #else
  static inline void __init trace_event_init(void) { }
@@ -142,7 +144,7 @@ index 3749485a7..124c71dae 100644
  
  #ifdef CONFIG_TRACER_SNAPSHOT
 diff --git a/kernel/trace/trace_boot.c b/kernel/trace/trace_boot.c
-index 5da0a8bbb..7d4e337fd 100644
+index 6ba70dac1..7e9af79c5 100644
 --- a/kernel/trace/trace_boot.c
 +++ b/kernel/trace/trace_boot.c
 @@ -750,6 +750,9 @@ static int __init trace_boot_init(void)
@@ -168,10 +170,10 @@ index 6f2e39b79..f511f5f4f 100644
  		return create_dyn_event(raw_command);
  
 diff --git a/kernel/trace/trace_events.c b/kernel/trace/trace_events.c
-index 30c0ddf90..4aa765425 100644
+index 7f89160ae..f96ff7d43 100644
 --- a/kernel/trace/trace_events.c
 +++ b/kernel/trace/trace_events.c
-@@ -2204,6 +2204,7 @@ static int trace_format_open(struct inode *inode, struct file *file)
+@@ -2241,6 +2241,7 @@ static int trace_format_open(struct inode *inode, struct file *file)
  
  	/* Do we want to hide event format files on tracefs lockdown? */
  
@@ -179,7 +181,7 @@ index 30c0ddf90..4aa765425 100644
  	ret = seq_open(file, &trace_format_seq_ops);
  	if (ret < 0)
  		return ret;
-@@ -2334,6 +2335,7 @@ event_filter_write(struct file *filp, const char __user *ubuf, size_t cnt,
+@@ -2371,6 +2372,7 @@ event_filter_write(struct file *filp, const char __user *ubuf, size_t cnt,
  	if (IS_ERR(buf))
  		return PTR_ERR(buf);
  
@@ -187,7 +189,7 @@ index 30c0ddf90..4aa765425 100644
  	mutex_lock(&event_mutex);
  	file = event_file_file(filp);
  	if (file)
-@@ -2483,6 +2485,7 @@ subsystem_filter_write(struct file *filp, const char __user *ubuf, size_t cnt,
+@@ -2520,6 +2522,7 @@ subsystem_filter_write(struct file *filp, const char __user *ubuf, size_t cnt,
  	if (IS_ERR(buf))
  		return PTR_ERR(buf);
  
@@ -196,10 +198,10 @@ index 30c0ddf90..4aa765425 100644
  	kfree(buf);
  	if (err < 0)
 diff --git a/kernel/trace/trace_events_filter.c b/kernel/trace/trace_events_filter.c
-index b09acea46..1fda3f1a0 100644
+index a9d77df3e..a42c09650 100644
 --- a/kernel/trace/trace_events_filter.c
 +++ b/kernel/trace/trace_events_filter.c
-@@ -2716,6 +2716,7 @@ int ftrace_profile_set_filter(struct perf_event *event, int event_id,
+@@ -2821,6 +2821,7 @@ int ftrace_profile_set_filter(struct perf_event *event, int event_id,
  	struct event_filter *filter = NULL;
  	struct trace_event_call *call;
  
@@ -208,7 +210,7 @@ index b09acea46..1fda3f1a0 100644
  
  	call = event->tp_event;
 diff --git a/kernel/trace/trace_events_trigger.c b/kernel/trace/trace_events_trigger.c
-index 4d2fde996..133131d98 100644
+index a2487ad7f..577ba82a3 100644
 --- a/kernel/trace/trace_events_trigger.c
 +++ b/kernel/trace/trace_events_trigger.c
 @@ -409,6 +409,7 @@ static ssize_t event_trigger_regex_write(struct file *file,

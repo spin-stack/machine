@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -129,14 +130,25 @@ func readRecords(dir string) ([]record, error) {
 	return out, nil
 }
 
-// KernelVersion is a kernel version's numbers: 7.3 is 7.3.0.
+// KernelVersion is a kernel version's numbers: 7.3 is 7.3.0, and a release candidate of 7.4 is
+// 7.4.-1, after every 7.3 and before 7.4.0, so a fix released in 7.4 is not taken for one it has.
 type KernelVersion []int
 
-// ParseKernelVersion is s, such as 7.3.3, as a KernelVersion.
+// rcVersion is a release candidate's: 7.4-rc4.
+var rcVersion = regexp.MustCompile(`^(\d+\.\d+)-rc[1-9]\d*$`)
+
+// ParseKernelVersion is s, such as 7.3.3 or 7.4-rc4, as a KernelVersion.
 func ParseKernelVersion(s string) (KernelVersion, error) {
-	v, ok := parseVersion(s)
+	series := s
+	if m := rcVersion.FindStringSubmatch(s); m != nil {
+		series = m[1]
+	}
+	v, ok := parseVersion(series)
 	if !ok {
 		return nil, fmt.Errorf("%q is not a kernel version", s)
+	}
+	if series != s {
+		v = append(v, -1) // mutate-exempt: any negative third number orders and prints a candidate the same
 	}
 	return v, nil
 }
@@ -300,6 +312,9 @@ func firstFixAfter(v KernelVersion, fixes []KernelVersion) KernelVersion {
 }
 
 func (v KernelVersion) String() string {
+	if len(v) == 3 && v[2] < 0 {
+		return fmt.Sprintf("%d.%d-rc", v[0], v[1])
+	}
 	parts := make([]string, len(v))
 	for i, n := range v {
 		parts[i] = strconv.Itoa(n)
