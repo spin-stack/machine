@@ -363,7 +363,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".cache", "mkosi")); err != nil {
 		t.Error("the image's build made no mkosi cache")
 	}
-	if got, _ := os.ReadFile(goLog); string(got) != "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 build -trimpath -ldflags -s -w -o "+filepath.Join(out, PressurePath)+" ./cmd/spin-machine-pressure\n" {
+	if got, _ := os.ReadFile(goLog); string(got) != "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 build -trimpath -buildvcs=false -ldflags -s -w -o "+filepath.Join(out, PressurePath)+" ./cmd/spin-machine-pressure\n" {
 		t.Errorf("the image's sender was built with %q", got)
 	}
 	got := calls(t, log)

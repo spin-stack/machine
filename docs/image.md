@@ -198,10 +198,11 @@ everything built out; one that took the archive's sshd logs in and every login s
 - **ext4 and not something denser.** The guest kernel has `EXT4_FS` and `OVERLAY_FS` and explicitly
   not `XFS_FS`, `BTRFS_FS`, `SQUASHFS` or `EROFS_FS` (`kernel/config-7.3-x86_64`). Another
   filesystem starts with a kernel config change.
-- **`SOURCE_DATE_EPOCH=0`** normalises timestamps, so the build's wall clock is not in every file.
-  It is not a claim that the image is bit-reproducible: the userland comes from a live archive and
-  the filesystem is sized from what came out, so two builds days apart differ. What a release
-  contains is the checksum in `machine.env`.
+- **`SOURCE_DATE_EPOCH=0`** normalises timestamps, so the build's wall clock is not in every file,
+  and the build's own logs and caches are removed ("Files removed"), so it is in none. Two builds
+  of one commit against the same archive make the same image. The userland comes from a live
+  archive, so two builds days apart can install other versions, and `packages.txt` says which;
+  what a release contains is the checksum in `machine.env`.
 - **`licenses.txt` and `packages.txt` beside the image, at the root of the tree.** That is where a
   release carries them: one each for the whole machine. `packages.txt` is the only record of what
   the image is made of without booting it (the tree is thrown away, the qcow2 is opaque, dpkg's
@@ -425,6 +426,7 @@ the boot path unless it enables a unit), left open in #512.
 | `/usr/share/doc/` (copyright files kept until collected), `/usr/share/man/`, `/usr/share/info/` | removed | Size: every overlay and every host page cache reads the same base, and nobody reads documentation in a workspace. | mechanism (size) | `man` pages. `man-db` is not installed either. |
 | `/var/lib/apt/lists/` | removed | The package lists are ~50 MB and stale the day after the build. | mechanism (size) | `apt install` fails with "Unable to locate package" until `apt update` has run once. |
 | `/var/cache/apt/`, `/var/cache/apt/archives/` | removed | The build's downloaded `.deb`s. | mechanism (size) | Nothing. |
+| `/var/log/apt/*`, `/var/log/dpkg.log`, `/var/log/alternatives.log`, `/var/cache/apt/*.bin`, `/var/cache/ldconfig/aux-cache` | removed | The build's own record of itself: logs stamped with the build's wall clock, and apt's and ldconfig's caches, which hold the files' times. Two builds of one commit differed in these and nothing else of the tree (v20261123.08 and v20261124.01, 2026-11-25). apt and ldconfig make their caches again on first use. | mechanism (reproducibility) | The image's install history in `dpkg.log` and apt's history; `packages.txt` beside the image lists what was installed. |
 | `/etc/update-motd.d/00-header`, `/etc/update-motd.d/10-help-text`, `/etc/update-motd.d/50-motd-news` | removed | See the MOTD row under "Login". | | |
 
 ## Units masked
