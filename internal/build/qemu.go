@@ -166,7 +166,9 @@ func buildPressure(ctx context.Context, o Options) error {
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return fmt.Errorf("making %s: %w", filepath.Dir(out), err)
 	}
-	if err := runEnv(ctx, o, []string{"CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64"}, "go", "build", "-trimpath",
+	// -buildvcs=false: the commit Go stamps in would make every release's image differ from the
+	// one before it with the probe's code unchanged.
+	if err := runEnv(ctx, o, []string{"CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64"}, "go", "build", "-trimpath", "-buildvcs=false",
 		"-ldflags", "-s -w", "-o", out, "./cmd/spin-machine-pressure"); err != nil {
 		return err
 	}
