@@ -123,7 +123,8 @@ RUN --mount=type=cache,sharing=locked,id=kernel-src-${KERNEL_VERSION},target=/va
 # The release ships them beside the binary (hack/release), because a changed GPL source is
 # distributed with its changes.
 #
-# They are written as kernel patches (Documentation/process/submitting-patches.rst): made with
+# They are written as kernel patches, to Documentation/process/coding-style.rst and
+# submitting-patches.rst (kernel/README.md, "Changing it"): made with
 # git format-patch against the pinned tarball, a subsystem-prefixed subject, a changelog that
 # states the problem, the change, what it was measured to be worth and what it costs, and
 # the pinned tree's scripts/checkpatch.pl --strict clean. A tool-assisted patch says so with
