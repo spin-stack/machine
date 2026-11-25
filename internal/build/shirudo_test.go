@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package build
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// patchText is a format-patch of one file, the line it adds placed after context, with or
+// without format-patch's signature and with a note in the message when carried.
+func patchText(subject, context, added string, note, signature bool) string {
+	s := "From: A <a@example.com>\nDate: Tue, 3 Nov 2026 13:52:42 +0000\nSubject: [PATCH] " + subject + "\n\nWhy.\n"
+	if note {
+		s += "[ spin-stack/machine: " + shirudoNote + ", at\n  versions.yaml's shirudo pin. ]\n"
+	}
+	s += "---\n f.c | 1 +\n\ndiff --git a/f.c b/f.c\nindex 1111111..2222222 100644\n--- a/f.c\n+++ b/f.c\n@@ -10,2 +10,3 @@\n " + context + "\n+" + added + "\n };\n"
+	if signature {
+		s += "-- \n2.53.0\n"
+	}
+	return s
+}
+
+func mustParse(t *testing.T, file, text string) kernelPatch {
+	t.Helper()
+	p, err := parseKernelPatch(file, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A carried patch is shirudo's when its change is, wherever its context sits and whether or not
+// format-patch signed it; anything else needs a person, named.
+func TestACarriedPatchIsComparedWithShirudosBySubject(t *testing.T) {
+	declined := ""
+	for s := range shirudoDeclined {
+		declined = s
+	}
+	upstream := []kernelPatch{
+		mustParse(t, "0020-a.patch", patchText("tpm: a", "struct inode *d_inode;", "x;", false, false)),
+		mustParse(t, "0002-k.patch", patchText(declined, "c", "y;", false, true)),
+	}
+	moved := mustParse(t, "0027-a.patch", strings.NewReplacer("@@ -10,2 +10,3 @@", "@@ -99,2 +99,3 @@", "index 1111111..2222222", "index 3333333..4444444").
+		Replace(patchText("tpm: a", "struct inode *d_inode;", "x;", true, true)))
+	for _, tc := range []struct {
+		name     string
+		upstream []kernelPatch
+		carried  []kernelPatch
+		says     []string
+		fails    []string
+	}{
+		{name: "the same change, signed and moved", upstream: upstream, carried: []kernelPatch{moved},
+			says: []string{"0027-a.patch: as shirudo's 0020-a.patch", "shirudo's 0002-k.patch: not carried"}},
+		{name: "a change upstream rewrote", upstream: upstream,
+			carried: []kernelPatch{mustParse(t, "0027-a.patch", patchText("tpm: a", "struct inode *d_inode;", "z;", true, true))},
+			fails:   []string{"0027-a.patch: shirudo's 0020-a.patch changes it"}},
+		{name: "a patch upstream dropped", upstream: upstream[1:], carried: []kernelPatch{moved},
+			fails: []string{`0027-a.patch: shirudo at pin no longer has "tpm: a"`}},
+		{name: "an upstream patch nobody decided", carried: []kernelPatch{moved},
+			upstream: append(slices.Clone(upstream), mustParse(t, "0025-new.patch", patchText("bpf: new", "c", "n;", false, false))),
+			fails:    []string{"shirudo's 0025-new.patch: neither carried nor declined"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := compareShirudo(tc.upstream, tc.carried, "pin")
+			for _, s := range tc.says {
+				if !strings.Contains(out, s) {
+					t.Errorf("says\n%s\nwant %q", out, s)
+				}
+			}
+			if len(tc.fails) == 0 && err != nil {
+				t.Fatalf("fails: %v", err)
+			}
+			for _, s := range tc.fails {
+				if err == nil || !strings.Contains(err.Error(), s) {
+					t.Errorf("fails with %v, want %q", err, s)
+				}
+			}
+		})
+	}
+}
+
+// The real path: shirudo's repository fetched at the pinned commit, kernel/patches read for the
+// patches whose note says they are its.
+func TestShirudoPatchesFetchesThePinnedCommit(t *testing.T) {
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q")
+	git("config", "uploadpack.allowAnySHA1InWant", "true")
+	if err := os.MkdirAll(filepath.Join(repo, shirudoPatches), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, shirudoPatches, "0020-a.patch"), []byte(patchText("tpm: a", "c", "x;", false, false)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-qm", "patches")
+	commit := git("rev-parse", "HEAD")
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "kernel", "patches"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{
+		"0001-ours.patch": patchText("x86: ours", "c", "o;", false, true),
+		"0027-a.patch":    patchText("tpm: a", "c", "x;", true, true),
+	} {
+		if err := os.WriteFile(filepath.Join(root, "kernel", "patches", name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v := pins(t)
+	w := *v
+	w.Entries = slices.Clone(v.Entries)
+	for i := range w.Entries {
+		if w.Entries[i].Name == "shirudo" {
+			w.Entries[i].Source, w.Entries[i].Pin = repo, commit
+		}
+	}
+	out, err := ShirudoPatches(context.Background(), root, &w)
+	if err != nil || out != "0027-a.patch: as shirudo's 0020-a.patch" {
+		t.Errorf("ShirudoPatches = %q, %v", out, err)
+	}
+	for i := range w.Entries {
+		if w.Entries[i].Name == "shirudo" {
+			w.Entries[i].Pin = strings.Repeat("0", 40)
+		}
+	}
+	if _, err := ShirudoPatches(context.Background(), root, &w); err == nil || !strings.Contains(err.Error(), "fetching shirudo") {
+		t.Errorf("a commit the repository does not have: %v", err)
+	}
+}
+
+// A patch with no Subject or no diff is not a patch to compare.
+func TestAKernelPatchHasASubjectAndADiff(t *testing.T) {
+	if _, err := parseKernelPatch("p", "diff --git a/f b/f\n+x\n"); err == nil {
+		t.Error("no Subject")
+	}
+	if _, err := parseKernelPatch("p", "Subject: [PATCH] s\n\nno diff\n"); err == nil {
+		t.Error("no diff")
+	}
+}

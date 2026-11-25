@@ -121,6 +121,23 @@
     renames the configuration in the same commit, then `spin-machine-dev build kernel`, `task
     boot:ssh-first`. The series is a person's choice, the same as spin-ami's host kernel.
 
+- name: shirudo
+  kind: git
+  source: https://github.com/shirudo-dev/shirudo.git
+  version: main
+  pin: 5795f8d4a7509af2afeb331046f179300a1756a2
+  track: branch
+  note: >-
+    Where kernel/patches 0026-0031 come from: shirudo's LSM and BPF hooks, its
+    testing/kernel/patches, each carried under its own Subject with a "from shirudo's
+    testing/kernel/patches" note (kernel/README.md, "shirudo's hooks"). Nothing builds from it.
+    `spin-machine-dev bump shirudo` moves the pin and compares shirudo's patches at the new pin
+    with the ones carried here, by Subject: it fails, naming each, on a carried patch whose change
+    upstream rewrote or dropped, and on an upstream patch neither carried nor declined in
+    internal/build/shirudo.go. Rewrite the carried patch from upstream's (git format-patch -N
+    against the kernel pin, as every kernel patch here), or decline the new one there with its
+    reason, and bump again.
+
 - name: debian
   kind: image
   source: mirror.gcr.io/library/debian

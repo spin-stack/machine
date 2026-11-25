@@ -972,6 +972,49 @@ func TestAQEMUBumpSaysWhatNewerTypesChange(t *testing.T) {
 	}
 }
 
+// A shirudo bump reads shirudo's patches at the pin it moved to and fails on a carried one whose
+// change upstream does not have.
+func TestAShirudoBumpComparesTheCarriedPatches(t *testing.T) {
+	dir := checkout(t)
+	patch := func(added, note string) string {
+		return "From: A <a@example.com>\nSubject: [PATCH] tpm: a\n\nWhy.\n" + note +
+			"---\ndiff --git a/f.c b/f.c\n--- a/f.c\n+++ b/f.c\n@@ -1,1 +1,2 @@\n c\n+" + added + "\n"
+	}
+	upstream := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", upstream, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q")
+	git("config", "uploadpack.allowAnySHA1InWant", "true")
+	put(t, filepath.Join(upstream, "testing/kernel/patches/0020-a.patch"), patch("x;", ""), 0o644)
+	git("add", "-A")
+	git("commit", "-qm", "patches")
+	w, _ := open()
+	e, _ := w.pins.Get("shirudo")
+	raw := read(t, filepath.Join(dir, "versions.yaml"))
+	put(t, filepath.Join(dir, "versions.yaml"), strings.Replace(raw, e.Pin, git("rev-parse", "HEAD"), 1), 0o644)
+	// The pin's source stays the https URL versions.yaml holds it to; git fetches it from here.
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "url."+upstream+".insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", e.Source)
+	fakes(t, map[string]string{"go": ""})
+	carried := filepath.Join(dir, "kernel/patches/0027-a.patch")
+	note := "[ spin-stack/machine: from shirudo's testing/kernel/patches. ]\n"
+	put(t, carried, patch("x;", note), 0o644)
+	if stdout, stderr, status := verb(t, "bump", "shirudo"); status != 0 || !strings.Contains(stdout, "0027-a.patch: as shirudo's 0020-a.patch") {
+		t.Errorf("the change upstream has: exit %d, %q %s", status, stdout, stderr)
+	}
+	put(t, carried, patch("y;", note), 0o644)
+	if _, stderr, status := verb(t, "bump", "shirudo"); status != 2 || !strings.Contains(stderr, "0027-a.patch: shirudo's 0020-a.patch changes it") {
+		t.Errorf("a change upstream does not have: exit %d, %q", status, stderr)
+	}
+}
+
 func TestRefreshProposesThroughVersionsOrTheBuilders(t *testing.T) {
 	checkout(t)
 	calls := fakes(t, map[string]string{"go": ""})
