@@ -196,7 +196,7 @@ everything built out; one that took the archive's sshd logs in and every login s
 `build.sh` turns the tree into a partitionless ext4 wrapped in a read-only qcow2.
 
 - **ext4 and not something denser.** The guest kernel has `EXT4_FS` and `OVERLAY_FS` and explicitly
-  not `XFS_FS`, `BTRFS_FS`, `SQUASHFS` or `EROFS_FS` (`kernel/config-7.3-x86_64`). Another
+  not `XFS_FS`, `BTRFS_FS`, `SQUASHFS` or `EROFS_FS` (`kernel/config-7.4-x86_64`). Another
   filesystem starts with a kernel config change.
 - **`SOURCE_DATE_EPOCH=0`** normalises timestamps, so the build's wall clock is not in every file,
   and the build's own logs and caches are removed ("Files removed"), so it is in none. Two builds
