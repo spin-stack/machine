@@ -157,7 +157,7 @@ const machineOpts = Type + ",kernel-irqchip=on,hpet=off,acpi=on,sata=off,smbus=o
 // hardware: a decision, made here, that every checkpoint taken before it stops resuming.
 // `spin-machine-dev verify qemu` says when the QEMU built offers a newer one, and fails once this one is
 // deprecated (QEMU deprecates a versioned type after three years and removes it after six).
-const Type = "pc-q35-11.1"
+const Type = "pc-q35-11.2"
 
 // smpArg is -smp. A ceiling of 0, or one equal to the boot count, adds no maxcpus=: validate
 // refuses a ceiling below the boot count, so above it is the only ceiling that adds slots.

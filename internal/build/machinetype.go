@@ -56,8 +56,9 @@ func machineHelp(qemu string) (string, error) {
 }
 
 // q35 is one line of `-machine help` that names a versioned q35: its X.Y and whether it is
-// deprecated.
-var q35 = regexp.MustCompile(`^pc-q35-(\d+)\.(\d+)\s.*?(\(deprecated\))?\s*$`)
+// deprecated. "(deprecated)" is one of the annotations after the description, not the last:
+// 11.2 writes "(secure)" after it.
+var q35 = regexp.MustCompile(`^pc-q35-(\d+)\.(\d+)\s(?:.*(\(deprecated\)))?`)
 
 // q35Version is a pc-q35-X.Y's X and Y.
 type q35Version struct{ major, minor int }

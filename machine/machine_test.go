@@ -214,7 +214,7 @@ func TestArgs(t *testing.T) {
 			s.KVMFDSet, s.VsockFD, s.NICs[0].VhostFD = 1, 5, 6
 		},
 		want: []string{
-			"-machine pc-q35-11.1,kernel-irqchip=on,", "-accel kvm,device=/dev/fdset/1 ",
+			"-machine pc-q35-11.2,kernel-irqchip=on,", "-accel kvm,device=/dev/fdset/1 ",
 			"addr=0x2,vhostfd=5 ", "tap,id=net0,fd=3,vhost=on,vhostfd=6 ",
 		},
 		absent: []string{"accel=kvm"},

@@ -16,10 +16,10 @@ import (
 	"github.com/spin-stack/machine/machine"
 )
 
-// QEMU 11.1.2's own `-machine help`.
-func help1112(t *testing.T) string {
+// QEMU 11.2.0-rc1's own `-machine help` (11.1.91).
+func help1120rc1(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "help-11.1.2.txt"))
+	b, err := os.ReadFile(filepath.Join("testdata", "help-11.2.0-rc1.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,15 +29,15 @@ func help1112(t *testing.T) string {
 // The pinned type stands when QEMU offers it and has not deprecated it, with a notice when a
 // newer one is offered; it does not when QEMU deprecates it or no longer offers it.
 func TestThePinnedTypeAgainstAQEMU(t *testing.T) {
-	real := help1112(t)
-	newer := "pc-q35-11.2          Standard PC (Q35 + ICH9, 2009)\n" + real
+	real := help1120rc1(t)
+	newer := "pc-q35-11.3          Standard PC (Q35 + ICH9, 2009)\n" + real
 	for _, tc := range []struct {
 		name, help, pinned, notice, err string
 	}{
 		{name: "this tree's QEMU and pin", help: real, pinned: machine.Type},
-		{name: "a QEMU with a newer type", help: newer, pinned: "pc-q35-11.1", notice: "QEMU offers pc-q35-11.2; this machine stays on pc-q35-11.1"},
-		{name: "a newer major", help: "pc-q35-12.0   Standard PC\n" + real, pinned: "pc-q35-11.1", notice: "QEMU offers pc-q35-12.0"},
-		{name: "an older pin, still offered", help: real, pinned: "pc-q35-10.2", notice: "QEMU offers pc-q35-11.1; this machine stays on pc-q35-10.2"},
+		{name: "a QEMU with a newer type", help: newer, pinned: "pc-q35-11.2", notice: "QEMU offers pc-q35-11.3; this machine stays on pc-q35-11.2"},
+		{name: "a newer major", help: "pc-q35-12.0   Standard PC\n" + real, pinned: "pc-q35-11.2", notice: "QEMU offers pc-q35-12.0"},
+		{name: "an older pin, still offered", help: real, pinned: "pc-q35-10.2", notice: "QEMU offers pc-q35-11.2; this machine stays on pc-q35-10.2"},
 		{name: "a deprecated pin", help: real, pinned: "pc-q35-8.1", err: "deprecates pc-q35-8.1"},
 		{name: "a pin QEMU removed", help: real, pinned: "pc-q35-2.4", err: "offers no pc-q35-2.4"},
 		{name: "a pin that is no versioned q35", help: real, pinned: "q35", err: "is not a pc-q35-X.Y"},
@@ -60,31 +60,31 @@ func TestThePinnedTypeAgainstAQEMU(t *testing.T) {
 	}
 }
 
-// QEMU's source as an 11.2 tarball writes it: the arrays for the pinned 11.1, each whole, and
+// QEMU's source as an 11.3 tarball writes it: the arrays for the pinned 11.2, each whole, and
 // nothing from the array beside it.
 const source = `
-GlobalProperty hw_compat_11_1[] = {
+GlobalProperty hw_compat_11_2[] = {
     { "virtio-net-pci", "x-new-feature", "off" },
 };
-const size_t hw_compat_11_1_len = G_N_ELEMENTS(hw_compat_11_1);
+const size_t hw_compat_11_2_len = G_N_ELEMENTS(hw_compat_11_2);
 
-GlobalProperty hw_compat_11_0[] = {
+GlobalProperty hw_compat_11_1[] = {
     { "older", "x", "off" },
 };
 `
 
 const pcSource = `
-GlobalProperty pc_compat_11_1[] = {
+GlobalProperty pc_compat_11_2[] = {
     { TYPE_X86_CPU, "x-something", "false" },
 };
 `
 
 func TestMachineTypeCompatIsThePinnedTypesArrays(t *testing.T) {
-	got, err := machineTypeCompat(source+pcSource, "pc-q35-11.1")
+	got, err := machineTypeCompat(source+pcSource, "pc-q35-11.2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"GlobalProperty hw_compat_11_1[] = {", `"x-new-feature", "off"`, "GlobalProperty pc_compat_11_1[] = {", `"x-something", "false"`} {
+	for _, want := range []string{"GlobalProperty hw_compat_11_2[] = {", `"x-new-feature", "off"`, "GlobalProperty pc_compat_11_2[] = {", `"x-something", "false"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("compat\n%s\nwant %q", got, want)
 		}
@@ -92,15 +92,15 @@ func TestMachineTypeCompatIsThePinnedTypesArrays(t *testing.T) {
 	if strings.Contains(got, "older") {
 		t.Errorf("compat\n%s\nholds the array of another type", got)
 	}
-	// QEMU writes an array with nothing to switch back off as one line (pc_compat_11_0 in 11.1.2).
-	empty, err := machineTypeCompat(source+"\nGlobalProperty pc_compat_11_1[] = {};\n", "pc-q35-11.1")
-	if err != nil || !strings.HasSuffix(empty, "GlobalProperty pc_compat_11_1[] = {};") {
+	// QEMU writes an array with nothing to switch back off as one line (pc_compat_11_1 in 11.2.0-rc1).
+	empty, err := machineTypeCompat(source+"\nGlobalProperty pc_compat_11_2[] = {};\n", "pc-q35-11.2")
+	if err != nil || !strings.HasSuffix(empty, "GlobalProperty pc_compat_11_2[] = {};") {
 		t.Errorf("an empty array: %q, %v", empty, err)
 	}
-	if _, err := machineTypeCompat(source, "pc-q35-11.1"); !errors.Is(err, errNoCompatArray) {
-		t.Errorf("no pc_compat_11_1: %v", err)
+	if _, err := machineTypeCompat(source, "pc-q35-11.2"); !errors.Is(err, errNoCompatArray) {
+		t.Errorf("no pc_compat_11_2: %v", err)
 	}
-	if _, err := machineTypeCompat("GlobalProperty hw_compat_11_1[] = { { ", "pc-q35-11.1"); err == nil || errors.Is(err, errNoCompatArray) {
+	if _, err := machineTypeCompat("GlobalProperty hw_compat_11_2[] = { { ", "pc-q35-11.2"); err == nil || errors.Is(err, errNoCompatArray) {
 		t.Errorf("an array with no end: %v", err)
 	}
 	if _, err := machineTypeCompat(source, "q35"); err == nil {

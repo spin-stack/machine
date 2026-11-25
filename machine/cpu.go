@@ -52,7 +52,7 @@ type CPU struct {
 // Features holds; a vCPU's topology ids are its slot, and the topology is the machine's
 // (Hardware's machine smp); the other switches (hv-*, kvm, vmware-cpuid-freq, cpuid-0xb, the
 // x-vendor-cpuid-only pair and the rest of x86_cpu_properties) are at the machine type's
-// defaults, which QEMU keeps for pc-q35-11.1 across versions, until -cpu sets one, and
+// defaults, which QEMU keeps for pc-q35-11.2 across versions, until -cpu sets one, and
 // TestTheRecordHoldsWhatTheCPUIsGiven fails a -cpu option that is neither a feature nor here. MSRs (lbr-fmt, ucode-rev,
 // lmce) are not CPUID.
 var cpuidProperties = []string{
