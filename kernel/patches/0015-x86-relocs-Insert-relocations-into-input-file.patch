@@ -11,12 +11,15 @@ Signed-off-by: Hou Wenlong <houwenlong.hwl@antgroup.com>
 [ spin-stack/machine: forward-ported to 7.3.5 for #645, and made
   checkpatch --strict clean: no line continuations
   inside die()'s arguments, and its message's second line unsplit. ]
+[ spin-stack/machine: a CodeQL suppression comment on each fopen(), for
+  cpp/path-injection: the file is the vmlinux the build names, never
+  outside input (spin-stack/machine#707). ]
 Assisted-by: LLM
 ---
  arch/x86/tools/relocs.c        | 56 ++++++++++++++++++++++++++++++----
  arch/x86/tools/relocs.h        |  1 +
- arch/x86/tools/relocs_common.c | 13 ++++++--
- 3 files changed, 61 insertions(+), 9 deletions(-)
+ arch/x86/tools/relocs_common.c | 16 ++++++++--
+ 3 files changed, 64 insertions(+), 9 deletions(-)
 
 diff --git a/arch/x86/tools/relocs.c b/arch/x86/tools/relocs.c
 index 4d3d53391..48105ced1 100644
@@ -128,7 +131,7 @@ index 5ade07ac2..05a6e80e8 100644
  void process_32(FILE *fp);
  void process_64(FILE *fp);
 diff --git a/arch/x86/tools/relocs_common.c b/arch/x86/tools/relocs_common.c
-index ee8a9fafc..e973af890 100644
+index ee8a9fafc..ed06a8c2e 100644
 --- a/arch/x86/tools/relocs_common.c
 +++ b/arch/x86/tools/relocs_common.c
 @@ -2,7 +2,7 @@
@@ -160,15 +163,18 @@ index ee8a9fafc..e973af890 100644
  		}
  		else if (!fname) {
  			fname = arg;
-@@ -65,7 +69,10 @@ int main(int argc, char **argv)
+@@ -65,7 +69,13 @@ int main(int argc, char **argv)
  	if (!fname) {
  		usage();
  	}
 -	fp = fopen(fname, "r");
-+	if (keep_relocs)
++	if (keep_relocs) {
++		/* codeql[cpp/path-injection] fname is the vmlinux make built, not input (#707) */
 +		fp = fopen(fname, "r+");
-+	else
++	} else {
++		/* codeql[cpp/path-injection] fname is the vmlinux make built, not input (#707) */
 +		fp = fopen(fname, "r");
++	}
  	if (!fp) {
  		die("Cannot open %s: %s\n", fname, strerror(errno));
  	}
