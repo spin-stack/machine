@@ -43,7 +43,7 @@ Assisted-by: LLM
  4 files changed, 64 insertions(+)
 
 diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
-index f85256413..691c73dd0 100644
+index 7c6f2aba8..8e2333dca 100644
 --- a/drivers/pci/pci.c
 +++ b/drivers/pci/pci.c
 @@ -420,6 +420,20 @@ static u8 __pci_find_next_cap(struct pci_bus *bus, unsigned int devfn,
@@ -125,7 +125,7 @@ index f85256413..691c73dd0 100644
   * pci_find_next_ext_capability - Find an extended capability
   * @dev: PCI device to query
 diff --git a/drivers/pci/pci.h b/drivers/pci/pci.h
-index ba3c3fddd..f23ea4586 100644
+index 77efa4c5c..a7cf0ba59 100644
 --- a/drivers/pci/pci.h
 +++ b/drivers/pci/pci.h
 @@ -18,6 +18,8 @@ struct pcie_tlp_log;
@@ -138,10 +138,10 @@ index ba3c3fddd..f23ea4586 100644
  
  #define PCIE_LINK_RETRAIN_TIMEOUT_MS	1000
 diff --git a/drivers/pci/probe.c b/drivers/pci/probe.c
-index 52a79b033..a0e623273 100644
+index 9a178e0e5..014848fd1 100644
 --- a/drivers/pci/probe.c
 +++ b/drivers/pci/probe.c
-@@ -2031,6 +2031,7 @@ int pci_setup_device(struct pci_dev *dev)
+@@ -2039,6 +2039,7 @@ int pci_setup_device(struct pci_dev *dev)
  	dev->dev.bus = &pci_bus_type;
  	dev->hdr_type = FIELD_GET(PCI_HEADER_TYPE_MASK, hdr_type);
  	dev->multifunction = FIELD_GET(PCI_HEADER_TYPE_MFD, hdr_type);
@@ -150,7 +150,7 @@ index 52a79b033..a0e623273 100644
  	set_pcie_port_type(dev);
  
 diff --git a/include/linux/pci.h b/include/linux/pci.h
-index 272378dd8..fbaa2fc83 100644
+index aa3765a20..7482b8d5d 100644
 --- a/include/linux/pci.h
 +++ b/include/linux/pci.h
 @@ -370,6 +370,10 @@ struct pci_dev {

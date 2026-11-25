@@ -99,6 +99,13 @@ func TestKernelSeriesIsMajorMinor(t *testing.T) {
 	if s, err := KernelSeries(v); err != nil || s != "7.3" {
 		t.Errorf("KernelSeries = %q, %v; want 7.3", s, err)
 	}
+	rc, err := versions.Parse([]byte("- name: kernel\n  kind: download\n  source: https://k/{version}.tar.gz\n  version: 7.4-rc4\n  pin: " + strings.Repeat("a", 64) + "\n  track: releases https://k\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := KernelSeries(rc); err != nil || s != "7.4" {
+		t.Errorf("KernelSeries of a release candidate = %q, %v; want 7.4", s, err)
+	}
 	if _, err := KernelSeries(&versions.Versions{}); err == nil {
 		t.Error("no kernel entry gave no error")
 	}

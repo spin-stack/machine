@@ -31,10 +31,10 @@ Assisted-by: LLM
  1 file changed, 29 insertions(+), 12 deletions(-)
 
 diff --git a/kernel/trace/ftrace.c b/kernel/trace/ftrace.c
-index 9c575b927..0b62b26c6 100644
+index 250ccce13..e7ae108a7 100644
 --- a/kernel/trace/ftrace.c
 +++ b/kernel/trace/ftrace.c
-@@ -8367,24 +8367,43 @@ void ftrace_free_mem(struct module *mod, void *start_ptr, void *end_ptr)
+@@ -8392,24 +8392,43 @@ void ftrace_free_mem(struct module *mod, void *start_ptr, void *end_ptr)
  		mod_map = allocate_ftrace_mod_map(mod, start, end);
  
  	for (pg = ftrace_pages_start; pg; last_pg = &pg->next, pg = *last_pg) {
@@ -86,7 +86,7 @@ index 9c575b927..0b62b26c6 100644
  		if (!pg->index) {
  			*last_pg = pg->next;
  			pg->next = tmp_page;
-@@ -8394,10 +8413,8 @@ void ftrace_free_mem(struct module *mod, void *start_ptr, void *end_ptr)
+@@ -8419,10 +8438,8 @@ void ftrace_free_mem(struct module *mod, void *start_ptr, void *end_ptr)
  				ftrace_pages = pg;
  			continue;
  		}

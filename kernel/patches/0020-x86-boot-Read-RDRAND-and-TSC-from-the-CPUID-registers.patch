@@ -28,7 +28,7 @@ Assisted-by: LLM
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/arch/x86/boot/startup/kaslr.c b/arch/x86/boot/startup/kaslr.c
-index 3083847..8114422 100644
+index 8594ca34e..10b05094f 100644
 --- a/arch/x86/boot/startup/kaslr.c
 +++ b/arch/x86/boot/startup/kaslr.c
 @@ -24,9 +24,9 @@ static inline bool has_cpuflag(int flag)
@@ -43,3 +43,6 @@ index 3083847..8114422 100644
  	}
  
  	return test_bit(flag & 31, (unsigned long *)&reg);
+-- 
+2.53.0
+

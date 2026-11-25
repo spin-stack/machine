@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spin-stack/go-tools/versions"
@@ -63,5 +64,37 @@ func TestMkosiConfIsThePinnedMkosi(t *testing.T) {
 	}
 	if string(m[1]) != e.Version {
 		t.Errorf("image/mkosi.conf says MinimumVersion=%s, and %s pins mkosi %s", m[1], versions.File, e.Version)
+	}
+}
+
+// The kernel's tarball is the one its pin was taken of. kernel/Dockerfile fetches a release
+// candidate as the gzip tarball git.kernel.org makes of torvalds' tag and a release from
+// cdn.kernel.org, and versions.yaml's source is what the release's SBOM, its SOURCES and the
+// CodeQL tree fetch: a pin moved across the two with its source left behind is the hash of one
+// file and the URL of another.
+func TestTheKernelsSourceIsTheTarballTheBuildFetches(t *testing.T) {
+	v, err := versions.Load(filepath.Join(root, versions.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := v.Get("kernel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerfile, err := os.ReadFile(filepath.Join(root, "kernel", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://cdn.kernel.org/pub/linux/kernel/v{major}.x/linux-{version}.tar.xz"
+	built := "https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_MAJOR}.x/linux-${KERNEL_VERSION}.tar.xz"
+	if regexp.MustCompile(`-rc[1-9][0-9]*$`).MatchString(e.Version) {
+		want = "https://git.kernel.org/torvalds/t/linux-{version}.tar.gz"
+		built = "https://git.kernel.org/torvalds/t/linux-${KERNEL_VERSION}.tar.gz"
+	}
+	if e.Source != want {
+		t.Errorf("%s's kernel %s has source %s; kernel/Dockerfile fetches %s", versions.File, e.Version, e.Source, want)
+	}
+	if !strings.Contains(string(dockerfile), `url="`+built+`"`) {
+		t.Errorf("kernel/Dockerfile no longer fetches %s for kernel %s", built, e.Version)
 	}
 }

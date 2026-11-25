@@ -1,7 +1,6 @@
 From: Hou Wenlong <houwenlong.hwl@antgroup.com>
 Date: Mon, 26 Jan 2026 21:33:54 +0800
-Subject: [PATCH] x86/boot: Perform virtual address relocation in kernel
- entry
+Subject: [PATCH] x86/boot: Perform virtual address relocation in kernel entry
 
 Perform virtual address relocation for the uncompressed kernel during
 booting, which is similar to the relocation during decompression.
@@ -36,7 +35,7 @@ index 5e499cfb2..eeaefa4e2 100644
  lib-$(CONFIG_X86_64)		+= la57toggle.o
 diff --git a/arch/x86/boot/startup/kaslr.c b/arch/x86/boot/startup/kaslr.c
 new file mode 100644
-index 000000000..fb07c31e2
+index 000000000..975e883af
 --- /dev/null
 +++ b/arch/x86/boot/startup/kaslr.c
 @@ -0,0 +1,120 @@
@@ -161,7 +160,7 @@ index 000000000..fb07c31e2
 +	}
 +}
 diff --git a/arch/x86/include/asm/setup.h b/arch/x86/include/asm/setup.h
-index 895d09faa..0a46aa0e8 100644
+index 895d09faa..6e9b6e493 100644
 --- a/arch/x86/include/asm/setup.h
 +++ b/arch/x86/include/asm/setup.h
 @@ -56,6 +56,7 @@ extern void startup_64_load_idt(void *vc_handler);

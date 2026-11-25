@@ -1130,8 +1130,10 @@ func TestMenuconfigEditsTheConfigInPlace(t *testing.T) {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
 	w, _ := open()
-	k, _ := w.pins.Get("kernel")
-	series := strings.Join(strings.SplitN(k.Version, ".", 3)[:2], ".")
+	series, err := build.KernelSeries(w.pins)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := read(t, calls)
 	for _, want := range []string{"docker buildx build --file kernel/Dockerfile --target kernel-build-base --platform linux/amd64 --cache-from type=local,src=" + filepath.Join(dir, ".cache/buildkit/kernel"),
 		"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_LOCKDOWN=confidentiality", "--output type=docker,name=spin-machine-menuconfig .",

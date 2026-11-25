@@ -257,13 +257,14 @@ RUN <<EOT
     # detaching them, and lockdown keeps root from reading or writing the kernel those
     # programs and the supervisor's keys live in. Without any one of these a root that wants
     # to, gets around them in silence. DEVMEM and PROC_KCORE are the two reads of the kernel's
-    # memory, gone rather than left to lockdown alone.
+    # memory, and DEVPORT the I/O ports, gone rather than left to lockdown alone. 7.4 made
+    # DEVPORT its own option, on by default, where 7.3 built it only with DEVMEM.
     for opt in SECURITY SECURITYFS SECURITY_NETWORK SECURITY_PATH BPF_LSM SECURITY_LOCKDOWN_LSM \
             SECURITY_LOCKDOWN_LSM_EARLY "LOCK_DOWN_KERNEL_FORCE_$(echo "${KERNEL_LOCKDOWN}" | tr a-z A-Z)"; do
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig!"; exit 1; }
     done
     grep -q '^CONFIG_LSM="lockdown,bpf"' .config || { echo "ERROR: the LSMs are not lockdown and bpf!"; grep '^CONFIG_LSM=' .config; exit 1; }
-    for opt in DEVMEM PROC_KCORE MODULES KEXEC; do
+    for opt in DEVMEM DEVPORT PROC_KCORE MODULES KEXEC; do
         ! grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} lets root reach the kernel's memory!"; exit 1; }
     done
 
