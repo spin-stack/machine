@@ -173,12 +173,24 @@ RUN <<EOT
     set -e
     cd /usr/src/linux
 
+    cp .config /tmp/config.committed
     case "${KERNEL_LOCKDOWN}" in
     confidentiality) ;;
     none) sed -i 's/^CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y$/CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y/' .config ;;
     *) echo "ERROR: KERNEL_LOCKDOWN is confidentiality or none, not '${KERNEL_LOCKDOWN}'"; exit 1 ;;
     esac
     make ARCH=${KERNEL_ARCH} olddefconfig
+
+    # The series' file is the configuration that is built, to the line. 7.3's had no DEVPORT line
+    # at all, and olddefconfig turned /dev/port on from its default in every release up to
+    # v20261124.01, with nobody reading it in the file. A file olddefconfig changes is one to
+    # commit as olddefconfig writes it (spin-machine-dev menuconfig saves it so). The traceable
+    # kernel swaps one option above, and `release traceable-kernel` holds it to this one.
+    if [ "${KERNEL_LOCKDOWN}" = confidentiality ] && ! cmp -s .config /tmp/config.committed; then
+        diff /tmp/config.committed .config || true
+        echo "ERROR: olddefconfig changed kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH}: commit the configuration it writes"
+        exit 1
+    fi
 
     echo "Verifying critical kernel configs after olddefconfig..."
     grep -q "CONFIG_VIRTIO_NET=y" .config || (echo "ERROR: CONFIG_VIRTIO_NET not enabled after olddefconfig!" ; grep VIRTIO_NET .config ; exit 1)
@@ -256,8 +268,9 @@ RUN <<EOT
     # detaching them, and lockdown keeps root from reading or writing the kernel those
     # programs and the supervisor's keys live in. Without any one of these a root that wants
     # to, gets around them in silence. DEVMEM and PROC_KCORE are the two reads of the kernel's
-    # memory, and DEVPORT the I/O ports, gone rather than left to lockdown alone. 7.4 made
-    # DEVPORT its own option, on by default, where 7.3 built it only with DEVMEM.
+    # memory, and DEVPORT its I/O ports, gone rather than left to lockdown alone, which refuses
+    # opening each (LOCKDOWN_DEV_MEM) and ioperm and iopl (LOCKDOWN_IOPORT). DEVPORT defaults to
+    # on and every release up to v20261124.01 built it.
     for opt in SECURITY SECURITYFS SECURITY_NETWORK SECURITY_PATH BPF_LSM SECURITY_LOCKDOWN_LSM \
             SECURITY_LOCKDOWN_LSM_EARLY "LOCK_DOWN_KERNEL_FORCE_$(echo "${KERNEL_LOCKDOWN}" | tr a-z A-Z)"; do
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig!"; exit 1; }
