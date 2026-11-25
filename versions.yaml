@@ -40,8 +40,8 @@
 - name: qemu
   kind: download
   source: https://download.qemu.org/qemu-{version}.tar.xz
-  version: 11.2.0-rc0
-  pin: 1055588c7acb8b083ca69c3f8625ca240de823e6a34b02b16fa8cabeb1be49be
+  version: 11.2.0-rc1
+  pin: afa61391ade2f05f0b93a7510d736d22e54f74b91fd2c47d286640d595343870
   track: tags https://gitlab.com/qemu-project/qemu.git
   note: >-
     qemu/Dockerfile. A new emulator of the same machine: the machine type (machine.Type)

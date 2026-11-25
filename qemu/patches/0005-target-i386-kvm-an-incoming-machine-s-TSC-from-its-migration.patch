@@ -48,7 +48,7 @@ diff --git a/target/i386/kvm/kvm.c b/target/i386/kvm/kvm.c
 index e29ecaba5..9255b683e 100644
 --- a/target/i386/kvm/kvm.c
 +++ b/target/i386/kvm/kvm.c
-@@ -4250,7 +4250,18 @@ static int kvm_put_msrs(X86CPU *cpu, KvmPutState level)
+@@ -4264,7 +4264,18 @@ static int kvm_put_msrs(X86CPU *cpu, KvmPutState level)
       * for normal writeback. Limit them to reset or full state updates.
       */
      if (level >= KVM_PUT_RESET_STATE) {
