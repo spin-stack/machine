@@ -274,11 +274,13 @@ func about() string {
 		fmt.Sprintf("The goal is %.0f ms (AGENTS.md). ", Goal) +
 		"A Δ is read only between two releases booted in the same run, because " + drift + ". " +
 		"So a release's Δ is against the release measured with it, with its 95% interval. A Δ whose interval " +
-		"includes 0 is within noise, whatever its size. `spin-machine-dev releases compare A B` puts two side by side."
+		"includes 0 is within noise, whatever its size. The chart's line adds up those Δs from the first release of each " +
+		"stretch, so it moves only by what one run measured; each run's own p50 is a hollow point beside it, joined to none. " +
+		"`spin-machine-dev releases compare A B` puts two side by side."
 }
 
 // chartTitle is what the chart shows, and its alternative text where it is an image.
-const chartTitle = "First SSH login, p50 and p95, release by release"
+const chartTitle = "First SSH login, release by release, by each one's Δ in the same run"
 
 // Doc is docs/releases.md: the goal's two numbers release by release, as a chart and as tables, the
 // diagnostics, and the run each release was measured in. A missing number is a dash and nothing

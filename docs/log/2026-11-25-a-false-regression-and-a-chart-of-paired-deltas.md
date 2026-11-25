@@ -1,0 +1,8 @@
+---
+date: "2026-11-25"
+order: 40
+area: lab, releases
+title: A false regression, and a chart of paired Δs
+runs: [45709271641, 45709271725]
+---
+v20261124.01's restore to first login read +1.1 [+0.1, +2.6] ms against v20261123.08, an interval that excludes 0, and its cold point on the releases chart read 376 ms after .08's 344, so the line climbed at the end. *Neither is a regression.* The two releases differ by four docs commits. QEMU, the kernel and the BIOS are byte-identical (machine.env's sha256s); the image differs in nine files (spin-machine-pressure's embedded build info, apt's and ldconfig's caches, logs) and in where its blocks lie. Booted again, 40 a side (run 45709271641), every Δ is within noise: cold +2.4 [-3.2, +6.5], restore login +0.1 [-1.2, +1.1]. An A/A run of v20261124.01 against itself (run 45709271725) swings as far within noise, +1.2 [-0.6, +2.7] on the cached login, so at 20 boots a side an interval that excludes 0 now and then is what the rule expects, not a change. The cold 376 was its run's host: the same release read 341 and 336 ms cold in those two runs. *What changed:* the chart joined each release's p50 from its own run, and a line across runs drew the bench's drift as the release's. Its line now adds up each release's Δ p50 against the one before it in the same run, from the first release of its stretch, with each Δ's interval as a whisker and a change drawn larger than a step within noise; each run's own p50 is a hollow point joined to none, and the p95 band is gone, having no Δ either. On the new chart v20261124.01's cold step is +0.0, within noise, and its restore step is the +1.1 drawn as a change, the false positive this entry explains.

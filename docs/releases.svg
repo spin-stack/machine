@@ -1,22 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="400" viewBox="0 0 800 400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#808080">
-<title>First SSH login, p50 and p95, release by release</title>
+<title>First SSH login, release by release, by each one's Δ in the same run</title>
 <line x1="64.0" y1="330.0" x2="776.0" y2="330.0" stroke="#808080" stroke-opacity="0.3"/>
 <text x="56.0" y="334.0" text-anchor="end">0</text>
-<line x1="64.0" y1="293.1" x2="776.0" y2="293.1" stroke="#808080" stroke-opacity="0.3"/>
-<text x="56.0" y="297.1" text-anchor="end">100</text>
-<line x1="64.0" y1="256.3" x2="776.0" y2="256.3" stroke="#808080" stroke-opacity="0.3"/>
-<text x="56.0" y="260.3" text-anchor="end">200</text>
-<line x1="64.0" y1="219.4" x2="776.0" y2="219.4" stroke="#808080" stroke-opacity="0.3"/>
-<text x="56.0" y="223.4" text-anchor="end">300</text>
-<line x1="64.0" y1="182.6" x2="776.0" y2="182.6" stroke="#808080" stroke-opacity="0.3"/>
-<text x="56.0" y="186.6" text-anchor="end">400</text>
-<line x1="64.0" y1="145.7" x2="776.0" y2="145.7" stroke="#808080" stroke-opacity="0.3"/>
-<text x="56.0" y="149.7" text-anchor="end">500</text>
-<line x1="64.0" y1="108.9" x2="776.0" y2="108.9" stroke="#808080" stroke-opacity="0.3"/>
-<text x="56.0" y="112.9" text-anchor="end">600</text>
-<line x1="64.0" y1="72.0" x2="776.0" y2="72.0" stroke="#808080" stroke-opacity="0.3"/>
-<text x="56.0" y="76.0" text-anchor="end">700</text>
-<text transform="translate(16 201.0) rotate(-90)" text-anchor="middle">ms</text>
+<line x1="64.0" y1="289.7" x2="776.0" y2="289.7" stroke="#808080" stroke-opacity="0.3"/>
+<text x="56.0" y="293.7" text-anchor="end">100</text>
+<line x1="64.0" y1="249.3" x2="776.0" y2="249.3" stroke="#808080" stroke-opacity="0.3"/>
+<text x="56.0" y="253.3" text-anchor="end">200</text>
+<line x1="64.0" y1="209.0" x2="776.0" y2="209.0" stroke="#808080" stroke-opacity="0.3"/>
+<text x="56.0" y="213.0" text-anchor="end">300</text>
+<line x1="64.0" y1="168.7" x2="776.0" y2="168.7" stroke="#808080" stroke-opacity="0.3"/>
+<text x="56.0" y="172.7" text-anchor="end">400</text>
+<line x1="64.0" y1="128.3" x2="776.0" y2="128.3" stroke="#808080" stroke-opacity="0.3"/>
+<text x="56.0" y="132.3" text-anchor="end">500</text>
+<line x1="64.0" y1="88.0" x2="776.0" y2="88.0" stroke="#808080" stroke-opacity="0.3"/>
+<text x="56.0" y="92.0" text-anchor="end">600</text>
+<text transform="translate(16 209.0) rotate(-90)" text-anchor="middle">ms</text>
 <text transform="translate(84.2 346.0) rotate(-40)" text-anchor="end">v20261119.02</text>
 <text transform="translate(116.5 346.0) rotate(-40)" text-anchor="end">v20261120.01</text>
 <text transform="translate(148.9 346.0) rotate(-40)" text-anchor="end">v20261120.02</text>
@@ -39,74 +37,158 @@
 <text transform="translate(699.1 346.0) rotate(-40)" text-anchor="end">v20261123.07</text>
 <text transform="translate(731.5 346.0) rotate(-40)" text-anchor="end">v20261123.08</text>
 <text transform="translate(763.8 346.0) rotate(-40)" text-anchor="end">v20261124.01</text>
-<g class="shape"><line x1="225.8" y1="72.0" x2="225.8" y2="330.0" stroke="#808080" stroke-dasharray="2 4"/><text x="221.8" y="84.0" text-anchor="end">shape changes</text><title>from here: 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin&#39;s login</title></g>
-<line class="goal" x1="64.0" y1="293.1" x2="776.0" y2="293.1" stroke="#808080" stroke-width="1.5" stroke-dasharray="6 4"/>
+<g class="shape"><line x1="225.8" y1="88.0" x2="225.8" y2="330.0" stroke="#808080" stroke-dasharray="2 4"/><text x="221.8" y="100.0" text-anchor="end">shape changes</text><title>from here: 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin&#39;s login</title></g>
+<line class="goal" x1="64.0" y1="289.7" x2="776.0" y2="289.7" stroke="#808080" stroke-width="1.5" stroke-dasharray="6 4"/>
 <g class="run" data-number="cold">
-<polygon class="band" points="80.2,132.6 112.5,139.7 144.9,140.8 177.3,151.2 209.6,154.3 209.6,162.1 177.3,155.3 144.9,144.8 112.5,142.9 80.2,139.3" fill="#2a78d6" fill-opacity="0.25"/>
-<polyline points="80.2,139.3 112.5,142.9 144.9,144.8 177.3,155.3 209.6,162.1" fill="none" stroke="#2a78d6" stroke-width="2"/>
-<circle cx="80.2" cy="139.3" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261119.02 cold: p50 518, p95 536 ms</title></circle>
-<circle cx="112.5" cy="142.9" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.01 cold: p50 508, p95 516 ms</title></circle>
-<circle cx="144.9" cy="144.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.02 cold: p50 502, p95 513 ms</title></circle>
-<circle cx="177.3" cy="155.3" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.03 cold: p50 474, p95 485 ms</title></circle>
-<circle cx="209.6" cy="162.1" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.04 cold: p50 456, p95 477 ms</title></circle>
-<text x="209.6" y="152.1" text-anchor="middle">456</text>
+<circle class="own" cx="80.2" cy="121.3" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261119.02 cold, its own run: p50 518, p95 536 ms</title></circle>
+<circle class="own" cx="112.5" cy="125.2" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261120.01 cold, its own run: p50 508, p95 516 ms</title></circle>
+<circle class="own" cx="144.9" cy="127.4" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261120.02 cold, its own run: p50 502, p95 513 ms</title></circle>
+<circle class="own" cx="177.3" cy="138.8" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261120.03 cold, its own run: p50 474, p95 485 ms</title></circle>
+<circle class="own" cx="209.6" cy="146.3" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261120.04 cold, its own run: p50 456, p95 477 ms</title></circle>
+<polyline points="80.2,121.3 112.5,122.6 144.9,122.1 177.3,136.5 209.6,142.2" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<line class="whisker" x1="112.5" y1="125.3" x2="112.5" y2="119.4" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="144.9" y1="124.2" x2="144.9" y2="116.2" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="177.3" y1="139.5" x2="177.3" y2="133.2" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="209.6" y1="144.7" x2="209.6" y2="139.8" stroke="#2a78d6" stroke-width="1.5"/>
+<circle class="start" cx="80.2" cy="121.3" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261119.02 cold: the line starts at its run&#39;s p50 518, p95 536 ms</title></circle>
+<circle class="noise" cx="112.5" cy="122.6" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.01 cold: Δ -3.2 [-10.1, +4.6] within noise against v20261119.02; its run&#39;s p50 508, p95 516 ms</title></circle>
+<circle class="noise" cx="144.9" cy="122.1" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.02 cold: Δ +1.2 [-4.0, +15.7] within noise against v20261120.01; its run&#39;s p50 502, p95 513 ms</title></circle>
+<circle class="change" cx="177.3" cy="136.5" r="5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.03 cold: Δ -35.7 [-43.1, -27.6] against v20261120.02; its run&#39;s p50 474, p95 485 ms</title></circle>
+<circle class="change" cx="209.6" cy="142.2" r="5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261120.04 cold: Δ -14.3 [-20.4, -8.2] against v20261120.03; its run&#39;s p50 456, p95 477 ms</title></circle>
+<text x="209.6" y="129.8" text-anchor="middle">-14.3</text>
 </g>
 <g class="run" data-number="cold">
-<polygon class="band" points="242.0,150.8 274.4,151.1 306.7,173.3 339.1,171.8 371.5,168.4 403.8,170.6 436.2,170.3 468.5,172.9 500.9,162.5 533.3,178.2 565.6,179.0 598.0,179.1 630.4,180.7 662.7,187.1 695.1,190.2 727.5,199.0 759.8,187.6 759.8,191.2 727.5,203.2 695.1,193.8 662.7,193.6 630.4,190.8 598.0,183.2 565.6,185.1 533.3,182.8 500.9,170.4 468.5,179.8 436.2,177.3 403.8,175.5 371.5,176.1 339.1,178.7 306.7,178.7 274.4,158.8 242.0,158.9" fill="#2a78d6" fill-opacity="0.25"/>
-<polyline points="242.0,158.9 274.4,158.8 306.7,178.7 339.1,178.7 371.5,176.1 403.8,175.5 436.2,177.3 468.5,179.8 500.9,170.4 533.3,182.8 565.6,185.1 598.0,183.2 630.4,190.8 662.7,193.6 695.1,193.8 727.5,203.2 759.8,191.2" fill="none" stroke="#2a78d6" stroke-width="2"/>
-<circle cx="242.0" cy="158.9" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261121.01 cold: p50 464, p95 486 ms</title></circle>
-<circle cx="274.4" cy="158.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.01 cold: p50 464, p95 485 ms</title></circle>
-<circle cx="306.7" cy="178.7" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.02 cold: p50 411, p95 425 ms</title></circle>
-<circle cx="339.1" cy="178.7" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.03 cold: p50 410, p95 429 ms</title></circle>
-<circle cx="371.5" cy="176.1" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.04 cold: p50 418, p95 438 ms</title></circle>
-<circle cx="403.8" cy="175.5" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.05 cold: p50 419, p95 432 ms</title></circle>
-<circle cx="436.2" cy="177.3" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.06 cold: p50 414, p95 433 ms</title></circle>
-<circle cx="468.5" cy="179.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.07 cold: p50 408, p95 426 ms</title></circle>
-<circle cx="500.9" cy="170.4" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.01 cold: p50 433, p95 454 ms</title></circle>
-<circle cx="533.3" cy="182.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.02 cold: p50 399, p95 412 ms</title></circle>
-<circle cx="565.6" cy="185.1" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.03 cold: p50 393, p95 410 ms</title></circle>
-<circle cx="598.0" cy="183.2" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.04 cold: p50 398, p95 409 ms</title></circle>
-<circle cx="630.4" cy="190.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.05 cold: p50 378, p95 405 ms</title></circle>
-<circle cx="662.7" cy="193.6" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.06 cold: p50 370, p95 388 ms</title></circle>
-<circle cx="695.1" cy="193.8" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.07 cold: p50 370, p95 379 ms</title></circle>
-<circle cx="727.5" cy="203.2" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.08 cold: p50 344, p95 355 ms</title></circle>
-<circle cx="759.8" cy="191.2" r="4" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261124.01 cold: p50 376, p95 386 ms</title></circle>
-<text x="759.8" y="181.2" text-anchor="middle">376</text>
+<circle class="own" cx="242.0" cy="142.8" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261121.01 cold, its own run: p50 464, p95 486 ms</title></circle>
+<circle class="own" cx="274.4" cy="142.7" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.01 cold, its own run: p50 464, p95 485 ms</title></circle>
+<circle class="own" cx="306.7" cy="164.4" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.02 cold, its own run: p50 411, p95 425 ms</title></circle>
+<circle class="own" cx="339.1" cy="164.4" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.03 cold, its own run: p50 410, p95 429 ms</title></circle>
+<circle class="own" cx="371.5" cy="161.6" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.04 cold, its own run: p50 418, p95 438 ms</title></circle>
+<circle class="own" cx="403.8" cy="160.9" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.05 cold, its own run: p50 419, p95 432 ms</title></circle>
+<circle class="own" cx="436.2" cy="162.9" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.06 cold, its own run: p50 414, p95 433 ms</title></circle>
+<circle class="own" cx="468.5" cy="165.6" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.07 cold, its own run: p50 408, p95 426 ms</title></circle>
+<circle class="own" cx="500.9" cy="155.3" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.01 cold, its own run: p50 433, p95 454 ms</title></circle>
+<circle class="own" cx="533.3" cy="168.9" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.02 cold, its own run: p50 399, p95 412 ms</title></circle>
+<circle class="own" cx="565.6" cy="171.4" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.03 cold, its own run: p50 393, p95 410 ms</title></circle>
+<circle class="own" cx="598.0" cy="169.4" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.04 cold, its own run: p50 398, p95 409 ms</title></circle>
+<circle class="own" cx="630.4" cy="177.7" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.05 cold, its own run: p50 378, p95 405 ms</title></circle>
+<circle class="own" cx="662.7" cy="180.8" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.06 cold, its own run: p50 370, p95 388 ms</title></circle>
+<circle class="own" cx="695.1" cy="180.9" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.07 cold, its own run: p50 370, p95 379 ms</title></circle>
+<circle class="own" cx="727.5" cy="191.3" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.08 cold, its own run: p50 344, p95 355 ms</title></circle>
+<circle class="own" cx="759.8" cy="178.1" r="4" fill="#2a78d6" fill-opacity="0" stroke="#2a78d6" stroke-opacity="0.6" stroke-width="1.5"><title>v20261124.01 cold, its own run: p50 376, p95 386 ms</title></circle>
+<polyline points="242.0,142.8 274.4,140.8 306.7,163.9 339.1,163.0 371.5,160.3 403.8,159.1 436.2,159.6 468.5,162.2 500.9,164.2 533.3,168.5 565.6,178.0 598.0,177.1 630.4,179.4 662.7,183.3 695.1,184.7 727.5,190.6 759.8,190.6" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<line class="whisker" x1="274.4" y1="142.9" x2="274.4" y2="139.1" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="306.7" y1="167.2" x2="306.7" y2="159.6" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="339.1" y1="165.4" x2="339.1" y2="160.1" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="371.5" y1="163.0" x2="371.5" y2="157.5" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="403.8" y1="163.7" x2="403.8" y2="156.3" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="436.2" y1="161.8" x2="436.2" y2="154.3" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="468.5" y1="165.1" x2="468.5" y2="157.9" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="500.9" y1="170.4" x2="500.9" y2="159.5" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="533.3" y1="172.1" x2="533.3" y2="164.4" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="565.6" y1="180.8" x2="565.6" y2="174.3" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="598.0" y1="178.7" x2="598.0" y2="174.4" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="630.4" y1="183.4" x2="630.4" y2="176.3" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="662.7" y1="186.3" x2="662.7" y2="181.0" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="695.1" y1="188.5" x2="695.1" y2="182.1" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="727.5" y1="193.9" x2="727.5" y2="187.5" stroke="#2a78d6" stroke-width="1.5"/>
+<line class="whisker" x1="759.8" y1="192.8" x2="759.8" y2="187.3" stroke="#2a78d6" stroke-width="1.5"/>
+<circle class="start" cx="242.0" cy="142.8" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261121.01 cold: the line starts at its run&#39;s p50 464, p95 486 ms</title></circle>
+<circle class="noise" cx="274.4" cy="140.8" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.01 cold: Δ +5.0 [-0.2, +9.3] within noise against v20261121.01; its run&#39;s p50 464, p95 485 ms</title></circle>
+<circle class="change" cx="306.7" cy="163.9" r="5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.02 cold: Δ -57.4 [-65.4, -46.7] against v20261122.01; its run&#39;s p50 411, p95 425 ms</title></circle>
+<circle class="noise" cx="339.1" cy="163.0" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.03 cold: Δ +2.3 [-3.7, +9.6] within noise against v20261122.02; its run&#39;s p50 410, p95 429 ms</title></circle>
+<circle class="change" cx="371.5" cy="160.3" r="5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.04 cold: Δ +6.8 [+0.1, +13.6] against v20261122.03; its run&#39;s p50 418, p95 438 ms</title></circle>
+<circle class="noise" cx="403.8" cy="159.1" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.05 cold: Δ +2.8 [-8.6, +9.9] within noise against v20261122.04; its run&#39;s p50 419, p95 432 ms</title></circle>
+<circle class="noise" cx="436.2" cy="159.6" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.06 cold: Δ -1.1 [-6.6, +11.9] within noise against v20261122.05; its run&#39;s p50 414, p95 433 ms</title></circle>
+<circle class="noise" cx="468.5" cy="162.2" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261122.07 cold: Δ -6.5 [-13.7, +4.3] within noise against v20261122.06; its run&#39;s p50 408, p95 426 ms</title></circle>
+<circle class="noise" cx="500.9" cy="164.2" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.01 cold: Δ -5.0 [-20.4, +6.8] within noise against v20261122.07; its run&#39;s p50 433, p95 454 ms</title></circle>
+<circle class="change" cx="533.3" cy="168.5" r="5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.02 cold: Δ -10.6 [-19.4, -0.5] against v20261123.01; its run&#39;s p50 399, p95 412 ms</title></circle>
+<circle class="change" cx="565.6" cy="178.0" r="5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.03 cold: Δ -23.5 [-30.5, -14.3] against v20261123.02; its run&#39;s p50 393, p95 410 ms</title></circle>
+<circle class="noise" cx="598.0" cy="177.1" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.04 cold: Δ +2.1 [-1.9, +9.0] within noise against v20261123.03; its run&#39;s p50 398, p95 409 ms</title></circle>
+<circle class="noise" cx="630.4" cy="179.4" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.05 cold: Δ -5.7 [-15.5, +2.1] within noise against v20261123.04; its run&#39;s p50 378, p95 405 ms</title></circle>
+<circle class="change" cx="662.7" cy="183.3" r="5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.06 cold: Δ -9.6 [-16.9, -4.0] against v20261123.05; its run&#39;s p50 370, p95 388 ms</title></circle>
+<circle class="noise" cx="695.1" cy="184.7" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.07 cold: Δ -3.5 [-12.9, +2.9] within noise against v20261123.06; its run&#39;s p50 370, p95 379 ms</title></circle>
+<circle class="change" cx="727.5" cy="190.6" r="5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261123.08 cold: Δ -14.5 [-22.8, -6.8] against v20261123.07; its run&#39;s p50 344, p95 355 ms</title></circle>
+<circle class="noise" cx="759.8" cy="190.6" r="2.5" fill="#2a78d6" stroke="#2a78d6" stroke-opacity="0" stroke-width="12"><title>v20261124.01 cold: Δ +0.0 [-5.6, +8.2] within noise against v20261123.08; its run&#39;s p50 376, p95 386 ms</title></circle>
+<text x="759.8" y="168.1" text-anchor="middle">+0.0</text>
 </g>
 <g class="run" data-number="restore">
-<polygon class="band" points="80.2,262.6 112.5,217.7 144.9,97.2 177.3,281.2 209.6,288.9 209.6,290.0 177.3,284.0 144.9,263.1 112.5,261.9 80.2,263.4" fill="#d95926" fill-opacity="0.25"/>
-<polyline points="80.2,263.4 112.5,261.9 144.9,263.1 177.3,284.0 209.6,290.0" fill="none" stroke="#d95926" stroke-width="2"/>
-<circle cx="80.2" cy="263.4" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261119.02 restore: p50 181, p95 183 ms</title></circle>
-<circle cx="112.5" cy="261.9" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.01 restore: p50 185, p95 305 ms</title></circle>
-<circle cx="144.9" cy="263.1" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.02 restore: p50 182, p95 632 ms</title></circle>
-<circle cx="177.3" cy="284.0" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.03 restore: p50 125, p95 132 ms</title></circle>
-<circle cx="209.6" cy="290.0" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.04 restore: p50 108, p95 111 ms</title></circle>
-<text x="209.6" y="280.0" text-anchor="middle">108</text>
+<circle class="own" cx="80.2" cy="257.2" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261119.02 restore, its own run: p50 181, p95 183 ms</title></circle>
+<circle class="own" cx="112.5" cy="255.5" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261120.01 restore, its own run: p50 185, p95 305 ms</title></circle>
+<circle class="own" cx="144.9" cy="256.8" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261120.02 restore, its own run: p50 182, p95 632 ms</title></circle>
+<circle class="own" cx="177.3" cy="279.7" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261120.03 restore, its own run: p50 125, p95 132 ms</title></circle>
+<circle class="own" cx="209.6" cy="286.2" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261120.04 restore, its own run: p50 108, p95 111 ms</title></circle>
+<polyline points="80.2,257.2 112.5,256.3 144.9,255.9 177.3,274.7 209.6,280.0" fill="none" stroke="#d95926" stroke-width="2"/>
+<line class="whisker" x1="112.5" y1="258.3" x2="112.5" y2="253.3" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="144.9" y1="257.1" x2="144.9" y2="253.9" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="177.3" y1="275.3" x2="177.3" y2="273.4" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="209.6" y1="280.8" x2="209.6" y2="279.3" stroke="#d95926" stroke-width="1.5"/>
+<circle class="start" cx="80.2" cy="257.2" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261119.02 restore: the line starts at its run&#39;s p50 181, p95 183 ms</title></circle>
+<circle class="noise" cx="112.5" cy="256.3" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.01 restore: Δ +2.1 [-2.9, +9.6] within noise against v20261119.02; its run&#39;s p50 185, p95 305 ms</title></circle>
+<circle class="noise" cx="144.9" cy="255.9" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.02 restore: Δ +1.1 [-2.0, +6.1] within noise against v20261120.01; its run&#39;s p50 182, p95 632 ms</title></circle>
+<circle class="change" cx="177.3" cy="274.7" r="5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.03 restore: Δ -46.7 [-48.2, -43.5] against v20261120.02; its run&#39;s p50 125, p95 132 ms</title></circle>
+<circle class="change" cx="209.6" cy="280.0" r="5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261120.04 restore: Δ -13.2 [-15.1, -11.4] against v20261120.03; its run&#39;s p50 108, p95 111 ms</title></circle>
+<text x="209.6" y="269.3" text-anchor="middle">-13.2</text>
 </g>
 <g class="run" data-number="restore">
-<polygon class="band" points="242.0,287.1 274.4,287.5 306.7,292.6 339.1,293.7 371.5,297.0 403.8,295.9 436.2,296.8 468.5,296.1 500.9,296.9 533.3,298.2 565.6,299.2 598.0,299.2 630.4,299.4 662.7,300.7 695.1,303.6 727.5,303.0 759.8,300.7 759.8,302.7 727.5,303.9 695.1,304.3 662.7,303.4 630.4,300.7 598.0,300.1 565.6,300.1 533.3,299.4 500.9,298.4 468.5,299.4 436.2,299.0 403.8,298.6 371.5,298.4 339.1,296.8 306.7,294.5 274.4,289.3 242.0,289.6" fill="#d95926" fill-opacity="0.25"/>
-<polyline points="242.0,289.6 274.4,289.3 306.7,294.5 339.1,296.8 371.5,298.4 403.8,298.6 436.2,299.0 468.5,299.4 500.9,298.4 533.3,299.4 565.6,300.1 598.0,300.1 630.4,300.7 662.7,303.4 695.1,304.3 727.5,303.9 759.8,302.7" fill="none" stroke="#d95926" stroke-width="2"/>
-<circle cx="242.0" cy="289.6" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261121.01 restore: p50 110, p95 116 ms</title></circle>
-<circle cx="274.4" cy="289.3" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.01 restore: p50 110, p95 115 ms</title></circle>
-<circle cx="306.7" cy="294.5" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.02 restore: p50 96.2, p95 101 ms</title></circle>
-<circle cx="339.1" cy="296.8" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.03 restore: p50 90.2, p95 98.6 ms</title></circle>
-<circle cx="371.5" cy="298.4" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.04 restore: p50 85.8, p95 89.4 ms</title></circle>
-<circle cx="403.8" cy="298.6" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.05 restore: p50 85.2, p95 92.6 ms</title></circle>
-<circle cx="436.2" cy="299.0" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.06 restore: p50 84.1, p95 90 ms</title></circle>
-<circle cx="468.5" cy="299.4" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.07 restore: p50 83.1, p95 91.9 ms</title></circle>
-<circle cx="500.9" cy="298.4" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.01 restore: p50 85.7, p95 89.8 ms</title></circle>
-<circle cx="533.3" cy="299.4" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.02 restore: p50 83, p95 86.3 ms</title></circle>
-<circle cx="565.6" cy="300.1" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.03 restore: p50 81, p95 83.7 ms</title></circle>
-<circle cx="598.0" cy="300.1" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.04 restore: p50 81, p95 83.5 ms</title></circle>
-<circle cx="630.4" cy="300.7" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.05 restore: p50 79.4, p95 83.1 ms</title></circle>
-<circle cx="662.7" cy="303.4" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.06 restore: p50 72.2, p95 79.6 ms</title></circle>
-<circle cx="695.1" cy="304.3" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.07 restore: p50 69.7, p95 71.6 ms</title></circle>
-<circle cx="727.5" cy="303.9" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.08 restore: p50 70.8, p95 73.2 ms</title></circle>
-<circle cx="759.8" cy="302.7" r="4" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261124.01 restore: p50 74, p95 79.5 ms</title></circle>
-<text x="759.8" y="292.7" text-anchor="middle">74</text>
+<circle class="own" cx="242.0" cy="285.8" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261121.01 restore, its own run: p50 110, p95 116 ms</title></circle>
+<circle class="own" cx="274.4" cy="285.5" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.01 restore, its own run: p50 110, p95 115 ms</title></circle>
+<circle class="own" cx="306.7" cy="291.2" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.02 restore, its own run: p50 96.2, p95 101 ms</title></circle>
+<circle class="own" cx="339.1" cy="293.6" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.03 restore, its own run: p50 90.2, p95 98.6 ms</title></circle>
+<circle class="own" cx="371.5" cy="295.4" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.04 restore, its own run: p50 85.8, p95 89.4 ms</title></circle>
+<circle class="own" cx="403.8" cy="295.6" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.05 restore, its own run: p50 85.2, p95 92.6 ms</title></circle>
+<circle class="own" cx="436.2" cy="296.1" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.06 restore, its own run: p50 84.1, p95 90 ms</title></circle>
+<circle class="own" cx="468.5" cy="296.5" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261122.07 restore, its own run: p50 83.1, p95 91.9 ms</title></circle>
+<circle class="own" cx="500.9" cy="295.4" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.01 restore, its own run: p50 85.7, p95 89.8 ms</title></circle>
+<circle class="own" cx="533.3" cy="296.5" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.02 restore, its own run: p50 83, p95 86.3 ms</title></circle>
+<circle class="own" cx="565.6" cy="297.3" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.03 restore, its own run: p50 81, p95 83.7 ms</title></circle>
+<circle class="own" cx="598.0" cy="297.3" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.04 restore, its own run: p50 81, p95 83.5 ms</title></circle>
+<circle class="own" cx="630.4" cy="298.0" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.05 restore, its own run: p50 79.4, p95 83.1 ms</title></circle>
+<circle class="own" cx="662.7" cy="300.9" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.06 restore, its own run: p50 72.2, p95 79.6 ms</title></circle>
+<circle class="own" cx="695.1" cy="301.9" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.07 restore, its own run: p50 69.7, p95 71.6 ms</title></circle>
+<circle class="own" cx="727.5" cy="301.4" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261123.08 restore, its own run: p50 70.8, p95 73.2 ms</title></circle>
+<circle class="own" cx="759.8" cy="300.2" r="4" fill="#d95926" fill-opacity="0" stroke="#d95926" stroke-opacity="0.6" stroke-width="1.5"><title>v20261124.01 restore, its own run: p50 74, p95 79.5 ms</title></circle>
+<polyline points="242.0,285.8 274.4,284.8 306.7,288.0 339.1,286.2 371.5,288.3 403.8,287.9 436.2,288.5 468.5,289.6 500.9,289.8 533.3,289.9 565.6,290.5 598.0,290.2 630.4,289.9 662.7,292.7 695.1,294.3 727.5,294.1 759.8,293.7" fill="none" stroke="#d95926" stroke-width="2"/>
+<line class="whisker" x1="274.4" y1="286.1" x2="274.4" y2="283.8" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="306.7" y1="290.9" x2="306.7" y2="286.4" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="339.1" y1="290.8" x2="339.1" y2="284.2" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="371.5" y1="289.9" x2="371.5" y2="286.1" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="403.8" y1="288.9" x2="403.8" y2="286.6" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="436.2" y1="289.1" x2="436.2" y2="286.5" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="468.5" y1="290.7" x2="468.5" y2="288.1" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="500.9" y1="291.4" x2="500.9" y2="288.2" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="533.3" y1="290.8" x2="533.3" y2="288.8" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="565.6" y1="291.0" x2="565.6" y2="289.9" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="598.0" y1="290.8" x2="598.0" y2="289.7" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="630.4" y1="290.3" x2="630.4" y2="289.5" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="662.7" y1="293.0" x2="662.7" y2="292.1" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="695.1" y1="294.7" x2="695.1" y2="293.5" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="727.5" y1="294.4" x2="727.5" y2="293.6" stroke="#d95926" stroke-width="1.5"/>
+<line class="whisker" x1="759.8" y1="294.1" x2="759.8" y2="293.1" stroke="#d95926" stroke-width="1.5"/>
+<circle class="start" cx="242.0" cy="285.8" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261121.01 restore: the line starts at its run&#39;s p50 110, p95 116 ms</title></circle>
+<circle class="noise" cx="274.4" cy="284.8" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.01 restore: Δ +2.5 [-0.8, +5.0] within noise against v20261121.01; its run&#39;s p50 110, p95 115 ms</title></circle>
+<circle class="change" cx="306.7" cy="288.0" r="5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.02 restore: Δ -7.9 [-15.1, -4.0] against v20261122.01; its run&#39;s p50 96.2, p95 101 ms</title></circle>
+<circle class="noise" cx="339.1" cy="286.2" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.03 restore: Δ +4.5 [-7.1, +9.4] within noise against v20261122.02; its run&#39;s p50 90.2, p95 98.6 ms</title></circle>
+<circle class="noise" cx="371.5" cy="288.3" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.04 restore: Δ -5.4 [-9.2, +0.1] within noise against v20261122.03; its run&#39;s p50 85.8, p95 89.4 ms</title></circle>
+<circle class="noise" cx="403.8" cy="287.9" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.05 restore: Δ +1.0 [-1.5, +4.2] within noise against v20261122.04; its run&#39;s p50 85.2, p95 92.6 ms</title></circle>
+<circle class="noise" cx="436.2" cy="288.5" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.06 restore: Δ -1.4 [-2.8, +3.6] within noise against v20261122.05; its run&#39;s p50 84.1, p95 90 ms</title></circle>
+<circle class="noise" cx="468.5" cy="289.6" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261122.07 restore: Δ -2.7 [-5.5, +1.1] within noise against v20261122.06; its run&#39;s p50 83.1, p95 91.9 ms</title></circle>
+<circle class="noise" cx="500.9" cy="289.8" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.01 restore: Δ -0.6 [-4.4, +3.4] within noise against v20261122.07; its run&#39;s p50 85.7, p95 89.8 ms</title></circle>
+<circle class="noise" cx="533.3" cy="289.9" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.02 restore: Δ -0.1 [-2.4, +2.5] within noise against v20261123.01; its run&#39;s p50 83, p95 86.3 ms</title></circle>
+<circle class="change" cx="565.6" cy="290.5" r="5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.03 restore: Δ -1.5 [-2.9, -0.1] against v20261123.02; its run&#39;s p50 81, p95 83.7 ms</title></circle>
+<circle class="noise" cx="598.0" cy="290.2" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.04 restore: Δ +0.8 [-0.9, +1.9] within noise against v20261123.03; its run&#39;s p50 81, p95 83.5 ms</title></circle>
+<circle class="noise" cx="630.4" cy="289.9" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.05 restore: Δ +0.7 [-0.4, +1.5] within noise against v20261123.04; its run&#39;s p50 79.4, p95 83.1 ms</title></circle>
+<circle class="change" cx="662.7" cy="292.7" r="5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.06 restore: Δ -7.1 [-7.8, -5.6] against v20261123.05; its run&#39;s p50 72.2, p95 79.6 ms</title></circle>
+<circle class="change" cx="695.1" cy="294.3" r="5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.07 restore: Δ -3.8 [-4.8, -1.9] against v20261123.06; its run&#39;s p50 69.7, p95 71.6 ms</title></circle>
+<circle class="noise" cx="727.5" cy="294.1" r="2.5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261123.08 restore: Δ +0.3 [-0.3, +1.6] within noise against v20261123.07; its run&#39;s p50 70.8, p95 73.2 ms</title></circle>
+<circle class="change" cx="759.8" cy="293.7" r="5" fill="#d95926" stroke="#d95926" stroke-opacity="0" stroke-width="12"><title>v20261124.01 restore: Δ +1.1 [+0.1, +2.6] against v20261123.08; its run&#39;s p50 74, p95 79.5 ms</title></circle>
+<text x="759.8" y="283.1" text-anchor="middle">+1.1</text>
 </g>
-<rect x="64.0" y="24" width="20" height="12" fill="#2a78d6" fill-opacity="0.25"/><line x1="64.0" y1="30" x2="84.0" y2="30" stroke="#2a78d6" stroke-width="2"/><text x="90.0" y="34">cold boot to first login</text>
-<rect x="282.0" y="24" width="20" height="12" fill="#d95926" fill-opacity="0.25"/><line x1="282.0" y1="30" x2="302.0" y2="30" stroke="#d95926" stroke-width="2"/><text x="308.0" y="34">restore to first login</text>
+<line x1="64.0" y1="30" x2="84.0" y2="30" stroke="#2a78d6" stroke-width="2"/><text x="90.0" y="34">cold boot to first login</text>
+<line x1="282.0" y1="30" x2="302.0" y2="30" stroke="#d95926" stroke-width="2"/><text x="308.0" y="34">restore to first login</text>
 <line x1="486.0" y1="30" x2="506.0" y2="30" stroke="#808080" stroke-width="1.5" stroke-dasharray="6 4"/><text x="512.0" y="34">goal 100 ms</text>
-<text x="64.0" y="56">First SSH login, ms: the line is the p50, the band up to the p95.</text>
+<text x="64.0" y="56">First SSH login, ms. The line adds up each release's Δ p50 against the one before it, booted in the same run, from the first of its stretch.</text>
+<circle class="change" cx="70.0" cy="74.0" r="5" fill="#808080" stroke="#808080" stroke-opacity="0" stroke-width="12"/><text x="80.0" y="78">a change: its 95% interval excludes 0</text>
+<circle class="noise" cx="346.5" cy="74.0" r="2.5" fill="#808080" stroke="#808080" stroke-opacity="0" stroke-width="12"/><text x="356.5" y="78">within noise</text>
+<line x1="460.5" y1="68" x2="460.5" y2="80" stroke="#808080" stroke-width="1.5"/><text x="470.5" y="78">the Δ's 95% interval</text>
+<circle class="own" cx="626.5" cy="74.0" r="4" fill="#808080" fill-opacity="0" stroke="#808080" stroke-opacity="0.6" stroke-width="1.5"/><text x="636.5" y="78">a run's own p50</text>
 </svg>

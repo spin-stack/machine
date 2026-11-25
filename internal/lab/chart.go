@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html"
 	"math"
-	"slices"
 	"strings"
 )
 
@@ -15,7 +14,7 @@ import (
 const (
 	chartWidth, chartHeight = 800, 400
 	plotLeft, plotRight     = 64.0, 776.0
-	plotTop, plotBottom     = 72.0, 330.0
+	plotTop, plotBottom     = 88.0, 330.0
 )
 
 // seriesColours are the goal numbers' colours, in the registry's order: never cycled, so a goal
@@ -28,26 +27,93 @@ var seriesColours = []string{"#2a78d6", "#d95926"}
 // ink is the text's and the axes' grey: 3.9:1 on GitHub's light page, 4.8:1 on its dark one.
 const ink = "#808080"
 
-// labelRoom is the room a release needs for each of its points to carry its p50: closer than this
-// and the labels run into each other, so only a line's last point is labelled; the tooltips have
-// every value. A release's name under its point is rotated below twice that.
+// labelRoom is the room a release needs for each of its points to carry its label: closer than
+// this and the labels run into each other, so only a line's last point is labelled; the tooltips
+// have every value. A release's name under its point is rotated below twice that.
 const labelRoom = 40.0
 
-// Chart is the goal's numbers release by release as an SVG: each goal number's p50 as a line over
-// a band up to its p95, against the goal, with a tooltip on every point. A release without a
-// number breaks that number's line, where a zero would draw a release that was never measured,
-// and so does a release measured in another shape than the one before it: v20261120.03, the first
-// in spin's shape, read 473 ms cold against v20261120.02's 328 in the shape before, and 38 ms
-// faster than v20261120.02 booted beside it in its own (lab 44805222647). A dashed rule between
-// the two says where the shape changed.
+// chartCaption says what the line is, above the plot.
+const chartCaption = "First SSH login, ms. The line adds up each release's Δ p50 against the one before it, " +
+	"booted in the same run, from the first of its stretch."
+
+// step is one release's point on a goal number's line. The line's first step stands at the
+// release's own p50; every later one at the step before it plus delta, the release's Δ p50 against
+// that step's release, booted interleaved with it in the same run.
+type step struct {
+	at    int     // the record's index
+	value float64 // where the line is at this release
+	delta *Delta  // nil on a line's first step: there it moved by nothing measured
+	own   Number  // the release's p50 and p95 from its own run
+}
+
+// measured is whether s moved the line by a Δ whose interval excludes 0: a change, under the
+// lab's one acceptance rule (Delta).
+func (s step) measured() bool { return s.delta != nil && !s.delta.WithinNoise() }
+
+// high is the highest of s's marks: its point, its run's own p50, and its whisker's top.
+func (s step) high() float64 {
+	hi := max(s.value, s.own.P50)
+	if s.delta != nil {
+		hi = max(hi, s.value-s.delta.P50+s.delta.Hi)
+	}
+	return hi
+}
+
+// chains are each line of the number key: the records' runs (runs), each cut again wherever a
+// release has no Δ for key against the release before it on the chart, booted in the same run.
+// A line moves only by what one run measured; where nothing did, a new one starts at the
+// release's own p50.
+func chains(records []Record, key string) [][]step {
+	var out [][]step
+	for _, run := range runs(records, key) {
+		var line []step
+		for k, i := range run {
+			r := records[i]
+			s := step{at: i, value: r.Numbers[key].P50, own: r.Numbers[key]}
+			if k > 0 && r.Against != nil && r.Against.Release == records[run[k-1]].Release {
+				if d, ok := r.Against.Delta[key]; ok {
+					s.delta, s.value = &d, line[len(line)-1].value+d.P50
+				}
+			}
+			if s.delta == nil && line != nil {
+				out = append(out, line)
+				line = nil
+			}
+			line = append(line, s)
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// Chart is the goal's numbers release by release as an SVG, drawn from what was measured: a Δ is
+// read only between two releases booted in the same run (about), so each goal number's line moves
+// only by those. The line is each release's Δ p50 against the release before it in its run, added
+// up from the first release of its stretch, which stands at its own p50; a whisker is each Δ's 95%
+// interval, and a point whose interval excludes 0, a change, is drawn larger than one within
+// noise. Each release's p50 from its own run is a hollow point beside the line, joined to none, so
+// that how far the bench moved between runs shows as that and not as a release's change. A line
+// joining those p50s read v20261124.01's 376 ms cold against v20261123.08's 344 as a regression
+// where its same-run Δ was +0.0 [-5.6, +8.2] (docs/log/2026-11-25-a-false-regression-and-a-chart-of-paired-deltas.md).
+// No p95 is drawn, as it has no Δ and a band across runs carries the same drift; the tooltips have
+// every p95.
+//
+// A line breaks where its chain does (chains): at a release without the number, where a zero would
+// draw a release that was never measured; at one measured with no release before it, or against
+// another than the one before it on the chart; and at one measured in another shape than the one
+// before it: v20261120.03, the first in spin's shape, read 473 ms cold against v20261120.02's 328
+// in the shape before, and 38 ms faster than v20261120.02 booted beside it in its own (lab
+// 44805222647). A dashed rule between the two says where the shape changed.
 func Chart(records []Record) string {
 	var goals []number
+	var lines [][][]step
 	for _, n := range numbers {
 		if n.kind == goalNumber {
 			goals = append(goals, n)
+			lines = append(lines, chains(records, n.key))
 		}
 	}
-	top, step := axis(records, goals)
+	top, tick := axis(lines)
 	slot := (plotRight - plotLeft) / float64(max(len(records), 1)) // mutate-exempt: with no records nothing is placed in a slot; any divisor but 0 draws the same chart
 	x := func(i int) float64 { return plotLeft + slot*(float64(i)+0.5) }
 	y := func(v float64) float64 { return plotBottom - (plotBottom-plotTop)*v/top }
@@ -58,7 +124,7 @@ func Chart(records []Record) string {
 		chartWidth, chartHeight, chartWidth, chartHeight, ink)
 	fmt.Fprintf(&b, "<title>%s</title>\n", chartTitle)
 
-	for v := 0.0; v <= top; v += step {
+	for v := 0.0; v <= top; v += tick {
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-opacity="0.3"/>`+"\n",
 			plotLeft, y(v), plotRight, y(v), ink)
 		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="end">%.0f</text>`+"\n", plotLeft-8, y(v)+4, v)
@@ -88,52 +154,92 @@ func Chart(records []Record) string {
 		plotLeft, y(Goal), plotRight, y(Goal), ink)
 
 	for s, n := range goals {
-		for _, run := range runs(records, n.key) {
-			series(&b, records, n, run, seriesColours[s], x, y, slot >= labelRoom)
+		for _, line := range lines[s] {
+			series(&b, records, n, line, seriesColours[s], x, y, slot >= labelRoom)
 		}
 	}
 
-	// The legend, along the top: a swatch of each line and its band, then the goal's with its
-	// value. The value is not written on the goal's line: at its right end it sat on the newest
-	// release's points and their labels, the place a reader looks first.
+	// The legend, along the top: a swatch of each line, then the goal's with its value. The value
+	// is not written on the goal's line: at its right end it sat on the newest release's points and
+	// their labels, the place a reader looks first.
 	lx := plotLeft
 	for s, n := range goals {
-		fmt.Fprintf(&b, `<rect x="%.1f" y="24" width="20" height="12" fill="%s" fill-opacity="0.25"/>`, lx, seriesColours[s])
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="30" x2="%.1f" y2="30" stroke="%s" stroke-width="2"/>`, lx, lx+20, seriesColours[s])
 		fmt.Fprintf(&b, `<text x="%.1f" y="34">%s</text>`+"\n", lx+26, html.EscapeString(n.title))
 		lx += 26 + 7*float64(len(n.title)) + 24
 	}
 	fmt.Fprintf(&b, `<line x1="%.1f" y1="30" x2="%.1f" y2="30" stroke="%s" stroke-width="1.5" stroke-dasharray="6 4"/>`, lx, lx+20, ink)
 	fmt.Fprintf(&b, `<text x="%.1f" y="34">goal %.0f ms</text>`+"\n", lx+26, Goal)
-	fmt.Fprintf(&b, `<text x="%.1f" y="56">First SSH login, ms: the line is the p50, the band up to the p95.</text>`+"\n", plotLeft)
+	fmt.Fprintf(&b, `<text x="%.1f" y="56">%s</text>`+"\n", plotLeft, chartCaption)
+	// The key to the marks, in the text's grey: they are the same marks in either line's colour.
+	kx := plotLeft
+	for _, k := range []struct{ mark, text string }{
+		{"change", "a change: its 95% interval excludes 0"},
+		{"noise", "within noise"},
+		{"whisker", "the Δ's 95% interval"},
+		{"own", "a run's own p50"},
+	} {
+		cx := kx + 6
+		if k.mark == "whisker" {
+			fmt.Fprintf(&b, `<line x1="%.1f" y1="68" x2="%.1f" y2="80" stroke="%s" stroke-width="1.5"/>`, cx, cx, ink)
+		} else {
+			b.WriteString(point(k.mark, cx, 74, ink, ""))
+		}
+		fmt.Fprintf(&b, `<text x="%.1f" y="78">%s</text>`+"\n", kx+16, k.text)
+		kx += 16 + 6.5*float64(len([]rune(k.text))) + 20
+	}
 	b.WriteString("</svg>\n")
 	return b.String()
 }
 
-// axis is the y axis' top and the step between its lines: a tenth above the highest p95 drawn, or
-// the goal when that is higher, rounded up to the first step of 25, 50, 100, 200, 500 or 1000 ms
-// that takes eight lines or fewer.
-func axis(records []Record, goals []number) (top, step float64) {
+// point is one mark of a line, its tooltip title when there is one. The transparent stroke is a
+// point's hit area, wider than its mark, for the tooltip. A change is a large dot and a step within
+// noise, or a line's start, a small one, so that the eye finds the changes first; a run's own p50
+// is a faint ring that the line's dots never look like, its zero-opacity fill there to be hovered.
+func point(class string, cx, cy float64, colour, title string) string {
+	var mark string
+	switch class {
+	case "change":
+		mark = fmt.Sprintf(`r="5" fill="%s"`, colour)
+	case "own":
+		mark = fmt.Sprintf(`r="4" fill="%s" fill-opacity="0" stroke="%s" stroke-opacity="0.6" stroke-width="1.5"`, colour, colour)
+	default:
+		mark = fmt.Sprintf(`r="2.5" fill="%s"`, colour)
+	}
+	hit := ""
+	if class != "own" {
+		hit = fmt.Sprintf(` stroke="%s" stroke-opacity="0" stroke-width="12"`, colour)
+	}
+	if title == "" {
+		return fmt.Sprintf(`<circle class="%s" cx="%.1f" cy="%.1f" %s%s/>`, class, cx, cy, mark, hit)
+	}
+	return fmt.Sprintf(`<circle class="%s" cx="%.1f" cy="%.1f" %s%s><title>%s</title></circle>`+"\n",
+		class, cx, cy, mark, hit, html.EscapeString(title))
+}
+
+// axis is the y axis' top and the step between its lines: a tenth above the highest value drawn
+// (a line's point, the top of its whisker, a run's own p50), or the goal when that is higher,
+// rounded up to the first step of 25, 50, 100, 200, 500 or 1000 ms that takes eight lines or fewer.
+func axis(lines [][][]step) (top, tick float64) {
 	hi := Goal
-	for _, r := range records {
-		for _, n := range goals {
-			if v, ok := r.Numbers[n.key]; ok {
-				hi = max(hi, v.P95)
+	for _, number := range lines {
+		for _, line := range number {
+			for _, s := range line {
+				hi = max(hi, s.high())
 			}
 		}
 	}
 	hi *= 1.1
-	for _, step = range []float64{25, 50, 100, 200, 500, 1000} {
-		if math.Ceil(hi/step) <= 8 {
+	for _, tick = range []float64{25, 50, 100, 200, 500, 1000} {
+		if math.Ceil(hi/tick) <= 8 {
 			break
 		}
 	}
-	return math.Ceil(hi/step) * step, step
+	return math.Ceil(hi/tick) * tick, tick
 }
 
 // runs are the stretches of consecutive records in one shape that have the number key, each as the
-// records' indexes: one line each, so that no line joins two releases across one without the
-// number, nor two machines.
+// records' indexes: no line joins two releases across one without the number, nor two machines.
 func runs(records []Record, key string) [][]int {
 	var out [][]int
 	var run []int
@@ -157,40 +263,47 @@ func runs(records []Record, key string) [][]int {
 	return out
 }
 
-// series is one run of n as a group: its band from p50 up to p95, its p50 line, and a point on
-// each release with a tooltip and, when labelled, its p50 above it; a run's last point is always
-// labelled, so the newest value is on the chart however many releases there are.
-func series(b *strings.Builder, records []Record, n number, run []int, colour string, x func(int) float64, y func(float64) float64, labelled bool) {
-	xy := func(px, py float64) string { return fmt.Sprintf("%.1f,%.1f", px, py) }
-	var upper, lower []string
-	for _, i := range run {
-		v := records[i].Numbers[n.key]
-		upper = append(upper, xy(x(i), y(v.P95)))
-		lower = append(lower, xy(x(i), y(v.P50)))
-	}
-	line := slices.Clone(lower)
-	if len(run) == 1 {
-		// A band over one x has no width: one release's is as wide as its point's hit area.
-		const half = 8.0 // mutate-exempt: half the width of one release's band; any width shows it
-		v, cx := records[run[0]].Numbers[n.key], x(run[0])
-		upper = []string{xy(cx-half, y(v.P95)), xy(cx+half, y(v.P95))}
-		lower = []string{xy(cx-half, y(v.P50)), xy(cx+half, y(v.P50))}
-	}
-	slices.Reverse(lower)
+// series is one line of n as a group: each release's own p50 as a ring, the line, each step's
+// whisker, and a point on each release with a tooltip and, when labelled, its Δ above it, or its
+// p50 where the line starts. A line's last point is always labelled, so the newest release's
+// change is on the chart however many releases there are.
+func series(b *strings.Builder, records []Record, n number, line []step, colour string, x func(int) float64, y func(float64) float64, labelled bool) {
 	fmt.Fprintf(b, `<g class="run" data-number="%s">`+"\n", n.key)
-	fmt.Fprintf(b, `<polygon class="band" points="%s" fill="%s" fill-opacity="0.25"/>`+"\n", strings.Join(append(upper, lower...), " "), colour)
-	if len(run) > 1 {
-		fmt.Fprintf(b, `<polyline points="%s" fill="none" stroke="%s" stroke-width="2"/>`+"\n", strings.Join(line, " "), colour)
+	for _, s := range line {
+		b.WriteString(point("own", x(s.at), y(s.own.P50), colour,
+			fmt.Sprintf("%s %s, its own run: p50 %s, p95 %s ms", records[s.at].Release, n.key, num(s.own.P50), num(s.own.P95))))
 	}
-	for k, i := range run {
-		r, cx := records[i], x(i)
-		v := r.Numbers[n.key]
-		// The transparent stroke is the point's hit area, wider than its mark, for the tooltip.
-		fmt.Fprintf(b, `<circle cx="%.1f" cy="%.1f" r="4" fill="%s" stroke="%s" stroke-opacity="0" stroke-width="12">`+
-			`<title>%s %s: p50 %s, p95 %s ms</title></circle>`+"\n",
-			cx, y(v.P50), colour, colour, html.EscapeString(r.Release), n.key, num(v.P50), num(v.P95))
-		if labelled || k == len(run)-1 {
-			fmt.Fprintf(b, `<text x="%.1f" y="%.1f" text-anchor="middle">%s</text>`+"\n", cx, y(v.P50)-10, num(v.P50))
+	if len(line) > 1 {
+		var pts []string
+		for _, s := range line {
+			pts = append(pts, fmt.Sprintf("%.1f,%.1f", x(s.at), y(s.value)))
+		}
+		fmt.Fprintf(b, `<polyline points="%s" fill="none" stroke="%s" stroke-width="2"/>`+"\n", strings.Join(pts, " "), colour)
+	}
+	for _, s := range line {
+		if s.delta == nil {
+			continue
+		}
+		from := s.value - s.delta.P50
+		fmt.Fprintf(b, `<line class="whisker" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.5"/>`+"\n",
+			x(s.at), y(from+s.delta.Lo), x(s.at), y(from+s.delta.Hi), colour)
+	}
+	for k, s := range line {
+		r := records[s.at]
+		class, title, label := "start", fmt.Sprintf("%s %s: the line starts at its run's p50 %s, p95 %s ms",
+			r.Release, n.key, num(s.own.P50), num(s.own.P95)), num(s.own.P50)
+		if s.delta != nil {
+			class, title, label = "noise", fmt.Sprintf("%s %s: Δ %s against %s; its run's p50 %s, p95 %s ms",
+				r.Release, n.key, s.delta, r.Against.Release, num(s.own.P50), num(s.own.P95)), fmt.Sprintf("%+.1f", s.delta.P50)
+			if s.measured() {
+				class = "change"
+			}
+		}
+		b.WriteString(point(class, x(s.at), y(s.value), colour, title))
+		if labelled || k == len(line)-1 {
+			// Above every mark at the release, its ring and its whisker too, which a label on the
+			// line's point ran into.
+			fmt.Fprintf(b, `<text x="%.1f" y="%.1f" text-anchor="middle">%s</text>`+"\n", x(s.at), y(s.high())-10, label)
 		}
 	}
 	b.WriteString("</g>\n")

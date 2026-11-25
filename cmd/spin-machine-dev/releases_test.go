@@ -152,7 +152,7 @@ func TestReleasesDocChecksThePageAgainstTheRecords(t *testing.T) {
 	if page := read(t, filepath.Join(dir, "docs", "releases.md")); !strings.Contains(page, "](releases.svg)") {
 		t.Errorf("the page does not show its chart:\n%s", page)
 	}
-	if chart := read(t, filepath.Join(dir, "docs", "releases.svg")); !strings.Contains(chart, "<title>v1 cold: p50 300, p95 302 ms</title>") {
+	if chart := read(t, filepath.Join(dir, "docs", "releases.svg")); !strings.Contains(chart, "<title>v1 cold, its own run: p50 300, p95 302 ms</title>") {
 		t.Errorf("the chart:\n%s", chart)
 	}
 	for _, name := range []string{"releases.md", "releases.svg"} {
@@ -259,7 +259,7 @@ func TestReleasesSiteWritesThePageAndItsRecords(t *testing.T) {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
 	index := read(t, filepath.Join(out, "index.html"))
-	for _, want := range []string{`<a href="releases/v1.json">v1</a>`, `<a href="releases/v2.json">v2</a>`, "<title>v2 cold: p50 330, p95 332 ms</title>"} {
+	for _, want := range []string{`<a href="releases/v1.json">v1</a>`, `<a href="releases/v2.json">v2</a>`, "<title>v2 cold, its own run: p50 330, p95 332 ms</title>"} {
 		if !strings.Contains(index, want) {
 			t.Errorf("no %q in:\n%s", want, index)
 		}
