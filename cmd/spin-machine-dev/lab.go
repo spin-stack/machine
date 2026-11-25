@@ -582,8 +582,8 @@ func labCheck() *cobra.Command {
 its image: the functional
 checks (firmware, record, rollback, checkpoint-pause, cpu-plug, finish-migrate, compat, hotadd, logind, lockdown, sshd-delay, shell, workspace) and the
 probes still Go tests (firmware-stages, waits), on a tree made like any other. A second tree is
-SPIN_MACHINE_OUTPUT_B, which firmware-stages boots interleaved with the first. Exits with the
-target's status.`,
+SPIN_MACHINE_OUTPUT_B, which firmware-stages boots interleaved with the first. SCRATCH is the lab's
+scratch, where a target writes a disk (pressure's io.max). Exits with the target's status.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			root, err := repo()
@@ -600,7 +600,13 @@ target's status.`,
 			if err != nil {
 				return couldNot(err)
 			}
-			cmd := exec.CommandContext(c.Context(), "go", "tool", "task", "boot:"+args[0], "OUTPUT_DIR="+out)
+			// The disk a check writes goes where a probe's overlays go: on the bench that is the
+			// instance store, and the checkout is on no block device there (#685).
+			scratch, err := lab.Scratch(filepath.Join(outOf(root), "lab"))
+			if err != nil {
+				return couldNot(err)
+			}
+			cmd := exec.CommandContext(c.Context(), "go", "tool", "task", "boot:"+args[0], "OUTPUT_DIR="+out, "SCRATCH="+scratch)
 			cmd.Dir, cmd.Stdout, cmd.Stderr = root, c.OutOrStdout(), c.ErrOrStderr()
 			cmd.Env = append(os.Environ(), "SPIN_MACHINE_OUTPUT="+out)
 			if len(ts) > 1 {
