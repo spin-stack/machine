@@ -147,6 +147,12 @@ of the pinned tarball with the series applied, keeping each file's name, less th
 `From <commit>` line. Subjects say `[PATCH]`, not a place in a series that deleting a patch
 makes stale. `gates/patches_test.go` holds this directory and `qemu/patches` to it (#487).
 
+Its code is written to the kernel's coding style,
+[Documentation/process/coding-style.rst](https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/Documentation/process/coding-style.rst), and its
+changelog to `submitting-patches.rst`. `checkpatch.pl --strict`, below, checks the mechanical
+part of the style; naming, function size, what a comment says and when a macro is worth it are
+the reviewer's, against that document.
+
 Before the patches are applied, `Dockerfile` runs the pinned tree's `checkpatch.pl --strict` over each, and after the build it runs sparse (`make C=2`, versions.yaml's `sparse`)
 over every C file they touch, with and without them; a style problem or a sparse warning the
 patches add fails the build (#653).

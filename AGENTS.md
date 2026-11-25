@@ -32,6 +32,8 @@ part's patches today: the kernel's in `kernel/patches`, QEMU's in `qemu/patches`
 its README in `qemu/qboot`, systemd's in `image/systemd` and OpenSSH's in `image/openssh`, whose
 Dockerfiles rebuild Ubuntu's source packages. `image/systemd/Dockerfile` applies systemd's. An
 experiment's systemd patch goes in `image/systemd/experiments`.
+A kernel patch is written to the kernel's coding style, [coding-style.rst](https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/Documentation/process/coding-style.rst),
+and read against it before it is carried: checkpatch checks only part of it.
 
 **A carried patch is not offered upstream until it has run in production.** Do not ask whether to
 send one, and do not draft one for sending. A patch earns an upstream offer by running in spin's
