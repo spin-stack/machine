@@ -105,9 +105,10 @@ the kernel itself (function_graph, scheduler events) needs a kernel built with
 So each release has a traceable kernel beside it, for the lab and nothing else. `release.yml`'s
 `traceable` job builds this config with `KERNEL_LOCKDOWN=none`, which `Dockerfile` swaps for the
 confidentiality option before olddefconfig and checks in its place. `spin-machine-dev release
-traceable-kernel` then holds the result's config to the release kernel's: lockdown swapped, and
-every other option the same. `parts.yml`'s kernel job builds it the same way on every change that
-reaches the kernel, so a change that breaks it fails there, before a release. The job signs the bzImage as the release's files are signed and
+traceable-kernel` then holds the result's config to the release kernel's, which is this file to
+the line: lockdown swapped, and every other option the same. `parts.yml`'s traceable job builds it
+the same way on every change that reaches the kernel, so a change that breaks it fails there,
+before a release. The job signs the bzImage as the release's files are signed and
 publishes it on the release as `spin-machine-TAG-linux-x86_64.lab-only-traceable.bzImage`. It is
 in no tarball and in nothing spin boots, and `lab tree --kernel traceable:TAG` checks its
 signature before a tree boots it. Every kernel spin boots is built with

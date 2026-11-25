@@ -250,18 +250,15 @@ func TestAShellIsSystemdIn2GiBAndTwoCPUsByDefault(t *testing.T) {
 	}
 }
 
-func TestABuildIsEightJobsByDefaultAndSaysWhenItCannotTellTheWorkflow(t *testing.T) {
+func TestABuildSaysWhenItCannotTellTheWorkflow(t *testing.T) {
 	dir := checkout(t)
 	src := qemuSource(t)
-	calls := fakes(t, map[string]string{"docker": `dest=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; esac; done
+	fakes(t, map[string]string{"docker": `dest=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; esac; done
 [ -n "$dest" ] && cp -r ` + src + `/bin ` + src + `/qemu "$dest"/; exit 0`})
 	put(t, filepath.Join(dir, "qemu/Dockerfile"), "FROM x", 0o644)
 	t.Setenv("GITHUB_OUTPUT", t.TempDir())
 	if _, _, status := verb(t, "build", "qemu"); status != 2 {
 		t.Errorf("a step's outputs that cannot be written: exit %d", status)
-	}
-	if !strings.Contains(read(t, calls), "--build-arg JOBS=8 ") {
-		t.Errorf("the build is not eight jobs: %q", read(t, calls))
 	}
 }
 

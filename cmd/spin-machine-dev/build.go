@@ -20,7 +20,6 @@ import (
 
 // buildFlags are the choices a build takes.
 type buildFlags struct {
-	jobs       int
 	registry   bool
 	export     bool
 	experiment string
@@ -28,7 +27,6 @@ type buildFlags struct {
 }
 
 func (f *buildFlags) register(c *cobra.Command) {
-	c.Flags().IntVar(&f.jobs, "jobs", 8, "compile jobs each build runs (CI: its runner's cores)")
 	c.Flags().BoolVar(&f.registry, "cache-registry", false, "read and write BuildKit's cache in "+build.CacheRegistry+" (CI) instead of under .cache/")
 	c.Flags().BoolVar(&f.export, "cache-export", true, "write the cache back; only main's lanes need to")
 	c.Flags().StringVar(&f.experiment, "systemd-experiment", "", "build systemd with image/systemd/experiments/<name>.patch")
@@ -36,7 +34,7 @@ func (f *buildFlags) register(c *cobra.Command) {
 }
 
 func (f buildFlags) options(c *cobra.Command, w workspace) build.Options {
-	return build.Options{Root: w.root, Out: w.out, Pins: w.pins, Jobs: f.jobs, Registry: f.registry, Export: f.export,
+	return build.Options{Root: w.root, Out: w.out, Pins: w.pins, Registry: f.registry, Export: f.export,
 		SystemdExperiment: f.experiment, Rebuild: f.rebuild, Stdout: c.ErrOrStderr(), Stderr: c.ErrOrStderr()}
 }
 

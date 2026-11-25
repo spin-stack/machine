@@ -1,6 +1,8 @@
 self-hosted-runner:
   labels:
     # spin-stack/ci's fleets: kvm for compat.yml, which builds and boots; bench, one instance type,
-    # for report.yml and lab.yml, whose boot times compare only with ones taken on the same host.
+    # for report.yml and lab.yml, whose boot times compare only with ones taken on the same host;
+    # build, 16 vCPU and no nested virtualization, for parts.yml, which compiles and boots nothing.
     - runs-on/fleet=kvm/env=production
     - runs-on/fleet=bench/env=production
+    - runs-on/fleet=build/env=production

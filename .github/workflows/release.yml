@@ -115,7 +115,7 @@ jobs:
       - name: Build the release
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: spin-machine-dev release --version "$VERSION" --jobs 4 --cache-registry --cache-export=false
+        run: spin-machine-dev release --version "$VERSION" --cache-registry --cache-export=false
 
       # What reached the machine since the release before, and its manifest. Whether that
       # release's checkpoints still resume is the compat job's, above, which names every
@@ -208,11 +208,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The release's kernel from main's cache and the traceable one beside it, whose config is held
-      # to the release kernel's: lockdown swapped and every other option the same. Both caches are
-      # warm: parts.yml builds the two on every change that reaches the kernel and main writes each.
+      # The traceable kernel, whose config is held to the release kernel's (the series' committed
+      # file): lockdown swapped and every other option the same. Its cache is warm: parts.yml's
+      # traceable job builds it on every change that reaches the kernel and main writes it.
       - name: Build the traceable kernel
-        run: spin-machine-dev release traceable-kernel --version "$VERSION" --jobs 4 --cache-registry --cache-export=false
+        run: spin-machine-dev release traceable-kernel --version "$VERSION" --cache-registry --cache-export=false
 
       - name: Install cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3

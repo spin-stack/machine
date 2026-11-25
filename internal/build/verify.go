@@ -201,8 +201,10 @@ func hasLine(text, line string) bool {
 // TraceableConfig holds the traceable kernel's config, at traceable, to the release kernel's, at
 // release: lockdown forced to none where the release forces confidentiality, and every other option
 // as the release has it. A ledger is read on that kernel as if it were the release's, and an
-// option that moved with the swap would make it another kernel. Each config is the .config the
-// kernel was compiled with, which kernel/Dockerfile keeps after olddefconfig.
+// option that moved with the swap would make it another kernel. traceable is the .config the
+// kernel was compiled with, which kernel/Dockerfile keeps after olddefconfig; release is the
+// series' committed file, which that Dockerfile refuses to build a release kernel from unless
+// olddefconfig leaves it as it is.
 func TraceableConfig(release, traceable string) error {
 	r, err := kernelConfig(release)
 	if err != nil {

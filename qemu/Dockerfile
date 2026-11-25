@@ -75,7 +75,6 @@ ARG QEMU_VERSION
 # It also makes usr/share/spin-stack/SOURCES in a release true rather than aspirational:
 # what that file names is what was built.
 ARG QEMU_SHA256
-ARG JOBS=8
 # Bump when the configure flags, the base image, or qemu/devices.mak change: the build
 # directories live in cache mounts and configure only runs when one holds no config.status,
 # so without this a change is silently applied to the previous configuration.
@@ -300,7 +299,7 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
             ${QEMU_FLAGS} && \
         echo "$cc_now" > spin-cc-version; \
     fi && \
-    make -j${JOBS} && \
+    make -j"$(nproc)" && \
     make install && \
     cp compile_commands.json /build/compile_commands-kvm.json
 
@@ -324,7 +323,7 @@ RUN --mount=type=cache,sharing=locked,id=qemu-src-${QEMU_VERSION},target=/var/ca
             ${QEMU_FLAGS} && \
         echo "$cc_now" > spin-cc-version; \
     fi && \
-    make -j${JOBS} && \
+    make -j"$(nproc)" && \
     make install && \
     cp compile_commands.json /build/compile_commands-tcg.json
 

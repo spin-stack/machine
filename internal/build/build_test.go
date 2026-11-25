@@ -345,7 +345,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	root, out := t.TempDir(), t.TempDir()
 	log := fakeDocker(t, "")
 	goLog := fakeGo(t, staticELF(t))
-	o := Options{Root: root, Out: out, Pins: v, Jobs: 3, Registry: true, Export: true, SystemdExperiment: "exp"}
+	o := Options{Root: root, Out: out, Pins: v, Registry: true, Export: true, SystemdExperiment: "exp"}
 	for _, f := range []string{"bin/qemu-img", "qemu/x", "sbom/qemu.apk", "kernel/old.patch", "bin/debugfs", "e2fsprogs/x", "systemd/old.deb", "openssh/old.deb", "bin/keep"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(out, f)), 0o755); err != nil {
 			t.Fatal(err)
@@ -390,11 +390,11 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 		}
 	}
 	for i, want := range [][]string{
-		{"--build-arg JOBS=3", "--output type=local,dest=" + out + " ."},
-		{"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_ARCH=x86_64", "--build-arg KERNEL_LOCKDOWN=confidentiality", "--build-arg KERNEL_NPROC=3", "--output type=local,dest=" + out + " ."},
 		{"--output type=local,dest=" + out + " ."},
-		{"--build-arg SYSTEMD_EXPERIMENT=exp", "--build-arg JOBS=3", "--output type=local,dest=" + filepath.Join(out, "systemd") + " ."},
-		{"--build-arg JOBS=3", "--output type=local,dest=" + filepath.Join(out, "openssh") + " ."},
+		{"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_ARCH=x86_64", "--build-arg KERNEL_LOCKDOWN=confidentiality", "--output type=local,dest=" + out + " ."},
+		{"--output type=local,dest=" + out + " ."},
+		{"--build-arg SYSTEMD_EXPERIMENT=exp", "--output type=local,dest=" + filepath.Join(out, "systemd") + " ."},
+		{"--output type=local,dest=" + filepath.Join(out, "openssh") + " ."},
 		{"--tag " + imageBuilder + " --load ."},
 	} {
 		for _, w := range want {
@@ -408,7 +408,25 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 		if !strings.Contains(at(got, i), strings.Join(args, " ")) {
 			t.Errorf("%s's build is not handed its pins %v", p.Name, args)
 		}
+		// The build arguments are BuildKit's cache key: one that came from the host, such as
+		// its CPU count, would give a laptop, a lane and the build fleet three caches.
+		want, _ := partArgs(o, p)
+		if got := buildArgs(at(got, i)); !slices.Equal(got, buildArgs(strings.Join(want, " "))) {
+			t.Errorf("%s's build arguments are %v, want only its pins and choices %v", p.Name, got, want)
+		}
 	}
+}
+
+// buildArgs is every --build-arg a command line carries, in order.
+func buildArgs(line string) []string {
+	var args []string
+	f := strings.Fields(line)
+	for i := 0; i+1 < len(f); i++ {
+		if f[i] == "--build-arg" {
+			args = append(args, f[i+1])
+		}
+	}
+	return args
 }
 
 func at(s []string, i int) string {

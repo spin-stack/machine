@@ -51,8 +51,6 @@ type Options struct {
 	Out string
 	// Pins is versions.yaml.
 	Pins *versions.Versions
-	// Jobs is how many compile jobs a build runs.
-	Jobs int
 	// Registry reads and writes BuildKit's cache in CacheRegistry instead of under Root/.cache.
 	Registry bool
 	// Export writes the cache back. Only main's lanes need to: what a pull request, a release or
@@ -450,7 +448,6 @@ func makeQEMU(ctx context.Context, o Options, p Part) error {
 	if err != nil {
 		return err
 	}
-	args = append(args, "--build-arg", fmt.Sprintf("JOBS=%d", o.Jobs))
 	return docker(ctx, o, buildx(o, "qemu", "qemu/Dockerfile", "extract", args, "--output", "type=local,dest="+o.Out)...)
 }
 
@@ -462,7 +459,6 @@ func makeKernel(ctx context.Context, o Options, p Part) error {
 	if err != nil {
 		return err
 	}
-	args = append(args, "--build-arg", fmt.Sprintf("KERNEL_NPROC=%d", o.Jobs))
 	return docker(ctx, o, buildx(o, "kernel", "kernel/Dockerfile", "kernel", args, "--output", "type=local,dest="+o.Out)...)
 }
 
@@ -488,7 +484,6 @@ func makeDebs(ctx context.Context, o Options, p Part) error {
 	if err != nil {
 		return err
 	}
-	args = append(args, "--build-arg", fmt.Sprintf("JOBS=%d", o.Jobs))
 	return docker(ctx, o, buildx(o, p.Name, "image/"+p.Name+"/Dockerfile", "debs", args, "--output", "type=local,dest="+dest)...)
 }
 

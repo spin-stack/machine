@@ -28,8 +28,8 @@ They are spin-os's (spin-stack/ami, `docs/cli.md`), because the two commands sol
    act on (a verify that failed, a pin behind, a file not attested). 2 means the verb could not do
    it (no network, a missing input, a build that failed). A workflow branches on the status, never
    on text.
-5. **Flags for choices, the environment for credentials and the runner.** `--jobs`,
-   `--cache-registry`, `--cache-export` and `--version` are flags. The environment carries only
+5. **Flags for choices, the environment for credentials and the runner.** `--cache-registry`,
+   `--cache-export` and `--version` are flags. The environment carries only
    what is secret or the runner's: `GH_TOKEN` or `GITHUB_TOKEN`, `GITHUB_REPOSITORY`,
    `SOURCE_DATE_EPOCH`. In a workflow, a verb whose result a later step needs also writes that
    result to `$GITHUB_OUTPUT` (`build`'s `qemu_version`, `release version`'s `version`, `release

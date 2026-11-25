@@ -4,7 +4,6 @@ FROM ${UBUNTU_IMAGE} AS build
 
 ARG OPENSSH_SOURCE_VERSION
 ARG OPENSSH_SOURCE_SHA256
-ARG JOBS=8
 ENV DEBIAN_FRONTEND=noninteractive \
     DEB_BUILD_PROFILES="noudeb pkg.openssh.nognome nocheck" \
     DEB_BUILD_OPTIONS="nodoc noautodbgsym"
@@ -28,7 +27,7 @@ RUN for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "1:${OPENSSH_SOURCE_VERSION}+spin1" --distribution resolute \
             "Rebuilt by spin-machine with $(cd /build/patches && echo *.patch)." && \
-    dpkg-buildpackage -b -uc -us -j"${JOBS}"
+    dpkg-buildpackage -b -uc -us -j"$(nproc)"
 
 COPY image/openssh/regress-ran.sh /build/regress-ran.sh
 RUN apt-get install -y --no-install-recommends sudo && \

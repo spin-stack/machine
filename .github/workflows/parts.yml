@@ -9,6 +9,13 @@ name: Parts
 # Each job ends in the verification that belongs to it, so a configuration that lost a device,
 # a kernel at a fixed address or an image with an identity baked in fails here rather than in a
 # VM that will not start weeks later.
+#
+# The builds run on the RunsOn build fleet (spin-stack/ci: 16 vCPU, no nested virtualization,
+# which nothing here boots), not GitHub's 4-vCPU runners. There, cold, the kernel job took 21-27
+# min, the kernel 10-13 and the traceable kernel 9-12 after it, and QEMU 6-9 (parts runs
+# 45254983345, 45267869531, 45272669299). A compile takes nproc inside its RUN and no build
+# argument names the runner's size, so the fleet, a laptop and any other runner share one cache.
+# `changed` and `parts` compile nothing and stay on GitHub's runners.
 
 on:
   # No paths: `parts` has to report on every change, and `changed` below is the filter. A path
@@ -38,9 +45,8 @@ env:
 jobs:
   # Whether this change can reach each part: what each build is handed (its pins in
   # versions.yaml) at the base and here, and the paths it is built from. It errs towards
-  # building. The root Taskfile is deliberately not among the paths: it holds only how many jobs
-  # to compile with and which cache to use, so it would rebuild every part for an edit that
-  # cannot change any of them.
+  # building. The root Taskfile is deliberately not among the paths: no build is handed anything
+  # from it, so it would rebuild every part for an edit that cannot change any of them.
   changed:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -83,7 +89,7 @@ jobs:
   qemu:
     needs: changed
     if: needs.changed.outputs.qemu == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runs-on/fleet=build/env=production
     # A cold build is tens of minutes and a warm one is a cache restore, so the spread is
     # wide and the ceiling has to sit above the cold case. What it is really for is the
     # other end: a `configure` that stops on a prompt would hold a runner for six hours
@@ -129,7 +135,7 @@ jobs:
         env:
           # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: spin-machine-dev build qemu --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+        run: spin-machine-dev build qemu --cache-registry --cache-export="$CACHE_EXPORT"
 
       # vhost-vsock is a kernel module, and the machine's vsock device cannot be created
       # without /dev/vhost-vsock. The runner has the node and gives the user no access to
@@ -187,7 +193,7 @@ jobs:
   kernel:
     needs: changed
     if: needs.changed.outputs.kernel == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runs-on/fleet=build/env=production
     timeout-minutes: 180
     steps:
       - name: Checkout
@@ -225,7 +231,7 @@ jobs:
         env:
           # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: spin-machine-dev build kernel --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+        run: spin-machine-dev build kernel --cache-registry --cache-export="$CACHE_EXPORT"
 
       # Still named vmlinux-<sha>: lab tree --kernel run:<id> finds a kernel run's artifact by that name.
       - name: Upload the kernel
@@ -238,17 +244,46 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # The lab's traceable kernel, as release.yml's traceable job builds it once a release is out:
-      # the release kernel again, from the step above's builder, and a second with lockdown forced
-      # to none, held to the first's config less that option. Here, a change that breaks it fails
-      # before it is released and not after, when the release has no traceable kernel and no
-      # ledger (#558). Its own cache tag, written by main as the release kernel's is, keeps
-      # release.yml's job warm. ~10 min more cold (parts run 45071066129); the version only names
-      # the vmlinux, which nothing here publishes.
+  # The lab's traceable kernel, as release.yml's traceable job builds it once a release is out: the
+  # release kernel with lockdown forced to none, its config held to the series' committed file less
+  # that option. Here, a change that breaks it fails before it is released and not after, when the
+  # release has no traceable kernel and no ledger (#558). A job of its own, beside `kernel` and not
+  # after it: since #721 the release kernel's config is the committed file to the line, so this
+  # compiles nothing of the release kernel's, and in series the two were 9-12 min of the kernel
+  # job's 21-27. Its own cache tag, written by main as the release kernel's is, keeps release.yml's
+  # job warm. The version only names the vmlinux, which nothing here publishes.
+  traceable:
+    needs: changed
+    if: needs.changed.outputs.kernel == 'true'
+    runs-on: runs-on/fleet=build/env=production
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      # As the qemu job's: a builder that can export its cache, and the login that reads it.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build the traceable kernel
         env:
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: spin-machine-dev release traceable-kernel --version "$GITHUB_SHA" --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+        run: spin-machine-dev release traceable-kernel --version "$GITHUB_SHA" --cache-registry --cache-export="$CACHE_EXPORT"
 
   # The base image: ~1.5 GB of apt against a live archive. The build runs `docker run --cap-add
   # SYS_ADMIN` and not `docker buildx build`, because mkosi assembles a root filesystem by
@@ -258,7 +293,7 @@ jobs:
   image:
     needs: changed
     if: needs.changed.outputs.image == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runs-on/fleet=build/env=production
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -290,7 +325,7 @@ jobs:
         env:
           # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: spin-machine-dev build e2fsprogs --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+        run: spin-machine-dev build e2fsprogs --cache-registry --cache-export="$CACHE_EXPORT"
 
       # image/build.sh asserts what came out on the finished filesystem rather than
       # trusting the build that made it: that there is an /sbin/init and a /bin/sh, that
@@ -310,13 +345,13 @@ jobs:
         env:
           # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: spin-machine-dev build image --jobs 4 --cache-registry --cache-export="$CACHE_EXPORT"
+        run: spin-machine-dev build image --cache-registry --cache-export="$CACHE_EXPORT"
 
   # Every part the change reaches built and verified: the one check of this workflow a ruleset
   # can require. A part the change does not reach is skipped, which is a pass; one that failed or
   # was cancelled, or a `changed` that could not say, is not.
   parts:
-    needs: [changed, qemu, kernel, image]
+    needs: [changed, qemu, kernel, traceable, image]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

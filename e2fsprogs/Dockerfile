@@ -24,7 +24,6 @@ FROM ${E2FSPROGS_BUILDER_IMAGE} AS builder
 
 ARG E2FSPROGS_VERSION
 ARG E2FSPROGS_SHA256
-ARG JOBS=8
 
 SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
@@ -59,7 +58,7 @@ RUN ./configure \
         --without-systemd-unit-dir \
         LDFLAGS="-static -s" \
         PKG_CONFIG="pkg-config --static" && \
-    make -j"${JOBS}" && \
+    make -j"$(nproc)" && \
     for b in misc/mke2fs e2fsck/e2fsck misc/dumpe2fs debugfs/debugfs; do \
         if readelf -l "$b" | grep -q "program interpreter"; then \
             echo "$b is dynamically linked" >&2; exit 1; \
