@@ -1,0 +1,8 @@
+---
+date: "2026-11-25"
+order: 20
+area: kernel
+title: shirudo's kernel hooks carried, and a bump that compares them (#719, #720)
+issues: [719, 720]
+---
+*Why:* shirudo, a guest-side enforcer of BPF LSM programs with its register in a TPM, was published on 2026-11-23, and it attaches to LSM hooks no released kernel has. *Done:* kernel/patches 0026-0031 are shirudo's six LSM and BPF patches (`task_cgroup_attach`, `tpm_command`, `security.bpf.` label reads, sleepable inode hooks, a trusted `d_parent`, `mm_read_access`), regenerated with `git format-patch -N` on 7.3.6 over this series; five applied as they are, and 0030's line went in where 7.3's verifier keeps the struct. 0032 is upstream 31ac959c915c from bpf-next, the x86 ftrace fix shirudo asks for: 7.3.6 still marks a jmp by bit 0, which a callback at an odd address also has. shirudo's kbuild and riscv patches are declined in `internal/build/shirudo.go`, each with its reason. `versions.yaml`'s `shirudo` pins the commit they come from, and `spin-machine-dev bump shirudo` compares upstream's patches with the carried ones by Subject and fails naming every one a person has to answer. Its first run found nothing to answer once it skipped format-patch's signature, which one of shirudo's patches lacks. Each patch has its assertion in `kernel/Dockerfile`, and a build without the series fails on each. The kernel turns on `CONFIG_TCG_TPM`, `CONFIG_TCG_CRB` and `CONFIG_TCG_TIS`: sparse compiles every C file the patches touch, and 0027's, the TPM character device, was in no build without them; without a TPM device the driver binds to nothing. *Not yet:* shirudo also needs a TPM in the machine (#719) and the signed loader's ABI, which 7.3 does not have (#720). *Status:* in place.

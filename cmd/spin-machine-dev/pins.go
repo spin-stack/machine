@@ -42,7 +42,11 @@ note says what the bump is checked with.
 
 A QEMU bump keeps the machine type (machine.Type), and prints what QEMU's newer types change
 against it - hw_compat_X_Y and pc_compat_X_Y, from the source of the version just pinned, checked
-against its sha256 - for the bump's pull request.`,
+against its sha256 - for the bump's pull request.
+
+A shirudo bump compares shirudo's kernel patches at the commit just pinned with the ones
+kernel/patches carries from it, by Subject, and fails naming each carried patch upstream rewrote
+or dropped, and each upstream patch neither carried nor declined (internal/build/shirudo.go).`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			root, err := repo()
@@ -52,18 +56,25 @@ against its sha256 - for the bump's pull request.`,
 			if err := versionsTool(c.Context(), c, root, append([]string{"bump"}, args...)...); err != nil {
 				return err
 			}
-			if args[0] != "qemu" {
+			if args[0] != "qemu" && args[0] != "shirudo" {
 				return nil
 			}
 			w, err := open()
 			if err != nil {
 				return err
 			}
-			out, err := build.QEMUCompat(c.Context(), w.pins)
+			var out string
+			if args[0] == "qemu" {
+				out, err = build.QEMUCompat(c.Context(), w.pins)
+			} else {
+				out, err = build.ShirudoPatches(c.Context(), root, w.pins)
+			}
+			if out != "" {
+				_, _ = fmt.Fprintln(c.OutOrStdout(), out)
+			}
 			if err != nil {
 				return couldNot(err)
 			}
-			_, _ = fmt.Fprintln(c.OutOrStdout(), out)
 			return nil
 		},
 	}

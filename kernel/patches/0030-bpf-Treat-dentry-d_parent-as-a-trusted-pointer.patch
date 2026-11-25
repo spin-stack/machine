@@ -1,0 +1,41 @@
+From: Daniel Borkmann <daniel@iogearbox.net>
+Date: Tue, 3 Nov 2026 13:52:42 +0000
+Subject: [PATCH] bpf: Treat dentry->d_parent as a trusted pointer
+
+An LSM program that decides a new directory entry in inode_create,
+inode_mkdir, inode_symlink, inode_mknod or inode_link receives the
+directory as a struct inode and the new entry as a dentry. The
+directory's label lives in an xattr that bpf_get_dentry_xattr() reads
+from a dentry, and the one the program has for it is dentry->d_parent,
+which the verifier treats as an untrusted pointer, so the kfunc refuses
+it and the program cannot read the label of the directory it decides
+on.
+
+d_parent of a dentry an inode hook receives is stable while the hook
+runs, under the parent's inode lock the caller holds, and is never NULL,
+since the root's points to itself. Add it beside d_inode as trusted or
+null, which keeps a program checking it before use.
+
+Signed-off-by: Daniel Borkmann <daniel@iogearbox.net>
+[ spin-stack/machine: from shirudo's testing/kernel/patches, at
+  versions.yaml's shirudo pin. Forward-ported to 7.3: the struct it
+  changes sits elsewhere in verifier.c; the line it adds is the same. ]
+---
+ kernel/bpf/verifier.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index 75e5cf6..780825d 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -6023,6 +6023,7 @@ BTF_TYPE_SAFE_TRUSTED(struct scx_sub_detach_args) {
+ 
+ BTF_TYPE_SAFE_TRUSTED_OR_NULL(struct dentry) {
+ 	struct inode *d_inode;
++	struct dentry *d_parent;
+ };
+ 
+ BTF_TYPE_SAFE_TRUSTED_OR_NULL(struct socket) {
+-- 
+2.53.0
+

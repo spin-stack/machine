@@ -1,0 +1,145 @@
+From: Daniel Borkmann <daniel@iogearbox.net>
+Date: Wed, 16 Sep 2026 14:41:00 +0000
+Subject: [PATCH] cgroup, security: add task_cgroup_attach LSM hook
+
+Migrating a task between cgroups has no LSM hook. A module that wants to
+police cgroup membership has to reconstruct it from the write permission on
+the destination's cgroup.procs, which sees only the control file, not the
+task and its destination cgroup together, and misses an unlabelled
+destination or a migration that never opens the file, as
+clone3(CLONE_INTO_CGROUP) does not.
+
+Add security_task_cgroup_attach(task, dst_cgrp), called from
+cgroup_attach_task() for the cgroup.procs and cgroup.threads write path and
+from cgroup_can_fork() for CLONE_INTO_CGROUP, so a module sees both the
+task and its destination cgroup at the point of migration.
+
+Signed-off-by: Daniel Borkmann <daniel@iogearbox.net>
+[ spin-stack/machine: from shirudo's testing/kernel/patches, at
+  versions.yaml's shirudo pin. Its message rewrapped to 75 columns for
+  checkpatch --strict. ]
+---
+ include/linux/lsm_hook_defs.h |  2 ++
+ include/linux/security.h      |  9 +++++++++
+ kernel/cgroup/cgroup.c        | 14 ++++++++++++++
+ security/security.c           | 18 ++++++++++++++++++
+ 4 files changed, 43 insertions(+)
+
+diff --git a/include/linux/lsm_hook_defs.h b/include/linux/lsm_hook_defs.h
+index 65c9609..3dbf63d 100644
+--- a/include/linux/lsm_hook_defs.h
++++ b/include/linux/lsm_hook_defs.h
+@@ -218,6 +218,8 @@ LSM_HOOK(int, 0, file_truncate, struct file *file)
+ LSM_HOOK(int, 0, task_alloc, struct task_struct *task,
+ 	 u64 clone_flags)
+ LSM_HOOK(void, LSM_RET_VOID, task_free, struct task_struct *task)
++LSM_HOOK(int, 0, task_cgroup_attach, struct task_struct *task,
++	 struct cgroup *dst_cgrp)
+ LSM_HOOK(int, 0, cred_alloc_blank, struct cred *cred, gfp_t gfp)
+ LSM_HOOK(void, LSM_RET_VOID, cred_free, struct cred *cred)
+ LSM_HOOK(int, 0, cred_prepare, struct cred *new, const struct cred *old,
+diff --git a/include/linux/security.h b/include/linux/security.h
+index 153e904..4f9620f 100644
+--- a/include/linux/security.h
++++ b/include/linux/security.h
+@@ -45,6 +45,7 @@ struct rlimit;
+ struct kernel_siginfo;
+ struct sembuf;
+ struct kern_ipc_perm;
++struct cgroup;
+ struct audit_context;
+ struct super_block;
+ struct inode;
+@@ -496,6 +497,8 @@ int security_file_open(struct file *file);
+ int security_file_post_open(struct file *file, int mask);
+ int security_file_truncate(struct file *file);
+ int security_task_alloc(struct task_struct *task, u64 clone_flags);
++int security_task_cgroup_attach(struct task_struct *task,
++				struct cgroup *dst_cgrp);
+ void security_task_free(struct task_struct *task);
+ int security_cred_alloc_blank(struct cred *cred, gfp_t gfp);
+ void security_cred_free(struct cred *cred);
+@@ -1238,6 +1241,12 @@ static inline int security_file_truncate(struct file *file)
+ 	return 0;
+ }
+ 
++static inline int security_task_cgroup_attach(struct task_struct *task,
++					      struct cgroup *dst_cgrp)
++{
++	return 0;
++}
++
+ static inline int security_task_alloc(struct task_struct *task,
+ 				      u64 clone_flags)
+ {
+diff --git a/kernel/cgroup/cgroup.c b/kernel/cgroup/cgroup.c
+index 37be027..7f07e3e 100644
+--- a/kernel/cgroup/cgroup.c
++++ b/kernel/cgroup/cgroup.c
+@@ -40,6 +40,7 @@
+ #include <linux/rcupdate.h>
+ #include <linux/sched.h>
+ #include <linux/sched/task.h>
++#include <linux/security.h>
+ #include <linux/slab.h>
+ #include <linux/spinlock.h>
+ #include <linux/percpu-rwsem.h>
+@@ -3105,6 +3106,10 @@ int cgroup_attach_task(struct cgroup *dst_cgrp, struct task_struct *leader,
+ 	struct task_struct *task;
+ 	int ret = 0;
+ 
++	ret = security_task_cgroup_attach(leader, dst_cgrp);
++	if (ret)
++		return ret;
++
+ 	/* look up all src csets */
+ 	spin_lock_irq(&css_set_lock);
+ 	task = leader;
+@@ -7046,6 +7051,15 @@ int cgroup_can_fork(struct task_struct *child, struct kernel_clone_args *kargs)
+ 	if (ret)
+ 		return ret;
+ 
++	/* CLONE_INTO_CGROUP: an explicit destination, gate the migration. */
++	if (kargs->cgrp) {
++		ret = security_task_cgroup_attach(child, kargs->cgrp);
++		if (ret) {
++			cgroup_css_set_put_fork(kargs);
++			return ret;
++		}
++	}
++
+ 	do_each_subsys_mask(ss, i, have_canfork_callback) {
+ 		ret = ss->can_fork(child, kargs->cset);
+ 		if (ret)
+diff --git a/security/security.c b/security/security.c
+index 2087382..ac994bc 100644
+--- a/security/security.c
++++ b/security/security.c
+@@ -3278,6 +3278,24 @@ int security_task_movememory(struct task_struct *p)
+ 	return call_int_hook(task_movememory, p);
+ }
+ 
++/**
++ * security_task_cgroup_attach() - Check if attaching a task to a cgroup is allowed
++ * @task: task being moved
++ * @dst_cgrp: destination cgroup
++ *
++ * Check permission before *task* is migrated to *dst_cgrp*. Called from the
++ * cgroup.procs/cgroup.threads write path and, for CLONE_INTO_CGROUP, from the
++ * fork path, so a module sees both the task and its destination cgroup at the
++ * point of migration rather than reconstructing it from the control-file open.
++ *
++ * Return: Returns 0 if permission is granted.
++ */
++int security_task_cgroup_attach(struct task_struct *task,
++				struct cgroup *dst_cgrp)
++{
++	return call_int_hook(task_cgroup_attach, task, dst_cgrp);
++}
++
+ /**
+  * security_task_kill() - Check if sending a signal is allowed
+  * @p: target process
+-- 
+2.53.0
+

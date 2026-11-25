@@ -1,0 +1,65 @@
+From: Daniel Borkmann <daniel@iogearbox.net>
+Date: Tue, 3 Nov 2026 10:49:48 +0000
+Subject: [PATCH] bpf: Read security.bpf xattrs for LSM programs without the
+ caller's permission
+
+bpf_get_dentry_xattr() and bpf_get_file_xattr() check that the current
+task may read the inode before they return an xattr, for user. and
+security.bpf. names alike. For a BPF LSM program the labels it keeps
+under security.bpf. are its own, and the task whose operation it decides
+is the one the program may refuse: its read permission on the inode says
+nothing about the label. The in-kernel LSMs read their labels with
+__vfs_getxattr() in kernel context for that reason.
+
+The check also lets that task choose what the program sees. A read that
+fails with -EACCES or -EPERM looks to the program like a missing label
+unless it fails every such operation closed, which it cannot do without
+refusing every write-only open and every unlink of an unreadable file on
+the system. Root arranges the failure for any labeled inode: an idmapped
+bind mount shows uid 0's files as another id's to the permission check,
+an ACL grants another id a write without a read, and a task at that id
+through setfsuid() keeps CAP_SYS_ADMIN but not the DAC capabilities, so
+the kernel lets it write what the program then takes for unlabeled.
+Another LSM's inode_permission policy does the same.
+
+Skip the permission check for security.bpf. names. The kfuncs are
+registered for LSM and struct_ops programs, which run in kernel context
+with the labels they maintain; user. names keep the check.
+
+Signed-off-by: Daniel Borkmann <daniel@iogearbox.net>
+[ spin-stack/machine: from shirudo's testing/kernel/patches, at
+  versions.yaml's shirudo pin. ]
+---
+ fs/bpf_fs_kfuncs.c | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/fs/bpf_fs_kfuncs.c b/fs/bpf_fs_kfuncs.c
+index 357a379..95c6abf 100644
+--- a/fs/bpf_fs_kfuncs.c
++++ b/fs/bpf_fs_kfuncs.c
+@@ -105,9 +105,19 @@ static int bpf_xattr_read_permission(const char *name, struct inode *inode)
+ 	if (!inode)
+ 		return -EINVAL;
+ 
+-	/* Allow reading xattr with user. and security.bpf. prefix */
+-	if (strncmp(name, XATTR_USER_PREFIX, XATTR_USER_PREFIX_LEN) &&
+-	    !match_security_bpf_prefix(name))
++	/*
++	 * The labels a BPF LSM keeps under security.bpf. are its own, read
++	 * as SELinux, Smack and EVM read theirs with __vfs_getxattr(): in
++	 * kernel context, not with the permission of the task whose
++	 * operation the program decides. That task's read permission says
++	 * nothing about the label, and a read that fails for it, through an
++	 * idmapped mount, an ACL or another LSM's policy, would hide the
++	 * label from the program that enforces it. user. xattrs stay the
++	 * task's to read.
++	 */
++	if (match_security_bpf_prefix(name))
++		return 0;
++	if (strncmp(name, XATTR_USER_PREFIX, XATTR_USER_PREFIX_LEN))
+ 		return -EPERM;
+ 
+ 	return inode_permission(&nop_mnt_idmap, inode, MAY_READ);
+-- 
+2.53.0
+

@@ -135,6 +135,27 @@ options: no cost that can be told from noise. Over 20 interleaved boots each, ke
 `Freeing unused kernel image` had a p50 of 196.3 ms with them and 208.3 ms without, on a host at
 load 6-10, where the p95 was 342 ms.
 
+## shirudo's hooks
+
+shirudo (shirudo-dev/shirudo) enforces policy in a guest with BPF LSM programs and keeps its
+measurement register in a TPM. The kernel hooks it attaches to are not upstream yet, and shirudo
+carries them in its `testing/kernel/patches`; 0026-0031 are those, each under its own Subject
+with a note saying where it comes from, and 0032 is the upstream x86 ftrace fix its x86-64
+targets need (31ac959c915c, in bpf-next). Its `kbuild` and `riscv` patches are not carried, each
+for the reason `internal/build/shirudo.go` gives.
+
+`versions.yaml`'s `shirudo` pins the commit they are read from. `spin-machine-dev bump shirudo`
+moves it and compares upstream's patches with these by Subject, and fails naming each one a
+person has to answer: a carried patch upstream rewrote or no longer has, and an upstream patch
+neither carried nor declined. A carried patch is remade from upstream's as every patch here is,
+below. 0030 is forward-ported: the struct it changes sits elsewhere in 7.3's verifier.
+
+The kernel has the TPM driver 0027 hooks (`CONFIG_TCG_TPM`, with `CONFIG_TCG_CRB` and
+`CONFIG_TCG_TIS` for QEMU's `tpm-crb` and `tpm-tis`, which #719 measures against each other), so
+sparse and the effect check read the file the patch changes. Without a TPM device
+it binds to nothing. The hooks alone do not run shirudo: it also needs a TPM in the machine
+(#719) and a kernel ABI 7.3 does not have (#720).
+
 ## Changing it
 
 `kernel/patches` holds the changes this tree makes to the kernel's source, applied in name
@@ -180,6 +201,13 @@ every kernel bump.
 | 0023 | `vp_modern_probe` calls `pci_find_capability` once |
 | 0024 | the compiled `drivers/virtio/virtio_pci_modern_dev.c` writes `queue_select` only when `selected_queue` differs |
 | 0025 | the compiled `arch/x86/kernel/apic/msi.c` compares the vector and the destination before the message write |
+| 0026 | `cgroup_attach_task` and `cgroup_can_fork` call `security_task_cgroup_attach` |
+| 0027 | `tpm_common_write` calls `security_tpm_command` |
+| 0028 | the compiled `fs/bpf_fs_kfuncs.c` returns a `security.bpf.` label without the calling task's permission |
+| 0029 | the compiled `kernel/bpf/bpf_lsm.c` lets a sleepable program attach to `inode_mkdir` |
+| 0030 | the compiled `kernel/bpf/verifier.c` trusts `dentry->d_parent` |
+| 0031 | `mm_access` calls `security_mm_read_access` |
+| 0032 | `ftrace_regs_caller` marks a jmp with `bts $63` |
 
 None of them is a guest check. What the patches save is CPU and VM exits, which a guest cannot
 count, and the format files 0003 defers are behind lockdown. What 0012 and 0013 save is a parse of

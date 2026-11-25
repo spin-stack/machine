@@ -1,0 +1,62 @@
+From: Daniel Borkmann <daniel@iogearbox.net>
+Date: Tue, 3 Nov 2026 13:52:42 +0000
+Subject: [PATCH] bpf: Let sleepable LSM programs attach to the remaining inode
+ hooks
+
+A BPF LSM program reads an xattr with bpf_get_dentry_xattr() or
+bpf_get_file_xattr(), which sleep, so only a sleepable program can
+decide an operation by the label an inode carries. The set of hooks
+such a program may attach to holds inode_create, inode_symlink,
+inode_mknod, inode_unlink, inode_rename, inode_rmdir, inode_setattr,
+inode_setxattr and inode_removexattr, but not inode_mkdir and
+inode_link, the other two hooks that decide a new directory entry, nor
+inode_set_acl, inode_remove_acl and inode_file_setattr, which decide
+an ACL and an inode flag change, nor inode_copy_up, which decides an
+overlay copy-up. Each of them is called from process context with the
+inode lock held, as the hooks already in the set are, and may sleep.
+
+Add them, so that a program which labels directories can read the
+label of the directory a mkdir or a link changes, the label of the
+inode an ACL or flag change targets, and the label of the inode an
+overlay copies up, instead of a cache of its own that the inode's
+eviction empties.
+
+Signed-off-by: Daniel Borkmann <daniel@iogearbox.net>
+[ spin-stack/machine: from shirudo's testing/kernel/patches, at
+  versions.yaml's shirudo pin. ]
+---
+ kernel/bpf/bpf_lsm.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/kernel/bpf/bpf_lsm.c b/kernel/bpf/bpf_lsm.c
+index 2660a89..d08151d 100644
+--- a/kernel/bpf/bpf_lsm.c
++++ b/kernel/bpf/bpf_lsm.c
+@@ -313,18 +313,24 @@ BTF_ID(func, bpf_lsm_file_open)
+ BTF_ID(func, bpf_lsm_file_post_open)
+ BTF_ID(func, bpf_lsm_file_receive)
+ 
++BTF_ID(func, bpf_lsm_inode_copy_up)
+ BTF_ID(func, bpf_lsm_inode_create)
++BTF_ID(func, bpf_lsm_inode_file_setattr)
+ BTF_ID(func, bpf_lsm_inode_free_security)
+ BTF_ID(func, bpf_lsm_inode_getattr)
+ BTF_ID(func, bpf_lsm_inode_getxattr)
++BTF_ID(func, bpf_lsm_inode_link)
++BTF_ID(func, bpf_lsm_inode_mkdir)
+ BTF_ID(func, bpf_lsm_inode_mknod)
+ BTF_ID(func, bpf_lsm_inode_need_killpriv)
+ BTF_ID(func, bpf_lsm_inode_post_setxattr)
+ BTF_ID(func, bpf_lsm_inode_post_removexattr)
+ BTF_ID(func, bpf_lsm_inode_readlink)
++BTF_ID(func, bpf_lsm_inode_remove_acl)
+ BTF_ID(func, bpf_lsm_inode_removexattr)
+ BTF_ID(func, bpf_lsm_inode_rename)
+ BTF_ID(func, bpf_lsm_inode_rmdir)
++BTF_ID(func, bpf_lsm_inode_set_acl)
+ BTF_ID(func, bpf_lsm_inode_setattr)
+ BTF_ID(func, bpf_lsm_inode_setxattr)
+ BTF_ID(func, bpf_lsm_inode_symlink)
+-- 
+2.53.0
+
