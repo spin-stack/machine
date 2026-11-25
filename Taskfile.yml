@@ -248,7 +248,7 @@ tasks:
       - refs
       - mutate -stale-exempts
       # The Task running this one, which taskgate asks for the task names a workflow step runs.
-      - taskgate -allow .github/taskgate-allow.txt -task {{.TASK_EXE}} -command spin-machine-dev
+      - taskgate -common -allow .github/taskgate-allow.txt -task {{.TASK_EXE}} -command spin-machine-dev
       - sfw check
       - task: lint:workflows
 
