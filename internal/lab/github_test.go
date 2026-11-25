@@ -85,3 +85,25 @@ func TestWaitStopsWhenItsCallerDoes(t *testing.T) {
 		t.Errorf("Wait after its caller stopped = %v after %d reads, want %v after 1", err, g.reads, context.Canceled)
 	}
 }
+
+// A job's log reaches this terminal as text: the colours, titles and links its tools wrote are
+// gone, and what they decorated, its tabs and its line ends stay.
+func TestAJobsLogIsPrintedWithoutItsEscapes(t *testing.T) {
+	log := "2026-11-25T23:12:21Z ##[group]Run go tool task boot:pressure\n" +
+		"\x1b[36;1mspin-machine-dev vsock\x1b[0m\n" +
+		"\x1b]0;a title\x07[\x1b[34mboot:pressure\x1b[0m] --- PASS:\tok\n" +
+		"\x1b]8;;https://example.invalid\x1b\\a link\x1b]8;;\x1b\\ · ünïcode\n" +
+		"bell\x07 and \x1bc reset and \x00nul\n"
+	want := "2026-11-25T23:12:21Z ##[group]Run go tool task boot:pressure\n" +
+		"spin-machine-dev vsock\n" +
+		"[boot:pressure] --- PASS:\tok\n" +
+		"a link · ünïcode\n" +
+		"bell and  reset and nul\n"
+	if got := string(printable([]byte(log))); got != want {
+		t.Errorf("printable:\n%q\nwant\n%q", got, want)
+	}
+	if got, want := StepTail(printable([]byte(log)), "go tool task boot:pressure", 3),
+		"[boot:pressure] --- PASS:\tok\na link · ünïcode\nbell and  reset and nul"; got != want {
+		t.Errorf("StepTail of a cleaned log: %q, want %q", got, want)
+	}
+}
