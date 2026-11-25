@@ -42,6 +42,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       build: ${{ steps.qemu.outputs.build }}
+      release-qemu: ${{ steps.release-qemu.outputs.build }}
     env:
       BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
@@ -63,6 +64,12 @@ jobs:
       - name: Does the change reach the sanitized QEMU
         id: qemu
         run: spin-machine-dev changed --base "$BASE" --part qemu internal/patched cmd/spin-machine-dev/patched.go .github/workflows/sanitize.yml
+
+      # Whether the release's QEMU this change builds differs from main's published one, as
+      # compat.yml asks: a change to the qemu pin asks for a version main has not published yet.
+      - name: Does the change reach the release's QEMU
+        id: release-qemu
+        run: spin-machine-dev changed --base "$BASE" --part qemu go.mod cmd/spin-machine-dev internal/build
 
   boots:
     needs: changed
@@ -101,9 +108,16 @@ jobs:
         run: go tool task sanitize-deps
 
       # The firmware the sanitized QEMU boots with: the release's, so a machine's record is the
-      # one the release's QEMU gives and a release's checkpoint resumes.
+      # one the release's QEMU gives and a release's checkpoint resumes. Main publishes a QEMU only
+      # for its own pin, so a change that reaches the release's QEMU builds it, reading main's
+      # lanes' cache as compat.yml does (--jobs 4 is their cache key).
       - name: Main's published QEMU, for its firmware
+        if: needs.changed.outputs.release-qemu != 'true'
         run: spin-machine-dev fetch qemu
+
+      - name: This change's QEMU, for its firmware
+        if: needs.changed.outputs.release-qemu == 'true'
+        run: spin-machine-dev build qemu --jobs 4 --cache-registry --cache-export=false
 
       - name: Build the patched QEMU under ASan and UBSan
         run: go tool task sanitized
