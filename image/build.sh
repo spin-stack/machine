@@ -90,7 +90,7 @@ echo "==> $(wc -l < /work/deviations.txt) deviations from the packages, as image
 mkbase() {
     rm -f /work/base.raw
     "$bin/mkfs.ext4" -q -F -L "" -U clear -J size=64 -m 0 -b 4096 -O ^orphan_file \
-        -E root_owner=0:0,lazy_itable_init=0 -d "$tree" /work/base.raw "${1}k"
+        -E root_owner=0:0,lazy_itable_init=0,hash_seed=5f8a3c2e-1d4b-4e6a-9c7f-0b2d4e6a8c1f -d "$tree" /work/base.raw "${1}k"
 }
 used_kb() {
     "$bin/dumpe2fs" -h /work/base.raw 2>/dev/null | awk -F: '
