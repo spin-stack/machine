@@ -8,7 +8,7 @@ require (
 	github.com/CycloneDX/cyclonedx-go v0.12.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
-	github.com/spin-stack/go-tools v0.20261122.6
+	github.com/spin-stack/go-tools v0.20261125.1
 	github.com/yuin/goldmark v1.8.7
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.59.0
