@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -261,7 +262,29 @@ func (g *GitHub) JobLog(id int64) ([]byte, error) {
 	if job == "" {
 		return nil, fmt.Errorf("run %d has no job", id)
 	}
-	return g.gh("api", fmt.Sprintf("repos/%s/actions/jobs/%s/logs", g.Repo, job))
+	// gh refuses to write a response holding terminal escape sequences unless told to, and a job's
+	// log holds the colours of every tool that ran in it (gh 2.106, #728). They are taken out here,
+	// not passed on: the log is what a run printed, and it is printed again on this terminal.
+	out, err = g.gh("api", "--allow-escape-sequences", fmt.Sprintf("repos/%s/actions/jobs/%s/logs", g.Repo, job))
+	if err != nil {
+		return nil, err
+	}
+	return printable(out), nil
+}
+
+// escape is a terminal escape sequence: CSI (colours, cursor moves), OSC (titles, links) ended by
+// BEL or ST, or any other ESC and the byte after it.
+var escape = regexp.MustCompile("\x1b(?:\\[[0-?]*[ -/]*[@-~]|\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|.)")
+
+// printable is log without its escape sequences and other control bytes, tabs and line ends kept.
+func printable(log []byte) []byte {
+	log = escape.ReplaceAll(log, nil)
+	return bytes.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || (r >= ' ' && r != 0x7f && (r < 0x80 || r > 0x9f)) {
+			return r
+		}
+		return -1 // mutate-exempt: bytes.Map drops a rune mapped to any negative value
+	}, log)
 }
 
 // StepTail is the last n lines of the step in a job's log whose run is step, up to the step after
