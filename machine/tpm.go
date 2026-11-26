@@ -139,7 +139,7 @@ func tagged(digest [sha256.Size]byte, tag uint32, description string) TPMEvent {
 const tpmEventsFile = "opt/org.spin-stack/tpm-events"
 
 func tpmEventsArg(events []TPMEvent) string {
-	tokens := make([]string, 0, 4*len(events))
+	var tokens []string
 	for _, e := range events {
 		tokens = append(tokens, fmt.Sprintf("%02x", e.PCR), fmt.Sprintf("%08x", e.Type), fmt.Sprintf("%x", e.Digest), fmt.Sprintf("%x", e.Data))
 	}
