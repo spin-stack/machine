@@ -32,7 +32,9 @@ import (
 // lab 44898418357, 2026-11-21). A resume tells GuestRunning with QEMU's run state running (#465).
 // A truncated state is refused by its length before QEMU reads it (#546). The machine loads fast a state of more
 // than 1.5 GiB of data, so the guest has 2 GiB of base memory and fills 1.6 GiB of it for a
-// second checkpoint, which the fast load reads.
+// second checkpoint, which the fast load reads. QEMU holds the userfaultfd device only while a
+// fast load's Resume runs: not while it is held for a load, never in a load in full, and not once
+// Resume has returned (#789).
 //
 //	SPIN_RECORD_TEST=1   it starts machines (task boot:record)
 func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
@@ -104,6 +106,9 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if h := userfaultfdsHeld(t, g.Pid()); h != (heldUserfaultfds{}) {
+			t.Errorf("QEMU held for the load holds %+v", h)
+		}
 		root := rootDisk(t, overlay, r.base())
 		f, err := os.Open(state)
 		if err != nil {
@@ -118,11 +123,19 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 			}
 			told.tell(p)
 		}}
-		err = g.Resume(ctx, f, saved, here, load, root)
-		if err == nil {
-			err = g.Loaded(ctx)
+		if err := g.Resume(ctx, f, saved, here, load, root); err != nil {
+			return s, err, g
 		}
-		return s, err, g
+		if h := userfaultfdsHeld(t, g.Pid()); h.devices != 0 {
+			t.Errorf("QEMU holds %+v once Resume has returned, want no device", h)
+		}
+		if err := g.Loaded(ctx); err != nil {
+			return s, err, g
+		}
+		if h := userfaultfdsHeld(t, g.Pid()); h != (heldUserfaultfds{}) {
+			t.Errorf("QEMU that has loaded holds %+v", h)
+		}
+		return s, nil, g
 	}
 
 	t.Run("in full", func(t *testing.T) {
@@ -247,7 +260,7 @@ func (s *stream) inOrder(t *testing.T, want ...string) {
 	}
 }
 
-// userfaults is whether this process can open the userfaultfd device, which machine.Start then
+// userfaults is whether this process can open the userfaultfd device, which machine.Resume then
 // hands QEMU for a fast load. On a bench runner, a throwaway host, the device is given to this
 // user, as internal/lab's restore-first does; vm.unprivileged_userfaultfd stays 0.
 func userfaults() bool {
@@ -256,4 +269,31 @@ func userfaults() bool {
 		return true
 	}
 	return os.Getenv("GITHUB_ACTIONS") == "true" && exec.Command("sudo", "chown", strconv.Itoa(os.Getuid()), dev).Run() == nil
+}
+
+// heldUserfaultfds is what a process holds of userfaultfd: descriptors of the device, which make
+// userfaultfds, and userfaultfds.
+type heldUserfaultfds struct{ devices, userfaultfds int }
+
+// userfaultfdsHeld is what process pid holds of userfaultfd, read from its descriptors. A host with
+// no device has no descriptor of it to hold.
+func userfaultfdsHeld(t *testing.T, pid int) heldUserfaultfds {
+	t.Helper()
+	dev, devErr := os.Stat("/dev/userfaultfd")
+	dir := "/proc/" + strconv.Itoa(pid) + "/fd"
+	fds, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var held heldUserfaultfds
+	for _, fd := range fds {
+		path := filepath.Join(dir, fd.Name())
+		if to, err := os.Readlink(path); err == nil && to == "anon_inode:[userfaultfd]" {
+			held.userfaultfds++
+		}
+		if st, err := os.Stat(path); err == nil && devErr == nil && os.SameFile(st, dev) {
+			held.devices++
+		}
+	}
+	return held
 }

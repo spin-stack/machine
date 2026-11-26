@@ -101,55 +101,76 @@ func TestOnlyAFullLoadOfAMappedRAMStateIsReadAhead(t *testing.T) {
 		{FormatMappedRAM, true, false},
 		{FormatStream, false, false},
 	} {
-		loadingFast(t, c.fast)
-		if got := prefetches(nil, Saved{Format: c.format}); got != c.want {
+		if got := prefetches(Saved{Format: c.format}, c.fast); got != c.want {
 			t.Errorf("%s, fast %v: reads ahead %v", c.format, c.fast, got)
 		}
 	}
 }
 
-// A mapped-ram state loads fast only when its data is over fastAbove and the host grants QEMU a
-// userfaultfd; a stream state, which has no page at a fixed offset, never does.
-func TestALargeStateLoadsFastWhereTheHostAllowsIt(t *testing.T) {
+// A mapped-ram state loads fast only when its data is over fastAbove; a stream state, which has no
+// page at a fixed offset, never does.
+func TestALargeStateLoadsFast(t *testing.T) {
 	for _, c := range []struct {
-		format  string
-		data    int64
-		granted bool
-		want    bool
+		format string
+		data   int64
+		want   bool
 	}{
-		{FormatMappedRAM, fastAbove + 1, true, true},
-		{FormatMappedRAM, fastAbove, true, false},
-		{FormatMappedRAM, fastAbove + 1, false, false},
-		{FormatStream, fastAbove + 1, true, false},
+		{FormatMappedRAM, fastAbove + 1, true},
+		{FormatMappedRAM, fastAbove, false},
+		{FormatStream, fastAbove + 1, false},
 	} {
-		if got := fastLoad(c.format, c.data, c.granted); got != c.want {
-			t.Errorf("%s, %d bytes of data, userfaultfd granted %v: fast %v, want %v", c.format, c.data, c.granted, got, c.want)
+		if got := fastLoad(c.format, c.data); got != c.want {
+			t.Errorf("%s, %d bytes of data: fast %v, want %v", c.format, c.data, got, c.want)
 		}
 	}
 }
 
-// A fast load is offered where this process can open the device read-write, to hand QEMU: a
-// path that is missing, or that no one opens for writing, offers none, whatever its mode.
-func TestAFastLoadIsOfferedWhereTheCallerOpensTheDevice(t *testing.T) {
+// A state that would load fast loads fast only with the userfaultfd device in hand, which is then
+// open read-write to hand QEMU: where the device does not open, it loads in full.
+func TestAFastLoadIsTheDeviceInHand(t *testing.T) {
 	dir := t.TempDir()
 	for _, c := range []struct {
 		name, dev string
+		fast      bool
 		want      bool
 	}{
-		{"a device this process opens read-write", os.DevNull, true},
-		{"no device", filepath.Join(dir, "none"), false},
-		{"a directory, which nothing opens for writing", dir, false},
+		{"a device this process opens read-write", os.DevNull, true, true},
+		{"no device", filepath.Join(dir, "none"), true, false},
+		{"a directory, which nothing opens for writing", dir, true, false},
+		{"a state that loads in full, which opens nothing", filepath.Join(dir, "none"), false, false},
 	} {
-		if got := userfaults(c.dev); got != c.want {
-			t.Errorf("%s: offered %v, want %v", c.name, got, c.want)
+		loadingFast(t, c.fast)
+		userfaultfdAt(t, c.dev)
+		f := userfaultfd(nil, Saved{Format: FormatMappedRAM})
+		if got := f != nil; got != c.want {
+			t.Errorf("%s: fast %v, want %v", c.name, got, c.want)
+			continue
+		}
+		if f == nil {
+			continue
+		}
+		fl, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+		_ = f.Close()
+		if err != nil || fl&unix.O_ACCMODE != unix.O_RDWR {
+			t.Errorf("%s: the device is open with flags %#o (%v), want read-write, which QEMU opens it with", c.name, fl, err)
 		}
 	}
 }
 
-// loadingFast has every resume in t load fast, or none, whatever its state and host.
+// loadingFast has every resume in t load fast, or none, whatever its state and host: a fast one
+// with /dev/null for the userfaultfd device, which every process opens.
 func loadingFast(t *testing.T, fast bool) {
 	t.Helper()
 	was := loadsFast
 	loadsFast = func(*os.File, Saved) bool { return fast }
 	t.Cleanup(func() { loadsFast = was })
+	userfaultfdAt(t, os.DevNull)
+}
+
+// userfaultfdAt has the resumes in t open dev for the userfaultfd device.
+func userfaultfdAt(t *testing.T, dev string) {
+	t.Helper()
+	was := userfaultfdDevice
+	userfaultfdDevice = dev
+	t.Cleanup(func() { userfaultfdDevice = was })
 }

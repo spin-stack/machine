@@ -96,36 +96,68 @@ func (l LoadOptions) channels(format string, fast bool) int {
 // blocks at their ceilings, 8 GiB in spin's shape, one ioctl each (QEMU 11.2.0-rc0, #519).
 const fastAbove = 1536 << 20
 
-// loadsFast is whether a resume of state runs its guest before its memory is read (fastLoad).
-// Tests replace it.
+// loadsFast is whether a resume of state runs its guest before its memory is read where this
+// process opens the userfaultfd device (fastLoad). Tests replace it.
 var loadsFast = func(state *os.File, saved Saved) bool {
-	return fastLoad(saved.Format, written(state), userfaults(userfaultfdDevice))
+	return fastLoad(saved.Format, written(state))
 }
 
-// userfaultfdDevice is the device a fast load's userfaultfds are made from. Start opens it for
-// QEMU (Spec.UserfaultFDSet), so QEMU's user needs no access to it.
-const userfaultfdDevice = "/dev/userfaultfd"
-
-// fastLoad is whether a state in format with data bytes loads fast on a host that grants QEMU a
-// userfaultfd or not: a mapped-ram state, whose pages are at fixed offsets a fault can be served
-// from, with more than fastAbove of data, where the host grants it.
-func fastLoad(format string, data int64, granted bool) bool {
-	return format == FormatMappedRAM && data > fastAbove && granted
+// fastLoad is whether a state in format with data bytes loads fast where the host grants QEMU a
+// userfaultfd: a mapped-ram state, whose pages are at fixed offsets a fault can be served from,
+// with more than fastAbove of data.
+func fastLoad(format string, data int64) bool {
+	return format == FormatMappedRAM && data > fastAbove
 }
 
-// userfaults is whether this process can open dev, the userfaultfd device, which is what Start
-// asks before it hands QEMU the descriptor (Spec.UserfaultFDSet): a QEMU run as a user of its own
-// with no capability then serves a fast load's faults with it, and no other process on the host
-// is granted the device or vm.unprivileged_userfaultfd (spin-stack/spin#1711). spin's runner is
-// root and always can where the kernel has the device; a process that cannot loads every state
-// in full.
-func userfaults(dev string) bool {
-	f, err := os.OpenFile(dev, os.O_RDWR, 0) // mutate-exempt: the mode is read only with O_CREATE, which this has not
-	if err != nil {
-		return false
+// userfaultfdDevice is the device a fast load's userfaultfds are made from. Tests point it
+// elsewhere.
+var userfaultfdDevice = "/dev/userfaultfd"
+
+// userfaultfdSet is the descriptor set a fast load hands QEMU the userfaultfd device in, which a
+// restore's command line names (-userfaultfd, qemu/patches/0010). It is above any id QEMU picks
+// itself for a set added with none, the lowest it does not have, so no disk's set takes it first.
+const userfaultfdSet = 1 << 16
+
+// userfaultfd is the userfaultfd device a resume of state loads fast with, opened for QEMU, or nil
+// for a resume that loads it in full. A state loads fast (loadsFast) where this process opens the
+// device: QEMU, run as a user of its own with no capability, makes its userfaultfds from nothing
+// else, and no other process on the host is granted the device or vm.unprivileged_userfaultfd
+// (spin-stack/spin#1711). spin's runner is root and opens it wherever the kernel has it.
+//
+// The fast load is decided by the device in hand, and not by asking first whether it would open:
+// a device asked about and then not opened was a load chosen fast for a QEMU with no device,
+// which failed instead of loading in full (#789).
+func userfaultfd(state *os.File, saved Saved) *os.File {
+	if !loadsFast(state, saved) {
+		return nil
 	}
-	_ = f.Close() // opened to ask, never used
-	return true
+	f, err := os.OpenFile(userfaultfdDevice, os.O_RDWR, 0) // mutate-exempt: the mode is read only with O_CREATE, which this has not
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
+// lendUserfaultfd hands QEMU dev, the userfaultfd device, for the fast load about to start, in
+// the set its command line names (userfaultfdSet). QEMU opens the device from the set for each
+// userfaultfd it makes and closes it again (qemu/patches/0010), so once takeUserfaultfd removes
+// the set QEMU holds none of it: the device makes userfaultfds that see the kernel's own faults
+// over QEMU's memory, which a QEMU that loads in full, or has loaded, has no use for (#789).
+func (m *QEMU) lendUserfaultfd(ctx context.Context, dev *os.File) error {
+	set := userfaultfdSet
+	if _, err := qmp.Do(ctx, m.c, qmp.AddFD, qmp.AddFDArgs{File: dev, Set: &set, Opaque: userfaultfdDevice}); err != nil {
+		return fmt.Errorf("handing QEMU the userfaultfd device: %w", err)
+	}
+	return nil
+}
+
+// takeUserfaultfd removes the set lendUserfaultfd handed QEMU the device in. A fast load makes its
+// one userfaultfd before postcopy-active, and keeps it until the state is all read.
+func (m *QEMU) takeUserfaultfd(ctx context.Context) error {
+	if _, err := qmp.Do(ctx, m.c, qmp.RemoveFD, qmp.RemoveFDArgs{Set: userfaultfdSet}); err != nil {
+		return fmt.Errorf("taking the userfaultfd device back from QEMU: %w", err)
+	}
+	return nil
 }
 
 // Saved is what a checkpoint is besides its state file: what the caller keeps beside the state
@@ -569,19 +601,24 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 // from the file and an eager thread reads the rest. It returns once QEMU runs the guest, after
 // postcopy-active, and Loaded says when the state is all read. The guest's faults are taken in
 // the kernel, which an unprivileged UFFD_USER_MODE_ONLY descriptor does not see, so QEMU needs a
-// full userfaultfd (userfaults).
+// full userfaultfd, which it makes from the device Resume hands it for the load and takes back
+// before it returns (userfaultfd). A QEMU that loads in full is never handed the device.
 //
 // A *Refusal in its error is the checkpoint itself: CanResume's, a state file of another length
 // than Saved.Length, a format this QEMU does not read, or a Saved.Added it cannot read. Every other error, a load that failed among them
 // (loadEnded), may be this host or this try, and is not typed.
-func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error {
+func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) (err error) {
 	if err := CanResume(saved, here); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
 	if err := holdsWhatWasWritten(state, saved); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
-	fast := loadsFast(state, saved)
+	dev := userfaultfd(state, saved)
+	fast := dev != nil
+	if fast {
+		defer func() { _ = dev.Close() }()
+	}
 	channels := load.channels(saved.Format, fast)
 	caps := map[migrationCapability]bool{pauseBeforeSwitchover: false, events: true}
 	switch {
@@ -597,7 +634,9 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		// CanResume refused it already unless here says it reads a format this QEMU does not.
 		return fmt.Errorf("resuming: %w", &Refusal{[]Difference{{Part: "format", Checkpoint: saved.Format, Here: FormatMappedRAM + " " + FormatStream, Rule: Reads}}})
 	}
-	ReadAhead(state, saved)
+	if prefetches(saved, fast) {
+		prefetch(state)
+	}
 	var again added
 	if len(saved.Added) > 0 {
 		if err := json.Unmarshal(saved.Added, &again); err != nil {
@@ -632,6 +671,16 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 		if _, err := qmp.Do(ctx, m.c, deviceAdd, args); err != nil {
 			return fmt.Errorf("resuming: adding vCPU %s: %w", c.ID, err)
 		}
+	}
+	if fast {
+		if err := m.lendUserfaultfd(ctx, dev); err != nil {
+			return fmt.Errorf("resuming: %w", err)
+		}
+		defer func() {
+			if taken := m.takeUserfaultfd(ctx); taken != nil && err == nil {
+				err = fmt.Errorf("resuming: %w", taken)
+			}
+		}()
 	}
 	if err := m.setCapabilities(ctx, caps); err != nil {
 		return fmt.Errorf("resuming: %w", err)
@@ -725,8 +774,12 @@ func (m *QEMU) runLoaded(ctx context.Context) error {
 // QEMU itself holds the state ~20 ms before QEMU answers its monitor, and calling ReadAhead then
 // runs the read beside QEMU's start instead of after it. Called twice, the second call asks for
 // pages already read or on their way, which the kernel skips.
+//
+// It reads ahead a state that would load in full wherever it is resumed, and leaves to Resume a
+// state that loads fast where the host grants QEMU a userfaultfd: Resume reads it ahead where the
+// device does not open (userfaultfd), and only Resume opens it.
 func ReadAhead(state *os.File, saved Saved) {
-	if prefetches(state, saved) {
+	if prefetches(saved, loadsFast(state, saved)) {
 		prefetch(state)
 	}
 }
@@ -736,8 +789,8 @@ func ReadAhead(state *os.File, saved Saved) {
 // faster than a read in the file's order reaches them: read ahead, a 3.7 GiB state's faults took
 // 78 µs against 85 and its login 436 ms against 458, p95 713 against 490 (bench, spin's shape,
 // 10 a side, lab 45035048486, 2026-11-22, #470).
-func prefetches(state *os.File, saved Saved) bool {
-	return saved.Format == FormatMappedRAM && !loadsFast(state, saved)
+func prefetches(saved Saved, fast bool) bool {
+	return saved.Format == FormatMappedRAM && !fast
 }
 
 // prefetch asks the kernel to start reading the state's data into the page cache, extent by

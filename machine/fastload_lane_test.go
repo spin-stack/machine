@@ -15,12 +15,14 @@ import (
 	"time"
 )
 
-// TestAFastLoadNeedsNoUserfaultfdGrant is the lane of Spec.UserfaultFDSet (spin-stack/spin#1711):
-// on a host whose /dev/userfaultfd only root opens and whose vm.unprivileged_userfaultfd is 0, a
-// QEMU run as nobody in a root of Spec.Files and /dev/null loads a state of more than fastAbove
-// fast, with the device Start opened as root and handed it. The guest runs before its state is
-// all read, and keeps running. Root, for the device, the root and the credentials, and KVM: task
-// boot:fastload.
+// TestAFastLoadNeedsNoUserfaultfdGrant is the lane of the userfaultfd device a fast load hands
+// QEMU (spin-stack/spin#1711): on a host whose /dev/userfaultfd only root opens and whose
+// vm.unprivileged_userfaultfd is 0, a QEMU run as nobody in a root of Spec.Files and /dev/null
+// loads a state of more than fastAbove fast, with the device Resume opened as root and handed it.
+// The guest runs before its state is all read, and keeps running. QEMU holds the device only
+// while Resume runs: not while it is held for the load, and not once Resume has returned, with
+// the state still loading (#789). Root, for the device, the root and the credentials, and KVM:
+// task boot:fastload.
 func TestAFastLoadNeedsNoUserfaultfdGrant(t *testing.T) {
 	if os.Getenv("SPIN_FASTLOAD_TEST") != "1" {
 		t.Skip("set SPIN_FASTLOAD_TEST=1, as root, to load a state fast into a QEMU run as nobody: task boot:fastload")
@@ -122,23 +124,28 @@ func TestAFastLoadNeedsNoUserfaultfdGrant(t *testing.T) {
 	if data := written(state); data <= fastAbove {
 		t.Fatalf("the state holds %d MiB of data, not over fastAbove's %d: it would load in full", data>>20, fastAbove>>20)
 	}
-	if !userfaults(userfaultfdDevice) {
-		t.Fatalf("root cannot open %s", userfaultfdDevice)
-	}
-
 	spec.Restore = true
 	r, console := start(t, spec)
 	here, err := r.Target(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if n := userfaultfdsHeld(t, r.Pid()); n != (heldUserfaultfds{}) {
+		t.Errorf("QEMU held for the load holds %+v", n)
+	}
 	var phases []string
 	load := LoadOptions{Phases: func(ph Phase) { phases = append(phases, fmt.Sprintf("%T", ph)) }}
 	if err := r.Resume(ctx, state, saved, here, load, disk(t)); err != nil {
 		t.Fatalf("resuming as nobody: %v", err)
 	}
+	if n := userfaultfdsHeld(t, r.Pid()); n.devices != 0 {
+		t.Errorf("QEMU loading fast holds %+v once Resume has returned, want no device", n)
+	}
 	if err := r.Loaded(ctx); err != nil {
 		t.Fatalf("loading: %v", err)
+	}
+	if n := userfaultfdsHeld(t, r.Pid()); n != (heldUserfaultfds{}) {
+		t.Errorf("QEMU that has loaded holds %+v", n)
 	}
 	t.Logf("phases: %v", phases)
 	if got := strings.Join(phases, " "); got != "machine.LoadStarted machine.GuestRunning machine.StateLoaded" {
@@ -150,4 +157,33 @@ func TestAFastLoadNeedsNoUserfaultfdGrant(t *testing.T) {
 	var first int
 	_, _ = fmt.Sscan(tick.FindStringSubmatch(console.String())[1], &first)
 	await(t, r, console, regexp.MustCompile(fmt.Sprintf(`TICK-%d\b`, first+5)))
+}
+
+// heldUserfaultfds is what a process holds of userfaultfd: descriptors of the device, which make
+// userfaultfds, and userfaultfds.
+type heldUserfaultfds struct{ devices, userfaultfds int }
+
+// userfaultfdsHeld is what process pid holds of userfaultfd, read from its descriptors.
+func userfaultfdsHeld(t *testing.T, pid int) heldUserfaultfds {
+	t.Helper()
+	dev, err := os.Stat(userfaultfdDevice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := fmt.Sprintf("/proc/%d/fd", pid)
+	fds, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var held heldUserfaultfds
+	for _, fd := range fds {
+		path := filepath.Join(dir, fd.Name())
+		if to, err := os.Readlink(path); err == nil && to == "anon_inode:[userfaultfd]" {
+			held.userfaultfds++
+		}
+		if st, err := os.Stat(path); err == nil && os.SameFile(st, dev) {
+			held.devices++
+		}
+	}
+	return held
 }

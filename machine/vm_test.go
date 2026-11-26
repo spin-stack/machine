@@ -876,6 +876,9 @@ func TestResume(t *testing.T) {
 			if !reflect.DeepEqual(caps, tc.caps) {
 				t.Errorf("capabilities %v, want %v", caps, tc.caps)
 			}
+			if lent, taken := userfaultfdLent(f.recorded()); tc.fast != (lent && taken) || lent != taken {
+				t.Errorf("loading fast %t: the userfaultfd device lent %t and taken back %t, want both only for a fast load", tc.fast, lent, taken)
+			}
 			if params := f.sent("migrate-set-parameters"); tc.channels > 1 && (len(params) != 1 || params[0]["multifd-channels"] != float64(tc.channels)) ||
 				tc.channels <= 1 && len(params) != 0 {
 				t.Errorf("parameters %v, want multifd-channels only for more than one channel", params)
@@ -899,6 +902,62 @@ func TestResume(t *testing.T) {
 			if active := f.sent("blockdev-set-active"); len(active) != 1 || !reflect.DeepEqual(active[0], map[string]any{"active": true}) ||
 				strings.Index(cmds, "blockdev-set-active") > strings.Index(cmds, "migrate-incoming") {
 				t.Errorf("blockdev-set-active %v in %s, want every disk taken once, before the load", active, cmds)
+			}
+		})
+	}
+}
+
+// userfaultfdLent is whether calls hand QEMU the userfaultfd device, as a descriptor, in the set
+// a restore's command line names, before postcopy-ram is asked for, and whether they then take it
+// back once QEMU has run the guest or the resume has failed.
+func userfaultfdLent(calls []call) (lent, taken bool) {
+	for _, c := range calls {
+		set := c.Args["fdset-id"] == float64(userfaultfdSet)
+		switch {
+		case c.Command == "add-fd" && set && c.FD:
+			lent = true
+		case c.Command == "migrate-set-capabilities" && !lent:
+			return false, false
+		case c.Command == "remove-fd" && set && lent:
+			taken = true
+		}
+	}
+	return lent, taken
+}
+
+// A fast resume lends QEMU the userfaultfd device only while it runs: it is taken back before
+// Resume returns, whether the guest ran or the resume failed, and a QEMU that kept it is
+// Resume's error (#789).
+func TestAFastResumeTakesTheUserfaultfdDeviceBack(t *testing.T) {
+	from := fakeTarget(t)
+	for _, tc := range []struct {
+		name     string
+		refuse   func(call) bool // what QEMU refuses
+		want     string          // in Resume's error
+		statuses []string
+	}{
+		{"the guest ran", func(call) bool { return false }, "", []string{"setup", "postcopy-active", "RESUME"}},
+		{"the capabilities refused", func(c call) bool { return c.Command == "migrate-set-capabilities" },
+			"setting the migration's capabilities", nil},
+		{"the device kept", func(c call) bool { return c.Command == "remove-fd" && c.Args["fdset-id"] == float64(userfaultfdSet) },
+			"taking the userfaultfd device back from QEMU", []string{"setup", "postcopy-active", "RESUME"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loadingFast(t, true)
+			f := &fakeQEMU{}
+			f.answer = migrations(func(c call) string {
+				if tc.refuse(c) {
+					return refused("no")
+				}
+				return machineAnswers("inmigrate", "root")(c)
+			}, tc.statuses...)
+			err := f.attach(t).Resume(ctx(t), image(t, "raw").File, Saved{Format: FormatMappedRAM, From: from}, from, LoadOptions{},
+				Disk{Serial: "root", Images: []Image{image(t, "qcow2")}})
+			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Errorf("Resume = %v, want %q", err, tc.want)
+			}
+			if lent, taken := userfaultfdLent(f.recorded()); !lent || !taken {
+				t.Errorf("the userfaultfd device lent %t and taken back %t, want both", lent, taken)
 			}
 		})
 	}
