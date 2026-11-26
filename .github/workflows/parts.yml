@@ -11,12 +11,13 @@ name: Parts
 # a kernel at a fixed address or an image with an identity baked in fails here rather than in a
 # VM that will not start weeks later.
 #
-# The builds run on the RunsOn build fleet (spin-stack/ci: 16 vCPU, no nested virtualization,
-# which nothing here boots), not GitHub's 4-vCPU runners. There, cold, the kernel job took 21-27
-# min, the kernel 10-13 and the traceable kernel 9-12 after it, and QEMU 6-9 (parts runs
-# 45254983345, 45267869531, 45272669299). A compile takes nproc inside its RUN and no build
-# argument names the runner's size, so the fleet, a laptop and any other runner share one cache.
-# `changed` and `parts` compile nothing and stay on GitHub's runners.
+# The builds run on the RunsOn build fleet (spin-stack/ci: 16 vCPU, no nested virtualization),
+# not GitHub's 4-vCPU runners. There, cold, the kernel job took 21-27 min, the kernel 10-13 and
+# the traceable kernel 9-12 after it, and QEMU 6-9 (parts runs 45254983345, 45267869531,
+# 45272669299). A compile takes nproc inside its RUN and no build argument names the runner's
+# size, so the fleet, a laptop and any other runner share one cache. image-shirudo boots the
+# image, so it runs on the KVM fleet. `changed` and `parts` compile nothing and stay on GitHub's
+# runners.
 
 on:
   # No paths: `parts` has to report on every change, and `changed` below is the filter. A path
@@ -370,13 +371,97 @@ jobs:
       # and a cache entry large enough to push others out of the repository's 10 GB.
       #
       # It builds the systemd the image installs first, and says what the image is, by sha256,
-      # on the run's summary. Not uploaded as an artifact: it is ~860 MB and the release
-      # workflow rebuilds it from the same inputs.
+      # on the run's summary.
       - name: Build the base image
         env:
           # main's lanes write the cache back; everything else only reads it.
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: spin-machine-dev build image --cache-registry --cache-export="$CACHE_EXPORT"
+
+      # For image-shirudo, which boots it: this runner has no /dev/kvm. A day is enough for that
+      # job, and the release workflow rebuilds the image from the same inputs.
+      - name: Hand the image to image-shirudo
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rootfs-${{ github.sha }}
+          path: _output/image/rootfs.qcow2
+          retention-days: 1
+          if-no-files-found: error
+
+  # The image just built, deployed with shirudo and booted as compat's shirudo job boots a
+  # release's (boot:shirudo-here): a change to the image's systemd, its units, its masks or
+  # build.sh reaches a shirudo machine's initrd and its PCR 11 measurements, and compat boots the
+  # release's image, not this one (#820). On the KVM fleet, which the build fleet is not. The
+  # kernel and shirudo are the ones the image job's kernel and the shirudo job's build are: the
+  # kernel job's artifact when the change reaches the kernel, and otherwise main's cache.
+  image-shirudo:
+    needs: [changed, kernel, image]
+    if: ${{ always() && needs.image.result == 'success' }}
+    runs-on: runs-on/fleet=kvm/env=production
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: A BuildKit that reads the lanes' cache
+        run: go tool task boot:buildkit
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Load vhost_vsock
+        run: spin-machine-dev vsock
+
+      - name: Take the image the image job built
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rootfs-${{ github.sha }}
+          path: _output/image
+
+      - name: Take the kernel the kernel job built
+        if: needs.kernel.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vmlinux-${{ github.sha }}
+          path: _output/kernel
+
+      - name: Take its manifest
+        if: needs.kernel.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: kernel-manifest-${{ github.sha }}
+          path: _output/manifest
+
+      - name: Build this change's QEMU
+        if: needs.changed.outputs.qemu == 'true'
+        run: spin-machine-dev build qemu --cache-registry --cache-export=false
+
+      - name: Main's published QEMU
+        if: needs.changed.outputs.qemu != 'true'
+        run: spin-machine-dev fetch qemu
+
+      - name: Build this change's shirudo
+        run: spin-machine-dev build shirudo --cache-registry --cache-export=false
+
+      - name: The machine before, and this one
+        run: go tool task boot:here
+
+      - name: shirudo runs on this change's image
+        run: go tool task boot:shirudo-here
 
   # The shirudo a release ships (guest/shirudo), from the commit the kernel's hooks come from and
   # against that kernel's BTF: so after the kernel job, taking what it built as the image job
@@ -434,7 +519,7 @@ jobs:
   # can require. A part the change does not reach is skipped, which is a pass; one that failed or
   # was cancelled, or a `changed` that could not say, is not.
   parts:
-    needs: [changed, qemu, kernel, traceable, image, shirudo]
+    needs: [changed, qemu, kernel, traceable, image, image-shirudo, shirudo]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

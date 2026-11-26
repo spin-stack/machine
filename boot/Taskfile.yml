@@ -280,14 +280,17 @@ tasks:
   shirudo-here:
     desc: >-
       boot:shirudo on this change's machine (boot:here's tree, SPIN_MACHINE_OUTPUT) with the shirudo
-      and operator half this tree built (spin-machine-dev build shirudo) put in it: compat's shirudo
-      job, so a change to shirudo, its pins or the kernel it hooks runs shirudo before it merges.
+      and operator half this tree built (spin-machine-dev build shirudo) put in it, and the base
+      image when this tree built one (spin-machine-dev build image): compat's shirudo job, so a
+      change to shirudo, its pins or the kernel it hooks runs shirudo before it merges, and parts'
+      image-shirudo job, so a change to the image does.
     cmds:
       # The tree's guest/shirudo is a link into the release's own tree once a release ships one
       # (v20261126.02 on), and its shirudo-operator once a release ships that: each replaced by
       # removing the link, never by writing through it, or the release's copy changes.
       - mkdir -p "$SPIN_MACHINE_OUTPUT/guest" && rm -f "$SPIN_MACHINE_OUTPUT/guest/shirudo" && cp {{.OUTPUT_ABS}}/guest/shirudo "$SPIN_MACHINE_OUTPUT/guest/shirudo"
       - rm -rf "$SPIN_MACHINE_OUTPUT/shirudo-operator" && cp -a {{.OUTPUT_ABS}}/shirudo-operator "$SPIN_MACHINE_OUTPUT/shirudo-operator"
+      - if [ -f {{.OUTPUT_ABS}}/image/rootfs.qcow2 ]; then rm -f "$SPIN_MACHINE_OUTPUT/image/rootfs.qcow2" && cp {{.OUTPUT_ABS}}/image/rootfs.qcow2 "$SPIN_MACHINE_OUTPUT/image/rootfs.qcow2"; fi
       - SPIN_SHIRUDO_TEST=1 go test ./boot/ -run '^TestTheShippedShirudoRunsOnTheRelease$' -count=1 -v -timeout 45m
 
   shirudo-packed:

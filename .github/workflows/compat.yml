@@ -252,7 +252,8 @@ jobs:
   # does not reach it, so that shirudo's BPF objects and the kernel booted are one build. QEMU is
   # built when the change reaches it, as resume's: main's published one would leave a change to
   # swtpm or qboot unrun (#783). Not in a release's call: there release.yml checks the tarball it
-  # packed.
+  # packed. A change to the base image is parts.yml's image-shirudo's, which boots the image it
+  # built: this job boots the release's.
   shirudo:
     needs: changed
     if: needs.changed.outputs.shirudo == 'true' && !inputs.release
