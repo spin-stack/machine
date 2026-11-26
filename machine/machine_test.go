@@ -3,7 +3,6 @@
 package machine
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -104,7 +103,7 @@ func TestArgs(t *testing.T) {
 		// What qboot measures, from the events the machine names: the kernel's digest in PCR 4.
 		name: "a TPM's measurements for the firmware",
 		set:  func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3, Kernel: [32]byte{0xab}} },
-		want: []string{"-fw_cfg name=opt/org.spin-stack/tpm-events,string=00 00000004 ", " 04 0000000d ab" + strings.Repeat("00", 31) + " 4c696e7578206b65726e656c "},
+		want: []string{"-fw_cfg name=opt/org.spin-stack/tpm-events,string=04 0000000d ab" + strings.Repeat("00", 31) + " 4c696e7578206b65726e656c "},
 	}, {
 		// qboot unless told otherwise: SeaBIOS is QEMU's own default, and a Spec that left the
 		// firmware to QEMU would boot it without saying so.
@@ -757,8 +756,7 @@ func TestAMachineStartsHeldForABootOrARestore(t *testing.T) {
 	}
 }
 
-// What a machine with a TPM measures: the separators that end the firmware's PCRs 0-7, the
-// kernel's digest in PCR 4, and in PCR 9 the command line QEMU hands the kernel and the initrd,
+// What a machine with a TPM measures: the kernel's digest in PCR 4, and in PCR 9 the command line QEMU hands the kernel and the initrd,
 // tagged as Linux's EFI stub tags them. A machine without a TPM measures nothing.
 func TestATPMMeasuresTheKernelItsCommandLineAndItsInitrd(t *testing.T) {
 	s := spec(t)
@@ -780,13 +778,8 @@ func TestATPMMeasuresTheKernelItsCommandLineAndItsInitrd(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := s.TPMEvents()
-	if len(events) != 11 {
-		t.Fatalf("%d events, want 8 separators, the kernel, the command line and the initrd: %v", len(events), events)
-	}
-	for i, e := range events[:8] {
-		if e.PCR != uint32(i) || e.Type != EvSeparator || e.Digest != sha256.Sum256(e.Data) || !bytes.Equal(e.Data, []byte{0, 0, 0, 0}) {
-			t.Errorf("event %d is %+v, want PCR %d's separator", i, e, i)
-		}
+	if len(events) != 3 {
+		t.Fatalf("%d events, want the kernel, the command line and the initrd: %v", len(events), events)
 	}
 	want := []struct {
 		pcr, typ uint32
@@ -798,9 +791,9 @@ func TestATPMMeasuresTheKernelItsCommandLineAndItsInitrd(t *testing.T) {
 		{9, EvEventTag, [32]byte{2}, "\xec\x22\x3b\x8f\x0d\x00\x00\x00Linux initrd\x00"},
 	}
 	for i, w := range want {
-		e := events[8+i]
+		e := events[i]
 		if e.PCR != w.pcr || e.Type != w.typ || e.Digest != w.digest || string(e.Data) != w.data {
-			t.Errorf("event %d is %+v, want PCR %d, type %#x, digest %x, data %q", 8+i, e, w.pcr, w.typ, w.digest, w.data)
+			t.Errorf("event %d is %+v, want PCR %d, type %#x, digest %x, data %q", i, e, w.pcr, w.typ, w.digest, w.data)
 		}
 	}
 	if !strings.Contains(argValue(args, "-fw_cfg"), fmt.Sprintf("09 00000006 %x ", sha256.Sum256([]byte(argValue(args, "-append"))))) {

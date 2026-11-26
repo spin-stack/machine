@@ -95,28 +95,26 @@ type TPMEvent struct {
 
 // The TCG PC Client event types the firmware logs.
 const (
-	EvSeparator = 0x4
-	EvEventTag  = 0x6
-	EvIPL       = 0xd
+	EvEventTag = 0x6
+	EvIPL      = 0xd
 )
 
 // TPMEvents are what the firmware of a machine with a TPM measures as it boots, in order, and nil
-// for a machine without one or started to restore. They follow where a UEFI boot puts the same things (the TCG PC Client firmware
-// profile, the UAPI group's Linux TPM PCR registry): PCRs 0 to 7 end the firmware's phase with a
-// separator; the kernel is the code the firmware boots, in PCR 4; and the command line and the
-// initrd are in PCR 9, as tagged events of the tags and descriptions Linux's EFI stub uses, which
-// is what shirudo binds its register under. The command line is the one QEMU hands the kernel, its
-// bytes without a NUL; the stub measures UEFI's UTF-16 LoadOptions instead, which a PVH boot has none of.
+// for a machine without one or started to restore. They follow where a UEFI boot puts the same
+// things (the TCG PC Client firmware profile, the UAPI group's Linux TPM PCR registry): the kernel
+// is the code the firmware boots, in PCR 4, and the command line and the initrd are in PCR 9, as
+// tagged events of the tags and descriptions Linux's EFI stub uses, which is the PCR shirudo
+// anchors its register in. The command line is the one QEMU hands the kernel, its bytes without a
+// NUL; the stub measures UEFI's UTF-16 LoadOptions instead, which a PVH boot has none of.
+//
+// No EV_SEPARATOR ends PCRs 0-7, as a PC firmware's log has: nothing else is measured into them, a
+// verifier that pins PCR 4's value refuses an event the guest adds to it, and each extend is ~1 ms
+// of the nested bench's cold boot (#742).
 func (s Spec) TPMEvents() []TPMEvent {
 	if !s.TPM.on() || s.Restore {
 		return nil
 	}
-	separator := []byte{0, 0, 0, 0}
-	var events []TPMEvent
-	for pcr := range uint32(8) {
-		events = append(events, TPMEvent{PCR: pcr, Type: EvSeparator, Digest: sha256.Sum256(separator), Data: separator})
-	}
-	events = append(events, TPMEvent{PCR: 4, Type: EvIPL, Digest: s.TPM.Kernel, Data: []byte("Linux kernel")})
+	events := []TPMEvent{{PCR: 4, Type: EvIPL, Digest: s.TPM.Kernel, Data: []byte("Linux kernel")}}
 	events = append(events, tagged(sha256.Sum256([]byte(s.cmdline().String())), 0x8f3b22ed, "LOADED_IMAGE::LoadOptions"))
 	if s.Initrd != "" {
 		events = append(events, tagged(s.TPM.Initrd, 0x8f3b22ec, "Linux initrd"))
