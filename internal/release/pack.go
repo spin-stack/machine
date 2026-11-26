@@ -198,6 +198,7 @@ func shipped(o Options, top, share string) ([]file, error) {
 	// A changed GPL source is distributed with its changes.
 	for _, d := range []struct{ glob, prefix, what string }{
 		{filepath.Join(o.Root, "qemu/qboot/*.patch"), "qemu/qboot-", "qboot's patch"},
+		{filepath.Join(o.Root, "qemu/swtpm/*.patch"), "qemu/swtpm-", "swtpm's patch"},
 		{filepath.Join(o.Root, "qemu/patches/*.patch"), "qemu/patches/", "QEMU patch"},
 		{fromOut("kernel/patches/*.patch"), "kernel/patches/", "kernel patch"},
 		{filepath.Join(o.Root, "image/openssh/*.patch"), "openssh/", "OpenSSH patch"},

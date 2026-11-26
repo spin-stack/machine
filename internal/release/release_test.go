@@ -54,7 +54,7 @@ func apkDB(only string) string {
 func tree(t *testing.T) (root, out string) {
 	t.Helper()
 	root, out = t.TempDir(), t.TempDir()
-	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/mtrr.patch", "qemu/qboot/pam.patch", "qemu/patches/0001-a.patch",
+	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/mtrr.patch", "qemu/qboot/pam.patch", "qemu/swtpm/s.patch", "qemu/patches/0001-a.patch",
 		"image/openssh/a.patch", "image/systemd/s.patch"} {
 		put(t, filepath.Join(root, f), f, 0o644)
 	}
@@ -142,6 +142,7 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755, share + "bin/swtpm": 0o755, share + "bin/passt": 0o755, share + "bin/spin-machine": 0o755, share + "go-licenses.txt": 0o644,
 		share + "guest/shirudo": 0o755, share + "shirudo-licenses.txt": 0o644,
 		share + "bin/debugfs": 0o755, share + "qemu/qboot.bin": 0o644, share + "qemu/qboot-mtrr.patch": 0o644, share + "qemu/qboot-pam.patch": 0o644,
+		share + "qemu/swtpm-s.patch": 0o644,
 		share + "qemu/qboot-COPYING": 0o644, share + "qemu/patches/0001-a.patch": 0o644, share + "kernel/patches/0001-k.patch": 0o644,
 		share + "openssh/a.patch": 0o644, share + "systemd/s.patch": 0o644, share + "kernel/vmlinux": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
 		share + "e2fsprogs/mke2fs.conf": 0o644, share + "packages.txt": 0o644}
@@ -150,8 +151,8 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 39 {
-		t.Errorf("the tarball holds %d files, want 39: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 40 {
+		t.Errorf("the tarball holds %d files, want 40: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return
@@ -252,6 +253,7 @@ func TestAReleaseMissingAnythingIsRefused(t *testing.T) {
 		{"the kernel the machine boots", "out:kernel/vmlinux", "the guest kernel"},
 		{"the option ROM it enters the kernel with", "out:qemu/pvh.bin", "firmware pvh.bin"},
 		{"every qboot patch", "root:qemu/qboot/*.patch", "qboot's patch"},
+		{"every swtpm patch", "root:qemu/swtpm/*.patch", "swtpm's patch"},
 		{"every kernel patch", "out:kernel/patches", "kernel patch"},
 		{"every OpenSSH patch", "root:image/openssh/*.patch", "OpenSSH patch"},
 		{"every systemd patch", "root:image/systemd/*.patch", "systemd patch"},

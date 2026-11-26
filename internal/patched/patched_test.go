@@ -280,7 +280,7 @@ func TestFindNamesEveryPart(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), strings.Join(Names(), ", ")) {
 		t.Errorf("an unknown part: %v", err)
 	}
-	if !slices.Equal(Names(), []string{"kernel", "qemu", "qboot", "systemd", "openssh"}) {
+	if !slices.Equal(Names(), []string{"kernel", "qemu", "qboot", "systemd", "openssh", "swtpm"}) {
 		t.Errorf("Names = %v", Names())
 	}
 }

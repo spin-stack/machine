@@ -126,8 +126,8 @@ swtpm %s
   source:   %s
   sha256:   %s
   licence:  BSD-3-Clause
-  built by: qemu/Dockerfile's swtpm stage, unpatched, statically linked against libtpms and
-            json-glib below and the Alpine libraries QEMU's builder installs (qemu/apk.list),
+  built by: qemu/Dockerfile's swtpm stage, with usr/share/spin-stack/qemu/swtpm-*.patch applied
+            to that source in name order, statically linked against libtpms and json-glib below and the Alpine libraries QEMU's builder installs (qemu/apk.list),
             whose sources are the Alpine package sources for that release
 
 libtpms %s, linked into swtpm

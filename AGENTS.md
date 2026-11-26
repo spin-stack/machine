@@ -26,10 +26,10 @@ cost.
 cold number cannot reach 100 ms by userspace work alone: QEMU, the firmware and the kernel spend
 ~140 ms before PID 1 runs (its cold budget, 2026-11-20).
 
-**Every part of the machine may be changed, without limit.** The kernel, systemd, QEMU and qboot
-are all ours to patch when a patch serves the goal. Carry a patch where the tree keeps that
+**Every part of the machine may be changed, without limit.** The kernel, systemd, QEMU, qboot and
+swtpm are all ours to patch when a patch serves the goal. Carry a patch where the tree keeps that
 part's patches today: the kernel's in `kernel/patches`, QEMU's in `qemu/patches`, qboot's beside
-its README in `qemu/qboot`, systemd's in `image/systemd` and OpenSSH's in `image/openssh`, whose
+its README in `qemu/qboot`, swtpm's beside its README in `qemu/swtpm`, systemd's in `image/systemd` and OpenSSH's in `image/openssh`, whose
 Dockerfiles rebuild Ubuntu's source packages. `image/systemd/Dockerfile` applies systemd's. An
 experiment's systemd patch goes in `image/systemd/experiments`.
 A kernel patch is written to the kernel's coding style, [coding-style.rst](https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/Documentation/process/coding-style.rst),

@@ -59,7 +59,7 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `bin/spin-machine` | static. The tool that boots a machine of this release by hand (below), built from the release's commit |
 | `bin/mkfs.ext4`, `bin/debugfs`, `bin/e2fsck`, `bin/dumpe2fs`, `e2fsprogs/mke2fs.conf` | static e2fsprogs, and the defaults an ext4 for this kernel is made with |
 | `qemu/qboot.bin` and the other ROMs | qboot.bin is the BIOS a machine boots with |
-| `qemu/patches/`, `qemu/qboot-*.patch`, `qemu/qboot-COPYING` | the changes this tree makes to QEMU and qboot, shipped with the binaries built from them |
+| `qemu/patches/`, `qemu/qboot-*.patch`, `qemu/qboot-COPYING`, `qemu/swtpm-*.patch` | the changes this tree makes to QEMU, qboot and swtpm, shipped with the binaries built from them |
 | `kernel/vmlinux`, `kernel/kernel-config` | the kernel a machine boots, through PVH, and its configuration. No `kernel/bzImage` since #660 |
 | `kernel/sources` | every source and header the kernel compiled, which `spin-machine-dev cves` judges CVEs against |
 | `kernel/patches/` | the changes this tree makes to the kernel |
