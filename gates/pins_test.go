@@ -98,3 +98,34 @@ func TestTheKernelsSourceIsTheTarballTheBuildFetches(t *testing.T) {
 		t.Errorf("kernel/Dockerfile no longer fetches %s for kernel %s", built, e.Version)
 	}
 }
+
+// Every entry's track is one `spin-machine-dev outdated` reads (go-tools' versions/upstream):
+// swtpm's `github-release stefanberger/swtpm` passed versions.Parse and read "not a GitHub
+// repository" in outdated, so its pin drifted with nothing to say so (#780). Each kind's argument
+// is held to the form upstream.newest gives it; a with track is Parse's to check.
+func TestEveryTrackIsOneOutdatedReads(t *testing.T) {
+	v, err := versions.Load(filepath.Join(root, versions.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	url := func(s string) bool { return strings.HasPrefix(s, "https://") }
+	none := func(arg []string) bool { return len(arg) == 0 }
+	reads := map[string]func(arg []string) bool{
+		"github-release": func(arg []string) bool {
+			return len(arg) >= 1 && len(arg) <= 2 && strings.HasPrefix(arg[0], "https://github.com/")
+		},
+		"tags":    func(arg []string) bool { return len(arg) == 1 && url(arg[0]) },
+		"page":    func(arg []string) bool { return len(arg) == 1 && url(arg[0]) },
+		"commit":  func(arg []string) bool { return len(arg) == 2 && url(arg[0]) },
+		"follows": func(arg []string) bool { return len(arg) > 0 },
+		"with":    func([]string) bool { return true },
+		"branch":  none, "digest": none, "kernel": none, "today": none, "go": none, "pypi": none,
+	}
+	for _, e := range v.Entries {
+		kind, arg, _ := strings.Cut(e.Track, " ")
+		ok, known := reads[kind]
+		if !known || !ok(strings.Fields(arg)) {
+			t.Errorf("%s: track %q is not one outdated reads", e.Name, e.Track)
+		}
+	}
+}
