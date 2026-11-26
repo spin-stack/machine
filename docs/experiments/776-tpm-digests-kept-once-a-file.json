@@ -1,0 +1,16 @@
+{
+  "decision": "open",
+  "order": 95,
+  "change": "`spin-machine boot --tpm` keeps the kernel's and initrd's SHA-256 under the user's cache directory, keyed by the file's device, inode, size, modification and change times, instead of hashing the 42 MB vmlinux at every boot (#776)",
+  "number": "cold, with a TPM, through the CLI the lab boots",
+  "phase": "the CLI's hashing before QEMU's exec, inside the probes' clock: +26.0 [+18.4, +37.2] (lab 45838578696) and +28.1 [+22.8, +37.2] (lab 45843630680), so the ceiling is ~26 ms. Hashing concurrently with QEMU's start is out: the digests are on QEMU's command line (`-fw_cfg string=`), so QEMU cannot exec before they exist. Prior art: ccache's inode cache and git's index keep a file's digest under its stat identity and refuse a file whose times are too new for a coarse clock; spin hashes each file once per process",
+  "decided_by": "`ssh-first`, main's spin-machine against this one, both `--tpm`, 40 a side, bench, spin's shape",
+  "state": "open",
+  "issues": [
+    776
+  ],
+  "runs": [
+    45838578696,
+    45843630680
+  ]
+}
