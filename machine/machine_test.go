@@ -230,10 +230,16 @@ func TestArgs(t *testing.T) {
 		name: "userfaultfd handed over",
 		set: func(s *Spec) {
 			s.Restore = true
-			s.FDSets = []FDSet{{ID: 2, FDs: []FD{{Num: 4}}}}
-			s.UserfaultFDSet = 2
+			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 4}}}}
+			s.UserfaultFDSet = 1
 		},
-		want: []string{"-userfaultfd /dev/fdset/2 -incoming defer"},
+		want: []string{"-userfaultfd /dev/fdset/1 -incoming defer"},
+	}, {
+		// A restore that was handed no device leaves QEMU to its own.
+		name:   "userfaultfd not handed",
+		set:    func(s *Spec) { s.Restore = true },
+		want:   []string{"-incoming defer"},
+		absent: []string{"-userfaultfd"},
 	}, {
 		// A value a caller supplies is a value, not more options. QEMU splits an option
 		// string on a single comma, so "a,readonly=off" as a path was a path "a" and a
