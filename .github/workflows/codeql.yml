@@ -188,9 +188,11 @@ jobs:
         run: spin-machine-dev patched severe _output/codeql/go
 
   # A failed day is an issue, opened once a day: the run's log says which job and why.
+  # Only main's: the issue is titled "failed on main", and a run dispatched on a branch is its
+  # author's to read (#731 was a branch's).
   report:
     needs: [analyze, own]
-    if: ${{ failure() }}
+    if: ${{ failure() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
