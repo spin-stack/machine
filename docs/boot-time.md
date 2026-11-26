@@ -198,25 +198,35 @@ experiments", #457.)
 
 spin gives a workspace that runs shirudo a TPM (`machine.Spec.TPM`, #719): swtpm beside QEMU,
 behind `tpm-crb`. Each row is what the TPM adds to a phase, a machine with one against the same
-machine without, interleaved, spin's shape, v20261126.01's parts (#745, 2026-11-26).
+machine without, interleaved, spin's shape, v20261126.01's parts (#745, #775, 2026-11-26).
 
 | Phase | Δ with a TPM | Source | How well known |
 |---|---|---|---|
-| QEMU's exec to the guest's first instruction: swtpm's start and QEMU's backend waiting on it | +4.8 [+4.1, +9.7] | `ledger` `qemu_start`, lab 45830006273, 3 a side | measured, not split |
+| QEMU's exec to the guest's first instruction: swtpm's start and QEMU's backend waiting on it | +4.8 [+4.1, +9.7] | `ledger` `qemu_start`, lab 45830006273, 3 a side | measured |
+| … of it, swtpm's exec to its first answer | 0, overlapped | strace of swtpm and QEMU (labs 45838340907, 45838342840, 3 a side each): QEMU sends its first control command 6.3-7.2 ms after its exec and swtpm answers it in 0.1 ms. swtpm starts beside QEMU and is ready before QEMU asks | measured, traced |
+| … of it, CMD_INIT, which QEMU waits on at its reset | 5.0-5.5 under strace | the same traces: the INIT ~28 ms after QEMU's exec, 1 ms of it reading the host's openssl.cnf, the rest CPU; callgrind put 89% of an INIT's instructions in swtpm's test of OpenSSL's algorithms, RSA signs at every key size (`qemu/swtpm/README.md`) | measured, traced |
 | The kernel's clock to PID 1: `crb_acpi_driver_init` | +19.1 [+17.3, +21.5] | `initcalls`, lab 45829990377, 10 a side; the ledger's kernel window +18.8 of idle, the kernel's CPU unchanged | measured |
 | … of it, TPM2_SelfTest after the kernel's TPM2_Startup | 16.7 | function_graph under `tpm_transmit`, lab 45833173266, 2 boots, traced: the refused self test 1.6, TPM2_Startup 1.2, the locality 0.6, the rest under 1.3 | measured, traced |
 | PID 1 to the login | none seen | no TPM unit on the login's chains; CPU by process within ±1 ms (`bootchart`, lab 45829997996, 3 a side); the ledger's windows from PID 1 move either way | bounded |
-| **Cold first login** | **+31.7 [+22.0, +36.0]**; +9.5 [+4.5, +19.5] with 0032 | `ssh-first`, lab 45829973230, 30 a side; with 0032, lab 45834343191 | measured |
-| Restored first login, evicted | +6.3 [+5.3, +7.0] | `restore-first` `running` +6.4, `listening` +0.0: swtpm's start and its state in the stream, lab 45829981897, 30 a side | measured |
+| **Cold first login** | **+31.7 [+22.0, +36.0]**; +9.5 [+4.5, +19.5] with 0032; with 0032 and swtpm's patch, the patch takes −5.1 [−9.7, −0.6] of a +9.0 [+2.1, +13.8] | `ssh-first`, lab 45829973230, 30 a side; with 0032, lab 45834343191; the patch, lab 45844362398, 30 a side | measured |
+| Restored first login, evicted | +6.3 [+5.3, +7.0]; with swtpm's patch, the patch takes −3.8 [−5.2, −0.8] of a +5.7 [+4.1, +7.1] | `restore-first` `running` +6.4, `listening` +0.0, lab 45829981897, 30 a side. Traced, there is no INIT at the reset of a QEMU that waits for its stream: the cost is the state blobs set over the control channel (0.5 ms) and the INIT after them (5.1-5.6 under strace), labs 45838342840. The patch, lab 45844362132, 30 a side | measured |
 
 **The cold cost was the kernel waiting on libtpms's self test.** qboot does not start the TPM,
 so the kernel's first TPM2_SelfTest is refused, it sends TPM2_Startup, and then asks for the self
 test again, which right after a startup tests every algorithm libtpms has. The vCPU sleeps
 through it in 1 ms polls. A TPM tests an algorithm before its first use anyway, so 0032 drops
 that second self test ("What the machine carries"), and the first command that needs an
-algorithm pays its test instead: shirudo's first RSA-3072 primary, after the login. What is
-left, ~10 ms, is swtpm's start before the guest runs, the refused self test, the startup and
-the driver's capability reads, each under the noise alone. The image's systemd is built without
+algorithm pays its test instead: shirudo's first RSA-3072 primary, after the login.
+
+**What was left was swtpm testing OpenSSL at each INIT, not its start (#775).** swtpm starts
+beside QEMU and is waiting before QEMU's first control command. QEMU then waits on the TPM's
+CMD_INIT, at its reset on a cold boot and after the state blobs on a restore, and swtpm spends
+the INIT signing with RSA keys of every size to learn whether its OpenSSL has disabled an
+algorithm. Ours links its own libcrypto, so only the host's configuration file could; swtpm's
+patch reads none and skips the test (qemu/swtpm/README.md, "What the machine carries"). What a
+TPM costs after it, ~4 ms cold and ~2 ms restored, is the refused self test, the startup, the
+driver's capability reads, the state blobs and what is left of the INIT, none above the noise
+alone. The image's systemd is built without
 TPM2 (docs/image.md, "Two rebuilt packages"), so nothing after PID 1 waits on the TPM; a systemd
 with TPM2 brings its generator and units onto that path, and the "PID 1 to the login" row is
 measured again then.
@@ -244,7 +254,7 @@ The rows are the records in `docs/experiments` with `"decision": "carried"`, ren
 **What holds each patch.** Every patch the table names, and QEMU's 0003 and 0004, which are not
 for boot time, has a test that fails when the patch is lost or rebased into doing nothing, since
 either still builds and boots. QEMU's are in qemu/README.md ("The patches"), qboot's in
-qemu/qboot/README.md, the kernel's in kernel/README.md. OpenSSH's is held by its build, which
+qemu/qboot/README.md, swtpm's in qemu/swtpm/README.md, the kernel's in kernel/README.md. OpenSSH's is held by its build, which
 looks for the patched condition in the `auth2.c` it compiles, and by `boot:sshd-delay`. The qemu,
 qboot, kernel and openssh-source entries of `versions.yaml` name the checks a bump runs.
 
