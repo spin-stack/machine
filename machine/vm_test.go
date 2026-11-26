@@ -909,8 +909,9 @@ func TestResume(t *testing.T) {
 
 // userfaultfdLent is whether calls hand QEMU the userfaultfd device, as a descriptor, in the set
 // a restore's command line names, before postcopy-ram is asked for, and whether they then take it
-// back once QEMU has run the guest or the resume has failed.
+// back, once, at postcopy-active or once the resume has failed.
 func userfaultfdLent(calls []call) (lent, taken bool) {
+	removed := 0
 	for _, c := range calls {
 		set := c.Args["fdset-id"] == float64(userfaultfdSet)
 		switch {
@@ -919,10 +920,10 @@ func userfaultfdLent(calls []call) (lent, taken bool) {
 		case c.Command == "migrate-set-capabilities" && !lent:
 			return false, false
 		case c.Command == "remove-fd" && set && lent:
-			taken = true
+			removed++
 		}
 	}
-	return lent, taken
+	return lent, removed == 1
 }
 
 // A fast resume lends QEMU the userfaultfd device only while it runs: it is taken back before

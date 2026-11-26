@@ -607,7 +607,7 @@ func (m *QEMU) migrate(ctx context.Context, command qmp.Command[migrateArgs, qmp
 // A *Refusal in its error is the checkpoint itself: CanResume's, a state file of another length
 // than Saved.Length, a format this QEMU does not read, or a Saved.Added it cannot read. Every other error, a load that failed among them
 // (loadEnded), may be this host or this try, and is not typed.
-func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) (err error) {
+func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Target, load LoadOptions, disks ...Disk) error {
 	if err := CanResume(saved, here); err != nil {
 		return fmt.Errorf("resuming: %w", err)
 	}
@@ -672,13 +672,15 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 			return fmt.Errorf("resuming: adding vCPU %s: %w", c.ID, err)
 		}
 	}
+	lent := false
 	if fast {
 		if err := m.lendUserfaultfd(ctx, dev); err != nil {
 			return fmt.Errorf("resuming: %w", err)
 		}
+		lent = true
 		defer func() {
-			if taken := m.takeUserfaultfd(ctx); taken != nil && err == nil {
-				err = fmt.Errorf("resuming: %w", taken)
+			if lent { // a resume that failed with QEMU holding the device
+				_ = m.takeUserfaultfd(ctx)
 			}
 		}()
 	}
@@ -714,6 +716,14 @@ func (m *QEMU) Resume(ctx context.Context, state *os.File, saved Saved, here Tar
 	}
 	if err := m.migrate(ctx, migrateIn, state, os.O_RDONLY, loaded); err != nil {
 		return fmt.Errorf("resuming: %w", err)
+	}
+	// At postcopy-active QEMU has made the one userfaultfd a fast load uses, and the device goes
+	// back while QEMU's main loop starts the guest, which Resume waits for next.
+	if fast {
+		lent = false
+		if err := m.takeUserfaultfd(ctx); err != nil {
+			return fmt.Errorf("resuming: %w", err)
+		}
 	}
 	if !fast {
 		if err := m.runLoaded(ctx); err != nil {
