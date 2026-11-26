@@ -15,6 +15,7 @@ mask_unit() {
 }
 
 MASK_UNITS=(
+    systemd-pcrphase-initrd.service
     systemd-timedated.service
 
     systemd-journal-flush.service
