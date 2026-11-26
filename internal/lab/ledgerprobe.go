@@ -317,13 +317,26 @@ const kvmSetClock = "4030ae7b"
 
 // setClockScript arms the instance, or with arm false removes it, ignoring what is not there.
 func setClockScript(arm bool) string {
-	ev := setClockInstance + "/events/syscalls/sys_enter_ioctl"
-	if !arm {
-		return "[ -d " + setClockInstance + " ] || exit 0\necho 0 > " + ev + "/enable\nrmdir " + setClockInstance + "\n"
+	script := setClockDisarm
+	if arm {
+		script = setClockArm
 	}
-	return "set -e\nT=/sys/kernel/tracing\nmountpoint -q $T || mount -t tracefs tracefs $T\nmkdir " + setClockInstance +
-		"\necho mono > " + setClockInstance + "/trace_clock\necho 'cmd == 0x" + kvmSetClock + "' > " + ev + "/filter\necho 1 > " + ev + "/enable\n"
+	return "I=" + setClockInstance + "\n" + script
 }
+
+const setClockArm = `set -e
+T=/sys/kernel/tracing
+mountpoint -q $T || mount -t tracefs tracefs $T
+mkdir $I
+echo mono > $I/trace_clock
+echo 'cmd == 0x4030ae7b' > $I/events/syscalls/sys_enter_ioctl/filter
+echo 1 > $I/events/syscalls/sys_enter_ioctl/enable
+`
+
+const setClockDisarm = `[ -d $I ] || exit 0
+echo 0 > $I/events/syscalls/sys_enter_ioctl/enable
+rmdir $I
+`
 
 // reSetClock is the instance's line for the ioctl: its CLOCK_MONOTONIC stamp in s. Kernels print
 // a syscall's arguments as 0x%lx or %08lx.
@@ -332,7 +345,7 @@ var reSetClock = regexp.MustCompile(`\s(\d+\.\d+): sys_ioctl\(fd: (?:0x)?[0-9a-f
 // setClockAt is the first KVM_SET_CLOCK in trace at or after t0, both in ms on CLOCK_MONOTONIC, in
 // ms from t0.
 func setClockAt(trace string, t0 float64) (float64, error) {
-	for _, m := range reSetClock.FindAllStringSubmatch(trace, -1) {
+	for _, m := range reSetClock.FindAllStringSubmatch(trace, -1) { // mutate-exempt: any n below 0 finds every match
 		s, _ := strconv.ParseFloat(m[1], 64) // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
 		if at := s*1000 - t0; at >= 0 {
 			return at, nil
