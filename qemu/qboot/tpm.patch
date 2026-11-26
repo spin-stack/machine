@@ -56,10 +56,10 @@ index dee0ede..75c5f4c 100644
  	int id = fw_cfg_file_id("etc/table-loader");
 diff --git a/tpm.c b/tpm.c
 new file mode 100644
-index 0000000..5630a6f
+index 0000000..7c0c208
 --- /dev/null
 +++ b/tpm.c
-@@ -0,0 +1,321 @@
+@@ -0,0 +1,335 @@
 +/*
 + * Measured boot for a TPM 2.0 behind QEMU's tpm-crb.
 + *
@@ -123,11 +123,17 @@ index 0000000..5630a6f
 +static uint16_t get_be16(const uint8_t *p) { uint16_t v; memcpy(&v, p, 2); return bswap16(v); }
 +
 +/* Sends the command in buf, whose header's size is filled here, and leaves the
-+ * response in buf.  Returns the response code, or -1 for a TPM that did not answer.  */
++ * response in buf, which holds TPM_BUF bytes.  Returns the response code, or -1
++ * for a TPM that did not answer.
++ *
++ * The command buffer is RAM in QEMU, but at 0x80 into its page, so KVM cannot
++ * map it and every access to it is an exit: it is copied a word at a time,
++ * a quarter of the exits of a byte at a time (#742).  */
++#define TPM_BUF 1024
 +static int tpm_transact(uint8_t *buf, uint32_t len)
 +{
-+	volatile uint8_t *data = (volatile uint8_t *)(CRB_BASE + CRB_DATA);
-+	uint32_t i, n;
++	volatile uint32_t *data = crb(CRB_DATA);
++	uint32_t i, n, w;
 +
 +	put_be32(buf + 2, len);
 +	if (len > *crb(CRB_CTRL_CMD_SIZE))
@@ -135,22 +141,30 @@ index 0000000..5630a6f
 +	*crb(CRB_CTRL_REQ) = 1;			/* cmdReady */
 +	if (!crb_wait_clear(CRB_CTRL_REQ, 1))
 +		return -1;
-+	for (i = 0; i < len; i++)
-+		data[i] = buf[i];
++	for (i = 0; i < len; i += 4) {
++		memcpy(&w, buf + i, 4);
++		data[i / 4] = w;
++	}
 +	*crb(CRB_CTRL_START) = 1;
 +	if (!crb_wait_clear(CRB_CTRL_START, 1) || (*crb(CRB_CTRL_STS) & 1))
 +		return -1;
-+	n = ldl_be_p((const void *)(data + 2));
-+	if (n < 10 || n > 1024)
++	w = data[0];
++	memcpy(buf, &w, 4);
++	w = data[1];
++	memcpy(buf + 4, &w, 4);
++	n = ldl_be_p(buf + 2);
++	if (n < 10 || n > TPM_BUF)
 +		return -1;
-+	for (i = 0; i < n; i++)
-+		buf[i] = data[i];
++	for (i = 8; i < n; i += 4) {
++		w = data[i / 4];
++		memcpy(buf + i, &w, 4);
++	}
 +	return ldl_be_p(buf + 6);
 +}
 +
 +static bool tpm_startup(void)
 +{
-+	uint8_t buf[1024];
++	uint8_t buf[TPM_BUF + 4];
 +	int rc;
 +
 +	put_be16(buf, 0x8001);
@@ -175,7 +189,7 @@ index 0000000..5630a6f
 +/* The banks with a PCR selected, from TPM2_GetCapability(TPM_CAP_PCRS).  */
 +static bool tpm_banks(void)
 +{
-+	uint8_t buf[1024], *p;
++	uint8_t buf[TPM_BUF + 4], *p;
 +	uint32_t i, j, count;
 +	bool active;
 +
@@ -192,7 +206,7 @@ index 0000000..5630a6f
 +		uint16_t alg = get_be16(p);
 +		uint8_t n = p[2];
 +
-+		if (p + 3 + n > buf + 1024)
++		if (p + 3 + n > buf + TPM_BUF)
 +			return false;
 +		active = false;
 +		for (j = 0; j < n; j++)
@@ -221,7 +235,7 @@ index 0000000..5630a6f
 +
 +static bool tpm_extend(uint32_t pcr, const uint8_t *sha256)
 +{
-+	uint8_t buf[1024], *p;
++	uint8_t buf[TPM_BUF + 4], *p;
 +	int i;
 +
 +	put_be16(buf, 0x8002);

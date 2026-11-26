@@ -103,6 +103,15 @@ func release(t *testing.T) string {
 	return dir
 }
 
+func digestOf(t *testing.T, path string) [32]byte {
+	t.Helper()
+	d, err := machine.FileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 // The flags are the machine: each one lands in the field of the Spec it names, and a flag not
 // given is the default a person running a machine by hand expects.
 func TestFlagsAreTheSpec(t *testing.T) {
@@ -159,6 +168,16 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	}
 	withTPM.TPM = machine.TPM{SWTPM: filepath.Join(dir, "bin/swtpm"), State: "/tpm", Kernel: kernel}
 
+	// A boot's TPM measures what it boots: the initrd too, hashed as the kernel is. A restore's
+	// measures nothing, so nothing is hashed.
+	withInitrd := withTPM
+	withInitrd.Initrd = bz
+	withInitrd.TPM.Initrd = digestOf(t, bz)
+	restoredTPM := defaults
+	restoredTPM.Restore = true
+	restoredTPM.Monitors = []machine.Monitor{{Socket: "/qmp"}}
+	restoredTPM.TPM = machine.TPM{SWTPM: filepath.Join(dir, "bin/swtpm"), State: "/tpm"}
+
 	withNet := defaults
 	withNet.NICs = []machine.NIC{{Passt: filepath.Join(dir, "bin/passt"), MAC: "52:54:00:12:34:56"}}
 
@@ -181,6 +200,8 @@ func TestFlagsAreTheSpec(t *testing.T) {
 		{"tcg runs the release's TCG build", []string{"--accel", "tcg"}, emulated},
 		{"no disk mounts no root", []string{"--disk", "-"}, noDisk},
 		{"a TPM is its state, emulated by the release's swtpm", []string{"--tpm", "/tpm"}, withTPM},
+		{"a TPM measures the initrd", []string{"--tpm", "/tpm", "--initrd", bz}, withInitrd},
+		{"a restore's TPM measures nothing", []string{"--tpm", "/tpm", "--restore", "--qmp", "/qmp"}, restoredTPM},
 		{"a network is a NIC on the release's passt", []string{"--net"}, withNet},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

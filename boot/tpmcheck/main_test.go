@@ -128,6 +128,11 @@ func TestTpmcheckSaysAFailureByItsStatus(t *testing.T) {
 	if got := check([]string{"read"}, &out, &errs, none, 2048); got != 1 || out.String() != "SPIN-TPM-FAILED opening /dev/tpmrm0: no such device\n" {
 		t.Errorf("tpmcheck read with no TPM = %d, %q", got, out.String())
 	}
+	// A host has no firmware log of its own to read, so log fails, naming the file.
+	out.Reset()
+	if got := check([]string{"log"}, &out, &errs, simulator.OpenSimulator, 2048); got != 1 || !strings.Contains(out.String(), "SPIN-TPM-FAILED open "+eventLog) {
+		t.Errorf("tpmcheck log with no log = %d, %q", got, out.String())
+	}
 	out.Reset()
 	if got := check([]string{"write"}, &out, &errs, simulator.OpenSimulator, 3072); got != 1 || !strings.HasPrefix(out.String(), "SPIN-TPM-FAILED making an RSA-3072 primary") {
 		t.Errorf("tpmcheck write on a TPM without RSA-3072 = %d, %q", got, out.String())

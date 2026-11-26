@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"io"
 	"strings"
 
 	"github.com/google/go-tpm/tpm2"
@@ -33,59 +34,90 @@ var banks = map[tpm2.TPMAlgID]func() hash.Hash{
 }
 
 // parseLog reads a TCG2 crypto-agile log as Linux exports it: a Spec ID event in the TPM 1.2 format,
-// then events whose digests are the banks it names, until the first entry with none.
+// then events whose digests are the banks it names, until the log ends or an entry has none.
 func parseLog(b []byte) ([]event, error) {
 	le := binary.LittleEndian
-	if len(b) < 32 || le.Uint32(b[4:]) != 3 {
+	r := bytes.NewReader(b)
+	var first struct {
+		PCR, Type uint32
+		Digest    [20]byte
+		Size      uint32
+	}
+	if err := binary.Read(r, le, &first); err != nil || first.Type != 3 {
 		return nil, errors.New("the log does not start with an EV_NO_ACTION")
 	}
-	size := int(le.Uint32(b[28:]))
-	spec := b[32:]
-	if len(spec) < size || size < 29 || !bytes.Equal(spec[:16], []byte("Spec ID Event03\x00")) {
+	var spec struct {
+		Signature [16]byte
+		_         [8]byte
+		Banks     uint32
+	}
+	if err := binary.Read(r, le, &spec); err != nil || string(spec.Signature[:]) != "Spec ID Event03\x00" {
 		return nil, errors.New("the log's first event is not a Spec ID Event03")
 	}
-	n := int(le.Uint32(spec[24:]))
-	if size < 29+4*n {
-		return nil, errors.New("the Spec ID event is shorter than its algorithms")
+	sizes := map[tpm2.TPMAlgID]uint16{}
+	for range spec.Banks {
+		var bank struct{ Alg, Size uint16 }
+		if err := binary.Read(r, le, &bank); err != nil {
+			return nil, fmt.Errorf("the Spec ID event's banks: %w", err)
+		}
+		sizes[tpm2.TPMAlgID(bank.Alg)] = bank.Size
 	}
-	sizes := map[tpm2.TPMAlgID]int{}
-	order := make([]tpm2.TPMAlgID, n)
-	for i := range n {
-		order[i] = tpm2.TPMAlgID(le.Uint16(spec[28+4*i:]))
-		sizes[order[i]] = int(le.Uint16(spec[30+4*i:]))
+	// What is left of the Spec ID event: its vendor information.
+	if _, err := r.Seek(int64(32+first.Size), io.SeekStart); err != nil {
+		return nil, err
 	}
-	rest := spec[size:]
 	var events []event
-	for len(rest) >= 12 {
-		count := int(le.Uint32(rest[8:]))
-		if count == 0 {
+	for r.Len() > 0 {
+		e, err := readEvent(r, sizes, int(spec.Banks))
+		if err != nil {
+			return nil, fmt.Errorf("event %d: %w", len(events), err)
+		}
+		if e.digests == nil {
 			break
 		}
-		if count != n {
-			return nil, fmt.Errorf("event %d has %d digests, the log's banks are %d", len(events), count, n)
-		}
-		e := event{pcr: le.Uint32(rest), typ: le.Uint32(rest[4:]), digests: map[tpm2.TPMAlgID][]byte{}}
-		p := rest[12:]
-		for range count {
-			if len(p) < 2 {
-				return nil, errors.New("the log ends inside an event")
-			}
-			alg := tpm2.TPMAlgID(le.Uint16(p))
-			s, ok := sizes[alg]
-			if !ok || len(p) < 2+s {
-				return nil, fmt.Errorf("event %d has a digest of algorithm %#x the log does not name", len(events), alg)
-			}
-			e.digests[alg] = p[2 : 2+s]
-			p = p[2+s:]
-		}
-		if len(p) < 4 || len(p) < 4+int(le.Uint32(p)) {
-			return nil, errors.New("the log ends inside an event's data")
-		}
-		e.data = p[4 : 4+le.Uint32(p)]
-		rest = p[4+len(e.data):]
 		events = append(events, e)
 	}
 	return events, nil
+}
+
+// readEvent is the next event of r, whose digests are of banks of sizes, or an event without
+// digests for the zeroes past the log's last event.
+func readEvent(r io.Reader, sizes map[tpm2.TPMAlgID]uint16, banks int) (event, error) {
+	le := binary.LittleEndian
+	var head struct{ PCR, Type, Count uint32 }
+	if err := binary.Read(r, le, &head); err != nil {
+		return event{}, fmt.Errorf("the log ends inside it: %w", err)
+	}
+	if head.Count == 0 {
+		return event{}, nil
+	}
+	if int(head.Count) != banks {
+		return event{}, fmt.Errorf("%d digests, and the log's banks are %d", head.Count, banks)
+	}
+	e := event{pcr: head.PCR, typ: head.Type, digests: map[tpm2.TPMAlgID][]byte{}}
+	for range head.Count {
+		var alg tpm2.TPMAlgID
+		if err := binary.Read(r, le, &alg); err != nil {
+			return event{}, fmt.Errorf("the log ends inside it: %w", err)
+		}
+		size, ok := sizes[alg]
+		if !ok {
+			return event{}, fmt.Errorf("a digest of algorithm %#x, which the log does not name", alg)
+		}
+		e.digests[alg] = make([]byte, size)
+		if _, err := io.ReadFull(r, e.digests[alg]); err != nil {
+			return event{}, fmt.Errorf("the log ends inside it: %w", err)
+		}
+	}
+	var size uint32
+	if err := binary.Read(r, le, &size); err != nil {
+		return event{}, fmt.Errorf("the log ends inside it: %w", err)
+	}
+	e.data = make([]byte, size)
+	if _, err := io.ReadFull(r, e.data); err != nil {
+		return event{}, fmt.Errorf("the log ends inside it: %w", err)
+	}
+	return e, nil
 }
 
 // replay is each PCR's value in each bank after the events are extended into PCRs at zero.
