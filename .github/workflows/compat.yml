@@ -184,6 +184,9 @@ jobs:
 
       # A machine given a NIC on passt reaches the internet with nothing on the host but the user
       # running it, and its guest is configured by its command line alone (#751).
+      - name: Let passt make its user namespace
+        run: go tool task userns
+
       - name: A guest on passt reaches the internet
         run: go tool task boot:net
 

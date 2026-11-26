@@ -118,12 +118,16 @@ m, err := machine.Start(ctx, spec, machine.StartOptions{})
 - **passt runs beside QEMU, one for each NIC on it.** Start runs it, as it runs swtpm for a TPM,
   on one end of a socket pair (`--fd`), and hands QEMU the other for a `stream` netdev. passt turns
   the guest's frames into the host's own TCP, UDP and ICMP sockets, so the guest reaches what the
-  user running it reaches and nothing needs `CAP_NET_ADMIN`, a TAP or a bridge. passt sandboxes
-  itself in namespaces of its own, which an unprivileged user can make: Ubuntu 26.04's
-  `apparmor_restrict_unprivileged_userns=1` let it (2026-11-26). QEMU's exit closes its end and
+  user running it reaches and nothing needs `CAP_NET_ADMIN`, a TAP or a bridge. QEMU's exit closes its end and
   passt follows it out before `Exited` closes; one that failed puts what it said in `Exit.Stderr`.
   QEMU is still built `--disable-slirp --disable-passt`: a network stack inside the QEMU process
   every machine runs is what this keeps out.
+- **passt needs a user namespace.** It sandboxes itself in one of its own, and exits when the
+  host refuses it. A desktop Ubuntu 26.04 under `kernel.apparmor_restrict_unprivileged_userns=1`
+  let it (2026-11-26); the CI runners' image refused even `unshare --user` (run 45798835676), so
+  compat.yml lifts the restriction first (`task userns`). On such a host an administrator does the
+  same, or gives the release's `bin/passt` an AppArmor profile that allows `userns`, as Ubuntu's
+  passt package has for `/usr/bin/passt`. boot:net says which it is before it boots.
 - **No vhost.** Frames go through QEMU and passt, so a NIC on passt is slower than spin's TAP with
   vhost-net. It is a reader's machine, not a workspace's.
 - **Its addresses are fixed, and the guest's configuration is the kernel command line.** The guest

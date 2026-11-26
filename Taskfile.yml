@@ -125,6 +125,16 @@ tasks:
       - sudo apt-get update -q
       - sudo apt-get install -y -q --no-install-recommends bc bison flex libelf-dev libssl-dev dwarves ninja-build libglib2.0-dev libpixman-1-dev python3-venv
 
+  userns:
+    desc: >-
+      Lets an unprivileged process make a user namespace, which passt sandboxes itself in (boot:net,
+      docs/machine.md, "A network without root"): the runners' Ubuntu 26.04 image refused even
+      `unshare --user` to an unconfined process under kernel.apparmor_restrict_unprivileged_userns=1
+      (run 45798835676), where a desktop's let it. A runner's setting, as vsock's chmod is
+      (compat.yml runs it by this name).
+    cmds:
+      - sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
   sanitize-deps:
     desc: What `spin-machine-dev patched sanitized` and `patched fuzzer` need to build QEMU on this host (sanitize.yml runs it by this name).
     cmds:
