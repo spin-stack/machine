@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package build makes the machine's parts - QEMU and its firmware, the guest kernel, e2fsprogs,
-// the systemd and OpenSSH the image installs, the base image and spin-machine - into _output, each from what
+// Package build makes the machine's parts - QEMU and its firmware, the guest kernel, the shirudo
+// its hooks come from, e2fsprogs, the systemd and OpenSSH the image installs, the base image and
+// spin-machine - into _output, each from what
 // versions.yaml pins and what this tree holds, and asserts what came out.
 //
 // A part is built when it is missing or stale: each one built leaves a manifest beside it naming
@@ -92,6 +93,9 @@ var Parts = []Part{
 		make: makeQEMU, check: checkQEMU},
 	{Name: "kernel", Paths: []string{"kernel"}, Pins: strings.Fields("debian debian-snapshot kernel moby-check-config sparse"),
 		make: makeKernel, check: VerifyKernel},
+	// shirudo's BPF objects are compiled against the kernel's BTF, so it is made with the kernel.
+	{Name: "shirudo", Needs: []string{"kernel"}, Paths: []string{"shirudo"}, Pins: shirudoPins,
+		make: makeShirudo, check: VerifyShirudo},
 	{Name: "e2fsprogs", Paths: []string{"e2fsprogs"}, Pins: strings.Fields("e2fsprogs-builder e2fsprogs"),
 		make: makeE2fsprogs, check: VerifyE2fsprogs},
 	{Name: "systemd", Paths: []string{"image/systemd"}, Pins: strings.Fields("ubuntu systemd-source"),
@@ -318,6 +322,14 @@ func partArgs(o Options, p Part) ([]string, error) {
 		args = append(args, "--build-arg", "KERNEL_SERIES="+series, "--build-arg", "KERNEL_ARCH="+Arch, "--build-arg", "KERNEL_LOCKDOWN="+lockdown)
 	case "systemd":
 		args = append(args, "--build-arg", "SYSTEMD_EXPERIMENT="+o.SystemdExperiment)
+	case "shirudo":
+		for _, n := range []string{"shirudo", "tpm2-tss"} {
+			e, err := o.Pins.Get(n)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, "--build-arg", strings.ToUpper(strings.ReplaceAll(n, "-", "_"))+"_SOURCE="+e.Source)
+		}
 	}
 	return args, nil
 }

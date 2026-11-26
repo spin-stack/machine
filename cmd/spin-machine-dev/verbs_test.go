@@ -576,12 +576,20 @@ func packed(t *testing.T, dir string) string {
 		"kernel/patches/0001-k.patch", "image/rootfs.qcow2", "licenses.txt"} {
 		put(t, filepath.Join(out, f), f, 0o644)
 	}
-	// And Docker's packages as dpkg records those versions.yaml pins: release pack refuses an image without them.
-	list := "bash 5.2-1 amd64\n"
 	v, err := versions.Load(versions.File) // checkout's copy, in the working directory
 	if err != nil {
 		t.Fatal(err)
 	}
+	// shirudo as its build leaves it: a static binary naming its commit, its licences and packages.
+	sh, err := v.Get("shirudo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(out, build.ShirudoBinary), string(staticELF())+"shirudo "+sh.Pin[:7], 0o755)
+	put(t, filepath.Join(out, build.ShirudoLicenses), "shirudo's licences", 0o644)
+	put(t, filepath.Join(out, build.ShirudoPackages), "libc6-dev 2.43-2ubuntu2.7 amd64\n", 0o644)
+	// And Docker's packages as dpkg records those versions.yaml pins: release pack refuses an image without them.
+	list := "bash 5.2-1 amd64\n"
 	for _, e := range v.Entries {
 		if file := filepath.Base(e.URL()); strings.HasSuffix(file, ".deb") {
 			f := strings.Split(strings.TrimSuffix(file, ".deb"), "_")

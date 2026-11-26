@@ -55,6 +55,7 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `bin/qemu-img` | |
 | `bin/swtpm` | static. The TPM of a machine that asks for one (`machine.TPM`), one beside each QEMU |
 | `bin/passt` | static. The network of a NIC on passt (`machine.NIC.Passt`, `spin-machine boot --net`), one beside each QEMU |
+| `guest/shirudo` | static, for a guest. The shirudo the kernel's hooks come from (kernel/README.md, "shirudo's hooks"), which an operator builds a shirudo machine's initrd and runtime image around |
 | `bin/spin-machine` | static. The tool that boots a machine of this release by hand (below), built from the release's commit |
 | `bin/mkfs.ext4`, `bin/debugfs`, `bin/e2fsck`, `bin/dumpe2fs`, `e2fsprogs/mke2fs.conf` | static e2fsprogs, and the defaults an ext4 for this kernel is made with |
 | `qemu/qboot.bin` and the other ROMs | qboot.bin is the BIOS a machine boots with |
@@ -68,6 +69,7 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `packages.txt` | every package and exact version in the base image |
 | `licenses.txt` | the copyright and licence text of each package in the base image |
 | `go-licenses.txt` | the licence text of the Go code linked into `bin/spin-machine` |
+| `shirudo-licenses.txt` | the licence text of everything linked into `guest/shirudo` |
 
 `LICENSE` and `NOTICE` sit at the tarball's root. `machine.OpenRelease` reads a release and a
 build directory alike. The two share one layout, so no translation between them can lose a file.

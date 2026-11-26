@@ -6,7 +6,8 @@ name: Compat
 # guest is loaded into - the machine's definition, QEMU, the kernel, the firmware and their pins -
 # and before every release. And whether that kernel, booted, is locked down (boot:lockdown) and at
 # a random base every boot (boot:kaslr), and whether a guest checkpointed and continued still grows
-# (boot:cpu-plug).
+# (boot:cpu-plug). And, for a change that reaches shirudo or the kernel it hooks, whether the
+# shirudo it builds runs on that machine (boot:shirudo).
 #
 # How long a checkpoint stops the guest (boot:checkpoint-pause) is a bound, not compatibility: it
 # runs on the bench, on each release (release.yml's pause) and at a QEMU bump (versions.yaml).
@@ -40,6 +41,11 @@ on:
         type: string
         default: origin/main
   workflow_call:
+    inputs:
+      release:
+        description: "Called by release.yml, whose own shirudo job runs boot:shirudo on the tarball it packed"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -70,6 +76,7 @@ jobs:
       machine: ${{ steps.machine.outputs.build }}
       qemu: ${{ steps.qemu.outputs.build }}
       kernel: ${{ steps.kernel.outputs.build }}
+      shirudo: ${{ steps.shirudo.outputs.build }}
     env:
       BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base }}
     steps:
@@ -104,6 +111,11 @@ jobs:
       - name: Does the change reach the kernel
         id: kernel
         run: spin-machine-dev changed --base "$BASE" --part kernel go.mod cmd/spin-machine-dev internal/build
+
+      # shirudo, its pins, the kernel it hooks, the machine it boots on and the check itself.
+      - name: Does the change reach shirudo
+        id: shirudo
+        run: spin-machine-dev changed --base "$BASE" --part shirudo --part kernel machine cmd/spin-machine-dev internal/build boot/shirudo_test.go boot/testdata/shirudo-check.sh boot/testdata/shirudo-operator.sh boot/harness_test.go boot/console_test.go boot/Taskfile.yml go.mod .github/workflows/compat.yml
 
   resume:
     needs: changed
@@ -225,11 +237,61 @@ jobs:
       - name: The kernel is somewhere else every boot
         run: go tool task boot:kaslr
 
+  # The shirudo this change builds (guest/shirudo, from versions.yaml's shirudo pin and against the
+  # kernel built here), deployed and run on this change's machine as release.yml's shirudo job runs
+  # a release's (boot:shirudo): no change to shirudo, its pins or the kernel it hooks merges without
+  # a run of shirudo. The kernel is built, from main's cache when the change does not reach it, so
+  # that shirudo's BPF objects and the kernel booted are one build. Not in a release's call: there
+  # release.yml checks the tarball it packed.
+  shirudo:
+    needs: changed
+    if: needs.changed.outputs.shirudo == 'true' && !inputs.release
+    runs-on: runs-on/fleet=kvm/env=production
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: A BuildKit that reads the lanes' cache
+        run: go tool task boot:buildkit
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Load vhost_vsock
+        run: spin-machine-dev vsock
+
+      - name: Main's published QEMU
+        run: spin-machine-dev fetch qemu
+
+      - name: Build this change's kernel and shirudo
+        run: spin-machine-dev build shirudo --cache-registry --cache-export=false
+
+      - name: The machine before, and this one
+        run: go tool task boot:here
+
+      - name: This change's shirudo runs on this change's machine
+        run: go tool task boot:shirudo-here
+
   # The run passed, or the change does not reach the machine: the one check of this workflow a
   # ruleset can require. A `resume` that failed or was cancelled, or a `changed` that could not
   # say, is not a pass.
   compat:
-    needs: [changed, resume]
+    needs: [changed, resume, shirudo]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -46,6 +46,8 @@ jobs:
   compat:
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/compat.yml
+    with:
+      release: true
 
   release:
     needs: compat
@@ -59,6 +61,7 @@ jobs:
     timeout-minutes: 180
     outputs:
       version: ${{ steps.version.outputs.version }}
+      notes: ${{ steps.manifest.outputs.notes }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -138,6 +141,92 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: spin-machine-dev release notes --version "$VERSION"
 
+      # What the shirudo check boots and the publish job signs and publishes: the release's files as
+      # packed, nothing published yet.
+      - name: Keep the release for its check
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ steps.version.outputs.version }}
+          path: |
+            _output/release/*.tar.gz
+            _output/release/*.tar.gz.sha256
+            _output/release/machine.env
+            _output/release/*.cdx.json
+          retention-days: 7
+          if-no-files-found: error
+
+  # The shirudo the release ships (guest/shirudo, built from the commit the kernel's hooks come
+  # from) run on a machine booted from the release's own tarball, as an operator deploys it:
+  # --lockdown shirudo, a TPM, init to the end in the initrd and the root file system, status ok
+  # with the keyrings sealed, a signed upatch that blocks its path and leaves another alone
+  # (boot:shirudo, #759). Before the publish job, so a release whose shirudo cannot is never cut.
+  # On the KVM fleet, as compat: it boots, and builds shirudo's operator tools from the same pin.
+  shirudo:
+    needs: release
+    if: github.ref == 'refs/heads/main'
+    runs-on: runs-on/fleet=kvm/env=production
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Load vhost_vsock
+        run: spin-machine-dev vsock
+
+      - name: Take the release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ needs.release.outputs.version }}
+          path: _output/candidate
+
+      - name: The release's shirudo runs on a machine of the release
+        run: go tool task boot:shirudo-packed TARBALL="_output/candidate/spin-machine-$VERSION-linux-x86_64.tar.gz"
+
+  # Signed, attested, tagged and published only once the release's own checks pass: compat before
+  # it was built, and shirudo's on what it packed.
+  publish:
+    needs: [release, shirudo]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tags: release tag refuses a version tagged already.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - name: Take the release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ needs.release.outputs.version }}
+          path: _output/release
+
       # v4 is the one that installs cosign v3. Dependabot moves this pin like every other `uses:`.
       - name: Install cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
@@ -146,8 +235,6 @@ jobs:
       # versions.yaml - as SLSA provenance, beside the signature that says who made it. The
       # predicate has no clock in it, so it is the same for every file of the run.
       - name: Write the provenance
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: spin-machine-dev release provenance --version "$VERSION"
 
       # Each file is signed and attested, then each bundle checked against the identity that made
@@ -162,16 +249,15 @@ jobs:
       # A version tagged already is refused here: git push does not move a tag.
       - name: Tag the commit
         env:
-          VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: spin-machine-dev release tag --version "$VERSION"
 
       - name: Publish
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: ${{ steps.version.outputs.version }}
-          body: ${{ steps.manifest.outputs.notes }}
+          tag_name: ${{ needs.release.outputs.version }}
+          name: ${{ needs.release.outputs.version }}
+          body: ${{ needs.release.outputs.notes }}
           # machine.env is published on its own, and not only inside the tarball, so the
           # next release can read it back in a few hundred bytes and say whether it
           # strands the checkpoints taken against this one.
@@ -189,7 +275,7 @@ jobs:
   # of its own, after the release: it compiles a kernel no lane caches (10 min after the release
   # kernel, parts run 45071066129), which in the release job would hold back pause and wake.
   traceable:
-    needs: release
+    needs: [release, publish]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -247,8 +333,8 @@ jobs:
   # its own runner. After traceable, whose kernel its ledger boots, and whether or not that job
   # published one: a ledger is a diagnostic, and measure says when it could not take one.
   report:
-    needs: [release, traceable]
-    if: ${{ always() && needs.release.result == 'success' && github.ref == 'refs/heads/main' }}
+    needs: [release, publish, traceable]
+    if: ${{ always() && needs.publish.result == 'success' && github.ref == 'refs/heads/main' }}
     uses: ./.github/workflows/report.yml
     # What report.yml's job asks for, which a called workflow is granted no more than: issues, for
     # the issue it opens when the release regressed.
@@ -268,7 +354,7 @@ jobs:
   # time (311 s of run 44974499826). On a bench host of its own, beside report's, with the
   # release's tag checked out: its spin-machine and its test.
   pause:
-    needs: release
+    needs: [release, publish]
     if: github.ref == 'refs/heads/main'
     runs-on: runs-on/fleet=bench/env=production
     timeout-minutes: 30
@@ -331,7 +417,7 @@ jobs:
   # the run's summary, and trace.html, every job and step on one time axis, as an artifact. Run
   # whatever the jobs above did, as a failed or slow release is the one worth reading.
   trace:
-    needs: [compat, release, traceable, pause, report]
+    needs: [compat, release, shirudo, publish, traceable, pause, report]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -368,7 +454,7 @@ jobs:
   # as soon as the release is published, not after report's bench measurement (~20 min), which
   # nothing ship-it does reads (task ship-it:wake).
   wake:
-    needs: release
+    needs: [release, publish]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -403,5 +489,5 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.wake.outputs.token }}
-          CONCLUSION: ${{ needs.release.result == 'skipped' && 'failure' || needs.release.result }}
+          CONCLUSION: ${{ needs.publish.result == 'skipped' && 'failure' || needs.publish.result }}
         run: go tool task ship-it:wake
