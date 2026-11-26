@@ -275,7 +275,7 @@
   kind: image
   source: mirror.gcr.io/library/debian
   version: trixie
-  pin: sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308
+  pin: sha256:3cda3ca472ce45507a5109c6a3907093e24d9ae67d55954c9a07a45665dafba2
   track: digest
   note: >-
     the kernel's toolchain (and qboot's), with its packages from
@@ -313,7 +313,7 @@
 
 - name: debian-snapshot
   kind: date
-  version: 20261026T000000Z
+  version: 20261126T000000Z
   track: today
   note: >-
     the Debian archive the kernel's toolchain is installed from, as it stood then, and the
