@@ -542,6 +542,10 @@ func TestValidateRefuses(t *testing.T) {
 			s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 5, Kernel: [32]byte{1}}
 			s.Initrd = "/initrd"
 		}},
+		{"a restore's digest of an initrd it does not boot", func(s *Spec) {
+			s.Restore = true
+			s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 5, Initrd: [32]byte{1}}
+		}},
 		{"a digest of an initrd the machine does not boot", func(s *Spec) {
 			s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 5, Kernel: [32]byte{1}, Initrd: [32]byte{1}}
 		}},
@@ -760,6 +764,13 @@ func TestATPMMeasuresTheKernelItsCommandLineAndItsInitrd(t *testing.T) {
 	s := spec(t)
 	if got := s.TPMEvents(); got != nil {
 		t.Errorf("a machine without a TPM measures %v", got)
+	}
+	// A restore's firmware never runs: its TPM needs no digests, and QEMU is handed no events.
+	restore := s
+	restore.Restore = true
+	restore.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3}
+	if args, err := restore.Args(); err != nil || argValue(args, "-fw_cfg") != "" || restore.TPMEvents() != nil {
+		t.Errorf("a restore with a TPM and no digests: %v, -fw_cfg %q, events %v", err, argValue(args, "-fw_cfg"), restore.TPMEvents())
 	}
 	s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3, Kernel: [32]byte{1}, Initrd: [32]byte{2}}
 	s.Initrd = "/initrd"

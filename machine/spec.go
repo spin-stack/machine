@@ -490,7 +490,9 @@ func (s Spec) validate() error {
 		return err
 	}
 	switch {
-	case s.TPM.on() && s.Initrd != "" && s.TPM.Initrd == [sha256.Size]byte{}:
+	case s.TPM.on() && !s.Restore && s.TPM.Kernel == [sha256.Size]byte{}:
+		return errors.New("a TPM with no digest of the kernel to measure: TPM.Kernel is FileSHA256 of Spec.Kernel")
+	case s.TPM.on() && !s.Restore && s.Initrd != "" && s.TPM.Initrd == [sha256.Size]byte{}:
 		return errors.New("a TPM with no digest of the initrd to measure: TPM.Initrd is FileSHA256 of Spec.Initrd")
 	case s.TPM.Initrd != [sha256.Size]byte{} && s.Initrd == "":
 		return errors.New("a digest of an initrd for a machine that boots none")

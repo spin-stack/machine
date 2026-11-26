@@ -40,7 +40,8 @@ type TPM struct {
 	// Kernel and Initrd are the SHA-256 digests of Spec.Kernel and Spec.Initrd, which the firmware
 	// extends into the TPM's PCRs before the kernel runs (Spec.TPMEvents). The caller hashes them
 	// (FileSHA256), once a file and not once a machine: hashing a 60 MB initrd at a boot would be
-	// on the first login's clock, and qboot cannot see the vmlinux QEMU loads for PVH at all.
+	// on the first login's clock, and qboot cannot see the vmlinux QEMU loads for PVH at all. A
+	// machine started to restore (Spec.Restore) needs neither: its firmware never runs.
 	Kernel, Initrd [sha256.Size]byte
 }
 
@@ -64,8 +65,6 @@ func (t TPM) validate() error {
 		return errors.New("a TPM with no swtpm binary to emulate it")
 	case t.FD < 3:
 		return fmt.Errorf("the TPM's control channel is descriptor %d, which is stdin, stdout or stderr (Start makes it)", t.FD)
-	case t.Kernel == [sha256.Size]byte{}:
-		return errors.New("a TPM with no digest of the kernel to measure: TPM.Kernel is FileSHA256 of Spec.Kernel")
 	}
 	return nil
 }
@@ -101,15 +100,15 @@ const (
 	EvIPL       = 0xd
 )
 
-// TPMEvents are what the firmware of a machine with a TPM measures, in order, and nil for a machine
-// without one. They follow where a UEFI boot puts the same things (the TCG PC Client firmware
+// TPMEvents are what the firmware of a machine with a TPM measures as it boots, in order, and nil
+// for a machine without one or started to restore. They follow where a UEFI boot puts the same things (the TCG PC Client firmware
 // profile, the UAPI group's Linux TPM PCR registry): PCRs 0 to 7 end the firmware's phase with a
 // separator; the kernel is the code the firmware boots, in PCR 4; and the command line and the
 // initrd are in PCR 9, as tagged events of the tags and descriptions Linux's EFI stub uses, which
 // is what shirudo binds its register under. The command line is the one QEMU hands the kernel, its
 // bytes without a NUL; the stub measures UEFI's UTF-16 LoadOptions instead, which a PVH boot has none of.
 func (s Spec) TPMEvents() []TPMEvent {
-	if !s.TPM.on() {
+	if !s.TPM.on() || s.Restore {
 		return nil
 	}
 	separator := []byte{0, 0, 0, 0}
@@ -152,11 +151,14 @@ func (s Spec) appendTPM(args []string) []string {
 	if !s.TPM.on() {
 		return args
 	}
-	return append(args,
+	args = append(args,
 		"-chardev", fmt.Sprintf("socket,id=%s,fd=%d", tpmChardev, s.TPM.FD),
 		"-tpmdev", fmt.Sprintf("emulator,id=%s,chardev=%s", tpmBackend, tpmChardev),
-		"-device", fmt.Sprintf("%s,tpmdev=%s", TPMDevice, tpmBackend),
-		"-fw_cfg", tpmEventsArg(s.TPMEvents()))
+		"-device", fmt.Sprintf("%s,tpmdev=%s", TPMDevice, tpmBackend))
+	if events := s.TPMEvents(); events != nil {
+		args = append(args, "-fw_cfg", tpmEventsArg(events))
+	}
+	return args
 }
 
 const (
