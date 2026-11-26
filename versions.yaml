@@ -67,10 +67,12 @@
   pin: f61cf6f1e9bbcb4cefb30b70cafaf1c4df54c6961e65cfa63830e8ad0e220134
   track: github-release stefanberger/swtpm
   note: >-
-    qemu/Dockerfile's swtpm stage: the TPM a machine asks for (#719), one swtpm beside each QEMU,
-    statically linked with libtpms and json-glib below. After the bump: `spin-machine-dev build
-    qemu`, whose stage refuses a swtpm that is not static or offers no RSA-3072 (shirudo's
-    primaries are RSA-3072), then `spin-machine-dev verify qemu`, which asks the binary again.
+    qemu/Dockerfile's swtpm stage: the TPM a machine asks for (machine.TPM), one swtpm beside each
+    QEMU, statically linked with libtpms and json-glib below. After the bump: `spin-machine-dev
+    build qemu`, whose stage refuses a swtpm that is not static or offers no RSA-3072 (shirudo's
+    primaries are RSA-3072), then `spin-machine-dev verify qemu`, which asks the binary again, and
+    `task boot:tpm boot:record`: a checkpoint carries swtpm's state blobs in QEMU's migration
+    stream, and a new swtpm has to load the old one's.
 
 - name: libtpms
   kind: download
@@ -81,8 +83,8 @@
   note: >-
     qemu/Dockerfile's swtpm stage: the TPM 2.0 itself, which swtpm links. A TPM's state is
     libtpms's format, kept in a workspace's TPM state directory and carried in a checkpoint, so a
-    bump is checked as swtpm's is, and its release notes read for a change of the state's format
-    or of the default profile, which a TPM made before the bump keeps.
+    bump is checked as swtpm's is (task boot:tpm), and its release notes read for a change of the
+    state's format or of the default profile, which a TPM made before the bump keeps.
 
 - name: json-glib
   kind: download

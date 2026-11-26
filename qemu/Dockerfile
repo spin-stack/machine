@@ -575,7 +575,7 @@ RUN set -eux; \
     ! grep -q '^	do_setup_pci_bus();$' src/pci.c && grep -q 'spin-machine: no walk of the bus' src/pci.c || { echo "the no-PCI-walk patch is not in the tree that was compiled" >&2; exit 1; }; \
     sha256sum /build/qboot.bin
 
-# swtpm, the TPM a machine asks for (#719): one beside each QEMU whose machine has a TPM.
+# swtpm, the TPM a machine asks for (machine.TPM): one beside each QEMU, which machine.Start runs.
 # A host binary in a release, so static as QEMU is, and built on QEMU's builder, whose apk.list
 # has what it links: glib, OpenSSL's libcrypto and libseccomp as static libraries. libtpms, the
 # TPM itself, and json-glib, which Alpine ships with no static library, are built here first.

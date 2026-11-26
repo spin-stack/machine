@@ -52,7 +52,7 @@
 #
 # What a VM actually gets is in the machine package (machine/spec.go): virtio-blk-pci,
 # virtio-net-pci, virtio-rng-pci, virtio-balloon-pci, virtio-mem-pci, vhost-vsock-pci,
-# vmgenid, virtio-scsi-pci with scsi-hd, and tpm-crb for a machine with a TPM (#719),
+# vmgenid, virtio-scsi-pci with scsi-hd, and tpm-crb for a machine with a TPM (machine/tpm.go),
 # on a q35 started with -nodefaults, with the console on the ISA serial port. Everything below is
 # that list and what it needs.
 #
@@ -103,8 +103,8 @@ CONFIG_VIRTIO_SCSI=y
 # it ever attached a virtconsole.
 CONFIG_SERIAL_ISA=y
 
-# A TPM 2.0 for the machine that asks for one (#719): the device, and the emulator backend, which
-# talks to the swtpm the release ships, one beside each QEMU. --enable-tpm at configure is
+# A TPM 2.0 for the machine that asks for one (machine.TPM): the device, and the emulator backend,
+# which talks to the swtpm machine.Start runs beside QEMU. --enable-tpm at configure is
 # CONFIG_TPM; the backend is default y in its Kconfig, which --allnoconfig ignores, so it is named.
 # The passthrough backend, a host's own TPM, is not: no machine here is given one.
 #

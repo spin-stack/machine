@@ -376,6 +376,9 @@ type Spec struct {
 	// inmigrate (QEMU 11.2.0-rc0, 2026-11-19). So a machine started ahead of its workspace is
 	// started for one or the other.
 	Restore bool
+
+	// TPM, when its State is set, gives the machine a TPM 2.0 (TPM).
+	TPM TPM
 }
 
 // accelArg is -accel: the accelerator, and under KVM the descriptor set /dev/kvm is in
@@ -461,6 +464,9 @@ func (s Spec) validate() error {
 		return errors.New("a /dev/vhost-vsock descriptor for a machine with no vsock")
 	case s.VsockFD != 0 && s.VsockFD < 3:
 		return errors.New("a /dev/vhost-vsock descriptor below 3 is stdin, stdout or stderr")
+	}
+	if err := s.TPM.validate(); err != nil {
+		return err
 	}
 	for i, n := range s.NICs {
 		if err := n.validate(); err != nil {
@@ -555,6 +561,7 @@ func (s Spec) Args() ([]string, error) {
 		return nil, err
 	}
 	args = s.appendNICs(args)
+	args = s.appendTPM(args)
 	args = s.appendConsole(args)
 	args = s.appendMonitors(args)
 	args = s.appendFDSets(args)

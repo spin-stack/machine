@@ -6,6 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/CycloneDX/cyclonedx-go v0.12.0
+	github.com/google/go-tpm v0.9.8
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/spin-stack/go-tools v0.20261125.1
@@ -19,6 +20,7 @@ require (
 	github.com/docker/cli v29.7.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/google/go-containerregistry v0.22.1 // indirect
+	github.com/google/go-tpm-tools v0.3.13-0.20230620182252-4639ecce2aba // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect

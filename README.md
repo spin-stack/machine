@@ -53,6 +53,7 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `bin/qemu-system-x86_64` | static and KVM only. It refuses to emulate, on purpose |
 | `bin/qemu-system-x86_64-tcg` | for CI, which has no `/dev/kvm` |
 | `bin/qemu-img` | |
+| `bin/swtpm` | static. The TPM of a machine that asks for one (`machine.TPM`), one beside each QEMU |
 | `bin/mkfs.ext4`, `bin/debugfs`, `bin/e2fsck`, `bin/dumpe2fs`, `e2fsprogs/mke2fs.conf` | static e2fsprogs, and the defaults an ext4 for this kernel is made with |
 | `qemu/qboot.bin` and the other ROMs | qboot.bin is the BIOS a machine boots with |
 | `qemu/patches/`, `qemu/qboot-*.patch`, `qemu/qboot-COPYING` | the changes this tree makes to QEMU and qboot, shipped with the binaries built from them |

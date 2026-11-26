@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -90,6 +91,16 @@ func ReadTarget(ctx context.Context, s Spec, o StartOptions) (Target, error) {
 	}
 	if s.Console != "" || s.ConsoleFDSet != 0 {
 		o.Console = io.Discard
+	}
+	if s.TPM.on() {
+		// A TPM of its own, made for it and removed: the caller's state is a workspace's, and
+		// swtpm locks it.
+		dir, err := os.MkdirTemp("", "tpm")
+		if err != nil {
+			return Target{}, fmt.Errorf("making a TPM for the machine held for its record: %w", err)
+		}
+		defer func() { _ = os.RemoveAll(dir) }()
+		s.TPM.State = dir
 	}
 	p, err := Start(ctx, s, o)
 	if err != nil {
