@@ -150,3 +150,44 @@ func TestAKernelThatIsNotThereIsNamed(t *testing.T) {
 		t.Fatalf("error %v does not name %s", err, path)
 	}
 }
+
+// An entry of this file's identity whose digest is not one is hashed past, never trusted.
+func TestAKeptDigestThatIsNotOneIsHashedAgain(t *testing.T) {
+	for name, kept := range map[string]string{"short": "ffff", "not hex": strings.Repeat("zz", sha256.Size)} {
+		t.Run(name, func(t *testing.T) {
+			path, dir := kernelFile(t, "kernel one"), t.TempDir()
+			if _, err := fileDigest(path, dir, later); err != nil {
+				t.Fatal(err)
+			}
+			forge(t, dir)
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := filepath.Join(dir, entries[0].Name())
+			line, err := os.ReadFile(entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(entry, []byte(strings.Replace(string(line), strings.Repeat("ff", sha256.Size), kept, 1)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := fileDigest(path, dir, later); err != nil || got != sha256.Sum256([]byte("kernel one")) {
+				t.Fatalf("digest %x (%v), not the file's", got, err)
+			}
+		})
+	}
+}
+
+func TestTheDigestsLiveInTheUsersCache(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	if got, want := digestDir(), filepath.Join(cache, "spin-machine", "sha256"); got != want {
+		t.Errorf("digests kept in %q, want %q", got, want)
+	}
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	if got := digestDir(); got != "" {
+		t.Errorf("with no cache directory the digests are kept in %q, want none", got)
+	}
+}

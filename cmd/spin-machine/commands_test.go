@@ -88,6 +88,8 @@ const ok = `{"return": {}}`
 // release is a tree OpenRelease accepts, of empty files: spec never runs what it names.
 func release(t *testing.T) string {
 	t.Helper()
+	// A machine with a TPM keeps its kernel's digest in the user's cache, which a test keeps apart.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	dir := t.TempDir()
 	for _, f := range []string{"bin/qemu-system-x86_64", "bin/qemu-system-x86_64-tcg", "bin/qemu-img", "kernel/bzImage", "qemu/linuxboot_dma.bin", "qemu/qboot.bin", "image/rootfs.qcow2", "bin/swtpm", "bin/passt"} {
 		p := filepath.Join(dir, f)
