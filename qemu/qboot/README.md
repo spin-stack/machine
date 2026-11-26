@@ -74,6 +74,12 @@ was measured; SeaBIOS filled its banks the same way until it hashed each with it
 stops the measuring and the boot goes on: what was extended before it is in the PCRs and the log
 alike, so a verifier sees a boot measured short, never a log the PCRs disagree with.
 
+The command buffer is RAM in QEMU at 0x80 into its page, which KVM cannot map, so every access is an
+exit: copied a byte at a time, the measuring and the CLI's hashing cost the cold first login +72.3
+ms on the bench, a word at a time +43.9 (labs 45834850060, 45837751252). With the kernel, command
+line and initrd alone, no separators, and the digests not hashed at the boot, the firmware's
+measuring read −3.6 [−11.7, +8.8], within noise (lab 45839316754, 20 a side, spin's shape).
+
 ## What holds each patch
 
 The build greps each patch's code out of the tree it compiled, so a patch that applied to nothing
