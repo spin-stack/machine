@@ -209,7 +209,7 @@ for u in systemd-random-seed.service; do
         exit 1; }
 done
 
-for dir in /etc/systemd/system /etc/systemd/system-generators /etc/systemd/user-generators /etc/tmpfiles.d; do
+for dir in /etc/systemd/system /etc/systemd/user /etc/systemd/system-generators /etc/systemd/user-generators /etc/tmpfiles.d; do
     links=$("$bin/debugfs" -R "ls -l $dir" /work/base.raw 2>/dev/null | awk '$2 ~ /^120/ {print $NF}')
     for name in $links; do
         stat_in_image "$dir/$name" | grep -q 'Fast link dest: "/dev/null"' || continue
@@ -217,6 +217,7 @@ for dir in /etc/systemd/system /etc/systemd/system-generators /etc/systemd/user-
             */system-generators) shadowed=/usr/lib/systemd/system-generators/$name ;;
             */user-generators) shadowed=/usr/lib/systemd/user-generators/$name ;;
             */tmpfiles.d) shadowed=/usr/lib/tmpfiles.d/$name ;;
+            */user) shadowed=/usr/lib/systemd/user/$name ;;
             *) unit=$name
                case $unit in *@?*.*) unit="${unit%%@*}@.${unit##*.}" ;; esac
                shadowed=/usr/lib/systemd/system/$unit ;;

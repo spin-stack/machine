@@ -1,0 +1,16 @@
+{
+  "decision": "carried",
+  "order": 317,
+  "change": "`systemd-journalctl.socket` masked in the system manager and in root's user manager: systemd 262's `io.systemd.JournalAccess` Varlink server, new in `sockets.target` of both, which 259 did not have (#794)",
+  "where": "optimize-systemd.sh",
+  "result": "against main's 262 over v20261126.02, 100 a side: accept to login −2.0 [−3.3, −1.0], console prompt −5.1 [−8.0, −2.8], cold first login −2.9 [−5.2, +0.2] within noise, sshd accepting +0.2 [−2.7, +2.4] (lab 45885609644). The cut is on the login's own chain, where root's manager starts, as the ledger put 262's +2.2 ms of CPU in user@0 (lab 45864189674). The two sockets are the only units 262.1's packages add to `sockets.target`; no new process runs in the boot",
+  "evidence": "measured, 100 a side",
+  "source": "labs 45885609644, 45864189674",
+  "issues": [
+    794
+  ],
+  "runs": [
+    45885609644,
+    45864189674
+  ]
+}
