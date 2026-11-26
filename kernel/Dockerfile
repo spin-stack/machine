@@ -273,6 +273,16 @@ RUN <<EOT
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} not enabled (shirudo cannot run in the guest)!"; exit 1; }
     done
 
+    # What shirudo's flow needs beyond that table, found by booting it here (#740): RD_ZSTD for
+    # dracut's default initrd, FPROBE for kprobe.multi and kretprobe.multi upatches, and
+    # FUNCTION_ERROR_INJECTION for fmod_ret on the functions marked for error injection. Its
+    # hardening checklist wants writes to a mounted block device refused: the seal guards file
+    # operations, and a write to the device under /var/lib/shirudo goes around them.
+    for opt in RD_ZSTD FPROBE FUNCTION_ERROR_INJECTION; do
+        grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} not enabled (shirudo's flow fails in the guest)!"; exit 1; }
+    done
+    ! grep -q "^CONFIG_BLK_DEV_WRITE_MOUNTED=y" .config || { echo "ERROR: CONFIG_BLK_DEV_WRITE_MOUNTED lets root write under shirudo's seal!"; exit 1; }
+
     for opt in BOOTPARAM_HUNG_TASK_PANIC BOOTPARAM_SOFTLOCKUP_PANIC; do
         ! grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} would turn a report into a panic!"; exit 1; }
     done
