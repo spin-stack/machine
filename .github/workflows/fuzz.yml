@@ -50,9 +50,11 @@ jobs:
           if-no-files-found: ignore
 
   # A failed day is an issue, opened once a day: the run's log and artifact say which input.
+  # Only main's: the issue is titled "failed on main", and a run dispatched on a branch is its
+  # author's to read (#731 was a branch's).
   report:
     needs: [fuzz]
-    if: ${{ failure() }}
+    if: ${{ failure() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
