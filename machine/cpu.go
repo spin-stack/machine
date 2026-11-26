@@ -207,6 +207,16 @@ func (m *QEMU) expand(ctx context.Context, model string) (map[string]any, error)
 	return r.Model.Props, nil
 }
 
+// ModelFeatures are the features a vCPU of the named model has, by QEMU's static expansion of it,
+// whether or not this host can run it.
+func (m *QEMU) ModelFeatures(ctx context.Context, model string) ([]string, error) {
+	props, err := m.expand(ctx, model)
+	if err != nil {
+		return nil, err
+	}
+	return features(props), nil
+}
+
 // features is the names of the properties that are on, sorted.
 func features(props map[string]any) []string {
 	var out []string

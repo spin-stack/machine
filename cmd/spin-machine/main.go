@@ -205,6 +205,7 @@ type machineFlags struct {
 	memoryMB     int
 	maxMemMB     int
 	cpuModel     string
+	cpuWithout   string
 	accel        string
 	cpus         int
 	maxCPUs      int
@@ -235,6 +236,7 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.IntVar(&o.memoryMB, "memory", 2048, "guest memory in MiB")
 	fs.IntVar(&o.maxMemMB, "max-memory", 0, "ceiling this VM may grow to and shrink back from, in MiB, through virtio-mem (0: fixed memory)")
 	fs.StringVar(&o.cpuModel, "cpu", "", "CPU model shown to the guest (default: host; name one, e.g. Skylake-Server-v4, to let VMs move between machines)")
+	fs.StringVar(&o.cpuWithout, "cpu-without", "", "features, comma-separated, the guest is not shown although its CPU model has them (machine.Spec.CPUWithout)")
 	fs.StringVar(&o.accel, "accel", "", "kvm (default) or tcg; tcg runs the release's TCG build unless --qemu names another")
 	fs.IntVar(&o.cpus, "cpus", 2, "boot vCPUs")
 	fs.IntVar(&o.maxCPUs, "max-cpus", 0, "vCPU hotplug ceiling (0: no hotplug)")
@@ -281,6 +283,9 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 	s.BIOS = o.bios
 	s.Initrd = o.initrd
 	s.CPU = o.cpuModel
+	if o.cpuWithout != "" {
+		s.CPUWithout = strings.Split(o.cpuWithout, ",")
+	}
 	s.BootCPUs = o.cpus
 	s.MaxCPUs = o.maxCPUs
 	s.Memory = machine.Memory{

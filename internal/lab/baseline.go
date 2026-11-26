@@ -26,19 +26,32 @@ import (
 // (GraniteRapids-v1 for a Xeon 6) is one QEMU refuses there, which cost a lab run 50 minutes of
 // boots timing out (44657973748, 2026-11-20).
 func hostBaseline(dir string) (string, error) {
+	var best string
+	err := onHeld(dir, nil, func(socket string) error {
+		var err error
+		best, err = baselineOn(socket)
+		return err
+	})
+	return best, err
+}
+
+// onHeld starts the tree at dir's machine held, with no disk and the given boot flags, and hands
+// ask its monitor's socket. The machine is killed once ask returns.
+func onHeld(dir string, flags []string, ask func(socket string) error) error {
 	socks, err := shortDir()
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer func() { _ = os.RemoveAll(socks) }()
 	qmp := filepath.Join(socks, "cpu.qmp")
-	cmd := exec.Command(filepath.Join(dir, "bin", "spin-machine"), "boot", "--release", dir, "--held", "--qmp", qmp,
-		"--disk", "-", "--memory", "256", "--console", "none")
+	args := append([]string{"boot", "--release", dir, "--held", "--qmp", qmp,
+		"--disk", "-", "--memory", "256", "--console", "none"}, flags...)
+	cmd := exec.Command(filepath.Join(dir, "bin", "spin-machine"), args...) // #nosec G204 -- the tree's own binary
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("starting a held machine to ask which CPU models this host runs: %w", err)
+		return fmt.Errorf("starting a held machine to ask about this host's CPU: %w", err)
 	}
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
@@ -47,14 +60,14 @@ func hostBaseline(dir string) (string, error) {
 	for deadline := time.Now().Add(30 * time.Second); !fileExists(qmp); time.Sleep(5 * time.Millisecond) {
 		select {
 		case <-exited:
-			return "", fmt.Errorf("the held machine asked which CPU models this host runs exited: %s", strings.TrimSpace(stderr.String()))
+			return fmt.Errorf("the held machine asked about this host's CPU exited: %s", strings.TrimSpace(stderr.String()))
 		default:
 		}
 		if time.Now().After(deadline) {
-			return "", fmt.Errorf("the held machine asked which CPU models this host runs opened no monitor in 30s: %s", strings.TrimSpace(stderr.String()))
+			return fmt.Errorf("the held machine asked about this host's CPU opened no monitor in 30s: %s", strings.TrimSpace(stderr.String()))
 		}
 	}
-	return baselineOn(qmp)
+	return ask(qmp)
 }
 
 // baselineOn asks the machine on the monitor at socket which named models it can run, and picks this

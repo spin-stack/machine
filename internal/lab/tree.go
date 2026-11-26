@@ -195,7 +195,9 @@ type TreeSpec struct {
 	Append      string
 	Boot        []string
 	// CPU is "baseline" for the newest named CPU model the host making the tree can run, chosen
-	// there: a model picked on another machine is one a nested host may not show (#222).
+	// there: a model picked on another machine is one a nested host may not show (#222). It is
+	// "without:MODEL" for host without the features this host shows and MODEL lacks, KVM's own
+	// kept, and "without+kvm:MODEL" for those taken too (hostWithout).
 	CPU   string
 	Edits []string
 	// Systemd is an image/systemd/experiments patch: systemd built with it, put into every overlay.
@@ -316,7 +318,19 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 		m.CPU = model
 		m.Boot = append(m.Boot, "--cpu="+model)
 	default:
-		return nil, fmt.Errorf("--cpu is baseline or left out, not %q: a named model is --boot --cpu=NAME", spec.CPU)
+		model, kvm := strings.CutPrefix(spec.CPU, "without+kvm:")
+		if !kvm {
+			var ok bool
+			if model, ok = strings.CutPrefix(spec.CPU, "without:"); !ok {
+				return nil, fmt.Errorf("--cpu is baseline, without:MODEL, without+kvm:MODEL or left out, not %q: a named model is --boot --cpu=NAME", spec.CPU)
+			}
+		}
+		without, desc, err := hostWithout(dir, model, kvm, src.Log)
+		if err != nil {
+			return nil, fmt.Errorf("tree %s: %w", spec.Name, err)
+		}
+		m.CPU = desc
+		m.Boot = append(m.Boot, "--cpu-without="+strings.Join(without, ","))
 	}
 	for _, name := range []string{"kernel", "qemu", "spin-machine"} {
 		p := m.Parts[name]
