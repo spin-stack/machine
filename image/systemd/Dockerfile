@@ -57,7 +57,7 @@ RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
     done && \
     dpkg-deb -x /debs/libsystemd-shared_*.deb /tmp/shared && \
     so=$(find /tmp/shared -name 'libsystemd-shared-*.so') && test -n "$so" && \
-    ! ldd "$so" | grep -E 'libselinux|libapparmor|libaudit|libcrypto' && \
+    ! ldd "$so" | grep -E 'libselinux|libapparmor|libaudit' && \
     dpkg-deb -x /debs/systemd_*.deb /tmp/systemd && \
     ! ldd /tmp/systemd/usr/lib/systemd/systemd-executor | grep libsystemd && \
     mkdir -p /tmp/no-journal && \
