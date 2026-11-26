@@ -70,6 +70,7 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 		p.Version, p.URL(), p.Pin,
 		e.Version, e.URL(), e.Pin,
 		k.Version, k.URL(), k.Pin,
+		version,
 		s.Version, s.Version, s.URL(), s.Pin,
 		o.Version, o.Version, o.URL(), o.Pin,
 	), nil
@@ -148,6 +149,13 @@ Linux %s
             usr/share/spin-stack/kernel/patches applied to that source (each says what
             it changes and why), and the configuration shipped as
             usr/share/spin-stack/kernel/kernel-config
+
+spin-machine %s
+  binary:   usr/share/spin-stack/bin/spin-machine, the tool that boots this release by hand
+  source:   this repository, at the commit machine.env's source_commit names
+  licence:  Apache-2.0 (LICENSE), statically linked with Go's standard library and the Go
+            modules usr/share/spin-stack/go-licenses.txt names, whose licence texts it carries
+  built by: go build -trimpath -buildvcs=false with CGO_ENABLED=0, by the toolchain go.mod names
 
 Ubuntu userland
   image:    usr/share/spin-stack/image/rootfs.qcow2

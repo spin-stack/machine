@@ -61,6 +61,10 @@ func tree(t *testing.T) (root, out string) {
 	for _, b := range append(slices.Clone(build.QEMUBinaries), append(build.E2fsprogsBinaries, build.SWTPMBinary, build.PasstBinary)...) {
 		put(t, filepath.Join(out, "bin", b), b, 0o755)
 	}
+	for _, f := range []string{"go.mod", "go.sum"} {
+		put(t, filepath.Join(root, f), string(mustRead(t, filepath.Join("..", "..", f))), 0o644)
+	}
+	put(t, filepath.Join(out, "bin", "spin-machine"), string(mustRead(t, spinMachine)), 0o755)
 	for _, f := range build.Firmware {
 		put(t, filepath.Join(out, "qemu", f), f, 0o644)
 	}
@@ -132,7 +136,7 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	}
 	share := "usr/share/spin-stack/"
 	got := listing(t, packed.Tarball)
-	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755, share + "bin/swtpm": 0o755, share + "bin/passt": 0o755,
+	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755, share + "bin/swtpm": 0o755, share + "bin/passt": 0o755, share + "bin/spin-machine": 0o755, share + "go-licenses.txt": 0o644,
 		share + "bin/debugfs": 0o755, share + "qemu/qboot.bin": 0o644, share + "qemu/qboot-mtrr.patch": 0o644, share + "qemu/qboot-pam.patch": 0o644,
 		share + "qemu/qboot-COPYING": 0o644, share + "qemu/patches/0001-a.patch": 0o644, share + "kernel/patches/0001-k.patch": 0o644,
 		share + "openssh/a.patch": 0o644, share + "systemd/s.patch": 0o644, share + "kernel/vmlinux": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
@@ -142,8 +146,8 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 35 {
-		t.Errorf("the tarball holds %d files, want 35: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 37 {
+		t.Errorf("the tarball holds %d files, want 37: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return
@@ -335,6 +339,9 @@ func TestSourcesNameEachPartsSourceByItsPin(t *testing.T) {
 	q, _ := v.Get("qboot")
 	if !strings.Contains(text, "qboot "+q.Pin) || !strings.Contains(text, "writes for it is "+q.Archive) {
 		t.Error("SOURCES does not name qboot's commit and archive")
+	}
+	if !strings.Contains(text, "\nspin-machine v20261119.07\n  binary:   usr/share/spin-stack/bin/spin-machine") {
+		t.Error("SOURCES does not name spin-machine at the release's version")
 	}
 	if strings.Contains(text, "%!") {
 		t.Error("SOURCES has a verb with no value")

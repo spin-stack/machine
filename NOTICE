@@ -44,6 +44,11 @@ almost entirely other people's software under other people's licences:
       (bzip2-1.0.6), zlib (Zlib), liblzma (0BSD), OpenSSL's libcrypto
       (Apache-2.0); and musl (MIT).
 
+  spin-machine
+      This repository's tool, Apache-2.0, statically linked with Go's standard
+      library and the Go modules it imports, under BSD-style licences whose
+      texts usr/share/spin-stack/go-licenses.txt in a release carries.
+
   bios.bin, bios-256k.bin, vgabios*.bin
       SeaBIOS, LGPL-3.0-or-later, shipped as part of QEMU.
 

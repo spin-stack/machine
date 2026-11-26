@@ -73,4 +73,12 @@ func TestEachFileIsAtTheVersionItWasBuiltFrom(t *testing.T) {
 	if v := got["passt"]; !slices.Equal(v, []string{p.Version, p.Version}) {
 		t.Errorf("passt is %v in the SBOM, want twice at %s, the source and the binary", v, p.Version)
 	}
+	// spin-machine is the machine the SBOM describes and the binary, both at the release's version,
+	// the binary made of the modules its build info lists.
+	if v := got["spin-machine"]; !slices.Equal(v, []string{o.Version, o.Version}) {
+		t.Errorf("spin-machine is %v in the SBOM, want twice at %s, the machine and the binary", v, o.Version)
+	}
+	if len(got["golang.org/x/sys"]) != 1 || len(got["stdlib"]) != 1 {
+		t.Errorf("spin-machine's modules are not in the SBOM: x/sys %v, stdlib %v", got["golang.org/x/sys"], got["stdlib"])
+	}
 }

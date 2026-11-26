@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"debug/elf"
 	"encoding/pem"
 	"os"
 	"os/exec"
@@ -326,18 +327,19 @@ func TestThePublishedQEMUIsTaggedWithThePinnedVersion(t *testing.T) {
 }
 
 func TestToolsIsAStaticSpinMachine(t *testing.T) {
-	dir := t.TempDir()
-	log := filepath.Join(dir, "go-calls")
-	script(t, filepath.Join(dir, "go"), `echo "CGO_ENABLED=$CGO_ENABLED $*" >> `+log)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	log := fakeGo(t, staticELF(t))
 	out := t.TempDir()
 	if err := Tools(context.Background(), Options{Root: t.TempDir(), Out: out}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(log)
-	want := "CGO_ENABLED=0 build -ldflags -s -w -o " + filepath.Join(out, "bin", "spin-machine") + " ./cmd/spin-machine\n"
+	want := "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 build -trimpath -buildvcs=false -ldflags -s -w -o " + filepath.Join(out, "bin", "spin-machine") + " ./cmd/spin-machine\n"
 	if string(got) != want {
 		t.Errorf("go ran %q, want %q", got, want)
+	}
+	fakeGo(t, writeELF(t, []elf.Prog64{{Type: uint32(elf.PT_LOAD)}, {Type: uint32(elf.PT_INTERP)}}))
+	if err := Tools(context.Background(), Options{Root: t.TempDir(), Out: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "is linked dynamically") {
+		t.Errorf("a dynamic spin-machine: %v", err)
 	}
 	if err := Tools(context.Background(), Options{Out: filepath.Join(log, "x")}); err == nil {
 		t.Error("an output under a file gave no error")

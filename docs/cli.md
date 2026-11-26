@@ -6,8 +6,9 @@ verbs fit together. `spin-machine-dev --help` lists them, and `go tool task bin`
 into `_output/bin`.
 
 It is not `spin-machine`. `cmd/spin-machine` is the machine's own tool: it boots a machine,
-attaches a disk, saves and restores. The tarball ships none: spin builds the `machine` package of
-the release it pins, and a person builds the tool with `spin-machine-dev build spin-machine`. `cmd/spin-machine-dev`
+attaches a disk, saves and restores. The tarball ships it as `bin/spin-machine`, for a person who
+boots the release by hand; spin builds the `machine` package of the release it pins instead, and a
+checkout builds the tool with `spin-machine-dev build spin-machine`. `cmd/spin-machine-dev`
 builds, measures and releases the machine, and is never shipped.
 
 ## Principles
@@ -94,7 +95,7 @@ the `release` environment may sign with the key, so a release is made by release
 `certificate` by module-certificate.yml, once.
 
 The release is one tarball. It holds QEMU and its firmware, the kernel, the base image, the
-e2fsprogs tools, LICENSE and NOTICE, every patch each part was built with (a directory ships whole,
+e2fsprogs tools, `spin-machine` and the licence texts of the Go code in it, LICENSE and NOTICE, every patch each part was built with (a directory ships whole,
 never as a list), `machine.env`, `SOURCES` and a CycloneDX SBOM. `machine.env` is the manifest:
 versions and checksums, none of which decides whether checkpoints resume (the machine's record
 does, `machine.CanResume`). The SBOM is inside the tarball and beside it.
@@ -236,7 +237,7 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--spin-machine commit:SHA`: built from that commit, fetched the same way and named by its 40
   digits. Trees of several commits in one run find which commit since a release moved a number.
 - Without `--spin-machine`, the tree keeps the spin-machine of the tree it starts from. A release
-  ships none, so a tree from a release always gets this checkout's, as the `boot:` targets'
+  from before #752 ships none, so a tree from one gets this checkout's, as the `boot:` targets'
   `:tools` dependency gave the probes before.
 - `--append ARGS`: added to the kernel command line of every boot.
 - `--boot FLAG`: a spin-machine boot flag for every boot, such as `--boot --cpu=Skylake-Server-v4`.

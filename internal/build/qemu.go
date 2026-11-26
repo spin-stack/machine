@@ -96,14 +96,10 @@ func PublishQEMU(ctx context.Context, o Options) error {
 	return docker(ctx, o, cmd...)
 }
 
-// Tools builds spin-machine into o.Out/bin, statically. A release does not ship it: the lab and
-// the probes boot with it.
+// Tools builds spin-machine into o.Out/bin, as the release ships it: the tool that boots the
+// release by hand, and what the lab and the probes boot with.
 func Tools(ctx context.Context, o Options) error {
-	if err := os.MkdirAll(filepath.Join(o.Out, "bin"), 0o755); err != nil {
-		return fmt.Errorf("making %s: %w", filepath.Join(o.Out, "bin"), err)
-	}
-	return runEnv(ctx, o, []string{"CGO_ENABLED=0"}, "go", "build", "-ldflags", "-s -w",
-		"-o", filepath.Join(o.Out, "bin", "spin-machine"), "./cmd/spin-machine")
+	return goStatic(ctx, o, "./cmd/spin-machine", filepath.Join(o.Out, "bin", "spin-machine"))
 }
 
 // Summary is what each built part is, by its hashes: for the run's summary in CI.
@@ -159,17 +155,22 @@ func FileSHA256(path string) (string, error) {
 const PressurePath = "guest/spin-machine-pressure"
 
 // buildPressure builds the pressure probe's guest half into o.Out for image/build.sh, which
-// installs it, and refuses one that asks for a dynamic loader: the guest's libc is not the one it
-// would have been linked against.
+// installs it.
 func buildPressure(ctx context.Context, o Options) error {
-	out := filepath.Join(o.Out, PressurePath)
+	return goStatic(ctx, o, "./cmd/spin-machine-pressure", filepath.Join(o.Out, PressurePath))
+}
+
+// goStatic builds the command at pkg to out and refuses one that asks for a dynamic loader: the
+// host or guest that runs it has a libc of its own, not the one it would have been linked against.
+// -trimpath and -buildvcs=false so that one commit builds the same bytes anywhere: the commit Go
+// stamps in would make every release's image differ from the one before it with the code
+// unchanged, and machine.env names the commit already.
+func goStatic(ctx context.Context, o Options, pkg, out string) error {
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return fmt.Errorf("making %s: %w", filepath.Dir(out), err)
 	}
-	// -buildvcs=false: the commit Go stamps in would make every release's image differ from the
-	// one before it with the probe's code unchanged.
 	if err := runEnv(ctx, o, []string{"CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64"}, "go", "build", "-trimpath", "-buildvcs=false",
-		"-ldflags", "-s -w", "-o", out, "./cmd/spin-machine-pressure"); err != nil {
+		"-ldflags", "-s -w", "-o", out, pkg); err != nil {
 		return err
 	}
 	return static(out)

@@ -105,12 +105,13 @@ func TestAReleaseIsBuiltAndPacked(t *testing.T) {
 	docker := `dest=""; prev=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; esac
   [ "$prev" = -v ] && case "$a" in *:/out) dest=${a%:/out};; esac; prev=$a; done
 case "$dest" in */systemd) cp -r ` + fixture + `/systemd/. "$dest"/;; */openssh) cp -r ` + fixture + `/openssh/. "$dest"/;; ?*) cp -r ` + fixture + `/. "$dest"/;; esac; exit 0`
-	// A go that builds the image's sender and nothing else: a release ships no spin-machine and
-	// needs none to say what it is.
+	// A go that builds the image's sender and spin-machine, which the release ships.
 	sender := filepath.Join(t.TempDir(), "sender")
 	put(t, sender, string(staticELF()), 0o755)
+	goModule(t, dir)
 	fakes(t, map[string]string{"docker": docker,
-		"go": `prev=""; for a; do [ "$prev" = -o ] && out=$a; prev=$a; done; [ "$prev" = ./cmd/spin-machine-pressure ] && cp ` + sender + ` "$out"`})
+		"go": `case "$*" in *./cmd/spin-machine-pressure) prev=""; for a; do [ "$prev" = -o ] && cp ` + sender + ` "$a"; prev=$a; done; exit 0;; esac
+` + goBuildsSpinMachine()})
 	stdout, stderr, status := verb(t, "release", "--version", "v20261119.11", "--json")
 	if status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
