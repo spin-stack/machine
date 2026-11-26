@@ -345,11 +345,12 @@ func qemuSource(t *testing.T) string {
 		done`
 	answer := func(accels string) string {
 		return `case "$1 $2" in "-machine none") ` + monitor + `;; esac
-case "$1" in --version) echo QEMU;; -accel) printf '` + accels + `\n';; -machine) echo "` + machine.Type + ` q35";; esac`
+case "$1" in --version) echo QEMU;; -accel) printf '` + accels + `\n';; -machine) echo "` + machine.Type + ` q35";; -device) echo 'name "tpm-crb"';; -tpmdev) echo '  emulator   TPM emulator backend driver';; esac`
 	}
 	put(t, filepath.Join(src, "bin/qemu-system-x86_64"), "#!/bin/sh\n"+answer("kvm")+"\n", 0o755)
 	put(t, filepath.Join(src, "bin/qemu-system-x86_64-tcg"), "#!/bin/sh\n"+answer("kvm\\ntcg")+"\n", 0o755)
 	put(t, filepath.Join(src, "bin/qemu-img"), "#!/bin/sh\necho qemu-img\n", 0o755)
+	put(t, filepath.Join(src, "bin/swtpm"), "#!/bin/sh\necho '{ \"features\": [ \"tpm-2.0\", \"rsa-keysize-3072\" ] }'\n", 0o755)
 	for _, f := range build.Firmware {
 		size := 1
 		if f == "qboot.bin" {
@@ -555,7 +556,7 @@ func packed(t *testing.T, dir string) string {
 	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/a.patch", "qemu/patches/0001-a.patch", "image/openssh/a.patch", "image/systemd/s.patch"} {
 		put(t, filepath.Join(dir, f), f, 0o644)
 	}
-	for _, b := range append(append([]string{}, build.QEMUBinaries...), build.E2fsprogsBinaries...) {
+	for _, b := range append(append([]string{build.SWTPMBinary}, build.QEMUBinaries...), build.E2fsprogsBinaries...) {
 		put(t, filepath.Join(out, "bin", b), b, 0o755)
 	}
 	for _, f := range build.Firmware {
@@ -585,7 +586,7 @@ func packed(t *testing.T, dir string) string {
 		}
 		return b.String()
 	}
-	put(t, filepath.Join(out, "sbom/qemu.apk"), apk("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,musl-dev,gcc"), 0o644)
+	put(t, filepath.Join(out, "sbom/qemu.apk"), apk("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,musl-dev,gcc"), 0o644)
 	put(t, filepath.Join(out, "sbom/e2fsprogs.apk"), apk("libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"), 0o644)
 	return out
 }

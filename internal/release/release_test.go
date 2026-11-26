@@ -58,7 +58,7 @@ func tree(t *testing.T) (root, out string) {
 		"image/openssh/a.patch", "image/systemd/s.patch"} {
 		put(t, filepath.Join(root, f), f, 0o644)
 	}
-	for _, b := range append(slices.Clone(build.QEMUBinaries), build.E2fsprogsBinaries...) {
+	for _, b := range append(slices.Clone(build.QEMUBinaries), append(build.E2fsprogsBinaries, build.SWTPMBinary)...) {
 		put(t, filepath.Join(out, "bin", b), b, 0o755)
 	}
 	for _, f := range build.Firmware {
@@ -79,7 +79,7 @@ func tree(t *testing.T) (root, out string) {
 		}
 	}
 	put(t, filepath.Join(out, "packages.txt"), list+"bash 5.2-1 amd64\nlibc6 2.39-1 amd64\n", 0o644)
-	put(t, filepath.Join(out, "sbom/qemu.apk"), apkDB("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,musl-dev,gcc"), 0o644)
+	put(t, filepath.Join(out, "sbom/qemu.apk"), apkDB("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,musl-dev,gcc"), 0o644)
 	put(t, filepath.Join(out, "sbom/e2fsprogs.apk"), apkDB("libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"), 0o644)
 	return root, out
 }
@@ -132,7 +132,7 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	}
 	share := "usr/share/spin-stack/"
 	got := listing(t, packed.Tarball)
-	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755,
+	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755, share + "bin/swtpm": 0o755,
 		share + "bin/debugfs": 0o755, share + "qemu/qboot.bin": 0o644, share + "qemu/qboot-mtrr.patch": 0o644, share + "qemu/qboot-pam.patch": 0o644,
 		share + "qemu/qboot-COPYING": 0o644, share + "qemu/patches/0001-a.patch": 0o644, share + "kernel/patches/0001-k.patch": 0o644,
 		share + "openssh/a.patch": 0o644, share + "systemd/s.patch": 0o644, share + "kernel/vmlinux": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
@@ -142,8 +142,8 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 33 {
-		t.Errorf("the tarball holds %d files, want 33: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 34 {
+		t.Errorf("the tarball holds %d files, want 34: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return
@@ -235,6 +235,7 @@ func TestAReleaseMissingAnythingIsRefused(t *testing.T) {
 	}{
 		{"the licence", "root:LICENSE", "the licence"},
 		{"qemu-img", "out:bin/qemu-img", "the qemu-img binary"},
+		{"swtpm", "out:bin/swtpm", "the swtpm binary"},
 		{"an option ROM", "out:qemu/linuxboot_dma.bin", "firmware linuxboot_dma.bin"},
 		{"the kernel the machine boots", "out:kernel/vmlinux", "the guest kernel"},
 		{"the option ROM it enters the kernel with", "out:qemu/pvh.bin", "firmware pvh.bin"},

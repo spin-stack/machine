@@ -52,8 +52,9 @@
 #
 # What a VM actually gets is in the machine package (machine/spec.go): virtio-blk-pci,
 # virtio-net-pci, virtio-rng-pci, virtio-balloon-pci, virtio-mem-pci, vhost-vsock-pci,
-# vmgenid, and virtio-scsi-pci with scsi-hd, on a q35 started with -nodefaults, with the console on the
-# ISA serial port. Everything below is that list and what it needs.
+# vmgenid, virtio-scsi-pci with scsi-hd, and tpm-crb for a machine with a TPM (#719),
+# on a q35 started with -nodefaults, with the console on the ISA serial port. Everything below is
+# that list and what it needs.
 #
 # Adding a line here is adding a device to every machine this repository builds, so it wants
 # the same scrutiny as adding one to machine.go. Check it first with:
@@ -101,3 +102,18 @@ CONFIG_VIRTIO_SCSI=y
 # virtio-serial is deliberately absent: nothing in this repository or in the code that drives
 # it ever attached a virtconsole.
 CONFIG_SERIAL_ISA=y
+
+# A TPM 2.0 for the machine that asks for one (#719): the device, and the emulator backend, which
+# talks to the swtpm the release ships, one beside each QEMU. --enable-tpm at configure is
+# CONFIG_TPM; the backend is default y in its Kconfig, which --allnoconfig ignores, so it is named.
+# The passthrough backend, a host's own TPM, is not: no machine here is given one.
+#
+# tpm-crb and not tpm-tis, measured against each other and against no TPM on the bench, spin's
+# shape, 20 boots a side (labs 45748711725, 45748711747, 2026-11-26): the cold first login
+# +36.1 [+23.3, +41.2] ms with tpm-crb and +43.7 [+33.8, +55.4] with tpm-tis, the cold login
+# of restore-first +28.3 and +37.3, the restored login +6.0 and +5.5. tpm-crb was the cheaper
+# cold boot in both runs, and is a command buffer the guest writes whole where tpm-tis is a FIFO
+# with an exit a byte and an interrupt line; cloud-hypervisor's TPM is CRB alone. Where the 36 ms
+# go is #745.
+CONFIG_TPM_CRB=y
+CONFIG_TPM_EMULATOR=y

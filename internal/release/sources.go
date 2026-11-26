@@ -46,10 +46,23 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	w, err := get("swtpm")
+	if err != nil {
+		return "", err
+	}
+	l, err := get("libtpms")
+	if err != nil {
+		return "", err
+	}
+	j, err := get("json-glib")
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf(sourcesText,
 		version,
 		q.Version, q.URL(), q.Pin,
 		b.Pin, b.Pin, b.Archive,
+		w.Version, w.URL(), w.Pin, l.Version, l.URL(), l.Pin, j.Version, j.URL(), j.Pin,
 		e.Version, e.URL(), e.Pin,
 		k.Version, k.URL(), k.Pin,
 		s.Version, s.Version, s.URL(), s.Pin,
@@ -63,7 +76,7 @@ Sources for the third-party software in this release.
 This release contains software under the GNU General Public License, the GNU Lesser
 General Public License and other licences; see NOTICE for what is under which. The
 complete corresponding source for the GPL and LGPL components is available as set out
-below. The statically linked libraries in the QEMU and e2fsprogs binaries are covered by the same offer,
+below. The statically linked libraries in the QEMU, swtpm and e2fsprogs binaries are covered by the same offer,
 which satisfies section 6 of the LGPL by making a relinkable build reproducible from source.
 
 QEMU %s
@@ -83,6 +96,27 @@ qboot %s
   licence:  GPL-2.0, usr/share/spin-stack/qemu/qboot-COPYING
   built by: qemu/Dockerfile's qboot stage, with usr/share/spin-stack/qemu/qboot-*.patch applied
             to that source in the order that file applies them, and its compiler flags
+
+swtpm %s
+  binary:   usr/share/spin-stack/bin/swtpm
+  source:   %s
+  sha256:   %s
+  licence:  BSD-3-Clause
+  built by: qemu/Dockerfile's swtpm stage, unpatched, statically linked against libtpms and
+            json-glib below and the Alpine libraries QEMU's builder installs (qemu/apk.list),
+            whose sources are the Alpine package sources for that release
+
+libtpms %s, linked into swtpm
+  source:   %s
+  sha256:   %s
+  licence:  BSD-3-Clause
+  built by: qemu/Dockerfile's swtpm stage, unpatched
+
+json-glib %s, linked into swtpm
+  source:   %s
+  sha256:   %s
+  licence:  LGPL-2.1-or-later
+  built by: qemu/Dockerfile's swtpm stage, unpatched
 
 e2fsprogs %s
   binaries: usr/share/spin-stack/bin/mkfs.ext4, debugfs, e2fsck, dumpe2fs
