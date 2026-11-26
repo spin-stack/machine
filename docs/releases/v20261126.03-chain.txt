@@ -1,0 +1,33 @@
+$ systemd-analyze critical-chain --no-pager spin-supervisor.service ssh.service user@$(id -u).service
+The time when unit became active or started is printed after the "@" character.
+The time the unit took to start is printed after the "+" character.
+
+spin-supervisor.service @150ms
+└─sysinit.target @149ms
+  └─systemd-tmpfiles-setup.service @124ms +23ms
+    └─systemd-journald.service @56ms +62ms
+      └─systemd-journald.socket @52ms +12us
+        └─-.mount @22ms
+          └─-.slice @22ms
+ssh.service +55ms
+└─systemd-journald.socket @52ms +12us
+  └─-.mount @22ms
+    └─-.slice @22ms
+user@0.service +43ms
+└─user-runtime-dir@0.service @139ms +4ms
+  └─systemd-logind.service @78ms +55ms
+    └─systemd-logind-varlink.socket @53ms +18ms
+      └─systemd-journald.socket @52ms +12us
+        └─-.mount @22ms
+          └─-.slice @22ms
+
+$ systemd-analyze --user critical-chain --no-pager
+The time when unit became active or started is printed after the "@" character.
+The time the unit took to start is printed after the "+" character.
+
+default.target @27ms
+└─basic.target @26ms
+  └─sockets.target @26ms
+    └─systemd-ask-password.socket @25ms +634us
+      └─app.slice @25ms
+        └─-.slice @14ms
