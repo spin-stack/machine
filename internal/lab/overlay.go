@@ -517,7 +517,8 @@ for deb in "$debs"/*.deb; do
 	rm -f "$new"
 	dpkg-deb --fsys-tarfile "$deb" | tar -x -C "$MNT" --exclude=./etc
 	if [ "$pkg" = tpm-udev ]; then
-		systemd-sysusers --root "$MNT" "$MNT/usr/lib/sysusers.d/tpm2-tss.conf"
+		systemd-sysusers --root "$MNT" - < "$MNT/usr/lib/sysusers.d/tpm2-tss.conf"
+		grep -q "^tss:" "$MNT/etc/passwd"
 		mkdir -p "$MNT/etc/systemd/system/paths.target.wants"
 		ln -sf /usr/lib/systemd/system/tpm-udev.path "$MNT/etc/systemd/system/paths.target.wants/tpm-udev.path"
 	fi
