@@ -448,8 +448,8 @@
 - name: docker-ce
   kind: download
   source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-ce_{version}-1~ubuntu.26.04~resolute_amd64.deb
-  version: 29.10.0
-  pin: 87579a4872fa4e5a7d094d2f2137ac83422e3e87477d670c1b90c553678bd94c
+  version: 29.10.1
+  pin: 0cec06fead1cfeb293609d3cf0989c8498096ff7392e4266d2faf8f2dfe28e3a
   track: tags https://github.com/docker/cli.git
   note: >-
     image/Dockerfile hands it to install-dev-tools.sh, as task, with the five below: Docker's own
@@ -462,16 +462,16 @@
 - name: docker-ce-cli
   kind: download
   source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-ce-cli_{version}-1~ubuntu.26.04~resolute_amd64.deb
-  version: 29.10.0
-  pin: 2e4e358b02e43f09944f4043060362dab267fb17a5bb1a81299e85668985e13f
+  version: 29.10.1
+  pin: c051d6e212de9ab3b7bbe3d25119303b968f6ba701fe2bc4a74f2b09eef52d6c
   track: with docker-ce
   note: docker-ce's client, released with it; see docker-ce.
 
 - name: docker-ce-rootless-extras
   kind: download
   source: https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-ce-rootless-extras_{version}-1~ubuntu.26.04~resolute_amd64.deb
-  version: 29.10.0
-  pin: fb4c06271a6918aa852ba2ae3a65ab5a516e75a2eb45e0ca994fd8cc764f514b
+  version: 29.10.1
+  pin: 706ec64542ae3002ba4c812211687822eb33432312e163f7e8344065148d96f5
   track: with docker-ce
   note: >-
     docker-ce recommends it, so apt installed it, unpinned, before it was pinned here. Released
