@@ -70,14 +70,17 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 	run := func(t *testing.T, g *guest, cmd string) []string {
 		t.Helper()
 		before := len(g.said())
-		g.type_(t, "/usr/local/bin/spin-tpmcheck "+cmd+" || echo SPIN-TPM-FAILED")
-		deadline := time.Now().Add(30 * time.Second)
+		// The console echoes what is typed: the failure's marker is what the shell computes.
+		g.type_(t, "/usr/local/bin/spin-tpmcheck "+cmd+" || echo TPMCHECK-EXIT-$((5+5))")
+		start := time.Now()
+		deadline := start.Add(2 * time.Minute)
 		for {
 			text := g.said()[before:]
 			if m := said.FindStringSubmatch(text); m != nil {
+				t.Logf("tpmcheck %s answered in %s", cmd, time.Since(start).Round(time.Millisecond))
 				return m[1:]
 			}
-			if strings.Contains(text, "SPIN-TPM-FAILED") || time.Now().After(deadline) {
+			if strings.Contains(text, "TPMCHECK-EXIT-10") || time.Now().After(deadline) {
 				t.Fatalf("tpmcheck %s did not say what the TPM holds:\n%s", cmd, tail([]byte(text), 2000))
 			}
 			time.Sleep(50 * time.Millisecond)
@@ -89,7 +92,8 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 	s, mac := r.next(t, "/bin/sh")
 	tpm(first)(&s)
 	src := startGuest(t, s, mac, nil)
-	if err := src.Boot(ctx, disk(t)); err != nil {
+	srcDisk := disk(t)
+	if err := src.Boot(ctx, srcDisk); err != nil {
 		t.Fatalf("booting: %v\n%s", err, src.said())
 	}
 	src.type_(t, mount+"ls /dev/tpm0 /dev/tpmrm0 && echo TPM-NODES-$((1+1)); cat /sys/class/tpm/tpm0/tpm_version_major")
@@ -110,24 +114,31 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 		t.Fatalf("checkpointing: %v\n%s", err, src.said())
 	}
 	src.Kill()
+	_ = srcDisk.Close()
 
 	t.Run("a checkpoint resumed onto an empty TPM state reads back what it saved", func(t *testing.T) {
 		resumed := t.TempDir()
-		s, mac := r.next(t, "/bin/sh")
+		// The record is read of the machine as spin starts it, its NIC and console in the Spec.
+		s := r.spec(t, "/bin/sh")
 		tpm(resumed)(&s)
 		s.Restore = true
 		here, err := machine.ReadTarget(ctx, s, machine.StartOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
+		mac := s.NICs[0].MAC
+		s.NICs = nil
 		dst := startGuest(t, s, mac, nil)
-		if err := dst.Resume(ctx, state, checkpoint, here, machine.LoadOptions{}, disk(t)); err != nil {
+		d := disk(t)
+		if err := dst.Resume(ctx, state, checkpoint, here, machine.LoadOptions{}, d); err != nil {
 			t.Fatalf("resuming: %v\n%s", err, dst.said())
 		}
 		if got := run(t, dst, "read"); strings.Join(got, " ") != strings.Join(saved, " ") {
 			t.Errorf("the restored guest reads %v from its TPM, and saved %v", got, saved)
 		}
 		dst.Kill()
+		// The disk's lock is on the description QEMU was handed, which this holds until closed.
+		_ = d.Close()
 
 		t.Run("a cold boot on that state keeps the seed and the index, not the PCR", func(t *testing.T) {
 			s, mac := r.next(t, "/bin/sh")
@@ -147,8 +158,9 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 
 	// shirudo's initrd is ~62 MB, and QEMU puts an initrd at the top of the memory below 4 GiB.
 	// Under SeaBIOS one that size covered the ACPI tables, the kernel ran without ACPI and no TPM
-	// was enumerated (#719). Here, under qboot and PVH at spin's shape, the kernel's own log says
-	// where each went, and the TPM is there.
+	// was enumerated (#719). qboot puts the tables below 1 MiB, and the kernel's own log says where
+	// each went. 512 MiB and not spin's 128: at 128 the kernel runs out of memory unpacking 62 MB
+	// into its rootfs and panics before userspace, whatever the tables (spin-stack/spin#1708).
 	t.Run("a shirudo-sized initrd leaves the TPM where the guest finds it", func(t *testing.T) {
 		pad := make([]byte, 62<<20)
 		if _, err := rand.Read(pad); err != nil {
@@ -161,13 +173,15 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 		s, mac := r.next(t, "/bin/sh")
 		tpm(t.TempDir())(&s)
 		s.Initrd = initrd
+		s.Memory.BaseMB = 512
 		g := startGuest(t, s, mac, nil)
 		if err := g.Boot(ctx, disk(t)); err != nil {
 			t.Fatalf("booting: %v\n%s", err, g.said())
 		}
 		g.type_(t, mount+"dmesg | grep -E 'RAMDISK|ACPI: (RSDP|TPM2|Failed)|AE_NO_MEMORY|tpm'; ls /dev/tpm0 && echo TPM-WITH-INITRD-$((4+4))")
 		g.await(t, regexp.MustCompile(`TPM-WITH-INITRD-8\b`), 60*time.Second)
-		if strings.Contains(g.said(), "AE_NO_MEMORY") {
+		// What the kernel printed, not the grep the console echoed.
+		if regexp.MustCompile(`\]\s+ACPI.*(Failed|AE_NO_MEMORY)`).MatchString(g.said()) {
 			t.Errorf("the kernel lost its ACPI tables under a 62 MB initrd:\n%s", tail([]byte(g.said()), 3000))
 		}
 		t.Logf("where the initrd and the ACPI tables went:\n%s", tail([]byte(g.said()), 1500))

@@ -141,8 +141,10 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 		{"more base RAM here", base, moreRAM, []string{"machine memory.size", "ram 0000:00:1e.0/mem.growth", "ram pc.ram"}},
 		{"more hotplug targets here", base, moreTargets, nil},
 		{"fewer hotplug targets here", moreTargets, base, []string{"device 1a.0 max_target"}},
-		{"a TPM here", base, withTPM, []string{"device " + machine.TPMDevice}},
-		{"no TPM here", withTPM, base, []string{"device " + machine.TPMDevice}},
+		// The device, its command buffer and the physical presence interface's page, each a block
+		// mapped-ram would load into nothing or leave out.
+		{"a TPM here", base, withTPM, []string{"device tpm-crb", "ram tpm-crb-cmd", "ram tpm-ppi"}},
+		{"no TPM here", withTPM, base, []string{"device tpm-crb", "ram tpm-crb-cmd", "ram tpm-ppi"}},
 		{"leaf 2 at 0xFF in the checkpoint's machine", leaf2FF, base, []string{"cpu x-consistent-cache"}},
 		{"a checkpoint from before the record held the vCPU's properties", before, base, eachProperty},
 	} {
