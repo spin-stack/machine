@@ -20,6 +20,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -244,13 +245,14 @@ type machineFlags struct {
 	maxCPUs      int
 	hotplugDisks int
 
-	vsockCID int
-	qmp      string
-	console  string
-	held     bool
-	restore  bool
-	tpm      string
-	net      bool
+	vsockCID    int
+	qmp         string
+	console     string
+	held        bool
+	restore     bool
+	tpm         string
+	tpmManifest bool
+	net         bool
 
 	init     string
 	root     string
@@ -281,6 +283,7 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "listen for QMP on this Unix socket; attach, detach and save connect to it")
 	fs.BoolVar(&o.held, "held", false, "start held, and boot only when start is run (needs --qmp)")
 	fs.BoolVar(&o.restore, "restore", false, "start held for a checkpoint, which restore loads (needs --qmp)")
+	fs.BoolVar(&o.tpmManifest, "tpm-manifest", false, "experiment #742: the kernel's digest from machine.env, not hashed")
 	fs.StringVar(&o.tpm, "tpm", "", "give the machine a TPM whose state is this directory, made if missing, and emulated by <release>/bin/swtpm, with its boot measured into it; the kernel and initrd are hashed at every boot (default: no TPM)")
 	fs.BoolVar(&o.net, "net", false, "give the machine a NIC on <release>/bin/passt, configured by the kernel command line: the guest reaches what this user reaches, IPv4, with DNS through the host's resolver (default: no NIC)")
 	fs.StringVar(&o.console, "console", "mon:stdio",
@@ -358,7 +361,10 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 		s.TPM = machine.TPM{SWTPM: swtpm, State: o.tpm}
 		// Hashed at every boot: the CLI starts one machine and exits, so it has nowhere to keep
 		// a digest, and a caller that starts many hashes each file once. A restore measures nothing.
-		if !s.Restore {
+		if sum := rel.ManifestKernelSHA256(); !s.Restore && o.tpmManifest && sum != "" {
+			b, _ := hex.DecodeString(sum)
+			s.TPM.Kernel = [32]byte(b)
+		} else if !s.Restore {
 			if s.TPM.Kernel, err = machine.FileSHA256(s.Kernel); err != nil {
 				return machine.Spec{}, err
 			}

@@ -133,6 +133,9 @@ func (r *Release) optional(name, what string) (string, error) {
 // on this string is evidence and not proof.
 func (r *Release) Version() string { return r.env["version"] }
 
+// ManifestKernelSHA256 is experiment #742's: machine.env's kernel_sha256.
+func (r *Release) ManifestKernelSHA256() string { return r.env["kernel_sha256"] }
+
 // Spec returns the parts of a machine this release supplies for the accelerator accel ("" or
 // "kvm", or "tcg"): the QEMU that runs under it, the kernel it boots, the firmware directory
 // QEMU loads the BIOS and the kernel's option ROM from, and Accel. It is the one way to a Spec's
