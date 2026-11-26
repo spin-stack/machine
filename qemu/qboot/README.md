@@ -81,7 +81,8 @@ line and initrd alone, no separators, and the digests not hashed at the boot, th
 measuring read −3.6 [−11.7, +8.8], within noise (lab 45839316754, 20 a side, spin's shape). On a
 kernel whose 0032 still self-tested a TPM it had not started itself, the self test came back,
 +23.9 (lab 45840998579); with 0032 probing by TPM2_Startup, against main: −1.1 [−8.9, +10.5]
-(lab 45843630680).
+(lab 45843630680). Against main once swtpm's patch landed (#775), 30 a side: −1.0 [−5.8, +4.3]
+cold (lab 45851405387), −0.1 [−0.8, +0.8] restored (lab 45851411671).
 
 ## What holds each patch
 

@@ -235,6 +235,15 @@ TPM2 (docs/image.md, "Two rebuilt packages"), so nothing after PID 1 waits on th
 with TPM2 brings its generator and units onto that path, and the "PID 1 to the login" row is
 measured again then.
 
+**Measuring the boot adds nothing seen on top of the TPM (#742).** These are against a machine that
+already has a TPM, not against none, so they do not add to the table's rows. The baseline is main
+at b8fc0ac with swtpm's patch and 0032 as first carried (parts run 45849429862); the other arm adds
+qboot's tpm.patch and 0032 probing by TPM2_Startup (parts run 45849895726), with the digests
+supplied rather than hashed at the boot; bench, spin's shape, 30 a side, interleaved. First login
+−1.0 [−5.8, +4.3] (lab 45851405387); restored login −0.1 [−0.8, +0.8] evicted and −0.2
+[−1.5, +0.8] cached (lab 45851411671). All within noise. `spin-machine boot --tpm` still hashes
+the vmlinux at every boot (#776), which is not in these numbers.
+
 ## What the machine carries
 
 This table lists every change the tree makes for boot time, with what it earns in spin's shape.
