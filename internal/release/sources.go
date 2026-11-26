@@ -78,6 +78,14 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	us, err := get("ubuntu-snapshot")
+	if err != nil {
+		return "", err
+	}
+	ll, err := get("llvm")
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf(sourcesText,
 		version,
 		q.Version, q.URL(), q.Pin,
@@ -86,7 +94,7 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 		p.Version, p.URL(), p.Pin,
 		e.Version, e.URL(), e.Pin,
 		k.Version, k.URL(), k.Pin,
-		sh.Pin, sh.Source, sh.Pin,
+		sh.Pin, sh.Source, sh.Pin, us.Version, ll.Version,
 		ssl.Version, ssl.URL(), ssl.Pin, c.Version, c.URL(), c.Pin, tss.Version, tss.Source, tss.Pin,
 		version,
 		s.Version, s.Version, s.URL(), s.Pin,
@@ -175,9 +183,10 @@ shirudo %s
   source:   %s, commit %s
   licence:  BSD-2-Clause; with what is linked into it, usr/share/spin-stack/shirudo-licenses.txt
   built by: shirudo/Dockerfile: shirudo's own static target build (make target) in its build
-            environment, Ubuntu 26.04 and clang 23, its BPF objects compiled against the BTF of the
-            kernel above, unpatched, statically linked against OpenSSL, curl and TPM2-TSS below
-            and the Ubuntu static archives of glibc, libelf, zlib, zstd, LuaJIT and libgcc that
+            environment, Ubuntu 26.04 with its archive as snapshot.ubuntu.com serves it at %s
+            and LLVM's clang %s, its BPF objects compiled against the BTF of the kernel above,
+            unpatched, statically linked against OpenSSL, curl and TPM2-TSS below and the Ubuntu
+            static archives of glibc, libelf, zlib, zstd, LuaJIT and libgcc that
             sbom/machine.cdx.json names with their versions, whose sources are those Ubuntu
             source packages (apt-get source <package>=<version>)
 

@@ -359,10 +359,16 @@ func TestSourcesNameEachPartsSourceByItsPin(t *testing.T) {
 	if !strings.Contains(text, "\nshirudo "+func() string { e, _ := v.Get("shirudo"); return e.Pin }()+"\n  binary:   usr/share/spin-stack/guest/shirudo") {
 		t.Error("SOURCES does not name shirudo's binary at its commit")
 	}
+	for _, name := range []string{"ubuntu-snapshot", "llvm"} {
+		e, _ := v.Get(name)
+		if !strings.Contains(text, e.Version) {
+			t.Errorf("SOURCES does not name the %s shirudo was built with, %s", name, e.Version)
+		}
+	}
 	if strings.Contains(text, "%!") {
 		t.Error("SOURCES has a verb with no value")
 	}
-	for _, missing := range []string{"qemu", "kernel", "e2fsprogs", "qboot", "systemd-source", "openssh-source", "swtpm", "libtpms", "json-glib", "passt", "shirudo", "openssl", "curl", "tpm2-tss"} {
+	for _, missing := range []string{"qemu", "kernel", "e2fsprogs", "qboot", "systemd-source", "openssh-source", "swtpm", "libtpms", "json-glib", "passt", "shirudo", "openssl", "curl", "tpm2-tss", "ubuntu-snapshot", "llvm"} {
 		w := *v
 		w.Entries = slices.DeleteFunc(slices.Clone(v.Entries), func(e versions.Entry) bool { return e.Name == missing })
 		if _, err := Sources("v", &w); err == nil {

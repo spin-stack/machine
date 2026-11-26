@@ -215,7 +215,7 @@ const ShirudoLicenses = "shirudo-licenses.txt"
 const ShirudoPackages = "sbom/shirudo.dpkg"
 
 // shirudoPins are the versions.yaml entries shirudo/Dockerfile is handed.
-var shirudoPins = strings.Fields("ubuntu shirudo openssl curl tpm2-tss")
+var shirudoPins = strings.Fields("alpine ubuntu ubuntu-snapshot llvm shirudo openssl curl tpm2-tss")
 
 func makeShirudo(ctx context.Context, o Options, p Part) error {
 	if err := emptied(o.Out, ShirudoBinary, ShirudoLicenses, ShirudoPackages); err != nil {
