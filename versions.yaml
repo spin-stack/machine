@@ -532,7 +532,7 @@
 - name: osv-scanner
   kind: module
   source: github.com/google/osv-scanner/v2/cmd/osv-scanner
-  version: v2.7.0
+  version: v2.7.1
   track: github-release https://github.com/google/osv-scanner
   note: spin-machine-dev osv, which osv.yml runs daily over the newest release's SBOM. A bump is checked with it.
 
