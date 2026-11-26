@@ -352,7 +352,7 @@ every kernel bump.
 | 0029 | the compiled `kernel/bpf/bpf_lsm.c` lets a sleepable program attach to `inode_mkdir` |
 | 0030 | the compiled `kernel/bpf/verifier.c` trusts `dentry->d_parent` |
 | 0031 | `mm_access` calls `security_mm_read_access` |
-| 0032 | the compiled `drivers/char/tpm/tpm2-cmd.c` sends the self test once, the one that finds the TPM not started |
+| 0032 | the compiled `drivers/char/tpm/tpm2-cmd.c` sends no self test: `tpm2_auto_startup` probes with TPM2_Startup |
 
 None of them is a guest check. What the patches save is CPU and VM exits, which a guest cannot
 count, and the format files 0003 defers are behind lockdown. What 0012 and 0013 save is a parse of
