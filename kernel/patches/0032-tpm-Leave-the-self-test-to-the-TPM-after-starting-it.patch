@@ -1,0 +1,62 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Thu, 26 Nov 2026 10:52:37 -0300
+Subject: [PATCH] tpm: Leave the self test to the TPM after starting it up
+
+When the firmware has not started the TPM, tpm2_auto_startup() sees
+TPM2_SelfTest refused with TPM2_RC_INITIALIZE, sends TPM2_Startup and
+then sends TPM2_SelfTest again. With fullTest NO that asks the TPM to
+test every algorithm it has not tested yet, which right after a
+startup is all of them, and the probe waits for the answer.
+
+A TPM tests an algorithm before its first use whether or not it was
+asked to (TPM 2.0 Part 1, "Self-Test Modes"), so the second self test
+only moves that work into the probe. Drop it. The startup's own
+response code still says whether the TPM came up, and a TPM in failure
+mode is still found by tpm2_get_cc_attrs_tbl(), whose TPM2_RC_FAILURE
+sets TPM_CHIP_FLAG_FIRMWARE_UPGRADE as before. A TPM the firmware
+started is tested by the first self test as before.
+
+The self test is libtpms' longest command at boot: swtpm 0.10.2 took
+25 ms to answer it on a laptop, and every other command of the probe
+under 2 ms.
+In a nested KVM guest with tpm-crb, the probe slept 18.5 ms on it
+before PID 1 that a machine without a TPM does not.
+
+"tpm: Start the tpm2 before running a self test" (2023-11) met the same
+unstarted TPM and kept both self tests; the answer was that firmware
+should start the TPM. Under qboot nothing does, and a firmware that did
+would leave the kernel's first self test to pay instead.
+
+Link: https://patchew.org/linux/20231122065528.1049819-1-hermin.anggawijaya@alliedtelesis.co.nz
+Signed-off-by: Manuel de Brito Fontes <aledbf@gmail.com>
+---
+ drivers/char/tpm/tpm2-cmd.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/char/tpm/tpm2-cmd.c b/drivers/char/tpm/tpm2-cmd.c
+index 4b2bb2d..949bac3 100644
+--- a/drivers/char/tpm/tpm2-cmd.c
++++ b/drivers/char/tpm/tpm2-cmd.c
+@@ -723,14 +723,15 @@ int tpm2_auto_startup(struct tpm_chip *chip)
+ 	if (rc && rc != TPM2_RC_INITIALIZE)
+ 		goto out;
+ 
++	/*
++	 * A TPM tests each algorithm before its first use, so the self test
++	 * after a startup the kernel made would only move that work into the
++	 * probe.
++	 */
+ 	if (rc == TPM2_RC_INITIALIZE) {
+ 		rc = tpm2_startup(chip);
+ 		if (rc)
+ 			goto out;
+-
+-		rc = tpm2_do_selftest(chip);
+-		if (rc)
+-			goto out;
+ 	}
+ 
+ 	rc = tpm2_get_cc_attrs_tbl(chip);
+-- 
+2.53.0
+

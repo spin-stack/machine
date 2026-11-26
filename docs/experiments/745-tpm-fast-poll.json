@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 340,
+  "date": "2026-11-26",
+  "change": "`tpm_try_transmit` polling a command's completion 50-100 µs apart for its first ten polls, not 1 ms (a kernel patch on branch `exp/745-tpm-poll`, #745)",
+  "result": "initcalls −3.7 [−5.0, −1.1], 10 a side (lab 45832388057); first login −1.5 [−9.4, +3.1], 30 a side (lab 45832372721); restored −0.2 [−1.2, +0.3] evicted (lab 45832380145). The probe's 16 sleeps of ~1 ms in a row were one command, the self test, not 16 commands each held to the next millisecond",
+  "shape": "spin",
+  "source": "labs 45832388057, 45832372721, 45832380145",
+  "issues": [
+    745
+  ],
+  "runs": [
+    45832372721,
+    45832380145,
+    45832388057
+  ]
+}

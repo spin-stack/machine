@@ -201,9 +201,11 @@ m, err := machine.Start(ctx, spec, machine.StartOptions{
 - **The record holds the device.** `tpm-crb` is a device the machine was started with, so a
   checkpoint never resumes across a TPM and none (`boot:record`, "a TPM here", "no TPM here").
 - **It costs the goal's numbers, so it is asked for.** On the bench, spin's shape, a TPM cost the
-  cold first login +36.1 [+23.3, +41.2] ms and the restored one +6.0 [+4.4, +7.4] ms against the
-  same machine without one (labs 45748711725, 45748711747, 2026-11-26). tpm-crb was chosen over
-  tpm-tis by the same runs (qemu/devices.mak). Where the cold 36 ms go is #745.
+  cold first login +31.7 [+22.0, +36.0] ms on v20261126.01, +9.5 [+4.5, +19.5] once kernel 0032
+  stopped the guest asking for a self test after its own TPM2_Startup, and the restored one
+  +6.3 [+5.3, +7.0] ms, against the same machine without one (labs 45829973230, 45834343191,
+  45829981897, 2026-11-26). docs/boot-time.md, "A machine with a TPM", says where each goes (#745).
+  tpm-crb was chosen over tpm-tis by labs 45748711725 and 45748711747 (qemu/devices.mak).
 - **QEMU puts the initrd above the ACPI tables.** qboot writes the tables below 1 MiB (`ACPI: TPM2
   0xC1943`) and QEMU the initrd at the top of RAM, so a large one cannot cover them, as a 62 MB
   initrd did under SeaBIOS and hid the TPM (#719). boot:tpm boots one and finds the TPM.
