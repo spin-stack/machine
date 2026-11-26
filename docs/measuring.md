@@ -227,8 +227,9 @@ spin-machine-dev lab dispatch ledger --reps 3 \
 **It needs a kernel that can be traced.** Lockdown at confidentiality takes tracefs away
 (kernel/README.md), so a release's own kernel records nothing. `traceable:TAG` is the kernel
 published beside release TAG, lab-only: the release's source and config with
-`CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y` in place of confidentiality and every other option held to
-the release kernel's (#536). Releases before the first one built with it have none. `releases
+`CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y` in place of the forced level (confidentiality before #734,
+integrity from it on) and every other option held to the release kernel's (#536). The tree's
+boots leave `lockdown=` off the command line, which would raise it again (#734). Releases before the first one built with it have none. `releases
 measure` takes one ledger of each release on it, beside its boot chart, and its record keeps it as
 `docs/releases/TAG-ledger.txt`.
 

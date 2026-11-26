@@ -157,7 +157,7 @@ func releaseTraceableKernelCmd() *cobra.Command {
 		Use:    "traceable-kernel --version <version>",
 		Short:  "Build the lab's traceable kernel of a release into _output/release, beside it and never in it",
 		Hidden: true,
-		Long: `Build the release's kernel with lockdown forced to none instead of confidentiality, from the same
+		Long: `Build the release's kernel with lockdown forced to none instead of integrity, from the same
 source and config, into _output/traceable, and hold its config to the series' committed one
 (kernel/config-<series>-<arch>): that one option swapped and every other as the release has it.
 The release kernel is not built: its build fails unless olddefconfig leaves the committed file

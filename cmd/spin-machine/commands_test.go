@@ -147,6 +147,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	every.Cmdline = every.Cmdline.Profiling()
 	every.Cmdline.Extra = append(every.Cmdline.Extra, "a=1", "b")
 	every.Cmdline.Console = ""
+	every.Cmdline.LockdownIntegrity = true
 
 	emulated := defaults
 	emulated.Accel, emulated.QEMU = "tcg", filepath.Join(dir, "bin/qemu-system-x86_64-tcg")
@@ -166,7 +167,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 			"--accel", "tcg", "--memory", "1024", "--max-memory", "4096", "--cpu", "Skylake-Server-v4",
 			"--cpus", "3", "--max-cpus", "8", "--hotplug-disks", "2",
 			"--vsock-cid", "7", "--qmp", "/qmp", "--restore", "--console", "", "--init", "/bin/sh",
-			"--root", "/dev/vdb", "--profile", "--append", "a=1 b"}, every},
+			"--root", "/dev/vdb", "--profile", "--append", "a=1 b", "--lockdown-integrity"}, every},
 		{"tcg runs the release's TCG build", []string{"--accel", "tcg"}, emulated},
 		{"no disk mounts no root", []string{"--disk", "-"}, noDisk},
 	} {

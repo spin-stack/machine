@@ -144,7 +144,7 @@ discarding every edit, and exited 0 doing it.`,
 			bx := []string{"buildx", "build", "--file", "kernel/Dockerfile", "--target", "kernel-build-base", "--platform", "linux/amd64",
 				"--cache-from", "type=local,src=" + filepath.Join(w.root, ".cache", "buildkit", "kernel")}
 			bx = append(bx, args...)
-			bx = append(bx, "--build-arg", "KERNEL_SERIES="+series, "--build-arg", "KERNEL_ARCH="+build.Arch, "--build-arg", "KERNEL_LOCKDOWN=confidentiality",
+			bx = append(bx, "--build-arg", "KERNEL_SERIES="+series, "--build-arg", "KERNEL_ARCH="+build.Arch, "--build-arg", "KERNEL_LOCKDOWN=integrity",
 				"--output", "type=docker,name="+image, ".")
 			if err := command(c.Context(), c, w.root, "docker", bx...); err != nil {
 				return err

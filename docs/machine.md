@@ -514,6 +514,25 @@ within 3 ms of the resume. The session's shell, on a pty, was gone at the first 
 after it. The guest's kernel logs nothing of the reset. A new login works at once. Keeping the
 work across a rollback is spin's (spin-stack/spin#1483).
 
+## The kernel command line
+
+`Spec.Cmdline` is a `machine.Cmdline`, a typed value that `String` renders with what every boot of
+this machine needs (`pci=lastbus=0`, `TERM=dumb` and the rest, each with its reason in
+`machine/cmdline.go`). A consumer sets the console, the root, init and `Extra`, and gets the rest.
+
+- **Lockdown.** The kernel forces integrity, the floor no command line goes below. The line raises
+  every guest to confidentiality with `lockdown=confidentiality`, the zero value's choice, so a
+  consumer that builds its own `Cmdline` gets it without asking. `LockdownIntegrity` leaves it out,
+  for a guest whose BPF LSM enforcer reads kernel memory (shirudo, #734), and spin-machine's
+  `--lockdown-integrity` sets it. What that trades is in kernel/README.md, "Lockdown and the BPF
+  LSM". `Args` refuses a `lockdown=` in `Extra`: the kernel keeps the higher of two levels, so one
+  there would silently undo the choice or claim a level the guest does not run.
+- **Not part of the record.** The guest reads its command line once, at boot. A checkpoint resumes
+  the guest it saved, at the level that guest booted at, whatever the line of the machine it
+  resumes into says, so the line cannot make a resume load wrongly and `Target` does not carry it.
+  Which level a resumed workspace runs is the guest's, and a consumer that changes a workspace's
+  choice gets it at that workspace's next cold boot.
+
 ## What is load-bearing and invisible from outside
 
 - **Every device on the command line sits at a fixed slot on bus 0.** A fixed slot makes

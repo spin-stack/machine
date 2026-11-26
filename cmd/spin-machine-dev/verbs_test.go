@@ -205,7 +205,7 @@ func kernelDocker(extra string) string {
 [ -n "$dest" ] || exit 0
 mkdir -p "$dest/kernel"
 printf '` + printfEscaped(vmlinuxFixture()) + `' > "$dest/kernel/vmlinux"
-printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"`
+printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"`
 }
 
 // printfEscaped is b as a printf format of octal escapes, which sh's printf writes back as b.
@@ -229,14 +229,14 @@ func TestTheTraceableKernelIsTheReleaseKernelLessLockdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(dir, "kernel", "config-"+series+"-"+build.Arch),
-		"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_BPF_LSM=y\n", 0o644)
+		"CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_BPF_LSM=y\n", 0o644)
 	published := filepath.Join(dir, "_output/release", release.TraceableVmlinux("v1"))
 	calls := fakes(t, map[string]string{"docker": kernelDocker("")})
 	if _, stderr, status := verb(t, "release", "traceable-kernel", "--version", "v1"); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
 	got := read(t, calls)
-	if strings.Contains(got, "KERNEL_LOCKDOWN=confidentiality") || !strings.Contains(got, "KERNEL_LOCKDOWN=none --output type=local,dest="+filepath.Join(dir, "_output/traceable")+" ") {
+	if strings.Contains(got, "KERNEL_LOCKDOWN=integrity") || !strings.Contains(got, "KERNEL_LOCKDOWN=none --output type=local,dest="+filepath.Join(dir, "_output/traceable")+" ") {
 		t.Errorf("docker was not asked for the traceable kernel alone:\n%s", got)
 	}
 	if read(t, published) != read(t, filepath.Join(dir, "_output/traceable/kernel/vmlinux")) {
@@ -1182,7 +1182,7 @@ func TestMenuconfigEditsTheConfigInPlace(t *testing.T) {
 	}
 	got := read(t, calls)
 	for _, want := range []string{"docker buildx build --file kernel/Dockerfile --target kernel-build-base --platform linux/amd64 --cache-from type=local,src=" + filepath.Join(dir, ".cache/buildkit/kernel"),
-		"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_LOCKDOWN=confidentiality", "--output type=docker,name=spin-machine-menuconfig .",
+		"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_LOCKDOWN=integrity", "--output type=docker,name=spin-machine-menuconfig .",
 		"docker run --rm -it -v " + filepath.Join(dir, "kernel") + ":/config -w /usr/src/linux -e KCONFIG_CONFIG=/config/config-" + series + "-x86_64 -e TERM=xterm-256color spin-machine-menuconfig make ARCH=x86_64 menuconfig"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("docker was not asked %q:\n%s", want, got)

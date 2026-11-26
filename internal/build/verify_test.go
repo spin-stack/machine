@@ -446,14 +446,14 @@ func TestTheTraceableConfigIsTheReleasesLessLockdown(t *testing.T) {
 		}
 		return p
 	}
-	release := config("release", "CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_LSM=\"lockdown,bpf\"\n")
-	swapped := "# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_LSM=\"lockdown,bpf\"\n"
+	release := config("release", "CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_LSM=\"lockdown,bpf\"\n")
+	swapped := "# CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_LSM=\"lockdown,bpf\"\n"
 	if err := TraceableConfig(release, config("ok", swapped)); err != nil {
 		t.Errorf("the release's config with lockdown swapped: %v", err)
 	}
 	for name, c := range map[string]struct{ body, want string }{
-		"not swapped": {"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_LSM=\"lockdown,bpf\"\n",
-			"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is y in the release kernel and y in the traceable one, not y and n"},
+		"not swapped": {"CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_LSM=\"lockdown,bpf\"\n",
+			"CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY is y in the release kernel and y in the traceable one, not y and n"},
 		"an option added":   {swapped + "CONFIG_KPROBES=y\n", "CONFIG_KPROBES is n in the release kernel and y in the traceable one"},
 		"an option dropped": {strings.Replace(swapped, "CONFIG_LSM=\"lockdown,bpf\"\n", "", 1), `CONFIG_LSM is "lockdown,bpf" in the release kernel and n in the traceable one`},
 		"no option at all":  {"", "sets no option"},

@@ -4,12 +4,38 @@ set -eu
 trap 'echo LOCKDOWN_CHECK_FAILED' EXIT
 
 # The LSMs the kernel runs, in its own words, and the lockdown level it enforces: the brackets
-# mark the one in force.
+# mark the one in force. LOCKDOWN is the level the machine asked for (lockdown_test.go).
 echo "lsm: $(cat /sys/kernel/security/lsm)"
 echo "lockdown: $(cat /sys/kernel/security/lockdown)"
 # capability is always there, whatever CONFIG_LSM says: the kernel puts it first among the rest.
 test "$(cat /sys/kernel/security/lsm)" = "lockdown,capability,bpf"
-grep -q '\[confidentiality\]' /sys/kernel/security/lockdown
+
+# The level the kernel forces from its first instruction, below which no command line goes
+# (security/lockdown/lockdown.c, lock_kernel_down only raises): integrity from #734 on. A kernel
+# from before #734 forced confidentiality, and compat boots the newest release's kernel for a
+# change that does not reach the kernel, which until a release carries #734 is one of those
+# (#738 drops this case then).
+forced=$(zcat /proc/config.gz | sed -n 's/^CONFIG_LOCK_DOWN_KERNEL_FORCE_\(.*\)=y$/\1/p' | tr A-Z a-z)
+echo "forced by the kernel: $forced; asked of it: $(grep -o 'lockdown=[a-z]*' /proc/cmdline || echo nothing)"
+case "$forced" in
+integrity | confidentiality) ;;
+*) echo "the kernel forces '$forced', below integrity"; exit 1 ;;
+esac
+case "$LOCKDOWN" in
+confidentiality)
+    grep -qw 'lockdown=confidentiality' /proc/cmdline
+    want=confidentiality
+    ;;
+integrity)
+    if grep -q 'lockdown=' /proc/cmdline; then
+        echo "a machine at integrity asked for a level: $(cat /proc/cmdline)"
+        exit 1
+    fi
+    want=$forced
+    ;;
+*) echo "LOCKDOWN is confidentiality or integrity, not '$LOCKDOWN'"; exit 1 ;;
+esac
+grep -q "\[$want\]" /sys/kernel/security/lockdown
 
 # Root cannot read the kernel's memory, nor lower the level.
 test ! -e /dev/mem
@@ -18,7 +44,7 @@ if echo none > /sys/kernel/security/lockdown 2>/dev/null; then
     echo "root lowered lockdown"
     exit 1
 fi
-grep -q '\[confidentiality\]' /sys/kernel/security/lockdown
+grep -q "\[$want\]" /sys/kernel/security/lockdown
 
 # The kernel is at a random address (KASLR). Until 2026-11-19 the machine entered a vmlinux
 # through PVH that could not move, and the kernel ran where it was linked, ffffffff81000000, with
