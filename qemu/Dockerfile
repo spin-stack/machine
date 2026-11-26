@@ -413,14 +413,19 @@ RUN k=/tmp/vmlinux-stub && truncate -s 257M "$k" && \
 # qemu_open, so a QEMU with no access to /dev/userfaultfd is handed it in an fd set. postcopy-ram
 # on a machine held for a restore is where QEMU first makes one. Handed /dev/null, QEMU's ioctl
 # fails with ENOTTY (musl's "Not a tty"), which neither the device opened by path nor the system
-# call answers: the refusal proves QEMU used the descriptor. spin-stack/spin#1711.
+# call answers: the refusal proves QEMU used the descriptor. spin-stack/spin#1711. Asked again
+# once the set is removed, QEMU finds no set (ENOENT): it kept no descriptor of the device from
+# the first, so remove-fd takes the device back (#789).
 RUN out=$(printf '%s\n' '{"execute":"qmp_capabilities"}' \
+        '{"execute":"migrate-set-capabilities","arguments":{"capabilities":[{"capability":"postcopy-ram","state":true}]}}' \
+        '{"execute":"remove-fd","arguments":{"fdset-id":9}}' \
         '{"execute":"migrate-set-capabilities","arguments":{"capabilities":[{"capability":"postcopy-ram","state":true}]}}' \
         '{"execute":"quit"}' | \
         /opt/qemu-tcg/bin/qemu-system-x86_64 -machine q35 -accel tcg -m 128M -nodefaults -display none \
         -L /build/pc-bios -incoming defer -add-fd fd=9,set=9 -userfaultfd /dev/fdset/9 -qmp stdio 9<>/dev/null 2>&1) ; \
     case "$out" in \
-        *"Userfaultfd not available: Not a tty"*) echo "OK: QEMU makes userfaultfds from the device it is handed" ;; \
+        *"Userfaultfd not available: Not a tty"*"Userfaultfd not available: No such file or directory"*) echo "OK: QEMU makes userfaultfds from the device it is handed, and keeps none of it" ;; \
+        *"Userfaultfd not available: Not a tty"*) echo "ERROR: QEMU kept the userfaultfd device after its set was removed: qemu/patches/0010 is lost"; echo "$out"; exit 1 ;; \
         *) echo "ERROR: QEMU did not use the userfaultfd device it was handed: qemu/patches/0010 is lost"; echo "$out"; exit 1 ;; \
     esac
 

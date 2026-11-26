@@ -1,5 +1,5 @@
 From: Manuel de Brito Fontes <aledbf@gmail.com>
-Date: Thu, 26 Nov 2026 00:51:16 -0300
+Date: Thu, 26 Nov 2026 16:45:00 -0300
 Subject: [PATCH] util/userfaultfd: open the device through qemu_open, at
  -userfaultfd
 
@@ -11,24 +11,31 @@ system call a userfaultfd that sees kernel faults, which postcopy needs
 because KVM touches guest memory from the kernel.  Granting either to
 that user grants it to every process on the host.
 
-Open the device through qemu_open() at the path -userfaultfd names,
-/dev/userfaultfd by default, so that the caller can open it and hand
-QEMU the descriptor in an fd set (-add-fd ... -userfaultfd
-/dev/fdset/N), as -accel kvm,device= does for /dev/kvm.  The ioctl that
+Open the device through qemu_open() at the path -userfaultfd names, so
+that the caller can open it and hand QEMU the descriptor in an fd set
+(-userfaultfd /dev/fdset/N, the set added on the command line or later
+with add-fd), as -accel kvm,device= does for /dev/kvm.  The ioctl that
 makes each userfaultfd (USERFAULTFD_IOC_NEW) checks nothing of its
 caller: the device's permission is the open's.
+
+With -userfaultfd, the device is opened for each userfaultfd and closed
+once it is made, instead of being kept open from the first one, and the
+system call is never tried.  The caller can then take the device back
+with remove-fd once QEMU has made the userfaultfds it handed it for,
+and QEMU holds no descriptor of it after that.  Without -userfaultfd,
+nothing changes.
 ---
- include/qemu/userfaultfd.h |  7 +++++++
- qemu-options.hx            | 17 +++++++++++++++++
+ include/qemu/userfaultfd.h |  8 ++++++++
+ qemu-options.hx            | 20 ++++++++++++++++++++
  system/vl.c                | 11 +++++++++++
- util/userfaultfd.c         |  9 ++++++++-
- 4 files changed, 43 insertions(+), 1 deletion(-)
+ util/userfaultfd.c         | 34 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 73 insertions(+)
 
 diff --git a/include/qemu/userfaultfd.h b/include/qemu/userfaultfd.h
-index a1979308d..ced171810 100644
+index a197930..b92039a 100644
 --- a/include/qemu/userfaultfd.h
 +++ b/include/qemu/userfaultfd.h
-@@ -26,6 +26,13 @@
+@@ -26,6 +26,14 @@
   * Returns: the uffd handle if >=0, or <0 if error happens.
   */
  int uffd_open(int flags);
@@ -36,17 +43,18 @@ index a1979308d..ced171810 100644
 + * uffd_set_device(): Set the userfaultfd device uffd_open() opens.
 + *
 + * @path: A path qemu_open() takes, such as /dev/fdset/N, in place of
-+ * /dev/userfaultfd.  Takes effect only before the first uffd_open().
++ * /dev/userfaultfd.  uffd_open() then opens it for each userfaultfd it
++ * makes and closes it again, and never falls back to the system call.
 + */
 +void uffd_set_device(const char *path);
  int uffd_query_features(uint64_t *features);
  int uffd_create_fd(uint64_t features, bool non_blocking);
  void uffd_close_fd(int uffd_fd);
 diff --git a/qemu-options.hx b/qemu-options.hx
-index 5fe9d73ea..31c93a1db 100644
+index 5fe9d73..7ac2d4c 100644
 --- a/qemu-options.hx
 +++ b/qemu-options.hx
-@@ -622,6 +622,23 @@ SRST
+@@ -622,6 +622,26 @@ SRST
          -numa hmat-cache,node-id=1,size=10K,level=1,associativity=direct,policy=write-back,line=8
  ERST
  
@@ -57,8 +65,11 @@ index 5fe9d73ea..31c93a1db 100644
 +``-userfaultfd path``
 +    Open the userfaultfd device that postcopy and background snapshots
 +    create their userfaultfds from at path instead of /dev/userfaultfd.
-+    The path can be an fd set, so that a QEMU with no access to the
-+    device is handed one opened by its caller:
++    The device is opened for each userfaultfd and closed once it is made,
++    with no fallback to the system call.  The path can be an fd set, so
++    that a QEMU with no access to the device is handed one opened by its
++    caller, on the command line or later with add-fd, and the caller takes
++    it back with remove-fd once the userfaultfds it was for are made:
 +
 +    .. parsed-literal::
 +
@@ -71,10 +82,10 @@ index 5fe9d73ea..31c93a1db 100644
      "-add-fd fd=fd,set=set[,opaque=opaque]\n"
      "                Add 'fd' to fd 'set'\n", QEMU_ARCH_ALL)
 diff --git a/system/vl.c b/system/vl.c
-index 4bc6fdac1..ea15ecd1e 100644
+index 7ae6a82..21c9d5a 100644
 --- a/system/vl.c
 +++ b/system/vl.c
-@@ -145,6 +145,9 @@
+@@ -144,6 +144,9 @@
  #include "qemu/guest-random.h"
  #include "qemu/keyval.h"
  #include "memory-internal.h"
@@ -84,7 +95,7 @@ index 4bc6fdac1..ea15ecd1e 100644
  
  #define MAX_VIRTIO_CONSOLES 1
  
-@@ -3678,6 +3681,14 @@ void qemu_init(int argc, char **argv)
+@@ -3664,6 +3667,14 @@ void qemu_init(int argc, char **argv)
                  error_report("File descriptor passing is disabled on this "
                               "platform");
                  exit(1);
@@ -100,29 +111,56 @@ index 4bc6fdac1..ea15ecd1e 100644
                  break;
              case QEMU_OPTION_object:
 diff --git a/util/userfaultfd.c b/util/userfaultfd.c
-index 2396104f2..9e9d456f4 100644
+index 2396104..1d6c55a 100644
 --- a/util/userfaultfd.c
 +++ b/util/userfaultfd.c
-@@ -25,6 +25,13 @@ typedef enum {
+@@ -25,12 +25,46 @@ typedef enum {
      UFFD_USE_SYSCALL,
  } uffd_open_mode;
  
-+static const char *uffd_device = "/dev/userfaultfd";
++static const char *uffd_device;
 +
 +void uffd_set_device(const char *path)
 +{
 +    uffd_device = path;
 +}
 +
++#if defined(__NR_userfaultfd)
++/*
++ * uffd_open_device: make a userfaultfd from the device -userfaultfd names,
++ * opened for this call alone.  QEMU then holds the device only while it
++ * makes a userfaultfd, and the caller that handed it in an fd set takes it
++ * back with remove-fd once QEMU has made the ones it needs.
++ */
++static int uffd_open_device(int flags)
++{
++    int dev, fd, err;
++
++    dev = qemu_open_old(uffd_device, O_RDWR | O_CLOEXEC);
++    if (dev < 0) {
++        return -1;
++    }
++    fd = ioctl(dev, USERFAULTFD_IOC_NEW, flags);
++    err = errno;
++    qemu_close(dev);
++    errno = err;
++    return fd;
++}
++#endif
++
  int uffd_open(int flags)
  {
  #if defined(__NR_userfaultfd)
-@@ -38,7 +45,7 @@ int uffd_open(int flags)
-          * permission controls, meanwhile allows kernel faults without any
-          * privilege requirement (e.g. SYS_CAP_PTRACE).
-          */
--        uffd_dev = open("/dev/userfaultfd", O_RDWR | O_CLOEXEC);
-+        uffd_dev = qemu_open_old(uffd_device, O_RDWR | O_CLOEXEC);
-         if (uffd_dev >= 0) {
-             open_mode = UFFD_USE_DEV_PATH;
-         } else {
+     static uffd_open_mode open_mode;
+     static int uffd_dev;
+ 
++    if (uffd_device) {
++        return uffd_open_device(flags);
++    }
++
+     /* Detect how to generate uffd desc when run the 1st time */
+     if (open_mode == UFFD_UNINITIALIZED) {
+         /*
+-- 
+2.53.0
+
