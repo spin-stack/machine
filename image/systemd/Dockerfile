@@ -11,6 +11,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
+    printf '%s\n' 'Types: deb-src' 'URIs: http://archive.ubuntu.com/ubuntu' 'Suites: tenacious tenacious-proposed' \
+        'Components: main' 'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' > /etc/apt/sources.list.d/tenacious-src.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends dpkg-dev devscripts acl
 
@@ -22,10 +24,8 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
     apt-get install -y --no-install-recommends libpcre2-dev libtss2-dev libssl-dev python3-pyelftools
 
 COPY image/systemd/meson-took.py image/systemd/tpm2.mk /build/
-COPY image/systemd/*.patch /build/patches/
 WORKDIR /build/src
-RUN for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
-    grep -q 'unit_file_expand_dropin_names' src/shared/dropin.c
+RUN grep -q 'unit_file_expand_dropin_names' src/shared/dropin.c
 ARG SYSTEMD_EXPERIMENT=""
 COPY image/systemd/experiments/ /build/experiments/
 RUN if [ -n "${SYSTEMD_EXPERIMENT}" ]; then \
@@ -38,7 +38,7 @@ RUN extra="-Dpcre2=enabled -Dzlib=disabled -Dlink-executor-shared=false -Dlink-u
     echo 'include /build/tpm2.mk' >> debian/rules && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "${SYSTEMD_SOURCE_VERSION}+spin1" --distribution resolute \
-            "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}, $(cd /build/patches && echo *.patch)." && \
+            "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}, TPM2 from a second build." && \
     prev="$(dpkg-parsechangelog --offset 1 --count 1 -SDate)" && \
     sed -i "1,/^ -- /s/^\( -- .*>  \).*/\1${prev}/" debian/changelog && \
     test "$(dpkg-parsechangelog -SDate)" = "${prev}" && \

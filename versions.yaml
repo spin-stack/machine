@@ -331,9 +331,9 @@
 - name: systemd-source
   kind: download
   source: https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/systemd/{version}/systemd_{version}.dsc
-  version: 259.9-0ubuntu0.1
-  pin: 17ad848e882b6b91ac0d31300181bb4ec6b221077329b0c5296c9765cce769b5
-  track: page https://launchpad.net/ubuntu/resolute/+source/systemd
+  version: 262.2-1ubuntu1
+  pin: 98947ea75806ded79cde72429967f8040ce96ff0bfb5ceaf6b595e1c5490f846
+  track: page https://launchpad.net/ubuntu/tenacious/+source/systemd
   note: >-
     image/systemd/Dockerfile: Ubuntu's systemd source package as resolute publishes it, by its
     .dsc, which holds the tarballs' checksums dpkg-source checks; rebuilt with the stage1 profile
