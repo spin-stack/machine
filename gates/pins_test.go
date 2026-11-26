@@ -120,6 +120,8 @@ func TestEveryTrackIsOneOutdatedReads(t *testing.T) {
 		"follows": func(arg []string) bool { return len(arg) > 0 },
 		"with":    func([]string) bool { return true },
 		"branch":  none, "digest": none, "kernel": none, "today": none, "go": none, "pypi": none,
+		// <source> <series> <pocket>: Launchpad's page of a source lists -proposed first (#815).
+		"launchpad": func(arg []string) bool { return len(arg) == 3 },
 	}
 	for _, e := range v.Entries {
 		kind, arg, _ := strings.Cut(e.Track, " ")

@@ -350,15 +350,16 @@
   source: https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/systemd/{version}/systemd_{version}.dsc
   version: 262.1-1ubuntu1
   pin: a368ef53742eb3a6a40d1206ea80461c3254330e5f72830fa5833816bfed72a3
-  track: page https://launchpad.net/ubuntu/tenacious/+source/systemd
+  track: launchpad systemd tenacious Release
   note: >-
     image/systemd/Dockerfile: Ubuntu's systemd source package as tenacious's release pocket
     publishes it, by its .dsc, which holds the tarballs' checksums dpkg-source checks, from the
     archive's deb-src, and built on resolute with resolute's build-deps; rebuilt with the stage1
     profile and installed in place of the archive's, with
     image/systemd/*.patch, none today, applied without fuzz. 262 is what makes a machine with a
-    TPM measure its boot phases without EFI (systemd.tpm2_measured_os=1, #791). Take a version
-    from the release pocket, not -proposed, which can be withdrawn. The archive serves only the
+    TPM measure its boot phases without EFI (systemd.tpm2_measured_os=1, #791). The track reads
+    the release pocket, the one the build's deb-src has: -proposed can be withdrawn, and
+    Launchpad's page of the source lists it first (#815). The archive serves only the
     current version, so the build fails once Ubuntu moves it, and `spin-machine-dev refresh
     systemd` proposes the new one. After the bump: `spin-machine-dev
     build image` (its checks: the meson options taken, the packages held), then `task
