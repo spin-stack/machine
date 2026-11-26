@@ -65,8 +65,6 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	// A line tpmcheck printed, and the console's text after it, for the next one.
-	said := regexp.MustCompile(`SPIN-TPM rsa3072=([0-9a-f]+) pcr16=([0-9a-f]+) nv=([0-9a-f]+|none)`)
 	run := func(t *testing.T, g *guest, cmd string) []string {
 		t.Helper()
 		before := len(g.said())
@@ -76,7 +74,7 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 		deadline := start.Add(2 * time.Minute)
 		for {
 			text := g.said()[before:]
-			if m := said.FindStringSubmatch(text); m != nil {
+			if m := tpmcheckSaid.FindStringSubmatch(text); m != nil {
 				t.Logf("tpmcheck %s answered in %s", cmd, time.Since(start).Round(time.Millisecond))
 				return m[1:]
 			}
@@ -207,3 +205,7 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 		g.await(t, regexp.MustCompile(`NO-TPM-6\b`), 60*time.Second)
 	})
 }
+
+// tpmcheckSaid is a whole line tpmcheck printed. The console is read while the guest writes it, so
+// without the line's end a read mid-line matched the hex printed so far as the NV index (#784).
+var tpmcheckSaid = regexp.MustCompile(`SPIN-TPM rsa3072=([0-9a-f]+) pcr16=([0-9a-f]+) nv=([0-9a-f]+|none)\r?\n`)
