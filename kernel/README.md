@@ -98,8 +98,8 @@ The guest's root is not the kernel's. The kernel runs two LSMs, `lockdown` and `
 A guest runs at confidentiality: `machine.Cmdline`'s zero value puts `lockdown=confidentiality` on
 the line, so a consumer that builds its own command line and has never heard of lockdown gets it
 too, and a workspace without an enforcer keeps the protection every release before #734 forced in
-the kernel. A machine whose `Cmdline.LockdownIntegrity` is set (spin-machine's
-`--lockdown-integrity`) leaves `lockdown=` out and runs at the kernel's floor, integrity. That is
+the kernel. A shirudo machine (`Cmdline.Lockdown` `LockdownShirudo`, spin-machine's
+`--lockdown=shirudo`) leaves `lockdown=` out and runs at the kernel's floor, integrity. That is
 for a guest whose BPF LSM enforcer reads kernel memory: shirudo's programs read it through about
 140 `BPF_CORE_READ`s, each a `bpf_probe_read_kernel()`, and at confidentiality the kernel refuses
 the helper (`LOCKDOWN_BPF_READ_KERNEL`), so they do not load (#734). A signed-programs exception
@@ -117,9 +117,19 @@ kernel reads that confidentiality refuses, kprobes, perf on the kernel and trace
 policy's to refuse or not; this machine does not check what it does with them. The rewrites stay
 refused by the kernel: integrity is the floor.
 
-`machine.Spec` validation refuses a `lockdown=` in `Cmdline.Extra`, since the kernel keeps the
-higher of two and one there would silently undo the choice. The level is the booted guest's, and
-not in the machine's record: a checkpoint resumes the guest it saved, at the level it booted at
+A shirudo machine also leaves the `.bpf` and `.dm-verity` keyrings unsealed
+(`bpf.keyring_unsealed=1`, `dm_verity.keyring_unsealed=1`). Without them the kernel seals both
+empty at boot (kernel/bpf/keys.c, drivers/md/dm-verity-verify-sig.c), shirudo's `init` cannot
+enroll its certificates, and it fails (shirudo Documentation/operate/plan/system-requirements.rst).
+Until `init` seals them, root can add keys to both, and an unsealed `.bpf` keyring has the
+verifier refuse a signed program its caller's own keyring (`bpf_keyring_enforced`). Every other
+machine keeps both sealed: unsealed with no enforcer to seal them, they would stay open to root.
+Integrity and the keyrings are one choice, `machine.Lockdown`, so neither comes without the other.
+
+`machine.Spec` validation refuses a `lockdown=` or either keyring parameter in `Cmdline.Extra`,
+since the kernel keeps the higher of two levels and the last of two parameters, and one there would
+silently undo the choice. The choice is the booted guest's, and not in the machine's record: a
+checkpoint resumes the guest it saved, at the level and with the keyrings it booted with
 (docs/machine.md, "The kernel command line").
 
 What enforcing the policy is for, and how, is the consumer's. `kernel/Dockerfile` checks after
@@ -145,7 +155,7 @@ the same way on every change that reaches the kernel, so a change that breaks it
 before a release. The job signs the bzImage as the release's files are signed and
 publishes it on the release as `spin-machine-TAG-linux-x86_64.lab-only-traceable.bzImage`. It is
 in no tarball and in nothing spin boots, and `lab tree --kernel traceable:TAG` checks its
-signature before a tree boots it. Its boots pass `--lockdown-integrity` when the tree's
+signature before a tree boots it. Its boots pass `--lockdown=kernel` when the tree's
 spin-machine would put `lockdown=` on the line, so the kernel stays at none, and the tree is
 refused if its command line would carry one anyway (`internal/lab`, `keepUnlocked`). Every kernel
 spin boots is built with `KERNEL_LOCKDOWN=integrity`.
@@ -201,7 +211,7 @@ config image's signed root hash (`CONFIG_DM_VERITY_VERIFY_ROOTHASH_SIG`, which a
 the PKCS#7 ML-DSA-87 signatures of its loaders and that root hash. shirudo's `CONFIG_MODULE_SIG` row
 asks for module signatures only of a kernel that loads modules, and this one has no
 `CONFIG_MODULES`; module signing comes with modules, signed-only (`CONFIG_MODULE_SIG_FORCE`). A
-shirudo machine runs at integrity (`Cmdline.LockdownIntegrity`, #734), since confidentiality
+shirudo machine runs at integrity (`LockdownShirudo`, #734), since confidentiality
 withholds `bpf_probe_read_kernel`, which shirudo's programs call. Still missing for shirudo to run:
 a TPM in the machine (#719), and with it a booted shirudo, whose `shirudo init --check-only` says
 whether its programs load at integrity as the source reading predicts.

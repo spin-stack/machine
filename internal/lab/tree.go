@@ -472,8 +472,10 @@ func (t *Tree) Edited(dir string) (string, error) {
 // keepUnlocked keeps a tree that boots a traceable kernel at lockdown none. That kernel forces
 // none, and a spin-machine from #734 on raises every machine to confidentiality with lockdown= on
 // its command line unless asked not to, which would take the trace away again: the boots then pass
-// --lockdown-integrity, which leaves lockdown= out. A spin-machine from before #734 knows no such
-// flag and passes no lockdown=. Which one the tree has is read from the command line its
+// --lockdown=kernel, which adds nothing and leaves the keyrings sealed. Not shirudo's, which also
+// leaves lockdown= out: nothing in a traced boot enrolls a key, and an unsealed .bpf keyring
+// changes which signed BPF programs the verifier accepts. A spin-machine from before #734 knows no
+// such flag and passes no lockdown=. Which one the tree has is read from the command line its
 // spin-machine prints (args), and that line is checked to have no lockdown= before anything boots.
 func keepUnlocked(m *Manifest, dir string) error {
 	line := func() (string, error) {
@@ -488,7 +490,7 @@ func keepUnlocked(m *Manifest, dir string) error {
 	if err != nil || !strings.Contains(out, "lockdown=") {
 		return err
 	}
-	m.Boot = append(m.Boot, "--lockdown-integrity")
+	m.Boot = append(m.Boot, "--lockdown=kernel")
 	if out, err = line(); err != nil {
 		return err
 	}

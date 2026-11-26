@@ -50,14 +50,14 @@ func fakeRelease(t *testing.T, kernel string) string {
 }
 
 // spinMachineArgs is a spin-machine whose args prints a command line with lockdown in it, left out
-// for --lockdown-integrity; "always" is one that prints it either way.
+// for --lockdown=kernel; "always" is one that prints it either way.
 func spinMachineArgs(lockdown string) string {
 	if lockdown == "always" {
 		return "#!/bin/sh\necho '-append console=ttyS0 lockdown=confidentiality'\n"
 	}
 	return `#!/bin/sh
 [ "$1" = args ] || exit 1
-case " $* " in *" --lockdown-integrity "*) echo '-append console=ttyS0' ;; *) echo '-append console=ttyS0 ` + lockdown + `' ;; esac
+case " $* " in *" --lockdown=kernel "*) echo '-append console=ttyS0' ;; *) echo '-append console=ttyS0 ` + lockdown + `' ;; esac
 `
 }
 
@@ -498,7 +498,7 @@ d=""; while [ $# -gt 0 ]; do case "$1" in -D) d=$2;; -p) [ -f "` + pub + `/$tag/
 		name, lockdown string
 		boot           []string
 	}{
-		{"raises lockdown unless told not to", "lockdown=confidentiality", []string{"--lockdown-integrity"}},
+		{"raises lockdown unless told not to", "lockdown=confidentiality", []string{"--lockdown=kernel"}},
 		{"from before lockdown= on the command line", "", nil},
 		{"raises lockdown whatever it is told", "always", nil},
 	} {
