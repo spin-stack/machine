@@ -12,8 +12,9 @@ it. The repository builds the machine that the lifecycle runs on, and offers the
 lifecycle needs. `Spec.Restore` starts a machine held for a checkpoint (`-incoming defer`).
 `machine.VM.Resume` takes the record of the machine it resumes into from its caller, refuses a
 checkpoint that record does not resume, binds its disks and loads the state. A state with more than
-1.5 GiB of data, where the process that starts QEMU can open `/dev/userfaultfd` and hands QEMU
-the descriptor (`Spec.UserfaultFDSet`, qemu/patches/0010), loads fast: the guest runs once its
+1.5 GiB of data, where the process that resumes it can open `/dev/userfaultfd`, loads fast: Resume
+hands QEMU the descriptor for the load and takes it back before it returns (qemu/patches/0010,
+#789), and the guest runs once its
 devices are in and its memory is read as the guest touches it (QEMU 11.2's fast snapshot load). A
 smaller state loads in full, which reaches the first login sooner (`machine.fastAbove` has the
 measurement). A checkpoint is written in

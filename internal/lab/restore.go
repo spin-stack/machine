@@ -330,9 +330,9 @@ func touch(m *Measurement, cid uint32) error {
 }
 
 // userfaultfd gives the runner's user /dev/userfaultfd on a bench runner, a throwaway host:
-// spin-machine, run as that user, opens it and hands QEMU the descriptor (machine.Spec's
-// UserfaultFDSet), as spin's runner does as root, and a state over machine.fastAbove then loads
-// fast. vm.unprivileged_userfaultfd stays 0 and no other user gets the device. Anywhere else the
+// spin-machine, run as that user, opens it and hands QEMU the descriptor for a fast load
+// (machine.QEMU.Resume), as spin's runner does as root, and a state over machine.fastAbove then
+// loads fast. vm.unprivileged_userfaultfd stays 0 and no other user gets the device. Anywhere else the
 // host is left as it is, and loads every state as it allows.
 // mutate-lane: TestEveryProbeMeasuresATree
 func userfaultfd() error {

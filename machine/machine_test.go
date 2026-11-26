@@ -267,20 +267,14 @@ func TestArgs(t *testing.T) {
 		},
 		absent: []string{"accel=kvm"},
 	}, {
-		// A restore's userfaultfd comes as a descriptor too, so QEMU's user needs no access
-		// to the device (qemu/patches/0010).
-		name: "userfaultfd handed over",
-		set: func(s *Spec) {
-			s.Restore = true
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 4}}}}
-			s.UserfaultFDSet = 1
-		},
-		want: []string{"-userfaultfd /dev/fdset/1 -incoming defer"},
+		// A restore names the set a fast load hands it the userfaultfd device in, so QEMU's
+		// user needs no access to the device (qemu/patches/0010), and a boot names none.
+		name: "a restore's userfaultfd set",
+		set:  func(s *Spec) { s.Restore = true },
+		want: []string{fmt.Sprintf("-userfaultfd /dev/fdset/%d -incoming defer", userfaultfdSet)},
 	}, {
-		// A restore that was handed no device leaves QEMU to its own.
-		name:   "userfaultfd not handed",
-		set:    func(s *Spec) { s.Restore = true },
-		want:   []string{"-incoming defer"},
+		name:   "a boot's userfaultfd",
+		want:   []string{"-S "},
 		absent: []string{"-userfaultfd"},
 	}, {
 		// A value a caller supplies is a value, not more options. QEMU splits an option
@@ -596,10 +590,8 @@ func TestValidateRefuses(t *testing.T) {
 			s.Accel, s.KVMFDSet = "tcg", 1
 			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}}
 		}},
-		{"/dev/userfaultfd in a set nobody gave", func(s *Spec) { s.Restore, s.UserfaultFDSet = true, 1 }},
-		{"/dev/userfaultfd for a boot, which never loads fast", func(s *Spec) {
-			s.UserfaultFDSet = 1
-			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}}
+		{"a set of the caller's where a fast load hands the userfaultfd device", func(s *Spec) {
+			s.FDSets = []FDSet{{ID: userfaultfdSet, FDs: []FD{{Num: 3}}}}
 		}},
 		{"/dev/vhost-vsock with no vsock", func(s *Spec) { s.VsockCID, s.VsockFD = 0, 3 }},
 		{"/dev/vhost-vsock on stdout", func(s *Spec) { s.VsockCID, s.VsockFD = 3, 1 }},
