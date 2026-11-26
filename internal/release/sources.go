@@ -96,6 +96,7 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 		k.Version, k.URL(), k.Pin,
 		sh.Pin, sh.Source, sh.Pin, us.Version, ll.Version,
 		ssl.Version, ssl.URL(), ssl.Pin, c.Version, c.URL(), c.Pin, tss.Version, tss.Source, tss.Pin,
+		OperatorTarball(version), ll.Version, ll.URL(), ll.Pin, us.Version,
 		version,
 		s.Version, s.Version, s.URL(), s.Pin,
 		o.Version, o.Version, o.URL(), o.Pin,
@@ -108,7 +109,7 @@ Sources for the third-party software in this release.
 This release contains software under the GNU General Public License, the GNU Lesser
 General Public License and other licences; see NOTICE for what is under which. The
 complete corresponding source for the GPL and LGPL components is available as set out
-below. The statically linked libraries in the QEMU, swtpm, passt, e2fsprogs and shirudo binaries are covered by the same offer,
+below. The statically linked libraries in the QEMU, swtpm, passt, e2fsprogs, shirudo and shirudo-build binaries are covered by the same offer,
 which satisfies section 6 of the LGPL by making a relinkable build reproducible from source.
 
 QEMU %s
@@ -206,6 +207,21 @@ TPM2-TSS %s, linked into shirudo
   source:   %s, commit %s
   licence:  BSD-2-Clause
   built by: shirudo's Makefile.target-deps, unpatched, static, against the OpenSSL above
+
+shirudo's operator half, in the release's second tarball, %s
+  files:    usr/share/spin-stack/shirudo-operator, unpacked over this tree and run as root in a
+            guest of this release (shirudo-operator/install)
+  shirudo-build: libexec/shirudo/shirudo-build there, from the shirudo commit above, built and
+            linked as guest/shirudo is, against the same libraries; the scripts, dracut module,
+            units, headers and upatch sources beside it are that commit's, unchanged
+  clang:    libexec/shirudo/llvm there: LLVM %s's own clang and llvm-objcopy, stripped, and
+            clang's headers
+  source:   %s
+  sha256:   %s
+  licence:  Apache-2.0 WITH LLVM-exception; with everything above, shirudo-operator/licenses.txt
+  packages: debs/ there, Ubuntu's own .debs, unchanged, from its archive as snapshot.ubuntu.com
+            serves it at %s, each with its copyright file inside it; their versions in
+            debs/Packages and the tarball's SBOM, their sources those Ubuntu source packages
 
 spin-machine %s
   binary:   usr/share/spin-stack/bin/spin-machine, the tool that boots this release by hand

@@ -240,9 +240,10 @@
   note: >-
     the Ubuntu archive shirudo/Dockerfile installs from, as snapshot.ubuntu.com serves it as it
     stood then: the packages shirudo's testing/container lists, whose static archives (glibc,
-    libelf, zlib, zstd, LuaJIT, libgcc) guest/shirudo links, and the initrd builder's. A bump is
-    a new guest/shirudo: after it, `spin-machine-dev build shirudo` (sbom/shirudo.dpkg says what
-    moved), then `task boot:shirudo`.
+    libelf, zlib, zstd, LuaJIT, libgcc) guest/shirudo and shirudo-build link, and the packages the
+    operator tarball carries in its debs/. A bump is a new guest/shirudo and a new operator half:
+    after it, `spin-machine-dev build shirudo` (sbom/shirudo.dpkg and sbom/shirudo-operator.dpkg
+    say what moved), then `task boot:shirudo`.
 
 - name: llvm
   kind: download
@@ -251,12 +252,24 @@
   pin: 59e14234f145927f982b50627e8bafaf2fca50151b7d973d6a0b40796ddcfe9a
   track: github-release https://github.com/llvm/llvm-project llvmorg-
   note: >-
-    shirudo/Dockerfile: the clang that compiles the BPF objects embedded in guest/shirudo, of the
+    shirudo/Dockerfile: the clang that compiles the BPF objects embedded in guest/shirudo, and the
+    one the operator tarball ships for shirudo-build to compile upatches with (docs/shirudo.md), of the
     major release shirudo's .github/scripts/install-clang.sh names at the shirudo pin (LLVM=),
     which the build holds this to: a new major moves with shirudo, never alone. LLVM's own
     release, because apt.llvm.org, where shirudo's CI takes it, keeps only its newest build. The
     pin is the release's own digest, which GitHub lists beside the asset. After the bump:
     `spin-machine-dev build shirudo`, `task boot:shirudo`.
+
+- name: llvm-license
+  kind: download
+  source: https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-{version}/llvm/LICENSE.TXT
+  version: 23.1.6
+  pin: 8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee
+  track: with llvm
+  note: >-
+    shirudo/Dockerfile: the licence of the clang and llvm-objcopy the operator tarball ships
+    (docs/shirudo.md), from llvm-project at llvm's tag, as LLVM's release tarball carries none.
+    Moves with llvm, which the build holds it to.
 
 - name: debian
   kind: image

@@ -46,7 +46,7 @@ imported. Every other directory is this repository's own and changes without not
 
 ## What a release is
 
-One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
+One tarball, laid out as `spin-machine-dev build` lays out `_output/`, and a second for shirudo's operators:
 
 | path under `usr/share/spin-stack/` | |
 |---|---|
@@ -70,6 +70,13 @@ One tarball, laid out as `spin-machine-dev build` lays out `_output/`:
 | `licenses.txt` | the copyright and licence text of each package in the base image |
 | `go-licenses.txt` | the licence text of the Go code linked into `bin/spin-machine` |
 | `shirudo-licenses.txt` | the licence text of everything linked into `guest/shirudo` |
+
+The second tarball, `spin-machine-VERSION-linux-x86_64.shirudo-operator.tar.gz`, unpacks over the
+first as `usr/share/spin-stack/shirudo-operator/`: `shirudo-build`, the clang it compiles upatches
+with, shirudo's scripts and the Ubuntu packages they need, which make the key, the signed images,
+the upatches and the initrd of a shirudo machine as root in a guest of the release
+([docs/shirudo.md](docs/shirudo.md)). Apart because only a shirudo operator runs it: nothing a
+machine boots is in it.
 
 `LICENSE` and `NOTICE` sit at the tarball's root. `machine.OpenRelease` reads a release and a
 build directory alike. The two share one layout, so no translation between them can lose a file.

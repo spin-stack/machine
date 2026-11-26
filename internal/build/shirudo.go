@@ -214,11 +214,28 @@ const ShirudoLicenses = "shirudo-licenses.txt"
 // packages.txt lists the image's.
 const ShirudoPackages = "sbom/shirudo.dpkg"
 
+// ShirudoOperator is shirudo's operator half, under Out and in the release's tree: what makes the
+// key, the signed images, the upatches and the initrd around ShirudoBinary, run as root in a guest
+// of the release (docs/shirudo.md). The release ships it as a tarball of its own, so the main one,
+// and every file a machine boots, is the same with it or without it.
+const ShirudoOperator = "shirudo-operator"
+
+// ShirudoOperatorPackages is the Ubuntu packages ShirudoOperator carries in its debs/, as
+// ShirudoPackages lists the archives ShirudoBinary links.
+const ShirudoOperatorPackages = "sbom/shirudo-operator.dpkg"
+
+// ShirudoBuild and ShirudoClang are the operator half's two binaries, under ShirudoOperator:
+// shirudo-build signs and compiles, and execs that clang at the path it was built with.
+const (
+	ShirudoBuild = "libexec/shirudo/shirudo-build"
+	ShirudoClang = "libexec/shirudo/llvm/bin/clang"
+)
+
 // shirudoPins are the versions.yaml entries shirudo/Dockerfile is handed.
-var shirudoPins = strings.Fields("alpine ubuntu ubuntu-snapshot llvm shirudo openssl curl tpm2-tss")
+var shirudoPins = strings.Fields("alpine ubuntu ubuntu-snapshot llvm llvm-license shirudo openssl curl tpm2-tss")
 
 func makeShirudo(ctx context.Context, o Options, p Part) error {
-	if err := emptied(o.Out, ShirudoBinary, ShirudoLicenses, ShirudoPackages); err != nil {
+	if err := emptied(o.Out, ShirudoBinary, ShirudoLicenses, ShirudoPackages, ShirudoOperator, ShirudoOperatorPackages); err != nil {
 		return err
 	}
 	args, err := partArgs(o, p)
@@ -229,47 +246,52 @@ func makeShirudo(ctx context.Context, o Options, p Part) error {
 		"--build-context", "kernel="+filepath.Join(o.Out, "kernel"), "--output", "type=local,dest="+o.Out)...)
 }
 
-// ShirudoImage loads shirudo/Dockerfile's target as tag, built from the shirudo part's pins
-// against the kernel in o.Out: the operator's tools and the initrd's builder a check of the
-// shipped shirudo makes its key, images, upatch and initrd with. contexts are more build
-// contexts, NAME=DIR: the initrd's builder starts from the base image's files, `rootfs` (#777).
-func ShirudoImage(ctx context.Context, o Options, target, tag string, contexts ...string) error {
-	args, err := partArgs(o, Part{Name: "shirudo", Pins: shirudoPins})
-	if err != nil {
-		return err
-	}
-	flags := []string{"--build-context", "kernel=" + filepath.Join(o.Out, "kernel")}
-	for _, c := range contexts {
-		flags = append(flags, "--build-context", c)
-	}
-	return docker(ctx, o, buildx(o, "shirudo", "shirudo/Dockerfile", target, args,
-		append(flags, "--tag", tag, "--load")...)...)
-}
-
 // VerifyShirudo asserts the shirudo part left a static binary that says it is the pinned commit,
-// with its licences and the packages it links.
+// with its licences and the packages it links, and the operator half: a static shirudo-build of
+// the same commit, the pinned clang, the install and the packages it installs.
 func VerifyShirudo(o Options) error {
-	bin := filepath.Join(o.Out, ShirudoBinary)
-	if err := executable(bin); err != nil {
-		return err
-	}
-	if err := static(bin); err != nil {
-		return err
-	}
 	e, err := o.Pins.Get("shirudo")
 	if err != nil {
 		return err
 	}
-	// Read, not run: every shirudo command locks its memory first, and a build host's or runner's
-	// memlock limit (8 MiB) refuses it. The version is git describe's, the commit abbreviated.
-	b, err := os.ReadFile(bin) // #nosec G304 -- the binary this build made
+	op := filepath.Join(o.Out, ShirudoOperator)
+	for _, bin := range []string{filepath.Join(o.Out, ShirudoBinary), filepath.Join(op, ShirudoBuild)} {
+		if err := executable(bin); err != nil {
+			return err
+		}
+		if err := static(bin); err != nil {
+			return err
+		}
+		// Read, not run: every shirudo command locks its memory first, and a build host's or
+		// runner's memlock limit (8 MiB) refuses it. The version is git describe's, the commit
+		// abbreviated.
+		b, err := os.ReadFile(bin) // #nosec G304 -- a binary this build made
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", bin, err)
+		}
+		if !bytes.Contains(b, []byte(e.Pin[:7])) {
+			return fmt.Errorf("%s does not name shirudo %s: built from another commit", bin, e.Pin)
+		}
+	}
+	llvm, err := o.Pins.Get("llvm")
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", bin, err)
+		return err
 	}
-	if !bytes.Contains(b, []byte(e.Pin[:7])) {
-		return fmt.Errorf("%s does not name shirudo %s: built from another commit", ShirudoBinary, e.Pin)
+	if err := executable(filepath.Join(op, ShirudoClang)); err != nil {
+		return err
 	}
-	for _, f := range []string{ShirudoLicenses, ShirudoPackages} {
+	clang, err := output(filepath.Join(op, ShirudoClang), "-dumpversion")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(clang) != llvm.Version {
+		return fmt.Errorf("%s is clang %s, and versions.yaml pins %s", ShirudoClang, strings.TrimSpace(clang), llvm.Version)
+	}
+	for _, f := range []string{ShirudoLicenses, ShirudoPackages, ShirudoOperatorPackages,
+		filepath.Join(ShirudoOperator, "install"), filepath.Join(ShirudoOperator, "licenses.txt"),
+		filepath.Join(ShirudoOperator, "debs", "Packages"), filepath.Join(ShirudoOperator, "debs", "wanted"),
+		filepath.Join(ShirudoOperator, "libexec/shirudo/gen-initrd/shirudo-gen-initrd"),
+		filepath.Join(ShirudoOperator, "share/shirudo/vmlinux.h")} {
 		if _, err := os.Stat(filepath.Join(o.Out, f)); err != nil {
 			return fmt.Errorf("missing %s: %w", f, err)
 		}

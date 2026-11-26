@@ -156,11 +156,12 @@ jobs:
           if-no-files-found: error
 
   # The shirudo the release ships (guest/shirudo, built from the commit the kernel's hooks come
-  # from) run on a machine booted from the release's own tarball, as an operator deploys it:
+  # from) run on a machine booted from the release's own tarball, deployed by the release's own
+  # operator tarball in a guest of it, as an operator holding only the release would (#800):
   # --lockdown shirudo, a TPM, init to the end in the initrd and the root file system, status ok
   # with the keyrings sealed, a signed upatch that blocks its path and leaves another alone
   # (boot:shirudo, #759). Before the publish job, so a release whose shirudo cannot is never cut.
-  # On the KVM fleet, as compat: it boots, and builds shirudo's operator tools from the same pin.
+  # On the KVM fleet, as compat: it boots.
   shirudo:
     needs: release
     if: github.ref == 'refs/heads/main'

@@ -266,12 +266,13 @@ tasks:
   shirudo:
     desc: >-
       Check the release's shirudo (guest/shirudo) runs on a machine of the release as an operator
-      deploys it (#759): this run's key, the signed config and dm-verity runtime images and a
-      systemd initrd made around the shipped binary by shirudo/Dockerfile's operator and initrd
-      images, from the same commit; booted with --lockdown shirudo and a TPM, init completes in
-      the initrd and the root file system, status is ok with the keyrings sealed, and a signed
-      upatch blocks an AF_ALG socket and leaves AF_UNIX alone (shirudo_test.go). Needs a release
-      tree with guest/shirudo, docker and /dev/kvm.
+      deploys it with nothing but the release (#759, #800): in a guest of the release, as root,
+      its operator half (shirudo-operator) installs and makes this run's key, the signed config
+      and dm-verity runtime images, two signed upatches and a systemd initrd around the shipped
+      binary; booted from those with --lockdown shirudo and a TPM, init completes in the initrd
+      and the root file system, status is ok with the keyrings sealed, and a signed upatch blocks
+      an AF_ALG socket and leaves AF_UNIX alone (shirudo_test.go). Needs a release tree with
+      guest/shirudo and shirudo-operator, and /dev/kvm.
     deps: [':tools']
     cmds:
       - SPIN_SHIRUDO_TEST=1 go test ./boot/ -run '^TestTheShippedShirudoRunsOnTheRelease$' -count=1 -v -timeout 45m
@@ -279,20 +280,21 @@ tasks:
   shirudo-here:
     desc: >-
       boot:shirudo on this change's machine (boot:here's tree, SPIN_MACHINE_OUTPUT) with the shirudo
-      this tree built (spin-machine-dev build shirudo) put in it: compat's shirudo job, so a change
-      to shirudo, its pins or the kernel it hooks runs shirudo before it merges.
+      and operator half this tree built (spin-machine-dev build shirudo) put in it: compat's shirudo
+      job, so a change to shirudo, its pins or the kernel it hooks runs shirudo before it merges.
     cmds:
       # The tree's guest/shirudo is a link into the release's own tree once a release ships one
-      # (v20261126.02 on): replaced by removing the link, never by writing through it, or the
-      # release's copy changes and the check's container, which mounts only this tree, finds none.
+      # (v20261126.02 on), and its shirudo-operator once a release ships that: each replaced by
+      # removing the link, never by writing through it, or the release's copy changes.
       - mkdir -p "$SPIN_MACHINE_OUTPUT/guest" && rm -f "$SPIN_MACHINE_OUTPUT/guest/shirudo" && cp {{.OUTPUT_ABS}}/guest/shirudo "$SPIN_MACHINE_OUTPUT/guest/shirudo"
+      - rm -rf "$SPIN_MACHINE_OUTPUT/shirudo-operator" && cp -a {{.OUTPUT_ABS}}/shirudo-operator "$SPIN_MACHINE_OUTPUT/shirudo-operator"
       - SPIN_SHIRUDO_TEST=1 go test ./boot/ -run '^TestTheShippedShirudoRunsOnTheRelease$' -count=1 -v -timeout 45m
 
   shirudo-packed:
     desc: >-
-      boot:shirudo on a packed release, TARBALL, checked against the .sha256 beside it and unpacked
-      there: release.yml's shirudo job, which runs it on what the release job packed before
-      anything is published.
+      boot:shirudo on a packed release, TARBALL, and the operator tarball beside it, each checked
+      against its .sha256 and unpacked there, the second over the first: release.yml's shirudo
+      job, which runs it on what the release job packed before anything is published.
     requires:
       vars: [TARBALL]
     vars:
@@ -301,8 +303,9 @@ tasks:
       NAME:
         sh: basename "{{.TARBALL}}" .tar.gz
     cmds:
-      - cd "{{.DIR}}" && sha256sum -c "{{.NAME}}.tar.gz.sha256"
+      - cd "{{.DIR}}" && sha256sum -c "{{.NAME}}.tar.gz.sha256" "{{.NAME}}.shirudo-operator.tar.gz.sha256"
       - tar -xzf "{{.TARBALL}}" -C "{{.DIR}}"
+      - tar -xzf "{{.DIR}}/{{.NAME}}.shirudo-operator.tar.gz" -C "{{.DIR}}"
       - SPIN_MACHINE_OUTPUT="$(realpath "{{.DIR}}/{{.NAME}}/usr/share/spin-stack")" SPIN_SHIRUDO_TEST=1 go test ./boot/ -run '^TestTheShippedShirudoRunsOnTheRelease$' -count=1 -v -timeout 45m
 
   modules:

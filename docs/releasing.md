@@ -60,7 +60,7 @@ repository keeps its numbers (`docs/releases.md`).
 
 ## Releases
 
-`release.yml` builds all three artefacts and packs one tarball. Versions are **CalVer**, such as
+`release.yml` builds all three artefacts and packs them into one tarball, with shirudo's operator half in a second ([docs/shirudo.md](shirudo.md)). Versions are **CalVer**, such as
 `v20260909.01`, because a release of this repository is the machine as it stood on a date. There is
 no API here to promise compatibility about. The one thing a version could promise is that
 checkpoints still resume, and the machine's record decides that (`machine.CanResume`), not a
@@ -71,9 +71,10 @@ first release whose checkpoints it refuses.
 
 A release is release.yml dispatched on main, and nothing else. A pushed tag starts nothing. Given a
 version, the workflow makes that one. With no input, it generates the next sequence for today.
-What it packed is checked before anything is published: the `shirudo` job unpacks the tarball on
-the KVM fleet and runs `boot:shirudo` on it, the shipped `guest/shirudo` deployed and run on a
-machine of the release (kernel/README.md, "shirudo's hooks"), and the `publish` job signs and tags
+What it packed is checked before anything is published: the `shirudo` job unpacks both tarballs on
+the KVM fleet and runs `boot:shirudo` on them, the shipped `guest/shirudo` deployed by the shipped
+operator half in a guest of the release and run on a machine of it (kernel/README.md, "shirudo's
+hooks"; docs/shirudo.md), and the `publish` job signs and tags
 only after it passes. Either way, it tags the commit once its files are signed, and writes the notes:
 
 - What changed since the release before (`internal/release`'s `Changes`): the commits that reached the
@@ -82,8 +83,8 @@ only after it passes. Either way, it tags the commit once its files are signed, 
 - Whether the QEMU shipped offers a machine type newer than the one checkpoints are saved on.
 - The release's `machine.env`, with the checksums of its parts.
 
-Each file the release offers carries two Sigstore bundles beside it. The files are the tarball, its
-`.sha256`, `machine.env` and the SBOM beside the tarball. The bundles are `<file>.sigstore.json`, the signature of the workflow
+Each file the release offers carries two Sigstore bundles beside it. The files are each tarball, its
+`.sha256` and the SBOM beside it, and `machine.env`. The bundles are `<file>.sigstore.json`, the signature of the workflow
 that built the file, and `<file>.provenance.sigstore.json`, its SLSA provenance (go-tools'
 `provenance`: this workflow at its commit, and every pin in `versions.yaml`). [Verify a release file](#verify-a-release-file) says how to check them.
 
@@ -101,7 +102,9 @@ build's `/lib/apk/db/installed`, extracted to `_output/sbom/`), the image's `pac
 the tarball at `usr/share/spin-stack/sbom/machine.cdx.json`, beside it as
 `spin-machine-VERSION-linux-x86_64.cdx.json`, and attested over the tarball as
 `spin-machine-VERSION-linux-x86_64.tar.gz.cdx.sigstore.json` (`cosign verify-blob-attestation --type
-cyclonedx`, with the identity in "Verify a release file"). QEMU, the kernel and qboot carry their
+cyclonedx`, with the identity in "Verify a release file"). The operator tarball's is
+`usr/share/spin-stack/sbom/shirudo-operator.cdx.json` in it and
+`spin-machine-VERSION-linux-x86_64.shirudo-operator.cdx.json` beside it, attested the same way. QEMU, the kernel and qboot carry their
 patches as pedigree: each patch by its file name and its text, so the SBOM says the binary is
 upstream's source plus these patches.
 

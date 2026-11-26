@@ -383,7 +383,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	log := fakeDocker(t, "")
 	goLog := fakeGo(t, staticELF(t))
 	o := Options{Root: root, Out: out, Pins: v, Registry: true, Export: true, SystemdExperiment: "exp"}
-	for _, f := range []string{"bin/qemu-img", "qemu/x", "sbom/qemu.apk", "kernel/old.patch", ShirudoBinary, ShirudoLicenses, ShirudoPackages, "bin/debugfs", "e2fsprogs/x", "systemd/old.deb", "openssh/old.deb", "bin/keep"} {
+	for _, f := range []string{"bin/qemu-img", "qemu/x", "sbom/qemu.apk", "kernel/old.patch", ShirudoBinary, ShirudoLicenses, ShirudoPackages, ShirudoOperator + "/install", ShirudoOperatorPackages, "bin/debugfs", "e2fsprogs/x", "systemd/old.deb", "openssh/old.deb", "bin/keep"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(out, f)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -396,7 +396,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 			t.Fatalf("%s: %v", p.Name, err)
 		}
 	}
-	for _, f := range []string{"bin/qemu-img", "qemu", "sbom/qemu.apk", "kernel", ShirudoBinary, ShirudoLicenses, ShirudoPackages, "bin/debugfs", "e2fsprogs", "systemd/old.deb", "openssh/old.deb"} {
+	for _, f := range []string{"bin/qemu-img", "qemu", "sbom/qemu.apk", "kernel", ShirudoBinary, ShirudoLicenses, ShirudoPackages, ShirudoOperator, ShirudoOperatorPackages, "bin/debugfs", "e2fsprogs", "systemd/old.deb", "openssh/old.deb"} {
 		if _, err := os.Stat(filepath.Join(out, f)); err == nil {
 			t.Errorf("%s survived its part's build", f)
 		}
