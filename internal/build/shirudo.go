@@ -231,14 +231,19 @@ func makeShirudo(ctx context.Context, o Options, p Part) error {
 
 // ShirudoImage loads shirudo/Dockerfile's target as tag, built from the shirudo part's pins
 // against the kernel in o.Out: the operator's tools and the initrd's builder a check of the
-// shipped shirudo makes its key, images, upatch and initrd with.
-func ShirudoImage(ctx context.Context, o Options, target, tag string) error {
+// shipped shirudo makes its key, images, upatch and initrd with. contexts are more build
+// contexts, NAME=DIR: the initrd's builder starts from the base image's files, `rootfs` (#777).
+func ShirudoImage(ctx context.Context, o Options, target, tag string, contexts ...string) error {
 	args, err := partArgs(o, Part{Name: "shirudo", Pins: shirudoPins})
 	if err != nil {
 		return err
 	}
+	flags := []string{"--build-context", "kernel=" + filepath.Join(o.Out, "kernel")}
+	for _, c := range contexts {
+		flags = append(flags, "--build-context", c)
+	}
 	return docker(ctx, o, buildx(o, "shirudo", "shirudo/Dockerfile", target, args,
-		"--build-context", "kernel="+filepath.Join(o.Out, "kernel"), "--tag", tag, "--load")...)
+		append(flags, "--tag", tag, "--load")...)...)
 }
 
 // VerifyShirudo asserts the shirudo part left a static binary that says it is the pinned commit,

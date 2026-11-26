@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/spin-stack/go-tools/sbom"
 	"github.com/spin-stack/go-tools/versions"
 
@@ -55,7 +56,7 @@ func tree(t *testing.T) (root, out string) {
 	t.Helper()
 	root, out = t.TempDir(), t.TempDir()
 	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/mtrr.patch", "qemu/qboot/pam.patch", "qemu/swtpm/s.patch", "qemu/patches/0001-a.patch",
-		"image/openssh/a.patch", "image/systemd/s.patch"} {
+		"image/openssh/a.patch", "image/systemd/Dockerfile"} {
 		put(t, filepath.Join(root, f), f, 0o644)
 	}
 	for _, b := range append(slices.Clone(build.QEMUBinaries), append(build.E2fsprogsBinaries, build.SWTPMBinary, build.PasstBinary)...) {
@@ -144,15 +145,15 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 		share + "bin/debugfs": 0o755, share + "qemu/qboot.bin": 0o644, share + "qemu/qboot-mtrr.patch": 0o644, share + "qemu/qboot-pam.patch": 0o644,
 		share + "qemu/swtpm-s.patch": 0o644,
 		share + "qemu/qboot-COPYING": 0o644, share + "qemu/patches/0001-a.patch": 0o644, share + "kernel/patches/0001-k.patch": 0o644,
-		share + "openssh/a.patch": 0o644, share + "systemd/s.patch": 0o644, share + "kernel/vmlinux": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
+		share + "openssh/a.patch": 0o644, share + "kernel/vmlinux": 0o644, share + "kernel/sources": 0o644, share + "machine.env": 0o644, share + "SOURCES": 0o644,
 		share + "e2fsprogs/mke2fs.conf": 0o644, share + "packages.txt": 0o644}
 	for f, mode := range want {
 		if m, ok := got[f]; !ok || m != mode {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 40 {
-		t.Errorf("the tarball holds %d files, want 40: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 39 {
+		t.Errorf("the tarball holds %d files, want 39: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return
@@ -214,6 +215,25 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	if strings.Contains(text, "pkg:deb/ubuntu/docker-ce") {
 		t.Error("the machine's SBOM names Docker's docker-ce as Ubuntu's")
 	}
+	// systemd's directory holds no patch, as since 262 (#791): the release ships none and the SBOM
+	// gives its source no pedigree, while OpenSSH's patch is still in OpenSSH's.
+	pedigree := map[string]bool{}
+	var walk func([]cdx.Component)
+	walk = func(cs []cdx.Component) {
+		for _, c := range cs {
+			pedigree[c.Name] = c.Pedigree != nil
+			if c.Components != nil {
+				walk(*c.Components)
+			}
+		}
+	}
+	walk(*inner.Components)
+	if p, ok := pedigree["systemd-source"]; !ok || p {
+		t.Errorf("the SBOM's systemd-source: listed %v, with a pedigree %v", ok, p)
+	}
+	if !pedigree["openssh-source"] {
+		t.Error("the SBOM's openssh-source has no pedigree")
+	}
 }
 
 func maps(a, b map[string]string) bool {
@@ -252,11 +272,11 @@ func TestAReleaseMissingAnythingIsRefused(t *testing.T) {
 		{"an option ROM", "out:qemu/linuxboot_dma.bin", "firmware linuxboot_dma.bin"},
 		{"the kernel the machine boots", "out:kernel/vmlinux", "the guest kernel"},
 		{"the option ROM it enters the kernel with", "out:qemu/pvh.bin", "firmware pvh.bin"},
-		{"every qboot patch", "root:qemu/qboot/*.patch", "qboot's patch"},
-		{"every swtpm patch", "root:qemu/swtpm/*.patch", "swtpm's patch"},
-		{"every kernel patch", "out:kernel/patches", "kernel patch"},
-		{"every OpenSSH patch", "root:image/openssh/*.patch", "OpenSSH patch"},
-		{"every systemd patch", "root:image/systemd/*.patch", "systemd patch"},
+		{"qboot's patches", "root:qemu/qboot", "qboot's patch"},
+		{"swtpm's patches", "root:qemu/swtpm", "swtpm's patch"},
+		{"the kernel's patches", "out:kernel/patches", "kernel patch"},
+		{"OpenSSH's patches", "root:image/openssh", "OpenSSH patch"},
+		{"systemd's directory", "root:image/systemd", "systemd patch"},
 		{"the base image", "out:image/rootfs.qcow2", "the base image"},
 		{"an apk database", "out:sbom/qemu.apk", "qemu.apk"},
 		{"the package list", "out:packages.txt", "package list"},

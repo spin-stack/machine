@@ -25,9 +25,10 @@ MADE_BY_PACKAGES = {
 }
 
 # What maintainer scripts make under the surfaces on every Ubuntu without recording it: systemd's
-# postinst enables three units with systemctl, libpam-modules' makes opasswd and base-files'
-# links /usr/local/man.
+# postinst enables three units with systemctl, getty@'s alias autovt@ with it since 260 (no longer
+# in the package), libpam-modules' makes opasswd and base-files' links /usr/local/man.
 STOCK = {
+    "/etc/systemd/system/autovt@.service",
     "/etc/systemd/system/getty.target.wants/getty@tty1.service",
     "/etc/systemd/system/multi-user.target.wants/remote-fs.target",
     "/etc/systemd/system/sysinit.target.wants/systemd-pstore.service",

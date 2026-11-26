@@ -138,12 +138,20 @@ RUN --network=none --mount=type=bind,from=kernel,source=vmlinux,target=/kernel/v
     make -j"$(nproc)" BPF_VMLINUX_BTF=/kernel/vmlinux all shirudo-build
 ENV PATH=/src/shirudo:/src/shirudo/tools/shirudo-build:/src/shirudo/tools/gen-image:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# The systemd initrd shirudo's init runs in, made by shirudo-gen-initrd with dracut from Ubuntu
-# 26.04's own systemd. The image's systemd has had TPM2 since #767; making it from that is #777.
-FROM ubuntu AS initrd
-RUN apt-get install -y --no-install-recommends \
-        dracut-core systemd udev kmod tpm2-tools libtss2-tcti-device0 \
-        cpio zstd file e2fsprogs util-linux mount && \
+# The systemd initrd shirudo's init runs in, made by shirudo-gen-initrd with dracut from the
+# machine's own base image: its files are the `rootfs` build context (boot/shirudo_test.go), so the
+# initrd's systemd, udev and tpm2-tss are the image's, the +spin1 build with TPM2 (#767, #777).
+# dracut and tpm2-tools, which the image leaves out, come from the snapshot the other stages take,
+# in place of the image's own sources.
+FROM scratch AS initrd
+COPY --from=rootfs / /
+COPY --from=ubuntu /etc/apt/sources.list.d/snapshot.sources /etc/apt/sources.list.d/
+ENV DEBIAN_FRONTEND=noninteractive
+RUN rm /etc/apt/sources.list.d/resolute.sources /etc/apt/sources.list.d/docker.sources && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends dracut-core tpm2-tools cpio zstd file && \
+    test -e /usr/lib/systemd/system/systemd-pcrphase-initrd.service && \
+    dpkg-query -W -f '${Version}' systemd | grep -q '+spin' && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/shirudo/tools/gen-initrd /opt/gen-initrd
 COPY --from=build /src/shirudo/systemd /opt/shirudo-units

@@ -10,7 +10,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
+RUN printf '%s\n' 'Types: deb-src' 'URIs: http://archive.ubuntu.com/ubuntu' 'Suites: tenacious' 'Components: main' \
+        'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' > /etc/apt/sources.list.d/tenacious-src.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends dpkg-dev devscripts acl
 
@@ -24,7 +25,7 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
 COPY image/systemd/meson-took.py image/systemd/tpm2.mk /build/
 COPY image/systemd/*.patch /build/patches/
 WORKDIR /build/src
-RUN for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
+RUN shopt -s nullglob && for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
     grep -q 'unit_file_expand_dropin_names' src/shared/dropin.c
 ARG SYSTEMD_EXPERIMENT=""
 COPY image/systemd/experiments/ /build/experiments/
@@ -34,11 +35,13 @@ RUN if [ -n "${SYSTEMD_EXPERIMENT}" ]; then \
 RUN extra="-Dpcre2=enabled -Dzlib=disabled -Dlink-executor-shared=false -Dlink-udev-shared=false -Dlink-systemctl-shared=false -Dlink-journalctl-shared=false" && \
     grep -q -- '-Dselinux=enabled' debian/rules && \
     sed -i 's/-Dselinux=enabled/-Dselinux=disabled/' debian/rules && \
-    sed -i -E '/(sysinit|sockets)\.target\.wants\/systemd-(pcr|tpm2)/d; /pcr|tpm2|systemd-measure/s/ <!stage1>//' debian/systemd.install && \
+    grep -q '^Build-Profiles: <!stage1>$' <(sed -n '/^Package: systemd-tpm$/,/^$/p' debian/control) && \
+    sed -i '/^Package: systemd-tpm$/,/^$/{/^Build-Profiles: <!stage1>$/d}' debian/control && \
+    sed -i -E '/(sysinit|sockets)\.target\.wants\//d' debian/systemd-tpm.install && \
     echo 'include /build/tpm2.mk' >> debian/rules && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "${SYSTEMD_SOURCE_VERSION}+spin1" --distribution resolute \
-            "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}, $(cd /build/patches && echo *.patch)." && \
+            "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}, TPM2 from a second build, patches: $(shopt -s nullglob; cd /build && echo patches/*.patch)." && \
     prev="$(dpkg-parsechangelog --offset 1 --count 1 -SDate)" && \
     sed -i "1,/^ -- /s/^\( -- .*>  \).*/\1${prev}/" debian/changelog && \
     test "$(dpkg-parsechangelog -SDate)" = "${prev}" && \
@@ -54,7 +57,7 @@ RUN tests="test-engine test-load-fragment" && \
     python3 /build/tests-passed.py obj-*/meson-logs/testlog.json $tests
 
 RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
-    for p in systemd systemd-sysv udev libsystemd0 libsystemd-shared libudev1 libpam-systemd; do \
+    for p in systemd systemd-tpm systemd-sysv udev libsystemd0 libsystemd-shared libudev1 libpam-systemd; do \
         ls /debs/${p}_*+spin1_*.deb > /dev/null || { echo "ERROR: no ${p} built"; exit 1; }; \
     done && \
     dpkg-deb -x /debs/libsystemd-shared_*.deb /tmp/shared && \
@@ -65,10 +68,13 @@ RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
     mkdir -p /tmp/no-journal && \
     grep_out=$(/tmp/systemd/usr/bin/journalctl -D /tmp/no-journal --grep x 2>&1) ; \
     case "$grep_out" in *"No entries"*) ;; *) echo "ERROR: journalctl --grep: $grep_out"; exit 1 ;; esac && \
+    dpkg-deb -x /debs/systemd-tpm_*.deb /tmp/systemd && \
     for f in usr/lib/systemd/systemd-pcrextend usr/lib/systemd/system/systemd-pcrphase-initrd.service \
+             usr/lib/systemd/system/initrd.target.wants/systemd-pcrphase-initrd.service \
              usr/lib/systemd/system-generators/systemd-tpm2-generator usr/lib/systemd/system/tpm2.target; do \
-        test -e "/tmp/systemd/$f" || { echo "ERROR: the systemd package has no $f"; exit 1; }; \
+        test -e "/tmp/systemd/$f" || { echo "ERROR: the systemd and systemd-tpm packages have no $f"; exit 1; }; \
     done && \
+    ! find /tmp/systemd -path '*/sysinit.target.wants/*' -o -path '*/sockets.target.wants/*' | grep -E 'pcr|tpm2' && \
     tpm2_out=$(LD_LIBRARY_PATH="$(dirname "$so")" /tmp/systemd/usr/bin/systemd-analyze has-tpm2 2>&1 || true) && \
     case "$tpm2_out" in *"+libraries"*) ;; *) echo "ERROR: systemd-analyze has-tpm2: $tpm2_out"; exit 1 ;; esac && \
     echo "OK: $(ls /debs | wc -l) packages, libsystemd-shared without the LSMs it was built without, the executor static, journalctl --grep, TPM2 with its libraries"

@@ -3,7 +3,7 @@ name: CodeQL
 # CodeQL's C/C++ analysis of the files the machine's patches touch, in the trees its builds make:
 # each part's pinned upstream source with its patches applied (spin-machine-dev patched tree).
 # The kernel and QEMU are compiled under CodeQL's tracer, only the files their patches touch
-# (spin-machine-dev patched compile); qboot, swtpm, systemd and OpenSSH are analysed without a build, from
+# (spin-machine-dev patched compile); qboot, swtpm and OpenSSH are analysed without a build, from
 # a tree with every other C file taken out. A result on a line the patches added or changed fails
 # the job and goes to code scanning, under the part's category, unless a codeql[<rule>] comment
 # the patch put on the line before says why it stays; so does a touched C file the analysis did
@@ -46,7 +46,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [qboot, swtpm, systemd, openssh]
+        # The parts that carry patches: a part with none, as systemd since 262, has nothing to
+        # analyse (internal/patched, TestCodeQLAnalysesEveryPartThatCarriesPatches).
+        part: [qboot, swtpm, openssh]
         build-mode: [none]
         # Their files include headers only their builds generate: compiled, under the tracer
         # (internal/patched, Part).

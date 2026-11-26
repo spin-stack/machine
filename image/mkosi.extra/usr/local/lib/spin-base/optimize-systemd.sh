@@ -30,6 +30,8 @@ MASK_UNITS=(
 
     systemd-random-seed.service
 
+    systemd-pcrlogin@.service
+
     modprobe@configfs.service
     modprobe@drm.service
     modprobe@fuse.service
@@ -58,8 +60,6 @@ DISABLE_GENERATORS=(
     systemd-fstab-generator
     systemd-debug-generator
     systemd-gpt-auto-generator
-    systemd-sysv-generator
-    systemd-rc-local-generator
     systemd-hibernate-resume-generator
     systemd-system-update-generator
     systemd-factory-reset-generator

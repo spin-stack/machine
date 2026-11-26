@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/spin-stack/go-tools/versions"
+	"go.yaml.in/yaml/v3"
 )
 
 func put(t *testing.T, path, body string) {
@@ -285,13 +286,52 @@ func TestFindNamesEveryPart(t *testing.T) {
 	}
 }
 
-// Every part's patches are where Parts says, in this checkout, and each names files.
-func TestEveryPartHasThePatchesItNames(t *testing.T) {
+// Every part's patches are where Parts says, in this checkout, and each names files. A part may
+// carry none, as systemd since 262 (#791), and then nothing analyses it: codeql.yml's matrix is
+// the parts that carry patches, so a part's first patch is analysed from the day it lands.
+func TestCodeQLAnalysesEveryPartThatCarriesPatches(t *testing.T) {
+	var carried []string
 	for _, p := range Parts {
+		if _, err := os.Stat(filepath.Join("..", "..", filepath.Dir(p.Patches))); err != nil {
+			t.Errorf("%s: %v", p.Name, err)
+		}
 		patches, _ := filepath.Glob(filepath.Join("..", "..", p.Patches))
-		if _, err := Touched(patches); len(patches) == 0 || err != nil {
+		if len(patches) == 0 {
+			continue
+		}
+		if _, err := Touched(patches); err != nil {
 			t.Errorf("%s: %d patches at %s: %v", p.Name, len(patches), p.Patches, err)
 		}
+		carried = append(carried, p.Name)
+	}
+	b, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "codeql.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wf struct {
+		Jobs struct {
+			Analyze struct {
+				Strategy struct {
+					Matrix struct {
+						Part    []string
+						Include []struct{ Part string }
+					}
+				}
+			}
+		}
+	}
+	if err := yaml.Unmarshal(b, &wf); err != nil {
+		t.Fatal(err)
+	}
+	m := wf.Jobs.Analyze.Strategy.Matrix
+	analysed := slices.Clone(m.Part)
+	for _, i := range m.Include {
+		analysed = append(analysed, i.Part)
+	}
+	slices.Sort(analysed)
+	slices.Sort(carried)
+	if len(carried) < 4 || !slices.Equal(analysed, carried) {
+		t.Errorf("codeql.yml analyses %v; the parts carrying patches are %v", analysed, carried)
 	}
 }
 

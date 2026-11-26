@@ -20,7 +20,7 @@ one-line pointer to a section of this document.
 | Stage | Where | What it does |
 |---|---|---|
 | The toolchain | `image/Dockerfile` | Ubuntu 26.04 by digest, mkosi from its release tarball by SHA-256, both from `versions.yaml`. The digests of Task, git-lfs, BuildKit and Docker's packages are passed in as environment for the tree. mkosi cannot run under BuildKit (it unshares namespaces), so `spin-machine-dev build image` runs this container with `--cap-add SYS_ADMIN`. |
-| Two rebuilt packages | `image/systemd`, `image/openssh` | Ubuntu's own systemd and OpenSSH source packages, rebuilt and versioned `+spin1`. systemd is built with Debian's `stage1` profile (no BPF framework in PID 1, no SELinux, audit, homed) with TPM2 back on, and carries upstream's drop-in lookup change (#42858). OpenSSH carries `userauth-delay-failures.patch`. Their rows are under "Packages". |
+| Two rebuilt packages | `image/systemd`, `image/openssh` | Ubuntu's own systemd and OpenSSH source packages, rebuilt and versioned `+spin1`. systemd is built with Debian's `stage1` profile (no BPF framework in PID 1, no SELinux, audit, homed) with TPM2 back on, from systemd 262, which a TPM machine's measured boot needs (#791). OpenSSH carries `userauth-delay-failures.patch`. Their rows are under "Packages". |
 | The tree | `image/mkosi.conf` | mkosi installs the `Packages=` list from the archive, with the two rebuilt packages offered from a local repository. `WithDocs=no` keeps documentation out (the per-package copyright files stay). `RemoveFiles=` removes identity and caches. `mkosi.extra` is staged under `/usr/local/lib/spin-base`, not at its final paths. |
 | The scripts | `image/mkosi.postinst.chroot` | In the tree, in this order: `install-dev-tools.sh`, `configure-system.sh`, the licence texts collected, the rebuilt packages held, `optimize-systemd.sh`, then `rootfs/` copied over `/`, then the staging directory deleted. |
 | The filesystem | `image/build.sh` | Installs the pressure sender, empties `/etc/machine-id` and removes the rest of the identity, writes `licenses.txt` and `packages.txt` beside the image, checks the rebuilt packages are held, checks the inventory (below), makes a partitionless ext4 with this repository's own `mkfs.ext4`, checks it, opens it and asserts what follows, and wraps it in a read-only qcow2. |
@@ -148,24 +148,23 @@ fixes are Ubuntu's. What changes is the build:
   package: the pcr and tpm2 tools, units, generator and data, `systemd-measure`, and
   `systemd-analyze` (for `has-tpm2`), with their own private libraries,
   `libsystemd-shared-tpm2.so` and `libsystemd-core-tpm2.so`. Everything the boot runs is the
-  first build's and loads no libcrypto; the Dockerfile takes the TPM2 rows of
-  `debian/systemd.install` out of stage1's exclusion. tpm2-tss is dlopened, never linked
+  first build's and loads no libcrypto. Since 262 Debian packages the TPM2 pieces as
+  `systemd-tpm`, which stage1 does not build: the Dockerfile takes the package out of stage1's
+  exclusion, and the TPM2 build's files land in it. `60-tpm2-id.rules` is not copied: it calls
+  udevd's `tpm2_id` builtin, and udevd is the first build's, without TPM2. tpm2-tss is dlopened, never linked
   ("The package list"). `-Dzlib=disabled` holds zlib off in both, as stage1 has it: libssl-dev
   brings zlib1g-dev, and meson would turn it on. What TPM2 would add to the boot is left out of
   the package or masked ("Units masked").
 - `systemd-executor` (exec'd for every unit PID 1 starts), udevd and its helpers, systemctl and
   journalctl link libsystemd-shared in statically. PID 1, journald and logind have no such option.
-- One patch, `image/systemd/0001-dropin-derive-candidate-names-once.patch`, applied after
-  Ubuntu's own without fuzz: upstream's #42858 (v262), backported. PID 1 looked for a unit's
-  drop-in directories by working out its candidate names (the name, its template, its "-"
-  prefixes) again for each of ~12 lookup directories and 4 suffixes, for every unit it loads. It
-  now works them out once per name. First login −6.5 ms [−9.9, −1.3], 100 boots a side against
-  systemd rebuilt without it, and PID 1's CPU before the login 56.0 → 52.4 ms, p50 of 5 ledgers
-  (labs 45090299768, 45090326943, 2026-11-23). The Dockerfile fails when the patch no longer
-  applies, and when its function is not in the source it built. After the build it compiles and
-  runs systemd's own `test-engine` and `test-load-fragment`, the two that load units and their
-  drop-ins through the patched code, and `tests-passed.py` fails the build unless meson's log
-  says both passed (#653). A release ships the patch as
+- No patch today. Upstream's #42858 (v262), which derives a unit's drop-in candidate names once
+  per name rather than once per lookup directory, was carried as a backport to 259 until the move
+  to 262 (#791): first login −6.5 ms [−9.9, −1.3], 100 boots a side (labs 45090299768,
+  45090326943, 2026-11-23). The Dockerfile applies whatever `image/systemd/*.patch` holds, none
+  included, and fails when `unit_file_expand_dropin_names` is not in the source it built. After the
+  build it compiles and runs systemd's own `test-engine` and `test-load-fragment`, the two that
+  load units and their drop-ins, and `tests-passed.py` fails the build unless meson's log says
+  both passed (#653). A release ships the directory's patches, none included, as
   `usr/share/spin-stack/systemd/`.
 
 Measured on the bench fleet, 20 boots of each interleaved, the first SSH login: stage1 −47, −38
@@ -174,11 +173,15 @@ stage1 −10 and −1, within noise, accept-to-login −7 in both. A checkpoint 
 login: unchanged, ~50 ms of guest time either way (44533227886). Not taken: `-Db_lto=true`
 (Ubuntu's flags already have `-flto=auto`; the packages came out the same to a few hundred bytes).
 
-The build fetches the source from the archive's deb-src, which apt checks against the signed
-Sources index, then the `.dsc` against the pin; `dpkg-source` checks the tarballs against the
-checksums in the `.dsc`, so the pin holds the whole source. The archive keeps only the version
-resolute publishes now, so the build fails at the download the day Ubuntu moves systemd, which is
-when the pin moves with it (`refresh.yml` proposes it). Launchpad keeps every upload but answered
+The build fetches the source from the archive's deb-src for tenacious (Ubuntu 26.10), whose
+release pocket has 262, and builds it on resolute with resolute's build-deps, all of which
+resolve. apt checks the source against the signed Sources index, then the `.dsc` against the pin;
+`dpkg-source` checks the tarballs against the checksums in the `.dsc`, so the pin holds the whole
+source. The version is the release pocket's, 262.1, not tenacious-proposed's 262.2: a proposed
+upload can be withdrawn before it migrates, as 262.1's own proposed copy was deleted once it did
+(Launchpad, 2026-11-26). The archive keeps only the version tenacious publishes now, so the build
+fails at the download the day Ubuntu moves systemd, which is when the pin moves with it
+(`refresh.yml` proposes it). Launchpad keeps every upload but answered
 502 to a whole build (2026-11-19). `acl` is installed because the journal's install step runs
 `setfacl`. The extra meson options go last (`CONFFLAGS_UPSTREAM`, which `debian/rules` hands last
 and never sets), and `meson-took.py` asks the configured build whether it took each, so a misspelt
@@ -186,8 +189,9 @@ option fails the build. A patch from `image/systemd/experiments` is applied only
 (`spin-machine-dev lab tree --systemd PATCH`), never the image's. The build then checks what came
 out: every package at the new version, libsystemd-shared without SELinux, AppArmor, audit or
 libcrypto, an executor that loads no libsystemd, a journalctl that greps, the files dracut takes for the
-measured initrd (`systemd-pcrextend`, `systemd-pcrphase-initrd.service`, the tpm2 generator and
-`tpm2.target`), and a `systemd-analyze has-tpm2` that finds its libraries. `meson-took.py` checks
+measured initrd in `systemd` and `systemd-tpm` (`systemd-pcrextend`, `systemd-pcrphase-initrd.service`
+and its `initrd.target` want, the tpm2 generator and `tpm2.target`), no TPM2 unit wanted by
+`sysinit.target` or `sockets.target`, and a `systemd-analyze has-tpm2` that finds its libraries. `meson-took.py` checks
 each of the two builds took its options.
 
 **OpenSSH** (`image/openssh/Dockerfile`) is Ubuntu's source package of the version the image would
@@ -501,6 +505,7 @@ was not separated. Each is also something this machine has no use for, which the
 | `systemd-hibernate-clear.service` | removed | No hibernation in a VM. | Nothing. |
 | `systemd-pstore.service` | removed | No pstore backend: no EFI, and `efi_pstore` is not built. | Nothing. |
 | `systemd-random-seed.service` | identity | Under "Identity". | Nothing. |
+| `systemd-pcrlogin@.service` | removed | New in systemd 262: on a measured OS logind starts it at each user's first login, before the user's runtime directory and service manager, which are ordered after it, and it measures the user record into the `login` NvPCR. A machine with a TPM is a measured OS (`systemd.tpm2_measured_os=1`, #791), so it put `systemd-pcrextend`, from the TPM2 build, libcrypto and tpm2-tss on the first login's path. Against main with `--tpm`, cold first login +24.1 [+19.8, +28.5] and QEMU RSS +8.0 MiB with it, +5.0 [+0.6, +8.8] and +2.1 MiB masked (bench, spin's shape, 100 a side, lab 45862592487). logind treats a masked unit as no measurement and logs it at debug. A machine without a TPM never starts it. | No `login` NvPCR measurement. 259 made none either. |
 | `sys-kernel-debug.mount`, `sys-kernel-tracing.mount` | removed | Not mounted at boot. | debugfs and tracefs are not mounted. debugfs mounts by hand (`mount -t debugfs nodev /sys/kernel/debug`). tracefs cannot be used: the kernel runs `lockdown=confidentiality`, which keeps every file out of it, so `/sys/kernel/tracing` has no `trace` whether or not the unit is masked or tracefs is mounted. `boot:workspace` checks both (lab 45036254377). |
 | `systemd-tmpfiles-setup-dev.service`, `systemd-tmpfiles-setup-dev-early.service` | removed | They create static device nodes for modules not yet loaded, and every tmpfiles rule under `/dev`. The one module with a node, fuse, gets it from `spin-machine-static-nodes.service`, which creates only what depmod's `modules.devname` names, after the first login ("Kernel modules"). | Nothing. |
 | `kmod-static-nodes.service` | deferred | It writes the modules' static nodes as a tmpfiles rule, and holds `sysinit.target`, so the first login: with the modules in the image, first login +5.8 ms [+1.4, +12.3] against main's kernel without them, where the kernel with `MODULES` alone read −2.3 [−6.0, +4.8] (bench, spin's shape and login, 30 a side, lab 45760766064). `spin-machine-static-nodes.service` does its work in `multi-user.target` ("Kernel modules"). | `/dev/fuse` appears when the boot's rest runs, after the first login's units, not before. |
@@ -512,17 +517,19 @@ was not separated. Each is also something this machine has no use for, which the
 links `systemd-pcrmachine`, `systemd-pcrphase`, `systemd-pcrphase-sysinit`, `systemd-pcrproduct`,
 `systemd-pcrnvdone`, `systemd-tpm2-setup-early` and `systemd-tpm2-setup` into `sysinit.target.wants`,
 and `systemd-pcrextend.socket` and `systemd-pcrlock.socket` into `sockets.target.wants`. Every one
-is `ConditionSecurity=measured-uki`: it measures a boot that came through systemd-stub, and this
-machine boots a kernel through qboot (spin-stack/machine#742), so none runs in any guest, with a TPM
-or without. Loaded and skipped, they cost the cold first login +3.2 [−0.3, +7.1] (60 a side, lab
+was `ConditionSecurity=measured-uki` in 259, which only a boot through systemd-stub passes, and
+this machine boots a kernel through qboot (spin-stack/machine#742); in 262 they are
+`measured-os`, which a machine with a TPM passes, since it boots with `systemd.tpm2_measured_os=1`
+(#791), and a machine without one never does. Loaded and skipped, they cost the cold first login +3.2 [−0.3, +7.1] (60 a side, lab
 45843865731; +6.4 [+0.9, +10.3] at 30, lab 45839499964), and masked, which still loads them, +4.6
 [+1.5, +10.2] (40 a side, lab 45841667450). So the package does not carry those links: the
-Dockerfile drops their rows from `debian/systemd.install` and `tpm2.mk` does not copy them, and
-nothing is masked. Without them, −0.1 [−3.3, +2.9] against main (lab 45843865731). The units
+Dockerfile drops their rows from `debian/systemd-tpm.install` and `tpm2.mk` does not copy them, and
+nothing is masked. A machine with a TPM measures only what its initrd runs, `enter-initrd` and
+`leave-initrd` into PCR 11 (#773). Without them, −0.1 [−3.3, +2.9] against main (lab 45843865731). The units
 themselves are there, and so are `initrd.target.wants/systemd-pcrphase-initrd.service`, which
 dracut takes into a measured initrd, and the factory-reset and storage-target-mode wants, which a
-boot never reaches. A workspace gives up nothing: a machine that boots a measured UKI enables them
-with `systemctl add-wants`.
+boot never reaches. A workspace gives up nothing: a machine that wants the root file system's phases
+measured as well enables them with `systemctl add-wants`.
 
 The units of `ConditionNeedsUpdate` (`ldconfig`, `systemd-sysusers`, `systemd-hwdb-update`,
 `systemd-journal-catalog-update`, `systemd-update-done`) are not masked: they skip themselves on
@@ -540,13 +547,14 @@ The distribution's background maintenance timers:
 ## Generators and tmpfiles rules turned off
 
 Group C-generators, taken back together: cold first login +16.7 [+11.6, +23.3] (lab 44818953987).
-The group counted the 8 generators below.
+The group counted 8 generators: the first 6 below, and `systemd-sysv-generator` and
+`systemd-rc-local-generator`, which systemd 262 no longer has: upstream removed SysV init script
+support in v260 (#791).
 
 | Deviation | Category | Why | A workspace gives up |
 |---|---|---|---|
 | `systemd-fstab-generator` | removed | There is no `/etc/fstab`; the root comes from the kernel command line, other disks are attached and mounted by whoever attaches them. | An `/etc/fstab` written in a workspace is ignored at the next boot. Mount units in `/etc/systemd/system` still work. |
 | `systemd-debug-generator` | removed | It implements `systemd.mask=`, `systemd.wants=` and the debug shell from the command line. | Those command-line switches do nothing. The lab masks with links for this reason. |
-| `systemd-sysv-generator`, `systemd-rc-local-generator` | removed | No SysV init scripts and no `rc.local` in the image. | An init script or `/etc/rc.local` added in a workspace does not run. |
 | `systemd-hibernate-resume-generator`, `systemd-system-update-generator`, `systemd-factory-reset-generator` | removed | No hibernation, no offline updates, no EFI. | Nothing. |
 | `systemd-gpt-auto-generator` | removed | Ubuntu masks it too, and mkosi deletes Ubuntu's mask ("The inventory"), so the image makes the link again. The root is a partitionless filesystem named on the command line; there is no GPT and no EFI to discover partitions from. Not a line of `image/deviations.txt`. Group C-generators took the image's link away, which runs the generator Ubuntu does not, so the group's number includes a cost Ubuntu's image does not pay. | Nothing. |
 | `systemd-tpm2-generator` | removed | It makes `tpm2.target` wait for a TPM that the firmware announces and no driver has bound yet, for a TPM driver that is a module. This kernel builds its TPM drivers in (`CONFIG_TCG_CRB=y`, `CONFIG_TCG_TIS=y`), so a TPM is bound before PID 1 runs, and under qboot `systemd-analyze has-tpm2` says `-firmware`: the generator does nothing, with or without a TPM. It is the one piece of the TPM2 build (#767) the boot runs, and it loads libsystemd-shared-tpm2 and libcrypto and dlopens tpm2-tss. Against main, cold first login with it +10.2 [+6.4, +13.1] and QEMU RSS +6.0 MiB, without it +6.4 [+0.9, +10.3] and +0.1 MiB (bench, spin's shape, no TPM, 30 a side, lab 45839499964). | Nothing: a TPM whose driver is a module would not be waited for, and this kernel has none. |
@@ -618,6 +626,11 @@ explains it.
   repository is not, and the archive's `libpam-systemd` wants the archive's systemd exactly. Without
   it nothing registers a login with logind.
 - **libpcre2-8-0** is named for the same reason: journalctl dlopens it for `--grep`.
+- **systemd-tpm** is named: since systemd 262 Debian packages the TPM2 tools, units and generator
+  apart from systemd, and stage1 builds no such package. The Dockerfile builds it from the second
+  build (#791), and dracut's `systemd-pcrphase` module takes `systemd-pcrextend` and
+  `systemd-pcrphase-initrd.service` from it. Its dependencies name tpm-udev and not
+  libsystemd-shared, whose `libsystemd-shared-tpm2.so` dpkg-shlibdeps cannot read a version from.
 - **libtss2-esys, libtss2-rc, libtss2-mu and libtss2-tcti-device** for the same reason: systemd
   dlopens them for TPM2 (`systemd-analyze has-tpm2` lists them under `libraries`), and its package
   does not ask for them (#767). They bring libtss2-sys, three more TCTIs and `tpm-udev`, 9 packages

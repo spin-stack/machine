@@ -100,7 +100,12 @@ func TestArgs(t *testing.T) {
 		// QEMU opens no socket by path.
 		name: "a TPM",
 		set:  func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3, Kernel: [32]byte{0xab}} },
-		want: []string{"-chardev socket,id=tpm,fd=3 -tpmdev emulator,id=tpm0,chardev=tpm -device tpm-crb,tpmdev=tpm0 "},
+		want: []string{"-chardev socket,id=tpm,fd=3 -tpmdev emulator,id=tpm0,chardev=tpm -device tpm-crb,tpmdev=tpm0 ",
+			" systemd.tpm2_measured_os=1 "},
+	}, {
+		// A machine without a TPM boots as it did before #773: nothing asks systemd to measure.
+		name:   "no TPM, no measured OS",
+		absent: []string{"tpm2_measured_os"},
 	}, {
 		// What qboot measures, from the events the machine names: the kernel's digest in PCR 4.
 		name: "a TPM's measurements for the firmware",

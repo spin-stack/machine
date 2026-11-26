@@ -225,17 +225,19 @@ Ubuntu userland
 
 systemd %s+spin1
   packages: those in usr/share/spin-stack/packages.txt at %s+spin1
-            (systemd, systemd-sysv, udev, libsystemd0, libsystemd-shared, libudev1,
-            libpam-systemd and the rest of that source's binary packages the image installs)
+            (systemd, systemd-tpm, systemd-sysv, udev, libsystemd0, libsystemd-shared,
+            libudev1, libpam-systemd and the rest of that source's binary packages the image
+            installs)
   source:   Ubuntu's source package: %s
-            and the tarballs it names beside it, with usr/share/spin-stack/systemd/*.patch
-            applied to it after Ubuntu's own (each says what it changes and why)
+            and the tarballs it names beside it, with usr/share/spin-stack/systemd/*.patch,
+            when it holds any, applied to it after Ubuntu's own (each says what it changes
+            and why)
   sha256:   %s (the .dsc, which holds the tarballs' checksums)
   built by: image/systemd/Dockerfile: Debian's stage1 build profile, SELinux disabled and
             systemd-executor, udevd, systemctl and journalctl linked statically against
-            libsystemd-shared, with a changelog entry for the +spin1 version; the TPM2 tools,
-            units and systemd-analyze from a second build of the same source with TPM2,
-            OpenSSL and the boot loader enabled (image/systemd/tpm2.mk)
+            libsystemd-shared, with a changelog entry for the +spin1 version; systemd-tpm,
+            which stage1 leaves out, and systemd-analyze from a second build of the same source
+            with TPM2, OpenSSL and the boot loader enabled (image/systemd/tpm2.mk)
 
 OpenSSH 1:%s+spin1
   packages: those in usr/share/spin-stack/packages.txt at 1:%s+spin1

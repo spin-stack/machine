@@ -47,7 +47,8 @@ type Part struct {
 	prepare, compile   func(ctx context.Context, root, src string, touched []string, out io.Writer) error
 }
 
-// Parts is every part with C patches, where AGENTS.md says each part's patches are kept.
+// Parts is every part the machine patches, where AGENTS.md says each part's patches are kept. A
+// part may carry none for a while, as systemd since 262 (#791), and has nothing to analyse then.
 var Parts = []Part{
 	{Name: "kernel", Pin: "kernel", Patches: "kernel/patches/*.patch", prepare: prepareKernel, compile: compileKernel},
 	{Name: "qemu", Pin: "qemu", Patches: "qemu/patches/*.patch", compile: compileQEMU},

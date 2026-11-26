@@ -18,6 +18,26 @@ for unit in shirudo-initrd.service shirudo.service; do
 done
 test "$(systemctl show -P Result shirudo.service)" = success
 
+# PCR 11 holds systemd's boot phases, enter-initrd and leave-initrd at least, measured before
+# shirudo's init in the initrd reads it: the machine asks a guest with a TPM for a measured OS on
+# its command line, as it boots no UKI (#773). An image whose systemd measures only under a UKI
+# (before 262) leaves PCR 11 empty and shirudo warns, which compat's shirudo job still boots: it
+# runs on the newest release's image.
+if grep -qx 'ConditionSecurity=measured-os' /usr/lib/systemd/system/systemd-pcrphase-initrd.service; then
+	pcr11=$(cat /sys/class/tpm/tpm0/pcr-sha256/11)
+	echo "PCR 11: $pcr11"
+	case $pcr11 in *[!0]*) ;; *) echo "PCR 11 holds no measurement"; exit 1 ;; esac
+	cat /run/log/systemd/tpm2-measure.log | tr '\036' '\n'
+	for phase in enter-initrd leave-initrd; do
+		grep -q "\"string\":\"$phase\"" /run/log/systemd/tpm2-measure.log ||
+			{ echo "no $phase in PCR 11's log"; exit 1; }
+	done
+	if journalctl -b --no-pager -o cat | grep 'PCR 11 holds no phase measurement'; then
+		echo "shirudo's init found PCR 11 empty"
+		exit 1
+	fi
+fi
+
 # The shirudo that runs is the one the release ships, from the dm-verity runtime image the
 # initrd mounted: shirudo answers for its state only to that binary. SHIRUDO_SHA256 is the
 # shipped file's (shirudo_test.go).
