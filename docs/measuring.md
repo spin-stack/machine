@@ -291,7 +291,9 @@ trace lost events. A switch away from a task the CPU was not running counts as a
   20.9 ms after it without the lag (labs 45177818419 and 45177817516; all v20261123.04 with the
   marker kernel, spin's shape, #644). The first window, the kernel to PID 1's exec, is the one the lag lands
   in, and the ledger gives it to the kernel. dmesg is on neither clock: from that line on,
-  printk's clock is the sched clock less 11-15 ms (#666).
+  printk's clock is the sched clock plus `__sched_clock_offset`, 10-15 ms behind it. `initcalls` and
+  `boot:firmware-stages` read the offset from the same line and add it back to "Freeing"
+  (`lab.PrintkLag`, #666).
 - *QEMU's exec on the host's clock.* No clock in the guest sees it, and /proc stamps a process's
   start in 10 ms ticks, so the host watches spin-machine's children from its own exec until one
   is QEMU. The exec is between the last look that did not see it and the first that did:
