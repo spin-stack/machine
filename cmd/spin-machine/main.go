@@ -335,13 +335,15 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 		}
 		s.TPM = machine.TPM{SWTPM: swtpm, State: o.tpm}
 		// Hashed at every boot: the CLI starts one machine and exits, so it has nowhere to keep
-		// a digest, and a caller that starts many hashes each file once.
-		if s.TPM.Kernel, err = machine.FileSHA256(s.Kernel); err != nil {
-			return machine.Spec{}, err
-		}
-		if s.Initrd != "" {
-			if s.TPM.Initrd, err = machine.FileSHA256(s.Initrd); err != nil {
+		// a digest, and a caller that starts many hashes each file once. A restore measures nothing.
+		if !s.Restore {
+			if s.TPM.Kernel, err = machine.FileSHA256(s.Kernel); err != nil {
 				return machine.Spec{}, err
+			}
+			if s.Initrd != "" {
+				if s.TPM.Initrd, err = machine.FileSHA256(s.Initrd); err != nil {
+					return machine.Spec{}, err
+				}
 			}
 		}
 	}
