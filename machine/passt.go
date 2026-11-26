@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 )
 
 // A NIC on passt is a network for a machine run without root and without spin: passt
@@ -96,3 +98,101 @@ func passtGuest(i int) []string {
 		"systemd.set_credential_binary=udev.rules.50-passt.rules:" + base64.StdEncoding.EncodeToString([]byte(rule)),
 	}
 }
+
+// PasstProfileName is the AppArmor profile PasstAppArmor writes, and the file under
+// /etc/apparmor.d it is installed as. One name for every release: installing a release's profile
+// replaces the one before, which a host that keeps two releases installs again when it boots the
+// other's.
+const PasstProfileName = "spin-machine-passt"
+
+// PasstAppArmor is the AppArmor profile that lets passt, the release's, make the user namespace it
+// sandboxes itself in on a host whose AppArmor refuses one to an unprivileged process
+// (kernel.apparmor_restrict_unprivileged_userns, as on the CI runners' Ubuntu 26.04 image, run
+// 45798835676): passt's own profile, confined, attached to that one file (docs/machine.md, "A
+// network without root").
+//
+// The attachment is passt's path with its symlinks resolved, which is the path AppArmor matches
+// at exec, and never a pattern: a profile for any file named passt would give a user namespace
+// to whatever a user names so, which is what the restriction refuses. A path AppArmor would read
+// as a pattern or a variable is refused for the same reason, and so is any character it might
+// not read literally inside quotes.
+func PasstAppArmor(passt string) (string, error) {
+	p, err := filepath.Abs(passt)
+	if err == nil {
+		p, err = filepath.EvalSymlinks(p)
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolving passt's path, which its profile attaches to: %w", err)
+	}
+	if c := notLiteralInProfile.FindString(p); c != "" {
+		return "", fmt.Errorf("passt is at %q, whose %q a profile may not read as itself: the profile attaches to the one file, so unpack the release at a path of ASCII letters, digits and ._+-/", p, c)
+	}
+	return fmt.Sprintf(passtProfile, p, PasstProfileName, p), nil
+}
+
+// notLiteralInProfile is a character of a path that a profile might not read as itself: a glob's
+// (*?[]{}^), a variable's (@), a quote's or an escape's, space, and anything past ASCII.
+var notLiteralInProfile = regexp.MustCompile(`[^A-Za-z0-9._+/-]`)
+
+// passtProfile is passt's own AppArmor profile, contrib/apparmor/usr.bin.passt and the
+// abstractions/passt it includes at the passt versions.yaml pins, made one file so a host needs
+// nothing of passt's installed, and narrowed to passt as startPasst runs it:
+//
+//   - The attachment is the one file, not /usr/bin/passt{,.avx2}.
+//   - No abstractions/user-tmp and no owner @{HOME}/** w: those are for a pcap, a PID file or a log
+//     file, and startPasst asks for none.
+//   - No libvirt's run directories, nor /usr/bin/passt r, which upstream carries for libvirt.
+//   - No passt.avx2 ix: the release has no passt.avx2 (qemu/Dockerfile), and passt's exec of one
+//     planted beside it is refused instead of run under this profile.
+//
+// Everything else is upstream's, rule for rule: userns, and the capabilities and mounts passt
+// sandboxes itself with inside it.
+const passtProfile = `# AppArmor profile for the passt of a spin-machine release, at %s:
+# passt's own (contrib/apparmor at the version the release pins), narrowed to passt as
+# spin-machine runs it. Written by spin-machine apparmor.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile %s "%s" flags=(attach_disconnected) {
+  include <abstractions/base>
+  include <abstractions/nameservice>
+
+  capability net_bind_service,
+  capability setuid,
+  capability setgid,
+  capability sys_admin,
+  capability setpcap,
+  capability net_admin,
+  capability sys_ptrace,
+  capability setfcap,
+  userns,
+
+  / r,
+  mount options=(rw, runbindable) -> /,
+  mount "" -> "/",
+  mount "" -> "/tmp/",
+  pivot_root "/tmp/" -> "/tmp/",
+  umount "/",
+
+  owner @{PROC}/@{pid}/gid_map w,
+  owner @{PROC}/@{pid}/setgroups w,
+  owner @{PROC}/@{pid}/uid_map rw,
+
+  @{PROC}/sys/net/ipv4/ip_local_port_range r,
+  @{PROC}/sys/net/ipv4/tcp_syn_retries r,
+  @{PROC}/sys/net/ipv4/tcp_syn_linear_timeouts r,
+  @{PROC}/sys/net/ipv4/tcp_rto_max_ms r,
+  @{PROC}/sys/net/netfilter/nf_conntrack_udp_timeout r,
+  @{PROC}/sys/net/netfilter/nf_conntrack_udp_timeout_stream r,
+
+  network netlink raw,
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network unix stream,
+  network unix dgram,
+}
+`

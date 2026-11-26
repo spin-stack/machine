@@ -124,10 +124,26 @@ m, err := machine.Start(ctx, spec, machine.StartOptions{})
   every machine runs is what this keeps out.
 - **passt needs a user namespace.** It sandboxes itself in one of its own, and exits when the
   host refuses it. A desktop Ubuntu 26.04 under `kernel.apparmor_restrict_unprivileged_userns=1`
-  let it (2026-11-26); the CI runners' image refused even `unshare --user` (run 45798835676), so
-  compat.yml lifts the restriction first (`task userns`). On such a host an administrator does the
-  same, or gives the release's `bin/passt` an AppArmor profile that allows `userns`, as Ubuntu's
-  passt package has for `/usr/bin/passt`. boot:net says which it is before it boots.
+  let it (2026-11-26), moving passt into its `unprivileged_userns` profile; the CI runners' image
+  refused even `unshare --user` (run 45798835676). On such a host the release's passt gets a
+  profile of its own that allows `userns`, installed once with root, and the restriction stays on
+  for everything else (#755):
+
+  ```sh
+  spin-machine apparmor --release DIR | sudo tee /etc/apparmor.d/spin-machine-passt > /dev/null
+  sudo apparmor_parser -r /etc/apparmor.d/spin-machine-passt
+  ```
+
+  `spin-machine apparmor` prints passt's own profile (its source's `contrib/apparmor`, at the
+  version the release pins), narrowed to passt as Start runs it, and attached to `DIR/bin/passt`
+  alone, by its path with symlinks resolved: never to a pattern, since a profile for any file
+  named passt would hand a user namespace to whatever a user names so, which is what the
+  restriction refuses. A release moved or unpacked elsewhere needs the two commands again, and so
+  does another release, since every release's profile is `spin-machine-passt` and replaces the one
+  before. `sudo apparmor_parser -R /etc/apparmor.d/spin-machine-passt` and removing the file take it
+  away. compat.yml installs it with these commands on the runners (`task boot:passt-apparmor`)
+  before boot:net, with the restriction left on, and boot:net says what refused passt, and these
+  commands, when it cannot sandbox itself.
 - **No vhost.** Frames go through QEMU and passt, so a NIC on passt is slower than spin's TAP with
   vhost-net. It is a reader's machine, not a workspace's.
 - **Its addresses are fixed, and the guest's configuration is the kernel command line.** The guest

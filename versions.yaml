@@ -111,7 +111,8 @@
     cgit makes the tarball from the tag, the same bytes each time (checked 2026-11-26). After the
     bump: `spin-machine-dev build qemu`, whose stage refuses a passt that is not static or takes no
     --fd, then `spin-machine-dev verify qemu` and `task boot:net`, which brings a guest's network up
-    through it and fetches over HTTPS.
+    through it and fetches over HTTPS. Its contrib/apparmor at the new version is read against
+    machine/passt.go's passtProfile, a copy of it: compat runs boot:net under that profile.
 
 - name: alpine
   kind: image

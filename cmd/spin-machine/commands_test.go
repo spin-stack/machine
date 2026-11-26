@@ -285,6 +285,8 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 	}{
 		{"no command", nil, "no command given"},
 		{"a network from a release without passt", []string{"args", "--release", noPasst, "--net"}, "passt, a NIC's network without root"},
+		{"a profile for a release without passt", []string{"apparmor", "--release", noPasst}, "passt, a NIC's network without root"},
+		{"a profile for a release that is not whole", []string{"apparmor", "--release", t.TempDir()}, "is not a whole machine"},
 		{"a TPM from a release without swtpm", []string{"args", "--release", noSWTPM, "--tpm", "/tpm"}, "swtpm, the TPM's emulator"},
 		{"a release that is not whole", []string{"args", "--release", t.TempDir()}, "is not a whole machine"},
 		{"a machine that cannot be", []string{"args", "--release", dir, "--memory", "0"}, "memory is 0"},
@@ -303,5 +305,20 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 				t.Errorf("run(%q) returned %v, want an error containing %q", tc.argv, err, tc.want)
 			}
 		})
+	}
+}
+
+// apparmor prints passt's profile for the release's bin/passt, attached to it alone.
+func TestAppArmorPrintsTheProfileOfTheReleasesPasst(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(release(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	if err := passtProfile(dir, &b); err != nil {
+		t.Fatal(err)
+	}
+	if want := "profile spin-machine-passt \"" + filepath.Join(dir, "bin/passt") + "\" "; !strings.Contains(b.String(), want) {
+		t.Errorf("apparmor printed no %q:\n%s", want, b.String())
 	}
 }

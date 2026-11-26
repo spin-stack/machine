@@ -183,9 +183,12 @@ jobs:
         run: go tool task boot:tpm
 
       # A machine given a NIC on passt reaches the internet with nothing on the host but the user
-      # running it, and its guest is configured by its command line alone (#751).
-      - name: Let passt make its user namespace
-        run: go tool task userns
+      # running it, and its guest is configured by its command line alone (#751). The runners'
+      # AppArmor refuses an unprivileged process a user namespace (run 45798835676), and passt
+      # needs one: it gets it from its own profile, installed as a reader installs it, with the
+      # restriction left on (#755).
+      - name: passt's AppArmor profile
+        run: go tool task boot:passt-apparmor
 
       - name: A guest on passt reaches the internet
         run: go tool task boot:net

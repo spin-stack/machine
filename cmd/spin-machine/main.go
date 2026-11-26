@@ -65,6 +65,7 @@ Usage:
   spin-machine memory  [flags]   grow or shrink a running VM between its memory and its ceiling
   spin-machine cpu     [flags]   print the CPU the guest is shown and the named models this host runs
   spin-machine target  [flags]   print the machine's record as JSON, which restore --target takes
+  spin-machine apparmor [flags]  print the AppArmor profile that lets the release's passt make its user namespace
 
 spin-machine <command> -h lists a command's flags.
 `
@@ -138,6 +139,14 @@ func run(argv []string) error {
 			return err
 		}
 		return targetReport(qmp, os.Stdout)
+	case "apparmor":
+		var release string
+		if err := parse(cmd, argv, func(fs *flag.FlagSet) {
+			fs.StringVar(&release, "release", "_output", "an unpacked release tree, whose bin/passt the profile is for")
+		}); err != nil {
+			return err
+		}
+		return passtProfile(release, os.Stdout)
 	case "attach":
 		var o attachFlags
 		if err := parse(cmd, argv, o.register); err != nil {
@@ -359,4 +368,24 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 	s.Cmdline = c
 
 	return s, nil
+}
+
+// passtProfile prints the AppArmor profile of the release's passt, for a host whose AppArmor
+// refuses passt the user namespace boot --net needs (docs/machine.md, "A network without root").
+// It prints and does not install: installing takes root, once, and the reader runs it.
+func passtProfile(release string, w io.Writer) error {
+	rel, err := machine.OpenRelease(release)
+	if err != nil {
+		return err
+	}
+	passt, err := rel.Passt()
+	if err != nil {
+		return err
+	}
+	profile, err := machine.PasstAppArmor(passt)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, profile)
+	return err
 }
