@@ -63,6 +63,7 @@ DISABLE_GENERATORS=(
     systemd-hibernate-resume-generator
     systemd-system-update-generator
     systemd-factory-reset-generator
+    systemd-tpm2-generator
 )
 
 for gen in "${DISABLE_GENERATORS[@]}"; do

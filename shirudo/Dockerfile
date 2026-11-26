@@ -139,8 +139,7 @@ RUN --network=none --mount=type=bind,from=kernel,source=vmlinux,target=/kernel/v
 ENV PATH=/src/shirudo:/src/shirudo/tools/shirudo-build:/src/shirudo/tools/gen-image:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # The systemd initrd shirudo's init runs in, made by shirudo-gen-initrd with dracut from Ubuntu
-# 26.04's own systemd: the image's systemd is built without TPM2 (image/systemd), so an initrd
-# made from it has no systemd-pcrphase-initrd.service, which shirudo-gen-initrd --check requires.
+# 26.04's own systemd. The image's systemd has had TPM2 since #767; making it from that is #777.
 FROM ubuntu AS initrd
 RUN apt-get install -y --no-install-recommends \
         dracut-core systemd udev kmod tpm2-tools libtss2-tcti-device0 \

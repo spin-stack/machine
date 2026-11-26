@@ -421,6 +421,11 @@ stat_in_image /etc/systemd/system/multi-user.target.wants/spin-machine-static-no
     echo "ERROR: spin-machine-static-nodes.service is not wanted by multi-user.target, and /dev/fuse would not be there" >&2
     exit 1; }
 
+# docs/image.md, "Generators and tmpfiles rules turned off"
+stat_in_image /etc/systemd/system-generators/systemd-tpm2-generator | grep -q '/dev/null' || {
+    echo "ERROR: systemd-tpm2-generator is not masked, and every boot runs it and loads libcrypto for a TPM it never waits for" >&2
+    exit 1; }
+
 # docs/image.md, "The filesystem"
 echo "==> qemu-img: wrapping it"
 rm -f "$OUT.new"
