@@ -36,7 +36,7 @@ rule 3).
 
 **The restore is under 100 ms when QEMU is started ahead, and the cold boot is not close.** A
 cold boot cannot reach 100 ms by userspace work alone: QEMU, the firmware and the kernel take
-~140 ms before PID 1 runs (budget below), ~150 once two of its clocks are corrected (#665, #666). Without systemd, sshd accepted at 189 ms in spin's shape
+~157 ms before PID 1 runs (budget below), ~154 once the firmware row's anchor is corrected (#665). Without systemd, sshd accepted at 189 ms in spin's shape
 (lab 44750322384, 2026-11-20). Every phase before PID 1 has to shrink as well.
 
 ### What spin runs, and what the probes boot
@@ -135,8 +135,8 @@ not a measurement: it says how far each phase has to move.
 | … of it, QMP: QEMU's main loop free to `cont` answered, 14 commands | 6.2 | `transport` `cold_qmp`, lab 44912471522 (v20261121.01); 4.5 of it QEMU waiting on spin-machine's next command | measured | |
 | … of it, the reset copying the vmlinux's 37.4 MB of segments into guest RAM, before the main loop | 9.1 before QEMU 0009, now beside the main loop | `romcopy` (a probe on branch `exp/698-romcopy`, not on main) `rom_copy`, lab 45257214350 (v20261123.07, 20 boots, p95 9.3); the ledger read the vmlinux's QEMU start +8.4 against a bzImage's (lab 45260129735, #697) | measured | |
 | qboot and the bzImage's decompression, to the kernel's clock | 33.6 | `boot:firmware-stages`, lab 44787491631 (v20261120.02's kernel); ~21 of it is the decompression KASLR needed, which the machine no longer runs since #645 (first login −18.6, "What the machine carries"). Its end, KVM_SET_CLOCK plus the sched offset, is 2.8 ms after the kernel's 0 on bench, so ~31 (#665) | measured, another run; its anchor late | 5 |
-| The kernel's clock to "Freeing unused kernel image" | 79.9 | report 44811347183, on dmesg's clock, which from late_initcall on is 13-15 ms behind the kernel's on bench, so ~93 (#666) | measured on a clock that reads short | 25 |
-| PID 1 to sshd accepting | ~255 | sshd accepts 396 (lab 44841266997) less the three rows above; ~244 with the two corrections above | by difference, across runs | 35 |
+| The kernel's clock to "Freeing unused kernel image" | 95.1 | `initcalls` `freeing`, v20261120.04 again, 20 boots (89.6 to 97.9), lab 45885883883, on the kernel's clock. The report's 79.9 was dmesg's, 15.2 ms short from late_initcall on (#666) | measured, another run | 25 |
+| PID 1 to sshd accepting | ~239 | sshd accepts 396 (lab 44841266997) less the three rows above; ~242 with the firmware row's anchor corrected | by difference, across runs | 35 |
 | sshd's accept to the first login | 68.4 | `ssh-first` `accept_to_login`, lab 44841266997 | measured | 35 |
 | … of it, what any login costs (a second login) | 35.9 | `ssh-first` `second_login`, the same | measured | |
 | … of a login, vsock: 10 round trips of 57.5 µs through the forwarder | 0.6 | `transport` `login_turns`, `forward_rtt`, lab 44912471522 | measured | |
@@ -145,7 +145,7 @@ not a measurement: it says how far each phase has to move.
 **PID 1 to sshd is more than half the cold boot.** On one vCPU, everything systemd starts before
 sshd accepts is on the login's path. The groups in "What the machine carries" show how much
 masks, generators and the coldplug filter took off it. The no-systemd floor accepted at 189 ms in
-spin's shape. Before PID 1, ~140 ms of QEMU, firmware and kernel remain (~150 corrected, #665, #666), ~113 of them with QEMU
+spin's shape. Before PID 1, ~157 ms of QEMU, firmware and kernel remain (~154 with #665's correction), ~129 of them with QEMU
 started ahead. Each phase from the first row to the fourth has to shrink to reach 100 ms.
 
 ### Restore, QEMU started ahead
