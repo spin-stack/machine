@@ -6,7 +6,8 @@ name: Compat
 # guest is loaded into - the machine's definition, QEMU, the kernel, the firmware and their pins -
 # and before every release. And whether that kernel, booted, is locked down (boot:lockdown) and at
 # a random base every boot (boot:kaslr), and whether a guest checkpointed and continued still grows
-# (boot:cpu-plug). And, for a change that reaches shirudo, the kernel it hooks or the QEMU it boots
+# (boot:cpu-plug), and whether a QEMU run as nobody loads a state fast with no host grant of
+# userfaultfd (boot:fastload). And, for a change that reaches shirudo, the kernel it hooks or the QEMU it boots
 # on, whether the shirudo it builds runs on that machine (boot:shirudo).
 #
 # How long a checkpoint stops the guest (boot:checkpoint-pause) is a bound, not compatibility: it
@@ -188,6 +189,12 @@ jobs:
 
       - name: The machine's record refuses what QEMU loads silently, and not its own checkpoint
         run: go tool task boot:record
+
+      # spin's setup: QEMU run as nobody, /dev/userfaultfd open to root alone and
+      # vm.unprivileged_userfaultfd 0. A state loads fast with the device Resume hands QEMU, and
+      # QEMU holds it only while Resume runs (#789). As root through sudo, as boot:passt-apparmor.
+      - name: A fast load needs no userfaultfd grant, and QEMU holds the device only during Resume
+        run: go tool task boot:fastload
 
       # A machine that asks for a TPM gets one its guest uses as shirudo does, its boot measured
       # into it by qboot (#742), and a checkpoint carries it (#719). A tree whose kernel has no tpm_crb driver, a release's from before #733,
