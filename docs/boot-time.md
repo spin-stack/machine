@@ -211,12 +211,15 @@ machine without, interleaved, spin's shape, v20261126.01's parts (#745, #775, 20
 | **Cold first login** | **+31.7 [+22.0, +36.0]**; +9.5 [+4.5, +19.5] with 0032; with 0032 and swtpm's patch, the patch takes −5.1 [−9.7, −0.6] of a +9.0 [+2.1, +13.8] | `ssh-first`, lab 45829973230, 30 a side; with 0032, lab 45834343191; the patch, lab 45844362398, 30 a side | measured |
 | Restored first login, evicted | +6.3 [+5.3, +7.0]; with swtpm's patch, the patch takes −3.8 [−5.2, −0.8] of a +5.7 [+4.1, +7.1] | `restore-first` `running` +6.4, `listening` +0.0, lab 45829981897, 30 a side. Traced, there is no INIT at the reset of a QEMU that waits for its stream: the cost is the state blobs set over the control channel (0.5 ms) and the INIT after them (5.1-5.6 under strace), labs 45838342840. The patch, lab 45844362132, 30 a side | measured |
 
-**The cold cost was the kernel waiting on libtpms's self test.** qboot does not start the TPM,
+**The cold cost was the kernel waiting on libtpms's self test.** qboot did not start the TPM,
 so the kernel's first TPM2_SelfTest is refused, it sends TPM2_Startup, and then asks for the self
 test again, which right after a startup tests every algorithm libtpms has. The vCPU sleeps
 through it in 1 ms polls. A TPM tests an algorithm before its first use anyway, so 0032 drops
 that second self test ("What the machine carries"), and the first command that needs an
-algorithm pays its test instead: shirudo's first RSA-3072 primary, after the login.
+algorithm pays its test instead: shirudo's first RSA-3072 primary, after the login. Since qboot
+starts the TPM to measure the boot (#742), the kernel's first self test would no longer be refused
+and would run the whole test, so 0032 probes with TPM2_Startup, which a started TPM refuses, and
+sends no self test at all.
 
 **What was left was swtpm testing OpenSSL at each INIT, not its start (#775).** swtpm starts
 beside QEMU and is waiting before QEMU's first control command. QEMU then waits on the TPM's
@@ -226,7 +229,8 @@ algorithm. Ours links its own libcrypto, so only the host's configuration file c
 patch reads none and skips the test (qemu/swtpm/README.md, "What the machine carries"). What a
 TPM costs after it, ~4 ms cold and ~2 ms restored, is the refused self test, the startup, the
 driver's capability reads, the state blobs and what is left of the INIT, none above the noise
-alone. The image's systemd is built without
+alone. #775 measured that on a tree whose qboot did not start the TPM and whose 0032 skipped
+only the self test after the kernel's own startup. The image's systemd is built without
 TPM2 (docs/image.md, "Two rebuilt packages"), so nothing after PID 1 waits on the TPM; a systemd
 with TPM2 brings its generator and units onto that path, and the "PID 1 to the login" row is
 measured again then.

@@ -203,7 +203,7 @@ m, err := machine.Start(ctx, spec, machine.StartOptions{
   checkpoint never resumes across a TPM and none (`boot:record`, "a TPM here", "no TPM here").
 - **It costs the goal's numbers, so it is asked for.** On the bench, spin's shape, a TPM cost the
   cold first login +31.7 [+22.0, +36.0] ms on v20261126.01, +9.5 [+4.5, +19.5] once kernel 0032
-  stopped the guest asking for a self test after its own TPM2_Startup, and the restored one
+  stopped the guest asking for a self test (since #742 whether the kernel or qboot started the TPM), and the restored one
   +6.3 [+5.3, +7.0] ms, against the same machine without one (labs 45829973230, 45834343191,
   45829981897, 2026-11-26). docs/boot-time.md, "A machine with a TPM", says where each goes (#745).
   tpm-crb was chosen over tpm-tis by labs 45748711725 and 45748711747 (qemu/devices.mak).
