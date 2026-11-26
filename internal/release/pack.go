@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package release packs the machine into one tarball with one version - QEMU, its firmware, the
-// kernel, the base image and the tools that make and read its filesystem - and says what a
+// kernel, the base image, the tools that make and read its filesystem and spin-machine, which boots
+// them by hand - and says what a
 // release is: its version, its manifest, its sources, its SBOM and what changed since the one
 // before it.
 //
@@ -106,6 +107,13 @@ func Pack(ctx context.Context, o Options) (Packed, error) {
 	if err := os.WriteFile(filepath.Join(share, "SOURCES"), []byte(sources), 0o644); err != nil { //nolint:gosec // shipped, read by everyone
 		return Packed{}, fmt.Errorf("writing SOURCES: %w", err)
 	}
+	licenses, err := GoLicenses(ctx, o.Root, filepath.Join(share, "bin", "spin-machine"))
+	if err != nil {
+		return Packed{}, err
+	}
+	if err := os.WriteFile(filepath.Join(share, "go-licenses.txt"), []byte(licenses), 0o644); err != nil { //nolint:gosec // shipped, read by everyone
+		return Packed{}, fmt.Errorf("writing go-licenses.txt: %w", err)
+	}
 	machineBOM, err := BOM(o, share)
 	if err != nil {
 		return Packed{}, err
@@ -168,6 +176,7 @@ func shipped(o Options, top, share string) ([]file, error) {
 	}
 	files = append(files, file{fromOut("bin/" + build.SWTPMBinary), at("bin/" + build.SWTPMBinary), "the swtpm binary", 0o755})
 	files = append(files, file{fromOut("bin/" + build.PasstBinary), at("bin/" + build.PasstBinary), "the passt binary", 0o755})
+	files = append(files, file{fromOut("bin/spin-machine"), at("bin/spin-machine"), "the spin-machine binary", 0o755})
 	// mkfs.ext4 and the configuration it reads together: what an ext4 is made with is what both
 	// default to. debugfs, e2fsck and dumpe2fs from the same build: the probes edit a copy of the
 	// base image with this debugfs, because an older one refuses features it does not know.
@@ -389,6 +398,12 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		}
 		parts = append(parts, sbom.New(c, nil, nil, o.Epoch))
 	}
+	// spin-machine by its hash and the modules its build info lists: the one Go binary shipped.
+	tool, err := sbom.Go(o.Version, filepath.Join(share, "bin", "spin-machine"))
+	if err != nil {
+		return nil, err
+	}
+	parts = append(parts, sbom.New(tool, nil, nil, o.Epoch))
 	// The machine, as the manifest describes it.
 	machine, err := hashed("spin-machine", o.Version, filepath.Join(share, "machine.env"))
 	if err != nil {

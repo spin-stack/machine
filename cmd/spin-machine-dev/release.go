@@ -31,8 +31,8 @@ func releaseCmd() *cobra.Command {
 		Short: "Build everything that is missing or stale and pack one versioned tarball, refusing one with anything missing",
 		Long: `Build every part (as build does), the kernel's modules signed with spin-stack/ci's KMS key before
 the image installs them, then pack them into _output/release: one tarball, one
-version - QEMU and its firmware, the kernel, the base image and the tools that make and read its
-filesystem - with LICENSE, NOTICE, every patch each part was built with, machine.env (the
+version - QEMU and its firmware, the kernel, the base image, the tools that make and read its
+filesystem and spin-machine, which boots them by hand - with LICENSE, NOTICE, every patch each part was built with, machine.env (the
 manifest: versions and checksums), SOURCES (where every part came from) and a CycloneDX SBOM,
 inside the tarball and beside it.
 
@@ -58,6 +58,9 @@ else. So every file is required, and a patch directory ships whole, never as a l
 			say(c, "kernel modules: %d signed with %s", n, modsign.Key)
 			if _, err := build.Make(c.Context(), o, build.Parts); err != nil {
 				return couldNot(err)
+			}
+			if err := build.Tools(c.Context(), o); err != nil {
+				return couldNot(fmt.Errorf("building spin-machine: %w", err))
 			}
 			packed, err := pack(c.Context(), c, w, version)
 			if err != nil {

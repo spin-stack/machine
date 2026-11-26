@@ -153,8 +153,8 @@ comparison of v20261001.01 with v20260930.02 flagged every row 5-11% slower, and
 on one host put them within 5 ms (2026-10-01).
 
 Each release boots with the spin-machine of the commit it was made from (`--spin-machine release`).
-A release ships no spin-machine, and the machine it defined (devices, places, checkpoints) is that
-commit's `machine` package, which spin builds. A release whose spin-machine cannot run a probe has a
+A release before #752 ships no spin-machine, and the machine it defined (devices, places,
+checkpoints) is that commit's `machine` package, which spin builds. A release whose spin-machine cannot run a probe has a
 dash for that number, with the reason. A release from before v20261119.02, the release that brought
 `boot --restore`, is one.
 

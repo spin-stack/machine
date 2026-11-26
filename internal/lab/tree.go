@@ -188,8 +188,8 @@ type TreeSpec struct {
 	Kernel, QEMU string
 	// SpinMachine is "here" for this checkout's, built; "release" for the one built from the
 	// commit the From tree's machine.env names, which is the machine that release defined: spin
-	// builds the machine package of the release it pins, and a release ships no spin-machine
-	// binary. Left out, it is the From tree's own when it has one (_output after a build) and this
+	// builds the machine package of the release it pins, and a release before #752 ships no
+	// spin-machine binary. Left out, it is the From tree's own when it has one (_output after a build) and this
 	// checkout's otherwise. "commit:SHA" is the one built from that commit of this repository. The
 	// manifest says whose.
 	SpinMachine string

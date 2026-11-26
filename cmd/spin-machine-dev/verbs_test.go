@@ -289,7 +289,7 @@ func TestBuildMakesWhatIsStaleAndSaysWhatItMade(t *testing.T) {
 	put(t, filepath.Join(dir, "e2fsprogs/Dockerfile"), "FROM x", 0o644)
 	w, _ := open()
 	e, _ := w.pins.Get("e2fsprogs")
-	calls := fakes(t, map[string]string{"docker": e2fsprogsDocker(e.Version), "go": ""})
+	calls := fakes(t, map[string]string{"docker": e2fsprogsDocker(e.Version), "go": goBuildsSpinMachine()})
 
 	stdout, stderr, status := verb(t, "build", "e2fsprogs", "spin-machine", "--json", "--cache-registry", "--cache-export=false")
 	if status != 0 {
@@ -304,7 +304,7 @@ func TestBuildMakesWhatIsStaleAndSaysWhatItMade(t *testing.T) {
 		strings.Contains(got, "--cache-to") {
 		t.Errorf("docker ran %q", got)
 	}
-	if !strings.Contains(got, "go build -ldflags -s -w -o "+filepath.Join(dir, "_output/bin/spin-machine")+" ./cmd/spin-machine") {
+	if !strings.Contains(got, "go build -trimpath -buildvcs=false -ldflags -s -w -o "+filepath.Join(dir, "_output/bin/spin-machine")+" ./cmd/spin-machine") {
 		t.Errorf("spin-machine was not built: %q", got)
 	}
 	if !strings.Contains(stderr, "✓ e2fsprogs") || !strings.Contains(stderr, "✓ spin-machine") {
@@ -561,6 +561,12 @@ func packed(t *testing.T, dir string) string {
 	for _, b := range append(append([]string{build.SWTPMBinary, build.PasstBinary}, build.QEMUBinaries...), build.E2fsprogsBinaries...) {
 		put(t, filepath.Join(out, "bin", b), b, 0o755)
 	}
+	b, err := os.ReadFile(spinMachine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(out, "bin", "spin-machine"), string(b), 0o755)
+	goModule(t, dir)
 	for _, f := range build.Firmware {
 		put(t, filepath.Join(out, "qemu", f), f, 0o644)
 	}
