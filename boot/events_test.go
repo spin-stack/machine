@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -140,7 +141,7 @@ func TestACheckpointIsWaitedOnByItsEvents(t *testing.T) {
 
 	t.Run("fast", func(t *testing.T) {
 		if !userfaults() {
-			t.Skip("QEMU cannot open a userfaultfd here: /dev/userfaultfd is not readable and writable, and vm.unprivileged_userfaultfd is 0")
+			t.Skip("this process cannot open /dev/userfaultfd to hand QEMU")
 		}
 		told := &timeline{}
 		s, err, g := resume(t, large, savedLarge, told)
@@ -246,15 +247,13 @@ func (s *stream) inOrder(t *testing.T, want ...string) {
 	}
 }
 
-// userfaults is whether a QEMU run as this user can open the userfaultfd a fast load needs. On a
-// bench runner, a throwaway host, it is turned on, as internal/lab's restore-first does.
+// userfaults is whether this process can open the userfaultfd device, which machine.Start then
+// hands QEMU for a fast load. On a bench runner, a throwaway host, the device is given to this
+// user, as internal/lab's restore-first does; vm.unprivileged_userfaultfd stays 0.
 func userfaults() bool {
-	if unix.Access("/dev/userfaultfd", unix.R_OK|unix.W_OK) == nil {
+	const dev = "/dev/userfaultfd"
+	if unix.Access(dev, unix.R_OK|unix.W_OK) == nil {
 		return true
 	}
-	const knob = "/proc/sys/vm/unprivileged_userfaultfd"
-	if b, err := os.ReadFile(knob); err == nil && strings.TrimSpace(string(b)) == "1" {
-		return true
-	}
-	return os.Getenv("GITHUB_ACTIONS") == "true" && exec.Command("sudo", "sysctl", "-q", "-w", "vm.unprivileged_userfaultfd=1").Run() == nil
+	return os.Getenv("GITHUB_ACTIONS") == "true" && exec.Command("sudo", "chown", strconv.Itoa(os.Getuid()), dev).Run() == nil
 }

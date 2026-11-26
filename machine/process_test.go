@@ -539,6 +539,23 @@ func TestHandoverOpensWhatTheSpecNeedsAndWasNotHanded(t *testing.T) {
 	}
 	h2.close()
 
+	// A restore is handed the userfaultfd device where it opens, and loads in full where not.
+	opened = nil
+	s = Spec{Accel: "tcg", Restore: true}
+	if err := h2.devices(&s, open); err != nil || s.UserfaultFDSet == 0 || len(s.FDSets) != 1 ||
+		s.FDSets[0].FDs[0].Opaque != "/dev/userfaultfd" || strings.Join(opened, " ") != "/dev/userfaultfd" {
+		t.Errorf("a restore: opened %v, set %d of %+v (%v), want /dev/userfaultfd in a set", opened, s.UserfaultFDSet, s.FDSets, err)
+	}
+	s = Spec{Accel: "tcg"}
+	if err := h2.devices(&s, open); err != nil || s.UserfaultFDSet != 0 {
+		t.Errorf("a boot was handed /dev/userfaultfd as set %d (%v)", s.UserfaultFDSet, err)
+	}
+	s = Spec{Accel: "tcg", Restore: true}
+	if err := h2.devices(&s, func(string) (*os.File, error) { return nil, errors.New("no") }); err != nil || s.UserfaultFDSet != 0 {
+		t.Errorf("a restore on a host whose device does not open: set %d, %v; want none and no error", s.UserfaultFDSet, err)
+	}
+	h2.close()
+
 	refused := errors.New("no")
 	if err := h2.devices(&Spec{VsockCID: 3, Accel: "tcg"}, func(string) (*os.File, error) { return nil, refused }); !errors.Is(err, refused) {
 		t.Errorf("a device that would not open: %v", err)

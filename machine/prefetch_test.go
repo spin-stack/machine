@@ -128,60 +128,22 @@ func TestALargeStateLoadsFastWhereTheHostAllowsIt(t *testing.T) {
 	}
 }
 
-// QEMU gets a userfaultfd from a character device every user may read and write, or from the
-// sysctl at 1; a device QEMU's user cannot open, or a file that is no device, gives it none.
-func TestAHostGrantsAUserfaultfdThroughTheDeviceOrTheSysctl(t *testing.T) {
+// A fast load is offered where this process can open the device read-write, to hand QEMU: a
+// path that is missing, or that no one opens for writing, offers none, whatever its mode.
+func TestAFastLoadIsOfferedWhereTheCallerOpensTheDevice(t *testing.T) {
 	dir := t.TempDir()
-	knob := func(v string) string {
-		p := filepath.Join(dir, "knob-"+v)
-		if err := os.WriteFile(p, []byte(v+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	plain := filepath.Join(dir, "plain")
-	if err := os.WriteFile(plain, nil, 0o666); err != nil { // #nosec G306 -- a file open to all, which is still no device
-		t.Fatal(err)
-	}
-	if err := os.Chmod(plain, 0o666); err != nil { // #nosec G302 -- past the umask
-		t.Fatal(err)
-	}
-	none := filepath.Join(dir, "none")
 	for _, c := range []struct {
-		name, dev, knob string
-		want            bool
+		name, dev string
+		want      bool
 	}{
-		{"a device open to all", "/dev/null", none, true},
-		{"the sysctl at 1", none, knob("1"), true},
-		{"the sysctl at 0", none, knob("0"), false},
-		{"neither", none, none, false},
-		{"a file open to all, no device", plain, knob("0"), false},
+		{"a device this process opens read-write", os.DevNull, true},
+		{"no device", filepath.Join(dir, "none"), false},
+		{"a directory, which nothing opens for writing", dir, false},
 	} {
-		if got := userfaults(c.dev, c.knob); got != c.want {
-			t.Errorf("%s: granted %v, want %v", c.name, got, c.want)
+		if got := userfaults(c.dev); got != c.want {
+			t.Errorf("%s: offered %v, want %v", c.name, got, c.want)
 		}
 	}
-	closed := closedDevice(t)
-	if userfaults(closed, none) {
-		t.Errorf("%s, a device not every user may read and write, grants a userfaultfd", closed)
-	}
-}
-
-// closedDevice is a character device of this host that not every user may read and write.
-func closedDevice(t *testing.T) string {
-	t.Helper()
-	entries, err := os.ReadDir("/dev")
-	if err != nil {
-		t.Skip(err)
-	}
-	for _, e := range entries {
-		fi, err := e.Info()
-		if err == nil && fi.Mode().Type()&os.ModeCharDevice != 0 && fi.Mode().Perm()&0o006 != 0o006 {
-			return filepath.Join("/dev", e.Name())
-		}
-	}
-	t.Skip("no character device here is closed to other users")
-	return ""
 }
 
 // loadingFast has every resume in t load fast, or none, whatever its state and host.

@@ -527,7 +527,8 @@ func listen(path string) (*os.File, error) {
 }
 
 // devices opens each device node s needs that it was not handed: /dev/kvm under KVM,
-// /dev/vhost-vsock for a vsock, and /dev/vhost-net for each NIC.
+// /dev/userfaultfd for a restore where it opens, /dev/vhost-vsock for a vsock, and
+// /dev/vhost-net for each NIC.
 func (h *handover) devices(s *Spec, open func(string) (*os.File, error)) error {
 	if s.accel() == "kvm" && s.KVMFDSet == 0 {
 		f, err := open("/dev/kvm")
@@ -535,6 +536,13 @@ func (h *handover) devices(s *Spec, open func(string) (*os.File, error)) error {
 			return err
 		}
 		s.KVMFDSet = h.set(s, f, "/dev/kvm")
+	}
+	// A host whose device the caller cannot open loads every state in full (userfaults), so a
+	// refused open is that host's answer, not Start's failure.
+	if s.Restore && s.UserfaultFDSet == 0 {
+		if f, err := open(userfaultfdDevice); err == nil {
+			s.UserfaultFDSet = h.set(s, f, userfaultfdDevice)
+		}
 	}
 	if s.VsockCID != 0 && s.VsockFD == 0 {
 		f, err := open("/dev/vhost-vsock")

@@ -333,6 +333,12 @@ type Spec struct {
 	// descriptor came from is not the machine a checkpoint is loaded into.
 	KVMFDSet int
 
+	// UserfaultFDSet is /dev/userfaultfd as a descriptor set, which a fast load makes the
+	// userfaultfd it serves the guest's faults with from (qemu/patches/0010, -userfaultfd). Only
+	// for a restore. Zero leaves QEMU to open the device by path or ask the system call, both of
+	// which a host that grants neither to QEMU's user refuses.
+	UserfaultFDSet int
+
 	// Monitors are the QMP monitors this machine listens on. At least one is needed to
 	// do anything to a running machine, including shutting it down.
 	//
@@ -346,8 +352,8 @@ type Spec struct {
 	// without asking the launcher to relay commands it does not understand.
 	Monitors []Monitor
 
-	// FDSets are the descriptor sets the command line names: ConsoleFDSet, KVMFDSet. A disk's
-	// images are handed over when it is bound, through the monitor.
+	// FDSets are the descriptor sets the command line names: ConsoleFDSet, KVMFDSet,
+	// UserfaultFDSet. A disk's images are handed over when it is bound, through the monitor.
 	FDSets []FDSet
 
 	// ConsoleFDSet is the console as a descriptor set QEMU writes to, instead of
@@ -457,6 +463,10 @@ func (s Spec) validate() error {
 		return fmt.Errorf("a /dev/kvm descriptor for -accel %s, which opens no device", s.Accel)
 	case s.KVMFDSet != 0 && !sets[s.KVMFDSet]:
 		return fmt.Errorf("/dev/kvm is descriptor set %d, which Spec.FDSets does not have", s.KVMFDSet)
+	case s.UserfaultFDSet != 0 && !s.Restore:
+		return errors.New("a /dev/userfaultfd descriptor for a machine that boots: only a restore loads fast")
+	case s.UserfaultFDSet != 0 && !sets[s.UserfaultFDSet]:
+		return fmt.Errorf("/dev/userfaultfd is descriptor set %d, which Spec.FDSets does not have", s.UserfaultFDSet)
 	case s.VsockFD != 0 && s.VsockCID == 0:
 		return errors.New("a /dev/vhost-vsock descriptor for a machine with no vsock")
 	case s.VsockFD != 0 && s.VsockFD < 3:
@@ -811,8 +821,12 @@ func (s Spec) appendFDSets(args []string) []string {
 }
 
 // appendHold is what holds the machine until a monitor says what to do: -incoming defer for a
-// restore, -S for a boot (Spec.Restore).
+// restore, with the userfaultfd device it loads fast with when it was handed one, -S for a boot
+// (Spec.Restore).
 func (s Spec) appendHold(args []string) []string {
+	if s.UserfaultFDSet != 0 {
+		args = append(args, "-userfaultfd", fmt.Sprintf("/dev/fdset/%d", s.UserfaultFDSet))
+	}
 	if s.Restore {
 		return append(args, "-incoming", "defer")
 	}

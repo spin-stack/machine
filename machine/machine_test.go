@@ -219,6 +219,16 @@ func TestArgs(t *testing.T) {
 		},
 		absent: []string{"accel=kvm"},
 	}, {
+		// A restore's userfaultfd comes as a descriptor too, so QEMU's user needs no access
+		// to the device (qemu/patches/0010).
+		name: "userfaultfd handed over",
+		set: func(s *Spec) {
+			s.Restore = true
+			s.FDSets = []FDSet{{ID: 2, FDs: []FD{{Num: 4}}}}
+			s.UserfaultFDSet = 2
+		},
+		want: []string{"-userfaultfd /dev/fdset/2 -incoming defer"},
+	}, {
 		// A value a caller supplies is a value, not more options. QEMU splits an option
 		// string on a single comma, so "a,readonly=off" as a path was a path "a" and a
 		// second option. Doubled, it is one value; TestQEMUAcceptsEveryArgument asks
@@ -512,6 +522,11 @@ func TestValidateRefuses(t *testing.T) {
 		{"/dev/kvm in a set nobody gave", func(s *Spec) { s.KVMFDSet = 1 }},
 		{"/dev/kvm for an emulator", func(s *Spec) {
 			s.Accel, s.KVMFDSet = "tcg", 1
+			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}}
+		}},
+		{"/dev/userfaultfd in a set nobody gave", func(s *Spec) { s.Restore, s.UserfaultFDSet = true, 1 }},
+		{"/dev/userfaultfd for a boot, which never loads fast", func(s *Spec) {
+			s.UserfaultFDSet = 1
 			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}}
 		}},
 		{"/dev/vhost-vsock with no vsock", func(s *Spec) { s.VsockCID, s.VsockFD = 0, 3 }},

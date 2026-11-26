@@ -184,6 +184,16 @@ tasks:
     cmds:
       - SPIN_OVERHEAD_TEST=1 go test ./machine/ -exec 'sudo -n --preserve-env=SPIN_OVERHEAD_TEST,SPIN_MACHINE_OUTPUT env TMPDIR={{.TMPDIR | default "/tmp"}}' -run '^TestAMachineRunsInARootOfItsFilesWithinItsOverhead$' -count=1 -v -timeout 20m
 
+  fastload:
+    desc: >-
+      A fast load without the host's userfaultfd grant (spin-stack/spin#1711): with
+      /dev/userfaultfd open to root alone and vm.unprivileged_userfaultfd 0, a guest that filled
+      1700 MiB is checkpointed and loaded fast into a QEMU run as nobody in a root holding only
+      machine.Spec.Files and /dev/null, handed the device Start opened (fastload_lane_test.go).
+      Runs as root through sudo. Needs a built release, /dev/kvm, sudo and ~5 GiB of free memory.
+    cmds:
+      - SPIN_FASTLOAD_TEST=1 go test ./machine/ -exec 'sudo -n --preserve-env=SPIN_FASTLOAD_TEST,SPIN_MACHINE_OUTPUT env TMPDIR={{.TMPDIR | default "/tmp"}}' -run '^TestAFastLoadNeedsNoUserfaultfdGrant$' -count=1 -v -timeout 10m
+
   sshd-delay:
     desc: >-
       sshd keeps OpenSSH's userauth minimum time for a failure and skips it for a login that
