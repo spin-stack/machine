@@ -373,8 +373,8 @@ RUN Q=/opt/qemu/bin/qemu-system-x86_64 && \
     $Q -device help 2>&1 | grep -q 'scsi-hd' && \
     $Q -device help 2>&1 | grep -q 'vmgenid' && \
     $Q -device help 2>&1 | grep -q '^name "tpm-crb"' && \
-    $Q -tpmdev help 2>&1 | grep -qx 'emulator' && \
-    ! $Q -tpmdev help 2>&1 | grep -qx 'passthrough' && \
+    $Q -tpmdev help 2>&1 | grep -qE '^ *emulator ' && \
+    ! $Q -tpmdev help 2>&1 | grep -qE '^ *passthrough ' && \
     ! $Q -device help 2>&1 | grep -qE '^name "(e1000e?|rtl8139|pcnet|vmxnet3|igb|ne2k_pci|tulip)"' && \
     ! $Q -device help 2>&1 | grep -qE '^name "(usb-kbd|usb-hub|VGA|virtio-vga|sb16|isa-fdc|isa-parallel|vfio-pci|intel-iommu|amd-iommu)"' && \
     $Q -machine help | grep -q '^q35 ' && \

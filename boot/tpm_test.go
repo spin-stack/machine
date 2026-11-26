@@ -4,6 +4,7 @@ package boot_test
 
 import (
 	"context"
+	"crypto/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,6 +143,34 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 				t.Errorf("a cold boot on the resumed state reads %v, want the primary and NV of %v and PCR 16 at zero", got, saved)
 			}
 		})
+	})
+
+	// shirudo's initrd is ~62 MB, and QEMU puts an initrd at the top of the memory below 4 GiB.
+	// Under SeaBIOS one that size covered the ACPI tables, the kernel ran without ACPI and no TPM
+	// was enumerated (#719). Here, under qboot and PVH at spin's shape, the kernel's own log says
+	// where each went, and the TPM is there.
+	t.Run("a shirudo-sized initrd leaves the TPM where the guest finds it", func(t *testing.T) {
+		pad := make([]byte, 62<<20)
+		if _, err := rand.Read(pad); err != nil {
+			t.Fatal(err)
+		}
+		initrd := filepath.Join(t.TempDir(), "initrd.cpio")
+		if err := os.WriteFile(initrd, newcArchive([]cpioEntry{{name: "spin-pad", mode: 0o100644, data: pad}}), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, mac := r.next(t, "/bin/sh")
+		tpm(t.TempDir())(&s)
+		s.Initrd = initrd
+		g := startGuest(t, s, mac, nil)
+		if err := g.Boot(ctx, disk(t)); err != nil {
+			t.Fatalf("booting: %v\n%s", err, g.said())
+		}
+		g.type_(t, mount+"dmesg | grep -E 'RAMDISK|ACPI: (RSDP|TPM2|Failed)|AE_NO_MEMORY|tpm'; ls /dev/tpm0 && echo TPM-WITH-INITRD-$((4+4))")
+		g.await(t, regexp.MustCompile(`TPM-WITH-INITRD-8\b`), 60*time.Second)
+		if strings.Contains(g.said(), "AE_NO_MEMORY") {
+			t.Errorf("the kernel lost its ACPI tables under a 62 MB initrd:\n%s", tail([]byte(g.said()), 3000))
+		}
+		t.Logf("where the initrd and the ACPI tables went:\n%s", tail([]byte(g.said()), 1500))
 	})
 
 	t.Run("a machine without a TPM has none", func(t *testing.T) {
