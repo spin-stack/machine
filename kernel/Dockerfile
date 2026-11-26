@@ -163,11 +163,10 @@ RUN cd /usr/src/linux && \
 
 # The certificate of the key that signs the modules (kernel/README.md, "Modules"), with the config,
 # whose SYSTEM_TRUSTED_KEYS names it: the public half of spin-stack/ci's KMS key, made once and
-# committed. Until it is, the pattern matches nothing and the kernel trusts no key, so it loads no
-# module (#746).
-COPY kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH} kernel/module-signing.cr[t] /usr/src/spin/
+# committed.
+COPY kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH} kernel/module-signing.crt /usr/src/spin/
 RUN cp /usr/src/spin/config-${KERNEL_SERIES}-${KERNEL_ARCH} /usr/src/linux/.config && \
-    if [ -f /usr/src/spin/module-signing.crt ]; then cp /usr/src/spin/module-signing.crt /usr/src/linux/certs/; fi
+    cp /usr/src/spin/module-signing.crt /usr/src/linux/certs/
 
 # integrity, the floor, for every kernel spin boots: the machine's command line raises it to
 # confidentiality unless the machine runs an enforcer that needs integrity (machine.Cmdline). none
@@ -325,8 +324,8 @@ RUN <<EOT
     # modules_install, and a MODULE_SIG_KEY left at its default makes one, certs/signing_key.pem,
     # whose certificate the kernel would then trust. So this vmlinux is the same whoever builds it,
     # and only what release.yml signs with spin-stack/ci's KMS key loads into it
-    # (spin-machine-dev sign modules). The certificate is the one trusted key, and the config names
-    # it exactly when it is in the tree.
+    # (spin-machine-dev sign modules). The certificate is the one trusted key, which the config
+    # names.
     for opt in MODULES MODULE_SIG MODULE_SIG_FORCE; do
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled: a module would load unsigned, or none at all!"; exit 1; }
     done
@@ -334,11 +333,9 @@ RUN <<EOT
         ! grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is enabled: the build signs, or a module loads past its checks!"; exit 1; }
     done
     grep -q '^CONFIG_MODULE_SIG_KEY=""$' .config || { echo "ERROR: CONFIG_MODULE_SIG_KEY names a key: the build would make or sign with one!"; exit 1; }
-    if [ -f certs/module-signing.crt ]; then trusted=certs/module-signing.crt; else trusted=; fi
-    grep -q "^CONFIG_SYSTEM_TRUSTED_KEYS=\"$trusted\"\$" .config || {
-        echo "ERROR: CONFIG_SYSTEM_TRUSTED_KEYS is not \"$trusted\": it names kernel/module-signing.crt exactly when the tree has it"
+    grep -q '^CONFIG_SYSTEM_TRUSTED_KEYS="certs/module-signing.crt"$' .config || {
+        echo "ERROR: CONFIG_SYSTEM_TRUSTED_KEYS does not name certs/module-signing.crt: the kernel would trust no key the release signs with"
         grep '^CONFIG_SYSTEM_TRUSTED_KEYS=' .config; exit 1; }
-    [ -n "$trusted" ] || echo "WARNING: no kernel/module-signing.crt: this kernel trusts no key and loads no module"
 
     # No virtual consoles. This machine's QEMU ships no VGA at all and its console is one
     # 16550 on ttyS0, so CONFIG_VT builds 64 tty devices that nothing opens and that udev

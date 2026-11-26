@@ -206,9 +206,9 @@ device (systemd 259's `src/core/kmod-setup.c`, `may_have_virtio`), on the first 
   verifies a builtin certificate's self-signature before it trusts the key
   (`x509_check_for_self_signed`), so the certificate takes one signature by the key, which only
   this repository's `release` environment may ask KMS for: `module-certificate.yml` runs
-  `spin-machine-dev certificate` there and proposes what it writes. The config names the
-  certificate exactly when the tree has it, which `kernel/Dockerfile` checks. Until it does, the
-  kernel trusts no key and loads no module, and a release is refused (#746).
+  `spin-machine-dev certificate` there and proposes what it writes. `kernel/Dockerfile` refuses a
+  tree without the certificate or a config that does not name it, and `spin-machine-dev verify
+  kernel` refuses a vmlinux that does not carry it.
 - **The build never signs.** `CONFIG_MODULE_SIG_ALL` is off and `CONFIG_MODULE_SIG_KEY` is empty,
   so the build makes no key and signs nothing, and `kernel/Dockerfile` reads that off what came
   out. A pull request's, a laptop's and a release's vmlinux are the same file, and a module built

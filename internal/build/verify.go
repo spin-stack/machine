@@ -10,7 +10,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -200,12 +199,9 @@ func ReadModuleCertificate(root string) (*x509.Certificate, error) {
 
 // TrustsModuleCertificate asserts the vmlinux at path carries root's module certificate, whose DER
 // the kernel keeps whole in its builtin list: a kernel built without it loads no module the release
-// signs, and boots all the same. A tree with no certificate yet has nothing to look for (#746).
+// signs, and boots all the same.
 func TrustsModuleCertificate(root, path string) error {
 	cert, err := ReadModuleCertificate(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
 	if err != nil {
 		return err
 	}

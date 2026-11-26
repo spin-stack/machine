@@ -113,7 +113,7 @@ release app, so the checks on the pull request run.`,
 var trustedKeys = regexp.MustCompile(`(?m)^CONFIG_SYSTEM_TRUSTED_KEYS=.*$`)
 
 // writeModuleCertificate writes signer's certificate to the tree's ModuleCertificate and names it
-// in the series' config, which kernel/Dockerfile holds to naming it exactly when the tree has it.
+// in the series' config, which kernel/Dockerfile refuses to build without.
 func writeModuleCertificate(w workspace, signer crypto.Signer) error {
 	der, err := modsign.Certificate(signer)
 	if err != nil {
@@ -151,12 +151,11 @@ func writeModuleCertificate(w workspace, signer crypto.Signer) error {
 
 // signModules signs the kernel's modules under out with the key openKey opens, against the tree's
 // certificate, unless every one is signed by it already: what a release ships them as, and what the
-// image installs. A tree with no certificate is refused, as a kernel built from it trusts no key and
-// would load none of them.
+// image installs.
 func signModules(ctx context.Context, w workspace, openKey func(context.Context) (crypto.Signer, error)) (int, error) {
 	cert, err := build.ReadModuleCertificate(w.root)
 	if err != nil {
-		return 0, fmt.Errorf("%w: without it the kernel trusts no key and loads no module, and spin-machine-dev certificate makes it (#746)", err)
+		return 0, err
 	}
 	dir := filepath.Join(w.out, "kernel", "modules")
 	if modsign.VerifyTree(dir, cert) == nil {
