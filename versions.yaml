@@ -65,7 +65,7 @@
   source: https://github.com/stefanberger/swtpm/archive/refs/tags/v{version}.tar.gz
   version: 0.10.2
   pin: f61cf6f1e9bbcb4cefb30b70cafaf1c4df54c6961e65cfa63830e8ad0e220134
-  track: github-release stefanberger/swtpm
+  track: github-release https://github.com/stefanberger/swtpm
   note: >-
     qemu/Dockerfile's swtpm stage: the TPM a machine asks for (machine.TPM), one swtpm beside each
     QEMU, statically linked with libtpms and json-glib below. After the bump: `spin-machine-dev
@@ -79,7 +79,7 @@
   source: https://github.com/stefanberger/libtpms/archive/refs/tags/v{version}.tar.gz
   version: 0.10.2
   pin: edac03680f8a4a1c5c1d609a10e3f41e1a129e38ff5158f0c8deaedc719fb127
-  track: github-release stefanberger/libtpms
+  track: github-release https://github.com/stefanberger/libtpms
   note: >-
     qemu/Dockerfile's swtpm stage: the TPM 2.0 itself, which swtpm links. A TPM's state is
     libtpms's format, kept in a workspace's TPM state directory and carried in a checkpoint, so a
@@ -201,7 +201,7 @@
   source: https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz
   version: 3.5.9
   pin: 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
-  track: github-release openssl/openssl
+  track: follows shirudo's Makefile.target-deps at the shirudo pin
   note: >-
     shirudo/Dockerfile: the OpenSSL statically linked into guest/shirudo, at the version shirudo's
     Makefile.target-deps names at the shirudo pin, which the build holds this to: it moves with
@@ -212,7 +212,7 @@
   source: https://curl.se/download/curl-{version}.tar.xz
   version: 8.18.0
   pin: 40df79166e74aa20149365e11ee4c798a46ad57c34e4f68fd13100e2c9a91946
-  track: github-release curl/curl
+  track: follows shirudo's Makefile.target-deps at the shirudo pin
   note: >-
     shirudo/Dockerfile: the libcurl statically linked into guest/shirudo, built against the
     OpenSSL above, at the version shirudo's Makefile.target-deps names at the shirudo pin. Moves
@@ -223,7 +223,7 @@
   source: https://github.com/tpm2-software/tpm2-tss.git
   version: 4.2.0
   pin: 506c5e6db0c8514f321dc16a0da2580483f3df04
-  track: tags https://github.com/tpm2-software/tpm2-tss.git
+  track: follows shirudo's Makefile.target-deps at the shirudo pin
   note: >-
     shirudo/Dockerfile: the TPM2-TSS statically linked into guest/shirudo, the tag's commit,
     at the version shirudo's Makefile.target-deps names at the shirudo pin. Moves with shirudo,
