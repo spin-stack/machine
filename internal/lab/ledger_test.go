@@ -500,6 +500,7 @@ func TestTheSplitBeforeTheKernelsClockIsRefusedWhenItCannotHold(t *testing.T) {
 	}{
 		{17.8, "not between QEMU's exec"},
 		{80.1, "not between QEMU's exec"},
+		{80.05, ""},
 		{49.9, "after QEMU's KVM_SET_CLOCK"},
 		{50.0, ""},
 	} {
@@ -528,13 +529,17 @@ func TestTheHostsTracePlacesKVMSetClock(t *testing.T) {
 	if _, err := setClockAt(trace, 1236000); err == nil || !strings.Contains(err.Error(), "no KVM_SET_CLOCK") {
 		t.Errorf("none after the start: %v", err)
 	}
-	for _, script := range []string{setClockScript(true), setClockScript(false)} {
-		if !strings.Contains(script, setClockInstance) {
-			t.Errorf("the script does not name its instance:\n%s", script)
+	// The scripts as sh runs them: the instance named, the ioctl's entry filtered to the command
+	// the trace is read for, on CLOCK_MONOTONIC, and enabled; and taken down again.
+	arm, disarm := setClockScript(true), setClockScript(false)
+	for _, want := range []string{"I=" + setClockInstance + "\n", "mkdir $I\n", "echo mono > $I/trace_clock\n",
+		"echo 'cmd == 0x" + kvmSetClock + "' > $I/events/syscalls/sys_enter_ioctl/filter\n", "echo 1 > $I/events/syscalls/sys_enter_ioctl/enable\n"} {
+		if !strings.Contains(arm, want) {
+			t.Errorf("arming has no %q:\n%s", want, arm)
 		}
 	}
-	if !strings.Contains(setClockScript(true), "cmd == 0x4030ae7b") || !strings.Contains(setClockScript(true), "echo mono >") {
-		t.Errorf("the instance is not filtered to KVM_SET_CLOCK on CLOCK_MONOTONIC:\n%s", setClockScript(true))
+	if !strings.HasPrefix(disarm, "I="+setClockInstance+"\n") || !strings.HasSuffix(disarm, "rmdir $I\n") {
+		t.Errorf("disarming:\n%s", disarm)
 	}
 }
 
