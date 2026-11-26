@@ -45,13 +45,16 @@ type Ledger struct {
 	// polling put it in: before it is spin-machine's own start.
 	QEMUExec      float64 `json:"qemu_exec"`
 	QEMUExecError float64 `json:"qemu_exec_error"`
-	// Running is kvm-clock's 0: KernelZero less the kvm-clock the kernel read as it made kvm-clock
-	// the scheduler's clock (schedOffset). QEMU zeroes kvm-clock as the machine goes to running, but
-	// KVM bases that 0 on its master clock's last update, so Running lies 2-5 ms before QEMU's
-	// KVM_SET_CLOCK (#611, #665). From QEMUExec to Running is QEMU's start and the held start's
-	// monitor; from Running to KernelZero, the firmware, the kernel's entry (a bzImage's
-	// decompression, or PVH's) and its setup until its clock runs.
+	// Running is QEMU's KVM_SET_CLOCK as the machine goes to running, on the host's clock: the
+	// host traces the ioctl (ledgerSetClock). From QEMUExec to Running is QEMU's start and the held
+	// start's monitor; from Running to KernelZero, the firmware, the kernel's entry (a bzImage's
+	// decompression, or PVH's) and its setup until its clock runs. kvm-clock's 0, KernelZero less
+	// the kernel's sched offset, is not it: KVM bases that 0 on its master clock's last update,
+	// KVMClockLead before the ioctl (#665).
 	Running float64 `json:"running"`
+	// KVMClockLead is how far kvm-clock's 0 lies before Running: 2.1-3.8 ms on bench and 4.4-5.0
+	// on metal against a port write at it (labs 45177818419 and 45177817516, #665).
+	KVMClockLead float64 `json:"kvmclock_lead"`
 	// PVH is whether the machine entered a vmlinux through PVH, with no decompressor (#645), and not
 	// a bzImage: what the time from Running to KernelZero holds. A ledger from before #697 has
 	// none, and booted a bzImage.
@@ -139,6 +142,8 @@ type ledgerInput struct {
 	// QEMU had not been exec'd at QEMUExecLo and had by QEMUExecHi, in ms on the host's clock from
 	// the moment before spin-machine's exec.
 	QEMUExecLo, QEMUExecHi float64
+	// SetClock is QEMU's KVM_SET_CLOCK, in ms on the same clock.
+	SetClock float64
 }
 
 // newLedger is one boot's ledger, or why the trace cannot give one.
@@ -163,9 +168,13 @@ func newLedger(in ledgerInput) (Ledger, error) {
 	if err != nil {
 		return Ledger{}, err
 	}
-	exec, execErr, running := (in.QEMUExecLo+in.QEMUExecHi)/2, (in.QEMUExecHi-in.QEMUExecLo)/2, zero-offset
-	if running+zeroErr < in.QEMUExecLo {
-		return Ledger{}, fmt.Errorf("the machine ran at %.3f ms, before QEMU's exec at %.3f ± %.3f: the kernel's sched offset of %.3f ms does not put kvm-clock's 0 on the host's clock", running, exec, execErr, offset)
+	exec, execErr, running := (in.QEMUExecLo+in.QEMUExecHi)/2, (in.QEMUExecHi-in.QEMUExecLo)/2, in.SetClock
+	if running < in.QEMUExecLo || running > zero+zeroErr {
+		return Ledger{}, fmt.Errorf("QEMU's KVM_SET_CLOCK at %.3f ms is not between QEMU's exec at %.3f ± %.3f and the kernel's 0 at %.3f ± %.3f: the host's trace of it is not this machine's", running, exec, execErr, zero, zeroErr)
+	}
+	lead := running - (zero - offset)
+	if lead+zeroErr < 0 {
+		return Ledger{}, fmt.Errorf("kvm-clock's 0, the kernel's 0 less its sched offset of %.3f ms, is %.3f ms after QEMU's KVM_SET_CLOCK, which zeroes it: the host's clock and the kernel's do not line up", offset, -lead)
 	}
 	cuts, end, err := b.cuts()
 	if err != nil {
@@ -173,7 +182,7 @@ func newLedger(in ledgerInput) (Ledger, error) {
 	}
 	owner := b.owners(parseUnits(in.Units))
 	l := Ledger{FirstLogin: in.FirstLogin, KernelZero: zero, KernelZeroError: zeroErr, MonotonicLag: lag,
-		QEMUExec: exec, QEMUExecError: execErr, Running: running, LoginEnd: end,
+		QEMUExec: exec, QEMUExecError: execErr, Running: running, KVMClockLead: lead, LoginEnd: end,
 		Residue: in.FirstLogin - zero - end, Breaks: b.breaks, Marks: loginMarks(in.Journal, lag)}
 	for i, c := range cuts {
 		to := end
@@ -740,7 +749,7 @@ func (l Ledger) Text(title string) string {
 	fmt.Fprintf(&b, "%8s %8s %8s  %s\n", "start", "end", "ms", "window, on the kernel's clock")
 	fmt.Fprintf(&b, "%8s %8s %8.1f  before the kernel's clock (±%.2f)\n", "", "0.0", l.KernelZero, l.KernelZeroError)
 	fmt.Fprintf(&b, "%26.1f  spin-machine, to its exec of QEMU (±%.2f)\n", l.QEMUExec, l.QEMUExecError)
-	fmt.Fprintf(&b, "%26.1f  QEMU's start and the held start, to the guest's first instruction\n", l.Running-l.QEMUExec)
+	fmt.Fprintf(&b, "%26.1f  QEMU's start and the held start, to its KVM_SET_CLOCK (kvm-clock's 0 %.1f before it)\n", l.Running-l.QEMUExec, l.KVMClockLead)
 	entry := "the firmware, the decompression and the kernel's setup, to the kernel's clock"
 	if l.PVH {
 		entry = "the firmware, the kernel's PVH entry and its setup, to the kernel's clock"

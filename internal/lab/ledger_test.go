@@ -117,6 +117,8 @@ func ledgerFixture(t *testing.T) ledgerInput {
 		Trips:      []Trip{{1, 457.000, 457.100}, {2, 457.250, 457.400}, {3, 457.400, 457.500}},
 		FirstLogin: 420,
 		QEMUExecLo: 17.9, QEMUExecHi: 18.1,
+		// QEMU's KVM_SET_CLOCK, 2.8 ms after kvm-clock's 0 at 50.0215, as on bench (#665).
+		SetClock: 52.8215,
 	}
 }
 
@@ -158,10 +160,11 @@ func TestARealBootsLedgerAddsUp(t *testing.T) {
 		t.Errorf("kernel's 0 %v ± %v, lag %v, login end %v, residue %v, breaks %d", l.KernelZero, l.KernelZeroError, l.MonotonicLag, l.LoginEnd, l.Residue, l.Breaks)
 	}
 	// The span before the kernel's clock splits at QEMU's exec, the host's bracket's middle, and at
-	// the machine's running, the kernel's 0 less its sched offset; the three parts add up to it.
+	// its KVM_SET_CLOCK, which the host traced; the three parts add up to it. kvm-clock's 0, the
+	// kernel's 0 less its sched offset, is 2.8 ms before the ioctl.
 	before, qemu, guest := l.QEMUExec, l.Running-l.QEMUExec, l.KernelZero-l.Running
-	if !near(before, 18) || !near(l.QEMUExecError, 0.1) || !near(qemu, 32.0215) || !near(guest, 30) {
-		t.Errorf("before QEMU %v ± %v, QEMU to the guest %v, the guest to the kernel's 0 %v", before, l.QEMUExecError, qemu, guest)
+	if !near(before, 18) || !near(l.QEMUExecError, 0.1) || !near(qemu, 34.8215) || !near(guest, 27.2) || !near(l.KVMClockLead, 2.8) {
+		t.Errorf("before QEMU %v ± %v, QEMU to the guest %v, the guest to the kernel's 0 %v, kvm-clock's lead %v", before, l.QEMUExecError, qemu, guest, l.KVMClockLead)
 	}
 	if sum := before + qemu + guest; math.Abs(sum-l.KernelZero) > 0.15 {
 		t.Errorf("the parts add up to %v of the kernel's 0 at %v", sum, l.KernelZero)
@@ -488,23 +491,57 @@ func TestTheSplitBeforeTheKernelsClockIsRefusedWhenItCannotHold(t *testing.T) {
 			t.Errorf("no %q line: %v", line, err)
 		}
 	}
-	// The machine ran at 50.0215 ± 0.0335: a bracket of QEMU's exec that starts inside that is
-	// taken, and one that starts after it is refused.
-	in := ledgerFixture(t)
-	in.QEMUExecLo, in.QEMUExecHi = 50.05, 50.2
-	if _, err := newLedger(in); err != nil {
-		t.Errorf("QEMU exec'd within the kernel's 0's uncertainty of the machine's running: %v", err)
+	// The kernel's 0 is at 80.0215 ± 0.0335 and kvm-clock's 0 at 50.0215. A KVM_SET_CLOCK before
+	// QEMU's exec, or after the kernel's 0, is another machine's; one before kvm-clock's 0, which it
+	// zeroes, is clocks that do not line up; within the kernel's 0's uncertainty of it is taken.
+	for _, c := range []struct {
+		at  float64
+		why string
+	}{
+		{17.8, "not between QEMU's exec"},
+		{80.1, "not between QEMU's exec"},
+		{49.9, "after QEMU's KVM_SET_CLOCK"},
+		{50.0, ""},
+	} {
+		in := ledgerFixture(t)
+		in.SetClock = c.at
+		_, err := newLedger(in)
+		if (c.why == "" && err != nil) || (c.why != "" && (err == nil || !strings.Contains(err.Error(), c.why))) {
+			t.Errorf("KVM_SET_CLOCK at %v: %v; want %q", c.at, err, c.why)
+		}
 	}
-	in.QEMUExecLo = 50.06
-	if _, err := newLedger(in); err == nil || !strings.Contains(err.Error(), "before QEMU's exec") {
-		t.Errorf("QEMU exec'd after the machine ran: %v", err)
+}
+
+// The host's trace gives the first KVM_SET_CLOCK after QEMU's start, whichever way its kernel
+// prints a syscall's arguments, and says so when it has none.
+func TestTheHostsTracePlacesKVMSetClock(t *testing.T) {
+	trace := `# tracer: nop
+ qemu-system-x86-901  [002] .....  1234.560000: sys_ioctl(fd: 0x9, cmd: 0x4030ae7b, arg: 0x7ffd10)
+ qemu-system-x86-977  [003] .....  1235.052800: sys_ioctl(fd: 0000000b, cmd: 4030ae7b, arg: 7ffd1000)
+`
+	if at, err := setClockAt(trace, 1235000); err != nil || !near(at, 52.8) {
+		t.Errorf("KVM_SET_CLOCK at %v ms, %v; want 52.8", at, err)
+	}
+	if at, err := setClockAt(strings.Replace(trace, "0000000b, cmd: 4030ae7b", "0x9, cmd: 0x4030ae7b", 1), 1235000); err != nil || !near(at, 52.8) {
+		t.Errorf("as 0x%%lx: KVM_SET_CLOCK at %v ms, %v; want 52.8", at, err)
+	}
+	if _, err := setClockAt(trace, 1236000); err == nil || !strings.Contains(err.Error(), "no KVM_SET_CLOCK") {
+		t.Errorf("none after the start: %v", err)
+	}
+	for _, script := range []string{setClockScript(true), setClockScript(false)} {
+		if !strings.Contains(script, setClockInstance) {
+			t.Errorf("the script does not name its instance:\n%s", script)
+		}
+	}
+	if !strings.Contains(setClockScript(true), "cmd == 0x4030ae7b") || !strings.Contains(setClockScript(true), "echo mono >") {
+		t.Errorf("the instance is not filtered to KVM_SET_CLOCK on CLOCK_MONOTONIC:\n%s", setClockScript(true))
 	}
 }
 
 // The table shows each share over 0.5 ms with its three busiest names, sums the rest, and has the
 // owners' states and the journal's marks when there are any.
 func TestTheLedgersTextShowsWhatMatters(t *testing.T) {
-	l := Ledger{FirstLogin: 400, KernelZero: 90, KernelZeroError: 0.15, QEMUExec: 20, QEMUExecError: 0.05, Running: 70, LoginEnd: 309, Residue: 1, Breaks: 1,
+	l := Ledger{FirstLogin: 400, KernelZero: 90, KernelZeroError: 0.15, QEMUExec: 20, QEMUExecError: 0.05, Running: 70, KVMClockLead: 2.8, LoginEnd: 309, Residue: 1, Breaks: 1,
 		Windows: []Window{
 			{Name: "first", Start: 0, End: 100, CPU: []Share{
 				{Owner: "big", Ms: 99.6, Comms: []Comm{{"a", 50}, {"b", 30}, {"c", 10}, {"d", 9.6}}},
@@ -526,7 +563,7 @@ func TestTheLedgersTextShowsWhatMatters(t *testing.T) {
 		"     9.0  alone\n",
 		"lost events at 1 switches",
 		"      20.0  spin-machine, to its exec of QEMU (±0.05)\n",
-		"      50.0  QEMU's start and the held start, to the guest's first instruction\n",
+		"      50.0  QEMU's start and the held start, to its KVM_SET_CLOCK (kvm-clock's 0 2.8 before it)\n",
 		"      20.0  the firmware, the decompression and the kernel's setup, to the kernel's clock\n",
 		"owners from PID 1's exec (100.0)",
 		"     10.0       2.0       1.0       3.0  busy\n",

@@ -10,12 +10,14 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	xssh "golang.org/x/crypto/ssh"
+	"golang.org/x/sys/unix"
 
 	"github.com/spin-stack/machine/machine"
 )
@@ -139,8 +141,9 @@ func (ledgerProbe) Metrics() []Metric {
 		{"kernel_zero_error", "ms", "kernel_zero's uncertainty, half its narrowest bracket"},
 		{"monotonic_lag", "ms", "CLOCK_MONOTONIC, the trace's and the journal's clock, behind the kernel's sched clock: what it lost on jiffies"},
 		{"before_qemu", "ms", "kernel_zero's first part: spin-machine, from the same moment to its exec of QEMU"},
-		{"qemu_start", "ms", "kernel_zero's second part: QEMU's start and the held start, from its exec to the guest's first instruction"},
+		{"qemu_start", "ms", "kernel_zero's second part: QEMU's start and the held start, from its exec to its KVM_SET_CLOCK as the guest goes to running"},
 		{"guest_to_zero", "ms", "kernel_zero's third part: the firmware, the kernel's entry (through PVH, or a bzImage's decompression) and its setup, to the kernel's clock"},
+		{"kvmclock_lead", "ms", "kvm-clock's 0, the kernel's 0 less its sched offset, before QEMU's KVM_SET_CLOCK: what KVM's master clock put it back by"},
 		{"qemu_exec_error", "ms", "before_qemu's uncertainty, half the bracket the host's polling put QEMU's exec in"},
 		{"pid1", "ms", "PID 1's exec of init, on the kernel's clock"},
 		{"handoff", "ms", "spin's handoff as login=spin stands in for it, from its exec as PID 1 to its exec of systemd; 0 on the lane"},
@@ -177,8 +180,18 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	if err != nil {
 		return err
 	}
+	_, _ = asRootSh(setClockScript(false))
+	if _, err := asRootSh(setClockScript(true)); err != nil {
+		_, _ = asRootSh(setClockScript(false))
+		return fmt.Errorf("tracing QEMU's KVM_SET_CLOCK on the host: %w", err)
+	}
+	defer func() { _, _ = asRootSh(setClockScript(false)) }()
 	cid := NewCID()
+	var mono unix.Timespec
 	t0 := time.Now()
+	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &mono); err != nil {
+		return err
+	}
 	qmp := filepath.Join(m.Socks, "m.qmp")
 	args := append([]string{"--vsock-cid", fmt.Sprint(cid), "--append", m.Tree.Cmdline(m.Key.Init())}, m.qmpToPlug(qmp)...)
 	mc, err := m.Launch(nil, m.BootArgs(overlay, args...)...)
@@ -220,6 +233,14 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	if !exec.seen {
 		return Miss("spin-machine's QEMU was never seen exec'd, so nothing splits the time before the kernel's clock")
 	}
+	hostTrace, err := asRootSh("cat " + setClockInstance + "/trace")
+	if err != nil {
+		return err
+	}
+	setClock, err := setClockAt(hostTrace, float64(mono.Nano())/1e6)
+	if err != nil {
+		return Miss("%v", err)
+	}
 	asRoot := ""
 	if m.Key.User() != "root" {
 		asRoot = "sudo -n "
@@ -248,7 +269,8 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	dropped := traceDropped(fetched["stats"])
 	m.Record("trace_dropped", float64(dropped))
 	l, err := newLedger(ledgerInput{Trace: fetched["trace"], Journal: fetched["journal"], Units: fetched["units"],
-		Trips: trips, FirstLogin: float64(login) / float64(time.Millisecond), QEMUExecLo: exec.lo, QEMUExecHi: exec.hi})
+		Trips: trips, FirstLogin: float64(login) / float64(time.Millisecond), QEMUExecLo: exec.lo, QEMUExecHi: exec.hi,
+		SetClock: setClock})
 	if err != nil {
 		return Miss("no ledger, %d events dropped by the buffer: %v", dropped, err)
 	}
@@ -269,6 +291,7 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.Record("before_qemu", l.QEMUExec)
 	m.Record("qemu_start", l.Running-l.QEMUExec)
 	m.Record("guest_to_zero", l.KernelZero-l.Running)
+	m.Record("kvmclock_lead", l.KVMClockLead)
 	m.Record("qemu_exec_error", l.QEMUExecError)
 	m.Record("pid1", l.Windows[1].Start)
 	handoff := l.window(windowHandoff)
@@ -281,6 +304,41 @@ func (ledgerProbe) Measure(_ context.Context, m *Measurement) error {
 	m.Logf("first login %v: %.1f ms before the kernel's clock (±%.1f), %.1f on it to the command's exit, %.1f residue; kept as %s",
 		login.Round(time.Millisecond), l.KernelZero, l.KernelZeroError, l.LoginEnd, l.Residue, text)
 	return nil
+}
+
+// setClockInstance is the host's tracefs instance that sees QEMU's KVM_SET_CLOCK, which no clock in
+// the guest sees: QEMU zeroes kvm-clock with it as the machine goes to running
+// (hw/i386/kvm/clock.c, kvmclock_vm_state_change). The ioctl's entry is filtered to that one
+// command in the kernel, and stamped on CLOCK_MONOTONIC, the clock Go's time.Since reads.
+const setClockInstance = "/sys/kernel/tracing/instances/spin-ledger"
+
+// kvmSetClock is KVM_SET_CLOCK: _IOW(KVMIO, 0x7b, struct kvm_clock_data), 48 bytes.
+const kvmSetClock = "4030ae7b"
+
+// setClockScript arms the instance, or with arm false removes it, ignoring what is not there.
+func setClockScript(arm bool) string {
+	ev := setClockInstance + "/events/syscalls/sys_enter_ioctl"
+	if !arm {
+		return "[ -d " + setClockInstance + " ] || exit 0\necho 0 > " + ev + "/enable\nrmdir " + setClockInstance + "\n"
+	}
+	return "set -e\nT=/sys/kernel/tracing\nmountpoint -q $T || mount -t tracefs tracefs $T\nmkdir " + setClockInstance +
+		"\necho mono > " + setClockInstance + "/trace_clock\necho 'cmd == 0x" + kvmSetClock + "' > " + ev + "/filter\necho 1 > " + ev + "/enable\n"
+}
+
+// reSetClock is the instance's line for the ioctl: its CLOCK_MONOTONIC stamp in s. Kernels print
+// a syscall's arguments as 0x%lx or %08lx.
+var reSetClock = regexp.MustCompile(`\s(\d+\.\d+): sys_ioctl\(fd: (?:0x)?[0-9a-f]+, cmd: (?:0x)?0*` + kvmSetClock + `,`)
+
+// setClockAt is the first KVM_SET_CLOCK in trace at or after t0, both in ms on CLOCK_MONOTONIC, in
+// ms from t0.
+func setClockAt(trace string, t0 float64) (float64, error) {
+	for _, m := range reSetClock.FindAllStringSubmatch(trace, -1) {
+		s, _ := strconv.ParseFloat(m[1], 64) // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
+		if at := s*1000 - t0; at >= 0 {
+			return at, nil
+		}
+	}
+	return 0, fmt.Errorf("the host's trace has no KVM_SET_CLOCK after QEMU's start, so nothing says when the machine went to running")
 }
 
 // execBracket is where QEMU's exec was seen, in ms from the moment before spin-machine's exec: not
