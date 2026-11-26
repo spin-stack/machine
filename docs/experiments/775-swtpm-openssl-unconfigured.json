@@ -1,0 +1,18 @@
+{
+  "decision": "carried",
+  "order": 36,
+  "change": "swtpm reads no OpenSSL configuration file and skips its test of OpenSSL's algorithms at each CMD_INIT, which QEMU waits on at its reset and after a restore's state blobs, for a machine with a TPM (qemu/swtpm/openssl-unconfigured.patch, #775)",
+  "where": "qemu/swtpm",
+  "result": "with a TPM, against main's QEMU and swtpm from the same pipeline: first login −5.1 [−9.7, −0.6], sshd accepting −4.6 [−9.0, −0.3], 30 a side (lab 45844362398); restored −3.8 [−5.2, −0.8] evicted, −4.0 [−6.2, −2.3] cached, `running` −4.2, 30 a side (lab 45844362132). Against the release's QEMU: −2.6 [−7.0, −0.2] cold, −3.4 [−5.0, −2.1] restored (labs 45842988805, 45842989011). A machine without a TPM runs no swtpm",
+  "evidence": "measured",
+  "source": "labs 45844362398, 45844362132, 45842988805, 45842989011",
+  "issues": [
+    775
+  ],
+  "runs": [
+    45844362398,
+    45844362132,
+    45842988805,
+    45842989011
+  ]
+}
