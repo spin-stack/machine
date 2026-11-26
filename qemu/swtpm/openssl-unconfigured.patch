@@ -1,0 +1,97 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Thu, 26 Nov 2026 11:45:03 -0300
+Subject: [PATCH] swtpm: no OpenSSL configuration file, and no test of the
+ algorithms at each INIT
+
+swtpm tests at every CMD_INIT whether the OpenSSL it runs with has
+disabled an algorithm the TPM's profile enables, by signing with RSA keys
+of every size in the profile. The test exists for a libcrypto shared with
+the host, whose configuration file or FIPS mode can disable algorithms.
+
+This swtpm links its own libcrypto statically. Initialised first with
+OPENSSL_INIT_NO_LOAD_CONFIG, it reads no configuration file, so nothing
+outside the binary can disable an algorithm, and the test answers the same
+every time. It is skipped then; it still runs if that initialisation
+fails.
+
+The test was 86% of an INIT's instructions (callgrind), and QEMU waits on
+the INIT before the guest's first instruction, and again on a restore.
+---
+ src/swtpm/main.c   | 10 ++++++++++
+ src/swtpm/tpmlib.c |  5 ++++-
+ src/swtpm/tpmlib.h |  6 ++++++
+ 3 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/src/swtpm/main.c b/src/swtpm/main.c
+index 4864e85..f933338 100644
+--- a/src/swtpm/main.c
++++ b/src/swtpm/main.c
+@@ -41,8 +41,11 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++#include <openssl/crypto.h>
++
+ #include "main.h"
+ #include "swtpm.h"
++#include "tpmlib.h"
+ 
+ static void usage(FILE *stream, const char *prgname)
+ {
+@@ -66,6 +69,13 @@ static void usage(FILE *stream, const char *prgname)
+ 
+ int main(int argc, char **argv)
+ {
++    /*
++     * Before anything else initialises OpenSSL, so that no configuration
++     * file the host has can disable an algorithm the TPM uses.
++     */
++    tpmlib_openssl_unconfigured =
++        OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL) == 1;
++
+     if (argc < 2) {
+         fprintf(stderr, "Missing TPM interface type.\n");
+         return 1;
+diff --git a/src/swtpm/tpmlib.c b/src/swtpm/tpmlib.c
+index 367fdb9..e480b65 100644
+--- a/src/swtpm/tpmlib.c
++++ b/src/swtpm/tpmlib.c
+@@ -108,6 +108,8 @@ TPM_RESULT tpmlib_choose_tpm_version(TPMLIB_TPMVersion tpmversion)
+     return res;
+ }
+ 
++bool tpmlib_openssl_unconfigured;
++
+ static int tpmlib_check_disabled_algorithms(unsigned int *fix_flags,
+                                             unsigned int disabled_filter,
+                                             bool stop_on_first_disabled)
+@@ -319,7 +321,8 @@ TPM_RESULT tpmlib_start(uint32_t flags, TPMLIB_TPMVersion tpmversion,
+         }
+     }
+ 
+-    if (tpmlib_maybe_configure_openssl(tpmversion)) {
++    if (!tpmlib_openssl_unconfigured &&
++        tpmlib_maybe_configure_openssl(tpmversion)) {
+         res = TPM_FAIL;
+         goto error_terminate;
+     }
+diff --git a/src/swtpm/tpmlib.h b/src/swtpm/tpmlib.h
+index 48c5f19..e3ed708 100644
+--- a/src/swtpm/tpmlib.h
++++ b/src/swtpm/tpmlib.h
+@@ -49,6 +49,12 @@ const char *tpmlib_get_blobname(uint32_t blobtype);
+ enum TPMLIB_StateType tpmlib_blobtype_to_statetype(uint32_t blobtype);
+ TPM_RESULT tpmlib_register_callbacks(struct libtpms_callbacks *cbs);
+ TPM_RESULT tpmlib_choose_tpm_version(TPMLIB_TPMVersion tpmversion);
++/*
++ * Set when OpenSSL was initialised without a configuration file: then no
++ * algorithm can be disabled by one, and tpmlib_start does not test them.
++ */
++extern bool tpmlib_openssl_unconfigured;
++
+ TPM_RESULT tpmlib_start(uint32_t flags, TPMLIB_TPMVersion tpmversion,
+                         bool lock_nvram, const char *profile);
+ int tpmlib_get_tpm_property(enum TPMLIB_TPMProperty prop);
+-- 
+2.53.0
+
