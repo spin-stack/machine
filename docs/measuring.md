@@ -298,34 +298,41 @@ trace lost events. A switch away from a task the CPU was not running counts as a
   start in 10 ms ticks, so the host watches spin-machine's children from its own exec until one
   is QEMU. The exec is between the last look that did not see it and the first that did:
   `qemu_exec_error` is half that bracket, 0.11 to 0.14 ms in six boots.
-- *The guest's first instruction.* QEMU zeroes kvm-clock as the machine goes to running, and the
-  kernel prints the kvm-clock it read as it made it the scheduler's clock ("kvm-clock: using
-  sched offset of N cycles", in ns). The kernel's sched clock starts from that reading, so
-  kvm-clock read 0 at `kernel_zero` less N. That 0 lies 2.1-3.8 ms (bench) and 4.4-5.0 ms (metal)
-  before QEMU's KVM_SET_CLOCK, because KVM bases it on its master clock's last update. So
-  `qemu_start` reads that much short and `guest_to_zero` as much long (#665). `boot:firmware-stages`
-  places the kernel's clock on QEMU's trace at KVM_SET_CLOCK plus N, which is late by the same.
+- *The guest's first instruction.* QEMU zeroes kvm-clock with KVM_SET_CLOCK as the machine goes
+  to running, and the vCPUs start right after. No clock in the guest sees the ioctl, so the host
+  traces it: the probe arms a tracefs instance of its own on CLOCK_MONOTONIC, with
+  `sys_enter_ioctl` filtered to KVM_SET_CLOCK in the kernel, and `running` is that stamp.
+  kvm-clock's 0 is not it. That 0 is `kernel_zero` less the kvm-clock the kernel read as it made
+  it the scheduler's clock ("kvm-clock: using sched offset of N cycles", in ns), and KVM bases it
+  on its master clock's last update, `kvmclock_lead` before the ioctl: 2.78 ms (1.98 to 3.64) on
+  bench and 4.72 (4.44 to 4.98) on metal, 12 boots each (labs 45888511048 and 45888515410,
+  v20261126.02). A kernel that writes a port as it reads that kvm-clock put it 2.80 and 4.72
+  before the ioctl (#665). `boot:firmware-stages` places the kernel's clock on QEMU's trace at
+  KVM_SET_CLOCK plus N, which is late by the lead.
 - *The residue.* That is `first_login` less `kernel_zero` and the command's exit on the kernel's
   clock: sshd's answer crossing vsock and the client reading it. It read 0.4 to 1.2 ms in six
   boots. A residue that is negative or large says the alignment is wrong.
 
 So the span before the kernel's clock is three parts, which add up to `kernel_zero` by
 construction: `before_qemu`, spin-machine to its exec of QEMU; `qemu_start`, QEMU's start and the
-held start's monitor to the guest's first instruction; and `guest_to_zero`, the firmware, the
+held start's monitor to its KVM_SET_CLOCK; and `guest_to_zero`, the firmware, the
 kernel's entry (through PVH, or a bzImage's decompression) and the kernel's setup until its clock
-runs. A sched offset that puts the
-machine's running before QEMU's exec refuses the ledger, as a journal without the line does.
-`kernel_zero` read 77 to 95 ms in six boots, the first the longest (lab 45110630795, bench,
-spin's shape, v20261123.04, 2026-11-23, recomputed from the run's journals with the lag):
+runs. A KVM_SET_CLOCK outside QEMU's exec and the kernel's 0, or after kvm-clock's 0, refuses the
+ledger, as a journal without the sched offset line does. `kernel_zero` read 46 to 66 ms in 12
+boots, the first the longest (lab 45888511048, bench, spin's shape, v20261126.02 on its traceable
+kernel, a vmlinux entered through PVH):
 
 | part | p50 | range |
 |---|---|---|
 | `before_qemu`, spin-machine to QEMU's exec | 2.1 | 1.9 to 2.4 |
-| `qemu_start`, QEMU's exec to kvm-clock's 0 | 29.3 | 28.2 to 31.1 |
-| `guest_to_zero`, kvm-clock's 0 to the kernel's clock | 47.4 | 46.4 to 63.2 |
+| `qemu_start`, QEMU's exec to its KVM_SET_CLOCK | 28.3 | 26.5 to 29.3 |
+| `guest_to_zero`, KVM_SET_CLOCK to the kernel's clock | 17.8 | 15.5 to 34.7 |
 
-The first boot's extra ~15 ms is all in `guest_to_zero`. Without the lag the run read
-`kernel_zero` 97 to 114 and `qemu_start` 49.4. QEMU's exec to the kernel's clock is 78.4 here, and
+On metal the same release read 6.4, 30.8 and 8.8 (lab 45888515410). Split at kvm-clock's 0,
+`qemu_start` read the lead short and `guest_to_zero` as much long. An earlier run, v20261123.04
+booting a bzImage, split at kvm-clock's 0 into 2.1, 29.3 and 47.4 (lab 45110630795).
+In that run the first boot's extra ~15 ms was all in `guest_to_zero`. Without the lag it read
+`kernel_zero` 97 to 114 and `qemu_start` 49.4. QEMU's exec to the kernel's clock was 78.4 there, and
 73.4 [72.2, 81.1] in 12 untraced boots of lab 45177818419 (68.7 on metal, lab 45177817516).
 `boot:firmware-stages` read 73.7 (lab 45062836494) on a machine of its own, without the disks,
 the vsock and the hotplug ports a workspace's machine carries, and with no held start. Its anchor
