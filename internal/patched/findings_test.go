@@ -157,6 +157,38 @@ func TestScopeKeepsTheTouchedFilesAndFindsWhatIsOnTheirAddedLines(t *testing.T) 
 	}
 }
 
+func TestScopePassesASuppressedResultAndSaysWhy(t *testing.T) {
+	dir := analysed(t, "")
+	put(t, filepath.Join(dir, "src/lib/a.c"), "one\nTWO\n\t/* codeql[cpp/path-injection] make's own vmlinux (#707) */\nfour\nfive\n")
+	// The suppression as CodeQL wrote 0015's in codeql.yml's run 45724244695: no justification.
+	suppressed := strings.Replace(res("cpp/path-injection", "lib/a.c", 4, 0), `"locations"`, `"suppressions":[{"kind":"inSource"}],"locations"`, 1)
+	put(t, filepath.Join(dir, "sarif/cpp.sarif"), sarifOf(suppressed, res("open", "lib/a.c", 2, 0), res("upstreams", "lib/a.c", 1, 0)))
+	findings, err := Scope(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range findings {
+		got = append(got, f.String())
+	}
+	want := []string{
+		"lib/a.c:4: cpp/path-injection: cpp/path-injection said (suppressed: /* codeql[cpp/path-injection] make's own vmlinux (#707) */)",
+		"lib/a.c:2: open: open said",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("findings:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if !findings[0].Suppressed || findings[1].Suppressed {
+		t.Errorf("findings = %+v: only the result under the comment is suppressed", findings)
+	}
+	if scoped := read(t, filepath.Join(dir, "scoped.sarif")); !strings.Contains(scoped, `"suppressions":[{"kind":"inSource"}]`) {
+		t.Errorf("scoped.sarif = %s: code scanning closes the alert only from its suppression", scoped)
+	}
+	if got, want := read(t, filepath.Join(dir, "upstream.txt")), "lib/a.c:1: upstreams: upstreams said\n"; got != want {
+		t.Errorf("upstream.txt = %q, want %q", got, want)
+	}
+}
+
 func TestScopeWithNothingOnAnAddedLineWritesAnEmptyRun(t *testing.T) {
 	dir := analysed(t, sarifOf(res("untouched", "lib/b.c", 2, 0)))
 	findings, err := Scope(context.Background(), dir)
@@ -249,5 +281,21 @@ func TestAFailedCompilationIsTheLastArgumentItWasGiven(t *testing.T) {
 		`]}],"results":[]}]}`)
 	if _, err := Scope(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "lib/new.c (its compilation failed)") || strings.Contains(err.Error(), "lib/a.c") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestASuppressionNeedsALineBeforeTheResult(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "a.c")
+	put(t, file, "/* codeql[r] why */\nx;\n")
+	for _, line := range []int{1, 4} {
+		if why, err := lineBefore(file, line); err == nil {
+			t.Errorf("line %d: %q, want an error: no comment can be on the line before it", line, why)
+		}
+	}
+	if why, err := lineBefore(file, 3); err != nil || why != "x;" {
+		t.Errorf("line 3: %q, %v", why, err)
+	}
+	if _, err := lineBefore(filepath.Join(t.TempDir(), "gone.c"), 2); err == nil {
+		t.Error("a file that is not there gave no error")
 	}
 }
