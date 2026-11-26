@@ -176,6 +176,12 @@ jobs:
       - name: The machine's record refuses what QEMU loads silently, and not its own checkpoint
         run: go tool task boot:record
 
+      # A machine that asks for a TPM gets one its guest uses as shirudo does, and a checkpoint
+      # carries it (#719). A tree whose kernel has no tpm_crb driver, a release's from before #733,
+      # skips, saying so.
+      - name: A machine with a TPM uses it across a checkpoint
+        run: go tool task boot:tpm
+
       # A patch dropped at a bump, or rebased into doing nothing, still builds and boots; this is
       # where it fails (qemu/README.md, "The patches").
       - name: Each QEMU and qboot patch does what it is carried for, seen from a guest
