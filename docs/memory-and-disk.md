@@ -279,7 +279,8 @@ runs longer while the guest runs, when the guest dirties memory. The state is th
 `Resume` reads it as before.
 
 `task boot:checkpoint-pause` (lab.yml's `check:checkpoint-pause`) takes the same two guests again
-at the machine's 30 ms, 10 saves each, and holds the median pause under 50 ms. It runs on the bench:
+at the machine's 30 ms, 10 saves each, and holds the median pause under 50 ms, or 80 for a QEMU
+built with ASan, which sanitize.yml times on the KVM fleet (#813). It runs on the bench:
 release.yml's `pause` job runs it on each release once it is published, and the qemu entry's bump
 note in versions.yaml names it, so a QEMU that stops the guest earlier fails at its bump or, at the
 latest, on the release that ships it. It ran in compat.yml until 2026-11-22, where it took half of

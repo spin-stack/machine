@@ -107,7 +107,7 @@ tasks:
       busy host disk, and beside it on a host whose memory is taken but 4 GiB (measured, not held, and skipped on a host with
       swap, which no runner has), each saved SPIN_PAUSE_SAVES times (default 10) and continued. Logs each save's pause (GuestStopped to
       GuestRunning), QEMU's downtime, what was left at the stop and the save's total, and holds the
-      median pause under 50 ms (pause_test.go). Needs a built release and /dev/kvm. SKIP= a go test
+      median pause under 50 ms, 80 for a QEMU built with ASan (pause_test.go). Needs a built release and /dev/kvm. SKIP= a go test
       -skip pattern of the guests to leave out.
     deps: [':tools']
     cmds:
