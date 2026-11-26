@@ -47,9 +47,11 @@ func main() {
 		if strings.Contains(strings.ToLower(line), "vmgenid") {
 			fmt.Println(line)
 		}
-		// Where the kernel's clock starts, and how far along it the kernel was done: what
+		// Where the kernel's clock starts, how far printk's clock is behind it from
+		// late_initcall on, and how far along it the kernel was done: what
 		// boot:firmware-stages needs to split the time after the firmware's jump.
-		if strings.Contains(line, "kvm-clock: using sched offset") || strings.Contains(line, "Freeing unused kernel image") {
+		if strings.Contains(line, "kvm-clock: using sched offset") || strings.Contains(line, "sched_clock: Marking stable") ||
+			strings.Contains(line, "Freeing unused kernel image") {
 			fmt.Printf("SPIN-KMSG %s %s\n", stamp(buf[:n]), line)
 		}
 	}

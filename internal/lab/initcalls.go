@@ -174,7 +174,7 @@ type ringBuffer struct {
 	calls   map[string]int // initcall -> usecs
 	gaps    []gap
 	total   int     // usecs in every initcall
-	freeing float64 // seconds to "Freeing unused kernel image"
+	freeing float64 // seconds to "Freeing unused kernel image", on the kernel's clock (PrintkLag)
 }
 
 func parseRingBuffer(console string) (ringBuffer, error) {
@@ -204,6 +204,13 @@ func parseRingBuffer(console string) (ringBuffer, error) {
 			out.calls[m[1]] = us
 			out.total += us
 		}
+	}
+	if out.freeing > 0 {
+		lag, err := PrintkLag(console)
+		if err != nil {
+			return out, err
+		}
+		out.freeing += lag / 1000
 	}
 	if len(out.calls) == 0 {
 		return out, fmt.Errorf("no initcall lines in the ring buffer: was initcall_debug on the command line, and log_buf_len large enough? console tail: %s", tail(console, 2000)) // mutate-exempt: how much of the console the error quotes

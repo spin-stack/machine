@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spin-stack/machine/internal/lab"
 	"github.com/spin-stack/machine/machine"
 )
 
@@ -219,6 +220,12 @@ func readKernelClock(console string, evs []event) (kernelClock, error) {
 	if !offset || !freeing {
 		return kernelClock{}, fmt.Errorf("the guest printed no SPIN-KMSG line for kvm-clock's sched offset and \"Freeing unused kernel image\": an initrd whose /init does not print them (boot/probeinit), or a kernel not on kvm-clock")
 	}
+	// "Freeing"'s stamp is printk's clock, which is behind the kernel's from late_initcall on.
+	lag, err := lab.PrintkLag(console)
+	if err != nil {
+		return kernelClock{}, err
+	}
+	kc.freeing += time.Duration(lag * float64(time.Millisecond))
 	return kc, nil
 }
 
@@ -538,10 +545,12 @@ func TestTheFirmwareTraceIsSplitIntoItsSteps(t *testing.T) {
 1970-01-01T00:16:40.041200Z fw_cfg_select 0x55 key 0x0010 'kernel_entry', ret: 1
 `
 	evs := parseTrace(trace)
-	// kvm-clock read 20 ms after "running", and "Freeing" 30 ms along the kernel's clock: the
-	// kernel's clock starts at 40.049, 8 ms after the firmware's last select.
+	// kvm-clock read 20 ms after "running", and "Freeing" 30 ms along the kernel's clock, stamped
+	// 28 by printk's clock 2 ms behind it: the kernel's clock starts at 40.049, 8 ms after the
+	// firmware's last select.
 	console := "ACPI: SSDT\r\nSPIN-KMSG 0 kvm-clock: using sched offset of 20000000 cycles\r\n" +
-		"SPIN-KMSG 30000 Freeing unused kernel image (initmem) memory: 2628K\r\n" +
+		"SPIN-KMSG 25000 sched_clock: Marking stable (20000000, 0)->(27000000, -2000000)\r\n" +
+		"SPIN-KMSG 28000 Freeing unused kernel image (initmem) memory: 2628K\r\n" +
 		"SPIN-KMSG 30300 Freeing unused kernel image (text/rodata gap) memory: 1472K\r\nSPIN-READY\r\n"
 	kc, err := readKernelClock(console, evs)
 	if err != nil {
