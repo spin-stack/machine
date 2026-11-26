@@ -4,7 +4,7 @@
 // the image can ask: the kernel shows no restriction in /proc/keys, and the image has no keyctl. A
 // sealed keyring refuses every key with EPERM (security/keys/keyring.c, restrict_link_reject), so
 // the probe adds one to each and takes it out again. It prints one line per keyring: its name and
-// sealed, open, or unknown for a kernel that has no such keyring (before 7.4).
+// sealed or open.
 package main
 
 import (
@@ -40,8 +40,6 @@ func probe(keyring int32) string {
 		return "open"
 	case errors.Is(errno, syscall.EPERM):
 		return "sealed"
-	case errors.Is(errno, syscall.EINVAL):
-		return "unknown"
 	}
 	fmt.Fprintf(os.Stderr, "adding a key to keyring %d: %v\n", keyring, errno)
 	os.Exit(1)
