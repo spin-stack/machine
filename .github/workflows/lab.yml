@@ -123,6 +123,29 @@ jobs:
         if: inputs.probe == 'bootchart'
         run: go tool task graphviz
 
+      # exp/ovmf-uki-arm only: OVMF, systemd-stub, ukify and a generic kernel with an EFI stub, from
+      # Ubuntu 26.04's archive, checked by sha256, for boot:firmware's OVMF arms.
+      - name: Fetch the OVMF arm's packages
+        if: inputs.probe == 'check:firmware'
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/ovmf"; mkdir -p "$d/debs" "$d/x"; cd "$d/debs"
+          b=http://archive.ubuntu.com/ubuntu/pool
+          while read -r sum path; do
+            curl -fsSLO "$b/$path"
+            echo "$sum  ${path##*/}" | sha256sum -c -
+            f=${path##*/}; mkdir -p "$d/x/${f%%_*}"; dpkg-deb -x "$f" "$d/x/${f%%_*}"
+          done <<'EOF'
+          b4f0f6cc3c75e77cb26666a37dff17133b9f299ae089342587a63dfe4d7320c0 main/l/linux-signed/linux-image-7.0.0-44-generic_7.0.0-44.44_amd64.deb
+          209664fecfa07129d1b7d1efe34199bb61f09d9e9f1face28d23b1f511b576b4 main/e/edk2/ovmf-generic_2025.11-3ubuntu7.4_all.deb
+          75ec46b516dd136ec66552347ec43cb96fada2358a5fa953c146a9a362d6609e universe/p/python-pefile/python3-pefile_2024.8.26-2.1_all.deb
+          d36e67be760f93c7dbca2e865667d7b235653c1843d83aa7e21d35ace52905e3 universe/s/systemd/systemd-boot-efi_259.9-0ubuntu0.1_amd64.deb
+          3387200d7fa761ebbb350c5973b030a670ae46be1be78971fb3a955023c4c3f0 universe/s/systemd/systemd-ukify_259.9-0ubuntu0.1_all.deb
+          EOF
+          sha256sum *.deb > "$d/x/SHA256SUMS"
+          echo "SPIN_OVMF_ARM=$d/x" >> "$GITHUB_ENV"
+          python3 --version; uname -r; lscpu | grep -E 'Model name|Hypervisor'
+
       # Makes the trees, runs the probe, writes result.json and puts the table on the summary.
       - name: Run the experiment
         run: go tool task lab:ci

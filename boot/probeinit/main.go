@@ -54,6 +54,7 @@ func main() {
 		}
 	}
 	fmt.Println("SPIN-READY")
+	tpm()
 	_ = syscall.SetNonblock(fd, false)
 	for {
 		n, err := syscall.Read(fd, buf)
@@ -72,6 +73,30 @@ func stamp(rec []byte) string {
 		return "?"
 	}
 	return f[2]
+}
+
+// tpm prints what the measured boot left, after SPIN-READY so it is off every arm's clock: PCR 9
+// and 11 as the kernel reads them, and the size of the firmware's event log, or that there is none.
+func tpm() {
+	for _, m := range []struct{ src, dir, fs string }{
+		{"sysfs", "/sys", "sysfs"},
+		{"securityfs", "/sys/kernel/security", "securityfs"},
+	} {
+		_ = os.MkdirAll(m.dir, 0o755)
+		_ = syscall.Mount(m.src, m.dir, m.fs, 0, "")
+	}
+	pcr := func(n string) string {
+		b, err := os.ReadFile("/sys/class/tpm/tpm0/pcr-sha256/" + n)
+		if err != nil {
+			return "none"
+		}
+		return strings.TrimSpace(string(b))
+	}
+	log := "absent"
+	if b, err := os.ReadFile("/sys/kernel/security/tpm0/binary_bios_measurements"); err == nil {
+		log = fmt.Sprintf("%dB", len(b))
+	}
+	fmt.Printf("SPIN-TPM pcr9=%s pcr11=%s eventlog=%s\n", pcr("9"), pcr("11"), log)
 }
 
 // message is a /dev/kmsg record's text: "6,339,5140900,-;text\n" is text.
