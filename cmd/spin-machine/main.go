@@ -221,6 +221,7 @@ type machineFlags struct {
 	held     bool
 	restore  bool
 	tpm      string
+	tpmDev   string
 
 	init     string
 	root     string
@@ -251,6 +252,7 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "listen for QMP on this Unix socket; attach, detach and save connect to it")
 	fs.BoolVar(&o.held, "held", false, "start held, and boot only when start is run (needs --qmp)")
 	fs.BoolVar(&o.restore, "restore", false, "start held for a checkpoint, which restore loads (needs --qmp)")
+	fs.StringVar(&o.tpmDev, "tpm-device", "", "experiment #719: tpm-crb or tpm-tis")
 	fs.StringVar(&o.tpm, "tpm", "", "give the machine a TPM whose state is this directory, made if missing, and emulated by <release>/bin/swtpm (default: no TPM)")
 	fs.StringVar(&o.console, "console", "mon:stdio",
 		"QEMU chardev for the serial console, e.g. file:/path or unix:/path,server=on,wait=off; empty for none")
@@ -309,7 +311,7 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 		if err != nil {
 			return machine.Spec{}, err
 		}
-		s.TPM = machine.TPM{SWTPM: swtpm, State: o.tpm}
+		s.TPM = machine.TPM{SWTPM: swtpm, State: o.tpm, Device: o.tpmDev}
 	}
 
 	hasDisk := o.disks.path != "-"

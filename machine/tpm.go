@@ -3,6 +3,7 @@
 package machine
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -34,6 +35,9 @@ type TPM struct {
 	// FD is QEMU's end of swtpm's control channel, a connected socket. Start makes the pair; a
 	// caller of Args alone names the descriptor the command line it prints would be handed.
 	FD int
+
+	// Device is the experiment of #719's: tpm-crb or tpm-tis, measured against each other.
+	Device string
 }
 
 // TPMDevice is the TPM's interface to the guest. tpm-crb is a command buffer in memory the guest
@@ -65,7 +69,7 @@ func (s Spec) appendTPM(args []string) []string {
 	return append(args,
 		"-chardev", fmt.Sprintf("socket,id=%s,fd=%d", tpmChardev, s.TPM.FD),
 		"-tpmdev", fmt.Sprintf("emulator,id=%s,chardev=%s", tpmBackend, tpmChardev),
-		"-device", fmt.Sprintf("%s,tpmdev=%s", TPMDevice, tpmBackend))
+		"-device", fmt.Sprintf("%s,tpmdev=%s", cmp.Or(s.TPM.Device, TPMDevice), tpmBackend))
 }
 
 const (
