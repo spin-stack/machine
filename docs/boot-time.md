@@ -241,8 +241,9 @@ at b8fc0ac with swtpm's patch and 0032 as first carried (parts run 45849429862);
 qboot's tpm.patch and 0032 probing by TPM2_Startup (parts run 45849895726), with the digests
 supplied rather than hashed at the boot; bench, spin's shape, 30 a side, interleaved. First login
 −1.0 [−5.8, +4.3] (lab 45851405387); restored login −0.1 [−0.8, +0.8] evicted and −0.2
-[−1.5, +0.8] cached (lab 45851411671). All within noise. `spin-machine boot --tpm` still hashes
-the vmlinux at every boot (#776), which is not in these numbers.
+[−1.5, +0.8] cached (lab 45851411671). All within noise. `spin-machine boot --tpm` hashed the vmlinux
+at every boot, +28.7 ms on the probes' clock, until it kept each file's digest under its identity
+(#776, lab 45884499622).
 
 ## What the machine carries
 

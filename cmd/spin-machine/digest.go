@@ -56,7 +56,7 @@ func fileDigest(path, dir string, now time.Time) ([sha256.Size]byte, error) {
 	if err != nil {
 		return sum, err
 	}
-	if dir != "" && now.Sub(time.Unix(0, st.Ctim.Nano())) > time.Second {
+	if dir != "" && now.Sub(time.Unix(st.Ctim.Unix())) > time.Second {
 		// A digest not kept is one hashed again at the next boot, so a cache that cannot be
 		// written costs time and never a wrong PCR: the boot goes on.
 		_ = keep(entry, identity+hex.EncodeToString(sum[:])+"\n")
