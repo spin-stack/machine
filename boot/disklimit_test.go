@@ -73,7 +73,7 @@ func TestADiskLimitHoldsOneDiskAndLetsItGo(t *testing.T) {
 	g.await(t, regexp.MustCompile(`UP-2\b`), 60*time.Second)
 	// The places are on the root complex in their order, so the guest names them vda, vdb, vdc.
 	g.type_(t, `echo "SERIALS $(cat /sys/block/vdb/serial) $(cat /sys/block/vdc/serial)"`)
-	g.await(t, regexp.MustCompile(`SERIALS a b\b`), 10*time.Second)
+	g.await(t, serialsSaid, 10*time.Second)
 
 	const rate = 8 << 20
 	const writes = 50
@@ -228,5 +228,22 @@ func fast(t *testing.T, what string, got float64) {
 	t.Helper()
 	if got > 0.7 {
 		t.Errorf("%s took %.2f s, want one no limit holds, under 0.7 s", what, got)
+	}
+}
+
+// serialsSaid is the guest naming vdb's and vdc's serials, a and b, in a line that has ended: until
+// it ends, a serial is what was printed of it so far (#788).
+var serialsSaid = regexp.MustCompile(`SERIALS a b\r?\n`)
+
+// The serials line cut after a serial's first letter is not the guest naming a and b (#788).
+func TestTheSerialsLineIsReadOnlyWhenItEnds(t *testing.T) {
+	if serialsSaid.MatchString("SERIALS a b") {
+		t.Error("a line still being printed, which may yet name bc, reads as a and b")
+	}
+	if !serialsSaid.MatchString("SERIALS a b\r\n# ") {
+		t.Error("the whole line does not read as a and b")
+	}
+	if serialsSaid.MatchString("SERIALS a bc\r\n") {
+		t.Error("serials a and bc read as a and b")
 	}
 }
