@@ -522,6 +522,12 @@ for deb in "$debs"/*.deb; do
 		mkdir -p "$MNT/etc/systemd/system/paths.target.wants"
 		ln -sf /usr/lib/systemd/system/tpm-udev.path "$MNT/etc/systemd/system/paths.target.wants/tpm-udev.path"
 	fi
+	if [ -f "$MNT/usr/share/spin-lab-masks" ]; then
+		while read -r m; do
+			mkdir -p "$MNT/etc/systemd/$(dirname "$m")"
+			ln -sf /dev/null "$MNT/etc/systemd/$m"
+		done < "$MNT/usr/share/spin-lab-masks"
+	fi
 	replaced=$((replaced + 1))
 done
 touch -m -d "@$usr_mtime" "$MNT/usr"

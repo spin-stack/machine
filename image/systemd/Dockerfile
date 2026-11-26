@@ -37,6 +37,13 @@ RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false
     case "${SYSTEMD_EXPERIMENT}" in tpm2split*) \
         sed -i -E '/pcr|tpm2|systemd-measure/s/ <!stage1>//' debian/systemd.install && \
         echo 'include /build/tpm2.mk' >> debian/rules ;; esac && \
+    case "${SYSTEMD_EXPERIMENT}" in tpm2split-masked) \
+        printf '%s\n' 'usr/share/spin-lab-masks' >> debian/systemd.install && mkdir -p debian/tmp/usr/share && \
+        printf '%s\n' system-generators/systemd-tpm2-generator system/systemd-pcrmachine.service system/systemd-pcrphase.service \
+            system/systemd-pcrphase-sysinit.service system/systemd-pcrproduct.service system/systemd-pcrnvdone.service \
+            system/systemd-tpm2-setup-early.service system/systemd-tpm2-setup.service system/systemd-pcrextend.socket \
+            system/systemd-pcrlock.socket > /build/spin-lab-masks && \
+        printf '\tinstall -D -m644 /build/spin-lab-masks debian/tmp/usr/share/spin-lab-masks\n' >> /build/tpm2.mk ;; esac && \
     case "${SYSTEMD_EXPERIMENT}" in tpm2split-nogen) \
         sed -i '/systemd-tpm2-generator/d' debian/systemd.install && \
         sed -i "s|-path '[*]tpm2[*]'|-path '*tpm2*' -not -name systemd-tpm2-generator|" /build/tpm2.mk && \
