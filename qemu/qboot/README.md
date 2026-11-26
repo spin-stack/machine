@@ -78,7 +78,10 @@ The command buffer is RAM in QEMU at 0x80 into its page, which KVM cannot map, s
 exit: copied a byte at a time, the measuring and the CLI's hashing cost the cold first login +72.3
 ms on the bench, a word at a time +43.9 (labs 45834850060, 45837751252). With the kernel, command
 line and initrd alone, no separators, and the digests not hashed at the boot, the firmware's
-measuring read −3.6 [−11.7, +8.8], within noise (lab 45839316754, 20 a side, spin's shape).
+measuring read −3.6 [−11.7, +8.8], within noise (lab 45839316754, 20 a side, spin's shape). On a
+kernel whose 0032 still self-tested a TPM it had not started itself, the self test came back,
++23.9 (lab 45840998579); with 0032 probing by TPM2_Startup, against main: −1.1 [−8.9, +10.5]
+(lab 45843630680).
 
 ## What holds each patch
 
