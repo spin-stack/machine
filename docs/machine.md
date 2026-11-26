@@ -173,7 +173,8 @@ it (#719), so a workspace that runs shirudo is a machine with one.
 
 ```go
 swtpm, err := release.SWTPM()   // usr/share/spin-stack/bin/swtpm; a release from before #719 has none
-spec.TPM = machine.TPM{SWTPM: swtpm, State: "/var/lib/…/workspace/tpm"}
+kernel, err := machine.FileSHA256(spec.Kernel) // once a file, not once a boot
+spec.TPM = machine.TPM{SWTPM: swtpm, State: "/var/lib/…/workspace/tpm", Kernel: kernel}
 m, err := machine.Start(ctx, spec, machine.StartOptions{
 	TPMCmd: func(c *exec.Cmd) { c.SysProcAttr = … }, // swtpm's uid, root and cgroup, as Cmd is QEMU's
 })
@@ -209,8 +210,21 @@ m, err := machine.Start(ctx, spec, machine.StartOptions{
 - **QEMU puts the initrd above the ACPI tables.** qboot writes the tables below 1 MiB (`ACPI: TPM2
   0xC1943`) and QEMU the initrd at the top of RAM, so a large one cannot cover them, as a 62 MB
   initrd did under SeaBIOS and hid the TPM (#719). boot:tpm boots one and finds the TPM.
-- **Nothing measures the boot.** qboot with PVH loads the kernel and the initrd from fw_cfg, so no
-  PCR says what booted and there is no event log (#742).
+- **The firmware measures the boot.** Before the kernel runs, qboot extends what `Spec.TPMEvents`
+  names into every active PCR bank and writes the TCG event log the guest reads at
+  `/sys/kernel/security/tpm0/binary_bios_measurements` (#742, `qemu/qboot/README.md`, "Measured
+  boot"). The events follow where a UEFI boot puts the same things: an `EV_SEPARATOR` in each of
+  PCRs 0-7, the kernel in PCR 4 (`EV_IPL`, "Linux kernel"), and in PCR 9 the command line and the
+  initrd as `EV_EVENT_TAG`s of the tags Linux's EFI stub uses (`LOADED_IMAGE::LoadOptions`,
+  `Linux initrd`), which is the PCR shirudo anchors its register in. The digests are SHA-256: the
+  kernel's and the initrd's the caller hashes (`TPM.Kernel`, `TPM.Initrd`, `FileSHA256`), once a
+  file, since qboot cannot see the vmlinux QEMU loads and hashing a 60 MB initrd would be on the
+  boot's clock; the command line's is the bytes QEMU hands the kernel, without the NUL. A verifier
+  predicts PCR 4 from `sha256sum vmlinux` and PCR 9 from `/proc/cmdline` and `sha256sum initrd`.
+  Only the SHA-256 bank holds those digests: the other banks are extended with the same 32 bytes,
+  cut or zero-padded, so none is left at zero. PCR 11 is untouched: systemd's phase measurements
+  (`enter-initrd`, `leave-initrd`) are systemd-pcrphase's, whose units ask for a measured UKI boot,
+  so shirudo still warns that PCR 11 holds no phase measurement (#773).
 
 
 spin runs each QEMU as a user of its own, chrooted into a root it builds, in a cgroup it bounds.

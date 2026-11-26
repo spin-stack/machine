@@ -19,7 +19,8 @@ import (
 
 // A machine with a TPM (machine.Spec.TPM) at spin's shape, used as shirudo uses it: the guest sees
 // /dev/tpm0 and /dev/tpmrm0, and through the second makes an RSA-3072 primary, extends PCR 16 and
-// writes an NV index (boot/tpmcheck). A checkpoint of it resumed into a machine whose TPM state is
+// writes an NV index (boot/tpmcheck). Its firmware's event log has the events the machine named,
+// and its PCRs replay to it (qemu/qboot/tpm.patch). A checkpoint of it resumed into a machine whose TPM state is
 // a new, empty directory reads back the same primary, PCR and index: the migration stream carries
 // the TPM, and the directory takes it. A machine cold-booted on that directory then has the same
 // seed and the index, and PCR 16 back at zero, as a TPM has after a reset. A machine without one
