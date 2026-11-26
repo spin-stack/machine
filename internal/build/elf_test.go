@@ -20,8 +20,9 @@ import (
 )
 
 // A whole kernel is a vmlinux that randomizes itself with its modules beside it, and carries the
-// module certificate when the tree has one. Without its modules, or without the certificate, it is
-// refused: the image would have nothing to install, or the kernel would load none of them.
+// tree's module certificate. Without its modules, without the certificate, or in a tree that has
+// none, it is refused: the image would have nothing to install, or the kernel would load none of
+// them.
 func TestAWholeKernelVerifies(t *testing.T) {
 	root, out := t.TempDir(), t.TempDir()
 	v := elftest.Kernel([]uint32{18, 19}, []byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0x10, 0, 0, 0})
@@ -34,8 +35,8 @@ func TestAWholeKernelVerifies(t *testing.T) {
 	fuse := filepath.Join(out, "kernel/modules/7.4.0/kernel/fs/fuse/fuse.ko")
 	_ = os.MkdirAll(filepath.Dir(fuse), 0o755)
 	_ = os.WriteFile(fuse, []byte("\x7fELF"), 0o644)
-	if err := VerifyKernel(o); err != nil {
-		t.Errorf("a whole kernel, before the tree has a certificate: %v", err)
+	if err := VerifyKernel(o); err == nil || !strings.Contains(err.Error(), "module certificate") {
+		t.Errorf("a kernel in a tree with no certificate: %v", err)
 	}
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

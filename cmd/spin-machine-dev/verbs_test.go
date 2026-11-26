@@ -198,13 +198,14 @@ mkdir -p "$dest/bin" "$dest/e2fsprogs"; : > "$dest/e2fsprogs/mke2fs.conf"
 for b in mkfs.ext4 e2fsck dumpe2fs debugfs; do printf '#!/bin/sh\necho mke2fs ` + version + `\n' > "$dest/bin/$b"; chmod +x "$dest/bin/$b"; done`
 }
 
-// kernelDocker is a docker whose kernel build writes a vmlinux that verifies, and the config it
-// was built with: the release's with lockdown forced to none, and extra.
-func kernelDocker(extra string) string {
+// kernelDocker is a docker whose kernel build writes a vmlinux carrying cert, which verifies in a
+// tree with that certificate, and the config it was built with: the release's with lockdown forced
+// to none, and extra.
+func kernelDocker(cert []byte, extra string) string {
 	return `dest=""; for a; do case "$a" in type=local,dest=*) dest=${a#type=local,dest=};; esac; done
 [ -n "$dest" ] || exit 0
 mkdir -p "$dest/kernel"
-printf '` + printfEscaped(vmlinuxFixture()) + `' > "$dest/kernel/vmlinux"
+printf '` + printfEscaped(append(vmlinuxFixture(), cert...)) + `' > "$dest/kernel/vmlinux"
 mkdir -p "$dest/kernel/modules/7.4.0" && printf fuse > "$dest/kernel/modules/7.4.0/fuse.ko"
 printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"`
 }
@@ -232,7 +233,8 @@ func TestTheTraceableKernelIsTheReleaseKernelLessLockdown(t *testing.T) {
 	put(t, filepath.Join(dir, "kernel", "config-"+series+"-"+build.Arch),
 		"CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y\n# CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE is not set\nCONFIG_BPF_LSM=y\n", 0o644)
 	published := filepath.Join(dir, "_output/release", release.TraceableVmlinux("v1"))
-	calls := fakes(t, map[string]string{"docker": kernelDocker("")})
+	_, cert := moduleKey(t, dir)
+	calls := fakes(t, map[string]string{"docker": kernelDocker(cert, "")})
 	if _, stderr, status := verb(t, "release", "traceable-kernel", "--version", "v1"); status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
@@ -247,7 +249,7 @@ func TestTheTraceableKernelIsTheReleaseKernelLessLockdown(t *testing.T) {
 		t.Error("the release kernel was built")
 	}
 	_ = os.Remove(published)
-	fakes(t, map[string]string{"docker": kernelDocker(`CONFIG_KPROBES=y\n`)})
+	fakes(t, map[string]string{"docker": kernelDocker(cert, `CONFIG_KPROBES=y\n`)})
 	if _, stderr, status := verb(t, "release", "traceable-kernel", "--version", "v1", "--rebuild"); status != 2 || !strings.Contains(stderr, "CONFIG_KPROBES is n in the release kernel and y in the traceable one") {
 		t.Errorf("KPROBES beside lockdown: exit %d, %q", status, stderr)
 	}
@@ -646,13 +648,13 @@ func TestReleaseBuildsThenPacks(t *testing.T) {
 	}
 }
 
-// A release whose tree has no module certificate stops after the kernel: that kernel trusts no
-// key, and the modules it would ship load nowhere.
+// A release whose tree has no module certificate stops at the kernel: that kernel trusts no key,
+// and the modules it would ship load nowhere.
 func TestAReleaseWithoutTheModuleCertificateIsRefused(t *testing.T) {
 	dir := checkout(t)
 	put(t, filepath.Join(dir, "kernel/Dockerfile"), "FROM x", 0o644)
-	fakes(t, map[string]string{"docker": kernelDocker("")})
-	if _, stderr, status := verb(t, "release", "--version", "v1"); status != 2 || !strings.Contains(stderr, "spin-machine-dev certificate makes it") {
+	fakes(t, map[string]string{"docker": kernelDocker(nil, "")})
+	if _, stderr, status := verb(t, "release", "--version", "v1"); status != 2 || !strings.Contains(stderr, "reading the module certificate") {
 		t.Errorf("no certificate: exit %d, %q", status, stderr)
 	}
 }

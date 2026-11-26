@@ -40,6 +40,21 @@ func kernelFixture(t *testing.T, out string) {
 // asks KMS for nothing.
 func signedFixture(t *testing.T, dir, out string) {
 	t.Helper()
+	key, der := moduleKey(t, dir)
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(out, "kernel/vmlinux"), string(append(vmlinuxFixture(), der...)), 0o644)
+	if _, err := modsign.SignTree(filepath.Join(out, "kernel", "modules"), key, cert); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// moduleKey is a key made for the test, whose certificate it puts in the checkout at dir, and that
+// certificate's DER.
+func moduleKey(t *testing.T, dir string) (*rsa.PrivateKey, []byte) {
+	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -48,15 +63,8 @@ func signedFixture(t *testing.T, dir, out string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		t.Fatal(err)
-	}
 	put(t, filepath.Join(dir, build.ModuleCertificate), string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), 0o644)
-	put(t, filepath.Join(out, "kernel/vmlinux"), string(append(vmlinuxFixture(), der...)), 0o644)
-	if _, err := modsign.SignTree(filepath.Join(out, "kernel", "modules"), key, cert); err != nil {
-		t.Fatal(err)
-	}
+	return key, der
 }
 
 // vmlinuxFixture is a vmlinux that verify kernel takes for one that randomizes itself: both Xen
