@@ -216,11 +216,11 @@ type machineFlags struct {
 	held     bool
 	restore  bool
 
-	init              string
-	root              string
-	profile           bool
-	extra             string
-	lockdownIntegrity bool
+	init     string
+	root     string
+	profile  bool
+	extra    string
+	lockdown machine.Lockdown
 }
 
 func (o *machineFlags) register(fs *flag.FlagSet) {
@@ -252,8 +252,8 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.root, "root", "/dev/vda", "block device the kernel mounts as root; empty to stay on the initrd")
 	fs.BoolVar(&o.profile, "profile", false, "boot with initcall profiling: silent console, full ring buffer")
 	fs.StringVar(&o.extra, "append", "", "extra kernel command line arguments")
-	fs.BoolVar(&o.lockdownIntegrity, "lockdown-integrity", false,
-		"run the guest at lockdown integrity, for a BPF LSM enforcer that reads kernel memory, instead of confidentiality (no lockdown= on the command line)")
+	fs.TextVar(&o.lockdown, "lockdown", machine.LockdownConfidentiality,
+		"the guest's lockdown and keyrings: confidentiality, sealed; shirudo, integrity with the .bpf and .dm-verity keyrings unsealed for shirudo's init to enroll in; kernel, the level the kernel forces, sealed")
 }
 
 // spec turns the flags into a machine, filling in every path from the release
@@ -305,7 +305,7 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 
 	c := machine.DefaultCmdline()
 	c.Init = o.init
-	c.LockdownIntegrity = o.lockdownIntegrity
+	c.Lockdown = o.lockdown
 	if hasDisk {
 		c.Root = o.root
 		c.RootReadonly = o.disks.readonly

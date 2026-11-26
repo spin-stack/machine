@@ -95,7 +95,7 @@ jobs:
       # run boots the release's base image, so a change to it reaches nothing this checks.
       - name: Does the change reach the machine
         id: machine
-        run: spin-machine-dev changed --base "$BASE" --part qemu --part kernel machine cmd/spin-machine cmd/spin-machine-dev internal/build internal/lab/compat.go internal/lab/tree.go internal/lab/sources.go boot/harness_test.go boot/record_test.go boot/patches_test.go boot/events_test.go boot/verbs_test.go boot/cpuplug_test.go boot/lockdown_test.go boot/testdata/lockdown-check.sh boot/Taskfile.yml go.mod .github/workflows/compat.yml
+        run: spin-machine-dev changed --base "$BASE" --part qemu --part kernel machine cmd/spin-machine cmd/spin-machine-dev internal/build internal/lab/compat.go internal/lab/tree.go internal/lab/sources.go boot/harness_test.go boot/record_test.go boot/patches_test.go boot/events_test.go boot/verbs_test.go boot/cpuplug_test.go boot/lockdown_test.go boot/testdata/lockdown-check.sh boot/testdata/keyring-probe boot/Taskfile.yml go.mod .github/workflows/compat.yml
 
       - name: Does the change reach QEMU
         id: qemu
@@ -191,8 +191,8 @@ jobs:
       - name: A checkpoint of every release whose machine is this one resumes here
         run: spin-machine-dev lab compat --here "$SPIN_MACHINE_OUTPUT"
 
-      # The tree's kernel, booted: lockdown that root cannot lower, at confidentiality and at
-      # integrity for a machine that asks for it (#734), the BPF
+      # The tree's kernel, booted: lockdown that root cannot lower, at confidentiality with its
+      # keyrings sealed, at integrity with them open for a shirudo machine (#734, #741), the BPF
       # LSM, no /dev/mem or /proc/kcore, and _text at a random address. kernel/Dockerfile checks
       # the config; this checks the kernel that came out of it, entered the way this change
       # enters it. A change that does not reach the kernel boots the release's, checked when it

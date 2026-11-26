@@ -520,16 +520,23 @@ work across a rollback is spin's (spin-stack/spin#1483).
 this machine needs (`pci=lastbus=0`, `TERM=dumb` and the rest, each with its reason in
 `machine/cmdline.go`). A consumer sets the console, the root, init and `Extra`, and gets the rest.
 
-- **Lockdown.** The kernel forces integrity, the floor no command line goes below. The line raises
-  every guest to confidentiality with `lockdown=confidentiality`, the zero value's choice, so a
-  consumer that builds its own `Cmdline` gets it without asking. `LockdownIntegrity` leaves it out,
-  for a guest whose BPF LSM enforcer reads kernel memory (shirudo, #734), and spin-machine's
-  `--lockdown-integrity` sets it. What that trades is in kernel/README.md, "Lockdown and the BPF
-  LSM". `Args` refuses a `lockdown=` in `Extra`: the kernel keeps the higher of two levels, so one
-  there would silently undo the choice or claim a level the guest does not run.
+- **Lockdown.** `Cmdline.Lockdown` is one choice of the lockdown level and the `.bpf` and
+  `.dm-verity` keyrings together, spin-machine's `--lockdown`. The kernel forces integrity, the
+  floor no command line goes below, and seals each keyring empty at boot unless told not to.
+  `LockdownConfidentiality`, the zero value, puts `lockdown=confidentiality` on the line and leaves
+  the keyrings sealed, so a consumer that builds its own `Cmdline` gets it without asking.
+  `LockdownShirudo` is a machine that runs shirudo: integrity, for its programs read kernel memory
+  (#734), with `bpf.keyring_unsealed=1` and `dm_verity.keyring_unsealed=1`, for its init to enroll
+  its certificates in both keyrings and seal them (#741). Either half alone is a machine shirudo
+  cannot run on, and unsealed keyrings at confidentiality are open to root with nothing to seal
+  them, so neither can be asked for. `LockdownKernel` adds nothing, for the lab's traceable kernel,
+  which forces none. What each trades is in kernel/README.md, "Lockdown and the BPF LSM". `Args`
+  refuses a `lockdown=` or either keyring parameter in `Extra`: the kernel keeps the higher of two
+  levels and the last of two parameters, so one there would make the guest half of one choice.
 - **Not part of the record.** The guest reads its command line once, at boot. A checkpoint resumes
-  the guest it saved, at the level that guest booted at, whatever the line of the machine it
-  resumes into says, so the line cannot make a resume load wrongly and `Target` does not carry it.
+  the guest it saved, at the level and with the keyrings that guest booted with, whatever the line
+  of the machine it resumes into says, so the line cannot make a resume load wrongly and `Target`
+  does not carry it.
   Which level a resumed workspace runs is the guest's, and a consumer that changes a workspace's
   choice gets it at that workspace's next cold boot.
 

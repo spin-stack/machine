@@ -42,28 +42,95 @@ type Cmdline struct {
 	// Extra is appended verbatim, before init, so a caller can say something this
 	// machine has no opinion about. Each element is one or more parameters as the
 	// kernel reads them; a "--" among them is refused, because everything after one
-	// is init's and not the kernel's. So is a lockdown=, which LockdownIntegrity decides.
+	// is init's and not the kernel's. So is a parameter Lockdown decides.
 	Extra []string
 
-	// LockdownIntegrity runs the guest at lockdown integrity, for a guest whose BPF LSM
-	// enforcer reads kernel memory (shirudo, #734), and the zero value at confidentiality.
-	//
-	// The kernel forces integrity from its first instruction and no command line goes below it:
-	// lockdown only ever rises (security/lockdown/lockdown.c, lock_kernel_down). String raises it
-	// to confidentiality with lockdown=, and leaves that out for a machine with this set.
-	// Confidentiality is integrity and also no reading of the kernel's memory, and
-	// bpf_probe_read_kernel is such a read: a BPF program that calls it, as every BPF_CORE_READ
-	// does, fails to load (LOCKDOWN_BPF_READ_KERNEL). What the guest gives up is that root can
-	// read the kernel's memory through BPF and tracing until the enforcer starts refusing it
-	// (kernel/README.md, "Lockdown and the BPF LSM").
-	//
-	// The level is the booted guest's: a checkpoint resumes the guest it saved, at the level it
-	// booted at, whatever the command line of the machine it resumes into says, because the guest
-	// kernel read its command line once, at boot. So it is not part of the machine's record
-	// (Target): it cannot make a resume load wrongly, and only the guest can say what it runs.
-	//
-	// On the lab's traceable kernel, which forces none, leaving lockdown= out leaves it at none.
-	LockdownIntegrity bool
+	// Lockdown is what the guest's kernel enforces of lockdown and of the keyrings a signed BPF
+	// program or dm-verity root hash is checked against. The zero value runs at confidentiality
+	// with both keyrings sealed.
+	Lockdown Lockdown
+}
+
+// Lockdown is a guest's lockdown level and its keyrings, chosen together: a shirudo machine needs
+// integrity and both keyrings left unsealed for its init to enroll its certificates in, and either
+// half alone is a machine that cannot run it. Unsealed keyrings at confidentiality are worse than
+// useless: no enforcer can load to seal them, root can add keys to them, and an unsealed .bpf
+// keyring also has the verifier refuse a signed program its caller's own keyring
+// (kernel/bpf/verifier.c, bpf_keyring_enforced).
+//
+// The kernel forces integrity from its first instruction and no command line goes below it:
+// lockdown only ever rises (security/lockdown/lockdown.c, lock_kernel_down). Confidentiality is
+// integrity and also no reading of the kernel's memory, and bpf_probe_read_kernel is such a read: a
+// BPF program that calls it, as every BPF_CORE_READ does, fails to load
+// (LOCKDOWN_BPF_READ_KERNEL). Each keyring is sealed empty at boot unless its parameter says not to
+// (kernel/bpf/keys.c, drivers/md/dm-verity-verify-sig.c), and sealed it accepts no key ever.
+//
+// The choice is the booted guest's: a checkpoint resumes the guest it saved, with the lockdown and
+// keyrings it booted with, whatever the command line of the machine it resumes into says, because
+// the guest kernel read its command line once, at boot. So it is not part of the machine's record
+// (Target): it cannot make a resume load wrongly, and only the guest can say what it runs.
+type Lockdown int
+
+const (
+	// LockdownConfidentiality raises the guest to confidentiality and leaves both keyrings sealed:
+	// every machine that runs no enforcer reading kernel memory.
+	LockdownConfidentiality Lockdown = iota
+
+	// LockdownShirudo runs the guest at integrity, the kernel's floor, with the .bpf and .dm-verity
+	// keyrings left unsealed, which shirudo's init enrolls its certificates in and then seals (#741).
+	// What the guest gives up is that root can read the kernel's memory through BPF and tracing, and
+	// add keys to both keyrings, until the enforcer starts and seals them (kernel/README.md,
+	// "Lockdown and the BPF LSM").
+	LockdownShirudo
+
+	// LockdownKernel adds nothing: the guest runs at the level its kernel forces, keyrings sealed.
+	// That is integrity on a release's kernel, which no enforcer uses, and none on the lab's
+	// traceable kernel, whose trace confidentiality would take away; that kernel is what it is for.
+	LockdownKernel
+)
+
+// lockdowns is each Lockdown's name, as spin-machine's --lockdown reads it, and the parameters it
+// puts on the command line. validate refuses any of those parameters in Extra.
+var lockdowns = map[Lockdown]struct {
+	name   string
+	params []string
+}{
+	LockdownConfidentiality: {"confidentiality", []string{"lockdown=confidentiality"}},
+	LockdownShirudo:         {"shirudo", []string{"bpf.keyring_unsealed=1", "dm_verity.keyring_unsealed=1"}},
+	LockdownKernel:          {"kernel", nil},
+}
+
+func (l Lockdown) String() string { return lockdowns[l].name }
+
+// MarshalText and UnmarshalText make a Lockdown a flag's value by its name.
+func (l Lockdown) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
+
+func (l *Lockdown) UnmarshalText(b []byte) error {
+	var names []string
+	for v, d := range lockdowns {
+		if d.name == string(b) {
+			*l = v
+			return nil
+		}
+		names = append(names, d.name)
+	}
+	slices.Sort(names)
+	return fmt.Errorf("lockdown %q is none of %s", b, strings.Join(names, ", "))
+}
+
+// lockdownParam reports whether a command line field is a parameter some Lockdown decides. The
+// kernel reads a dash in a parameter's name as an underscore (kernel/params.c, parameqn).
+func lockdownParam(field string) bool {
+	name, _, _ := strings.Cut(field, "=")
+	name = strings.ReplaceAll(name, "-", "_")
+	for _, d := range lockdowns {
+		for _, p := range d.params {
+			if n, _, _ := strings.Cut(p, "="); n == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // DefaultCmdline is a production boot: a console on ttyS0 that only errors reach
@@ -236,9 +303,7 @@ func (c Cmdline) String() string {
 	// 687 ms to 19 ms.
 	parts = append(parts, "TERM=dumb")
 
-	if !c.LockdownIntegrity {
-		parts = append(parts, "lockdown=confidentiality")
-	}
+	parts = append(parts, lockdowns[c.Lockdown].params...)
 
 	parts = append(parts, c.Extra...)
 
@@ -257,6 +322,9 @@ const maxCmdline = 2048
 
 // validate refuses a command line the kernel would read as something else.
 func (c Cmdline) validate() error {
+	if _, ok := lockdowns[c.Lockdown]; !ok {
+		return fmt.Errorf("lockdown %d is none of this machine's", int(c.Lockdown))
+	}
 	for _, f := range []struct{ name, value string }{
 		{"console", c.Console}, {"init", c.Init}, {"root", c.Root},
 	} {
@@ -269,8 +337,8 @@ func (c Cmdline) validate() error {
 		if slices.Contains(fields, "--") {
 			return fmt.Errorf("extra parameter %q holds --, which would hand the rest of the line to init", e)
 		}
-		if slices.ContainsFunc(fields, func(f string) bool { return strings.HasPrefix(f, "lockdown=") }) {
-			return fmt.Errorf("extra parameter %q sets lockdown, which LockdownIntegrity decides: the kernel keeps the higher of two", e)
+		if slices.ContainsFunc(fields, lockdownParam) {
+			return fmt.Errorf("extra parameter %q sets what Lockdown decides, and a machine is one Lockdown or another", e)
 		}
 	}
 	if n := len(c.String()); n >= maxCmdline {

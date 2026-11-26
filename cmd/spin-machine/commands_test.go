@@ -147,7 +147,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	every.Cmdline = every.Cmdline.Profiling()
 	every.Cmdline.Extra = append(every.Cmdline.Extra, "a=1", "b")
 	every.Cmdline.Console = ""
-	every.Cmdline.LockdownIntegrity = true
+	every.Cmdline.Lockdown = machine.LockdownShirudo
 
 	emulated := defaults
 	emulated.Accel, emulated.QEMU = "tcg", filepath.Join(dir, "bin/qemu-system-x86_64-tcg")
@@ -167,7 +167,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 			"--accel", "tcg", "--memory", "1024", "--max-memory", "4096", "--cpu", "Skylake-Server-v4",
 			"--cpus", "3", "--max-cpus", "8", "--hotplug-disks", "2",
 			"--vsock-cid", "7", "--qmp", "/qmp", "--restore", "--console", "", "--init", "/bin/sh",
-			"--root", "/dev/vdb", "--profile", "--append", "a=1 b", "--lockdown-integrity"}, every},
+			"--root", "/dev/vdb", "--profile", "--append", "a=1 b", "--lockdown", "shirudo"}, every},
 		{"tcg runs the release's TCG build", []string{"--accel", "tcg"}, emulated},
 		{"no disk mounts no root", []string{"--disk", "-"}, noDisk},
 	} {
@@ -196,6 +196,12 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	}
 	if _, err := s.Args(); err == nil || !strings.Contains(err.Error(), "neither a bzImage") {
 		t.Errorf("a --kernel that is not a bzImage: %v", err)
+	}
+
+	// The keyrings come with the lockdown, so there is no flag that asks for integrity alone.
+	if err := parse("boot", []string{"--release", dir, "--lockdown", "integrity"}, o.register); err == nil ||
+		!strings.Contains(err.Error(), "none of confidentiality, kernel, shirudo") {
+		t.Errorf("a --lockdown that is no machine's: %v", err)
 	}
 }
 

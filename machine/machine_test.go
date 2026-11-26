@@ -302,8 +302,10 @@ func TestCmdline(t *testing.T) {
 	withRoot.Root = "/dev/vda"
 	noConsole := DefaultCmdline()
 	noConsole.Console = ""
-	integrity := DefaultCmdline()
-	integrity.LockdownIntegrity = true
+	shirudo := DefaultCmdline()
+	shirudo.Lockdown = LockdownShirudo
+	kernel := DefaultCmdline()
+	kernel.Lockdown = LockdownKernel
 
 	for _, tc := range []struct {
 		name   string
@@ -331,7 +333,8 @@ func TestCmdline(t *testing.T) {
 			"lockdown=confidentiality",
 		},
 		// No root named, no root= at all: an empty one would be a kernel looking for "".
-		absent: []string{"root="},
+		// Both keyrings sealed: nothing at confidentiality can enroll in them.
+		absent: []string{"root=", "keyring_unsealed"},
 	}, {
 		// A consumer that builds its own Cmdline and has never heard of lockdown gets
 		// confidentiality too.
@@ -339,11 +342,18 @@ func TestCmdline(t *testing.T) {
 		c:    Cmdline{},
 		want: []string{"lockdown=confidentiality"},
 	}, {
-		// An enforcer that reads kernel memory runs at the kernel's floor, which no command
-		// line can lower; a lockdown= of any value here would only raise it.
-		name:   "lockdown integrity",
-		c:      integrity,
+		// shirudo's programs read kernel memory, so it runs at the kernel's floor, which no command
+		// line can lower, and its init enrolls its certificates in both keyrings: sealed, they would
+		// be sealed empty.
+		name:   "shirudo",
+		c:      shirudo,
+		want:   []string{"bpf.keyring_unsealed=1", "dm_verity.keyring_unsealed=1"},
 		absent: []string{"lockdown="},
+	}, {
+		// The lab's traceable kernel stays at the none it forces, and nothing enrolls in its keyrings.
+		name:   "the kernel's own",
+		c:      kernel,
+		absent: []string{"lockdown=", "keyring_unsealed"},
 	}, {
 		name: "root",
 		c:    withRoot,
@@ -381,6 +391,25 @@ func TestCmdline(t *testing.T) {
 				t.Errorf("init must come last, with its args after --: %s", got)
 			}
 		})
+	}
+}
+
+// A Lockdown is named by what spin-machine's --lockdown reads, and a name that is none of them,
+// integrity alone among them, is refused rather than read as the zero value.
+func TestLockdownIsReadByName(t *testing.T) {
+	for _, l := range []Lockdown{LockdownConfidentiality, LockdownShirudo, LockdownKernel} {
+		b, err := l.MarshalText()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got Lockdown = -1
+		if err := got.UnmarshalText(b); err != nil || got != l {
+			t.Errorf("%q read back as %v, %v", b, got, err)
+		}
+	}
+	var l Lockdown
+	if err := l.UnmarshalText([]byte("integrity")); err == nil || !strings.Contains(err.Error(), "none of confidentiality, kernel, shirudo") {
+		t.Errorf("integrity alone: %v", err)
 	}
 }
 
@@ -459,13 +488,24 @@ func TestValidateRefuses(t *testing.T) {
 		// other than what the caller wrote.
 		{"a root device with a space", func(s *Spec) { s.Cmdline.Root = "/dev/vda quiet" }},
 		{"an extra parameter that ends the kernel's part", func(s *Spec) { s.Cmdline.Extra = []string{"quiet -- x"} }},
-		// The kernel keeps the higher of two lockdown levels, so the one in Extra would silently
-		// undo LockdownIntegrity, or claim a level the machine does not run.
-		{"an extra lockdown, raising an integrity machine", func(s *Spec) {
-			s.Cmdline.LockdownIntegrity = true
+		// The kernel keeps the higher of two lockdown levels and the last of two keyring parameters,
+		// so one in Extra would make the machine half of one Lockdown and half of another.
+		{"an extra lockdown, raising a shirudo machine", func(s *Spec) {
+			s.Cmdline.Lockdown = LockdownShirudo
 			s.Cmdline.Extra = []string{"quiet lockdown=confidentiality"}
 		}},
 		{"an extra lockdown, claiming a level below confidentiality", func(s *Spec) { s.Cmdline.Extra = []string{"lockdown=integrity"} }},
+		{"an extra keyring unsealed at confidentiality", func(s *Spec) { s.Cmdline.Extra = []string{"bpf.keyring_unsealed=1"} }},
+		{"an extra keyring sealed again on a shirudo machine", func(s *Spec) {
+			s.Cmdline.Lockdown = LockdownShirudo
+			s.Cmdline.Extra = []string{"dm_verity.keyring_unsealed=0"}
+		}},
+		// The kernel reads a dash in a parameter's name as an underscore.
+		{"an extra keyring unsealed with a dash", func(s *Spec) {
+			s.Cmdline.Lockdown = LockdownKernel
+			s.Cmdline.Extra = []string{"dm-verity.keyring_unsealed"}
+		}},
+		{"a Lockdown that is none of the machine's", func(s *Spec) { s.Cmdline.Lockdown = LockdownKernel + 1 }},
 		{"a command line the kernel would truncate", func(s *Spec) {
 			s.Cmdline.Extra = []string{strings.Repeat("x", maxCmdline)}
 		}},

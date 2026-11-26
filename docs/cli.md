@@ -214,9 +214,10 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
   `--kernel` also takes the path of either.
 - `--kernel traceable:TAG`: the lab-only kernel published beside release TAG, its kernel with
   lockdown forced to none, once its signature is release.yml's (kernel/README.md). Releases from
-  before #536 have none. Its boots pass `--lockdown-integrity` when the tree's spin-machine would
-  put `lockdown=confidentiality` on the line (#734), which leaves the kernel at none, and the tree
-  is refused if its spin-machine's command line would carry a `lockdown=` anyway.
+  before #536 have none. Its boots pass `--lockdown=kernel` when the tree's spin-machine would
+  put `lockdown=confidentiality` on the line (#734), which leaves the kernel at none and its
+  keyrings sealed, and the tree is refused if its spin-machine's command line would carry a
+  `lockdown=` anyway.
 - `--qemu run:N`, or a directory with `bin/` and `qemu/`.
 - `--spin-machine here`: built from this checkout.
 - `--spin-machine release`: built from the commit the release's `machine.env` names, fetched by

@@ -4,7 +4,7 @@ set -eu
 trap 'echo LOCKDOWN_CHECK_FAILED' EXIT
 
 # The LSMs the kernel runs, in its own words, and the lockdown level it enforces: the brackets
-# mark the one in force. LOCKDOWN is the level the machine asked for (lockdown_test.go).
+# mark the one in force. LOCKDOWN is the machine's Lockdown (lockdown_test.go).
 echo "lsm: $(cat /sys/kernel/security/lsm)"
 echo "lockdown: $(cat /sys/kernel/security/lockdown)"
 # capability is always there, whatever CONFIG_LSM says: the kernel puts it first among the rest.
@@ -21,20 +21,32 @@ case "$forced" in
 integrity | confidentiality) ;;
 *) echo "the kernel forces '$forced', below integrity"; exit 1 ;;
 esac
+# What the machine asked for (machine.Lockdown): the level, and the .bpf and .dm-verity keyrings
+# sealed, or left open for shirudo's init to enroll its certificates in.
 case "$LOCKDOWN" in
-confidentiality)
-    grep -qw 'lockdown=confidentiality' /proc/cmdline
-    want=confidentiality
-    ;;
-integrity)
-    if grep -q 'lockdown=' /proc/cmdline; then
-        echo "a machine at integrity asked for a level: $(cat /proc/cmdline)"
-        exit 1
-    fi
-    want=$forced
-    ;;
-*) echo "LOCKDOWN is confidentiality or integrity, not '$LOCKDOWN'"; exit 1 ;;
+confidentiality) asked=lockdown=confidentiality want=confidentiality keyrings=sealed ;;
+shirudo) asked='bpf.keyring_unsealed=1 dm_verity.keyring_unsealed=1' want=$forced keyrings=open ;;
+kernel) asked='' want=$forced keyrings=sealed ;;
+*) echo "LOCKDOWN is confidentiality, shirudo or kernel, not '$LOCKDOWN'"; exit 1 ;;
 esac
+echo "cmdline: $(cat /proc/cmdline)"
+said=$(grep -oE '(lockdown|bpf\.keyring_unsealed|dm_verity\.keyring_unsealed)=[a-z0-9]*' /proc/cmdline | tr '\n' ' ' || true)
+if [ "${said% }" != "$asked" ]; then
+    echo "a $LOCKDOWN machine asked for '${said% }', not '$asked'"
+    exit 1
+fi
+
+# Whether each keyring takes a key, which keyring-probe asks by adding one. A kernel before 7.4 has
+# neither, and compat boots the newest release's kernel, which until a release carries 7.4 is one
+# of those (#738 drops this case then).
+probed=$(/keyring-probe)
+echo "keyrings: $(echo "$probed" | tr '\n' ' ')"
+if [ "$probed" != "$(printf '.bpf %s\n.dm-verity %s' "$keyrings" "$keyrings")" ]; then
+    case "$(uname -r)" in
+    [0-6].* | 7.[0-3].*) test "$probed" = "$(printf '.bpf unknown\n.dm-verity unknown')" ;;
+    *) echo "a $LOCKDOWN machine's keyrings are not $keyrings"; exit 1 ;;
+    esac
+fi
 grep -q "\[$want\]" /sys/kernel/security/lockdown
 
 # Root cannot read the kernel's memory, nor lower the level.
