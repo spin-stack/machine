@@ -261,6 +261,16 @@ RUN <<EOT
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} not enabled (no TPM in the guest)!"; exit 1; }
     done
 
+    # shirudo's "Kernel configuration" table (Documentation/operate/plan/system-requirements.rst),
+    # less the TPM above: without any one, shirudo init refuses the guest or its images do not map.
+    for opt in BPF BPF_SYSCALL BPF_JIT BPF_LSM BPF_EVENTS PERF_EVENTS KPROBE_EVENTS SECURITY SECURITYFS \
+            FUNCTION_TRACER DYNAMIC_FTRACE DYNAMIC_FTRACE_WITH_DIRECT_CALLS DEBUG_INFO_BTF KEYS \
+            ASYMMETRIC_KEY_TYPE ASYMMETRIC_PUBLIC_KEY_SUBTYPE X509_CERTIFICATE_PARSER PKCS7_MESSAGE_PARSER \
+            SYSTEM_DATA_VERIFICATION CRYPTO_MLDSA CRYPTO_SHA256 CRYPTO_SHA512 BLK_DEV_DM DM_VERITY \
+            DM_VERITY_VERIFY_ROOTHASH_SIG BLK_DEV_LOOP EXT4_FS EXT4_FS_SECURITY TMPFS TMPFS_XATTR; do
+        grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} not enabled (shirudo cannot run in the guest)!"; exit 1; }
+    done
+
     for opt in BOOTPARAM_HUNG_TASK_PANIC BOOTPARAM_SOFTLOCKUP_PANIC; do
         ! grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} would turn a report into a panic!"; exit 1; }
     done
