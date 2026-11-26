@@ -216,6 +216,29 @@ withholds `bpf_probe_read_kernel`, which shirudo's programs call. Still missing 
 a TPM in the machine (#719), and with it a booted shirudo, whose `shirudo init --check-only` says
 whether its programs load at integrity as the source reading predicts.
 
+Booting shirudo on this kernel found four more that its flow needs beyond that table (#740), and
+`kernel/Dockerfile` checks them too. `CONFIG_RD_ZSTD`: dracut's default initrd is zstd, and without
+it the kernel cannot unpack it and boots the root without shirudo's initrd. `CONFIG_FPROBE`: the
+`kprobe.multi` and `kretprobe.multi` upatches attach through it, and fail with `EOPNOTSUPP`
+without it. `CONFIG_FUNCTION_ERROR_INJECTION`: `fmod_ret` on the functions marked
+`ALLOW_ERROR_INJECTION`, rather than only on syscalls and `security_*`. And
+`CONFIG_BLK_DEV_WRITE_MOUNTED` off, from shirudo's hardening checklist: its seal acts on file
+operations, and a write to the block device under `/var/lib/shirudo` goes around it; the kernel
+now refuses opening a mounted filesystem's device for writing. olddefconfig's new prompts stay off:
+`CONFIG_FPROBE_EVENTS`, tracefs' fprobe events, which shirudo does not use, and
+`CONFIG_BPF_KPROBE_OVERRIDE`, `bpf_override_return()` from a kprobe program, which shirudo's
+table lists as optional and no flow here has needed.
+
+Lockdown governs none of the BPF use these give, at either level, and they give root nothing the
+kernel already gave it. A kprobe.multi program reads the registers at a function's entry or
+return; an `fentry` program, there already, reads the same arguments and the kernel structures
+they point to, and at confidentiality the kernel refuses neither (only the helper
+`bpf_probe_read_kernel`, `LOCKDOWN_BPF_READ_KERNEL`). fprobe-based tracefs events would be refused
+at confidentiality (`LOCKDOWN_KPROBES`), and they are not built. `fmod_ret` skips a function and
+chooses its return; root could already do it on every syscall and every `security_*` hook, and
+error injection moves the set to the functions the kernel marks safe to fail plus `security_*`.
+The debugfs `fail_function` needs `CONFIG_FAULT_INJECTION`, which is off.
+
 ## Changing it
 
 `kernel/patches` holds the changes this tree makes to the kernel's source, applied in name
