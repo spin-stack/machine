@@ -22,7 +22,7 @@ type logged struct {
 	data     string
 }
 
-var sizes = map[tpm2.TPMAlgID]int{tpm2.TPMAlgSHA1: 20, tpm2.TPMAlgSHA256: 32, tpm2.TPMAlgSHA384: 48, tpm2.TPMAlgSHA512: 64}
+var sizes = map[tpm2.TPMAlgID]int{tpm2.TPMAlgSM3256: 32, tpm2.TPMAlgSHA1: 20, tpm2.TPMAlgSHA256: 32, tpm2.TPMAlgSHA384: 48, tpm2.TPMAlgSHA512: 64}
 
 func digestFor(alg tpm2.TPMAlgID, d [32]byte) []byte {
 	out := make([]byte, sizes[alg])
@@ -33,6 +33,11 @@ func digestFor(alg tpm2.TPMAlgID, d [32]byte) []byte {
 // firmwareLog is the log qboot writes of events over banks: a Spec ID Event03, then each event with
 // a digest for every bank.
 func firmwareLog(banks []tpm2.TPMAlgID, events []logged) []byte {
+	return logOf(banks, banks, events)
+}
+
+// logOf is a log whose Spec ID event names banks and whose events have digests of digested.
+func logOf(banks, digested []tpm2.TPMAlgID, events []logged) []byte {
 	le := binary.LittleEndian
 	spec := append([]byte("Spec ID Event03\x00"), 0, 0, 0, 0, 0, 2, 2, 2)
 	spec = le.AppendUint32(spec, uint32(len(banks)))
@@ -49,8 +54,8 @@ func firmwareLog(banks []tpm2.TPMAlgID, events []logged) []byte {
 	for _, e := range events {
 		b = le.AppendUint32(b, e.pcr)
 		b = le.AppendUint32(b, e.typ)
-		b = le.AppendUint32(b, uint32(len(banks)))
-		for _, alg := range banks {
+		b = le.AppendUint32(b, uint32(len(digested)))
+		for _, alg := range digested {
 			b = le.AppendUint16(b, uint16(alg))
 			b = append(b, digestFor(alg, e.sha256)...)
 		}
@@ -142,25 +147,16 @@ func TestTpmcheckLogHoldsTheLogToThePCRs(t *testing.T) {
 	}{
 		{"no log", nil, "EV_NO_ACTION"},
 		{"another first event", append([]byte{0, 0, 0, 0, 3, 0, 0, 0}, make([]byte, 60)...), "Spec ID Event03"},
-		{"cut inside an event", log[:len(log)-64-10], "inside an event"},
-		{"an event of fewer banks", firmwareLogOfFewerDigests(banks, events[0]), "digests"},
+		{"cut inside an event's data", log[:len(log)-64-10], "event 2: the log ends inside it"},
+		{"cut inside a digest", log[:len(log)-64-len(events[2].data)-4-10], "event 2: the log ends inside it"},
+		{"cut after an event's digest count", log[:len(log)-64-len(events[2].data)-4-len(banks)*2-10], "event 2: the log ends inside it"},
+		{"an event of fewer banks", logOf(banks, banks[:1], events), "event 0: 1 digests"},
+		{"a digest of a bank the log does not name", logOf(banks, append([]tpm2.TPMAlgID{tpm2.TPMAlgSM3256}, banks[1:]...), events), "algorithm 0x12"},
 	} {
 		if _, err := checkLog(tpm, tc.log); err == nil || !strings.Contains(err.Error(), tc.says) {
 			t.Errorf("%s: %v, want an error saying %q", tc.name, err, tc.says)
 		}
 	}
-}
-
-// firmwareLogOfFewerDigests is a log whose one event has a digest for the first bank alone.
-func firmwareLogOfFewerDigests(banks []tpm2.TPMAlgID, e logged) []byte {
-	b := firmwareLog(banks, nil)
-	b = b[:len(b)-64]
-	le := binary.LittleEndian
-	b = le.AppendUint32(b, e.pcr)
-	b = le.AppendUint32(b, e.typ)
-	b = le.AppendUint32(b, 1)
-	b = le.AppendUint16(b, uint16(banks[0]))
-	return append(b, digestFor(banks[0], e.sha256)...)
 }
 
 // Every bank replays with its own hash: SHA-384's PCR is SHA-384 of the PCR and the digest.
