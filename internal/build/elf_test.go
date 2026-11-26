@@ -5,6 +5,9 @@ package build
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,16 +16,43 @@ import (
 	"github.com/spin-stack/go-tools/versions"
 
 	"github.com/spin-stack/machine/internal/elftest"
+	"github.com/spin-stack/machine/internal/modsign"
 )
 
-// A whole kernel is a vmlinux that randomizes itself.
+// A whole kernel is a vmlinux that randomizes itself with its modules beside it, and carries the
+// module certificate when the tree has one. Without its modules, or without the certificate, it is
+// refused: the image would have nothing to install, or the kernel would load none of them.
 func TestAWholeKernelVerifies(t *testing.T) {
-	out := t.TempDir()
+	root, out := t.TempDir(), t.TempDir()
 	v := elftest.Kernel([]uint32{18, 19}, []byte{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0x10, 0, 0, 0})
 	_ = os.MkdirAll(filepath.Join(out, "kernel"), 0o755)
 	_ = os.WriteFile(filepath.Join(out, "kernel/vmlinux"), v, 0o644)
-	if err := VerifyKernel(Options{Out: out}); err != nil {
-		t.Errorf("a whole kernel: %v", err)
+	o := Options{Root: root, Out: out}
+	if err := VerifyKernel(o); err == nil || !strings.Contains(err.Error(), "modules") {
+		t.Errorf("a kernel without its modules: %v", err)
+	}
+	fuse := filepath.Join(out, "kernel/modules/7.4.0/kernel/fs/fuse/fuse.ko")
+	_ = os.MkdirAll(filepath.Dir(fuse), 0o755)
+	_ = os.WriteFile(fuse, []byte("\x7fELF"), 0o644)
+	if err := VerifyKernel(o); err != nil {
+		t.Errorf("a whole kernel, before the tree has a certificate: %v", err)
+	}
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := modsign.Certificate(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.MkdirAll(filepath.Join(root, "kernel"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, ModuleCertificate), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert}), 0o644)
+	if err := VerifyKernel(o); err == nil || !strings.Contains(err.Error(), "does not carry") {
+		t.Errorf("a kernel without the tree's certificate: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(out, "kernel/vmlinux"), append(v, cert...), 0o644)
+	if err := VerifyKernel(o); err != nil {
+		t.Errorf("a whole kernel carrying the certificate: %v", err)
 	}
 }
 

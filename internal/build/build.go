@@ -40,6 +40,10 @@ const Arch = "x86_64"
 // release that needs them (10.36 GB of 10 on 2026-11-12).
 const CacheRegistry = "ghcr.io/spin-stack/spin-machine/cache"
 
+// modulesDir is where the kernel's modules land under Out, /lib/modules as the image installs it:
+// one directory, the kernel's release, with the modules and depmod's files.
+const modulesDir = "kernel/modules"
+
 // imageBuilder is the container that builds the base image, tagged here for the run that follows.
 const imageBuilder = "spin-machine/image-builder:dev"
 
@@ -94,9 +98,9 @@ var Parts = []Part{
 		make: makeDebs, check: verifyDebs("systemd")},
 	{Name: "openssh", Paths: []string{"image/openssh"}, Pins: strings.Fields("ubuntu openssh-source"),
 		make: makeDebs, check: verifyDebs("openssh")},
-	// The image is made with the e2fsprogs above and installs the systemd and OpenSSH above, and
-	// the pressure probe's guest half, compiled from this tree.
-	{Name: "image", Needs: []string{"e2fsprogs", "systemd", "openssh"}, Paths: []string{"image", "cmd/spin-machine-pressure", "internal/pressure", "go.mod", "go.sum"},
+	// The image is made with the e2fsprogs above and installs the systemd and OpenSSH above, the
+	// kernel's modules, and the pressure probe's guest half, compiled from this tree.
+	{Name: "image", Needs: []string{"kernel", "e2fsprogs", "systemd", "openssh"}, Paths: []string{"image", "cmd/spin-machine-pressure", "internal/pressure", "go.mod", "go.sum"},
 		Pins: strings.Fields("ubuntu mkosi task git-lfs buildkit docker-ce docker-ce-cli docker-ce-rootless-extras containerd-io docker-buildx-plugin docker-compose-plugin"), make: makeImage, check: verifyImage},
 }
 
@@ -282,6 +286,15 @@ func inputs(o Options, p Part) (string, error) {
 			return "", fmt.Errorf("%s is made with %s, which has no manifest in %s", p.Name, n, o.Out)
 		}
 		extra = append(extra, n+"="+m.Inputs)
+	}
+	// The modules an image installs are what release signed them to, not only what the kernel was
+	// built from: an image made before they were signed holds modules that load nowhere.
+	if slices.Contains(p.Needs, "kernel") {
+		modules, err := Digest(o.Out, nil, []string{modulesDir})
+		if err != nil {
+			return "", err
+		}
+		extra = append(extra, "modules="+modules)
 	}
 	return Digest(o.Root, args, p.Paths, extra...)
 }
@@ -511,6 +524,7 @@ func makeImage(ctx context.Context, o Options, p Part) error {
 		"--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined", "--cap-add", "SYS_ADMIN",
 		"-v", o.Out+":/out", "-v", cache+":/cache",
 		"-v", filepath.Join(o.Out, "systemd")+":/debs/systemd:ro", "-v", filepath.Join(o.Out, "openssh")+":/debs/openssh:ro",
+		"-v", filepath.Join(o.Out, modulesDir)+":/modules:ro",
 		imageBuilder)
 }
 

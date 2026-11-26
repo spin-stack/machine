@@ -205,6 +205,7 @@ func kernelDocker(extra string) string {
 [ -n "$dest" ] || exit 0
 mkdir -p "$dest/kernel"
 printf '` + printfEscaped(vmlinuxFixture()) + `' > "$dest/kernel/vmlinux"
+mkdir -p "$dest/kernel/modules/7.4.0" && printf fuse > "$dest/kernel/modules/7.4.0/fuse.ko"
 printf '# CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY is not set\nCONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y\nCONFIG_BPF_LSM=y\n` + extra + `' > "$dest/kernel/kernel-config"`
 }
 
@@ -634,12 +635,24 @@ func TestOutsideARepositoryAPackIsDevAndItsClockTheEpoch(t *testing.T) {
 	}
 }
 
+// A release builds the kernel first, whose modules it signs before the image installs them.
 func TestReleaseBuildsThenPacks(t *testing.T) {
 	dir := checkout(t)
-	put(t, filepath.Join(dir, "qemu/Dockerfile"), "FROM x", 0o644)
+	put(t, filepath.Join(dir, "kernel/Dockerfile"), "FROM x", 0o644)
 	fakes(t, map[string]string{"docker": "exit 1"})
-	if _, stderr, status := verb(t, "release", "--version", "v1"); status != 2 || !strings.Contains(stderr, "building qemu") {
+	if _, stderr, status := verb(t, "release", "--version", "v1"); status != 2 || !strings.Contains(stderr, "building kernel") {
 		t.Errorf("a release whose build fails: exit %d, %q", status, stderr)
+	}
+}
+
+// A release whose tree has no module certificate stops after the kernel: that kernel trusts no
+// key, and the modules it would ship load nowhere.
+func TestAReleaseWithoutTheModuleCertificateIsRefused(t *testing.T) {
+	dir := checkout(t)
+	put(t, filepath.Join(dir, "kernel/Dockerfile"), "FROM x", 0o644)
+	fakes(t, map[string]string{"docker": kernelDocker("")})
+	if _, stderr, status := verb(t, "release", "--version", "v1"); status != 2 || !strings.Contains(stderr, "spin-machine-dev certificate makes it") {
+		t.Errorf("no certificate: exit %d, %q", status, stderr)
 	}
 }
 

@@ -200,9 +200,10 @@ wall-clock date made two builds of one commit two different systemd binaries and
 
 `build.sh` turns the tree into a partitionless ext4 wrapped in a read-only qcow2.
 
-- **ext4 and not something denser.** The guest kernel has `EXT4_FS` and `OVERLAY_FS` and explicitly
-  not `XFS_FS`, `BTRFS_FS`, `SQUASHFS` or `EROFS_FS` (`kernel/config-7.4-x86_64`). Another
-  filesystem starts with a kernel config change.
+- **ext4 and not something denser.** The guest kernel builds in `EXT4_FS` and `OVERLAY_FS`, and
+  not `XFS_FS` or `BTRFS_FS` (`kernel/config-7.4-x86_64`). `SQUASHFS` and `EROFS_FS` are modules
+  ("Kernel modules"), which a root filesystem cannot be. Another root filesystem starts with a
+  kernel config change.
 - **`SOURCE_DATE_EPOCH=0`** normalises timestamps, so the build's wall clock is not in every file,
   and the build's own logs and caches are removed ("Files removed"), so it is in none. Two builds
   of one commit against the same archive make the same image. The userland comes from a live
@@ -270,6 +271,24 @@ wall-clock date made two builds of one commit two different systemd binaries and
   fail (`Failed to get "write" lock`), which is the right refusal for the wrong reason: a base is
   never edited, because writing into it invalidates every overlay, silently. A rename replaces the
   directory entry and leaves the old inode, so a running VM keeps the image it booted from.
+
+### Kernel modules
+
+The kernel builds in what a workspace boots with and has a few modules for what it may load
+later: wireguard, fuse, squashfs and erofs, and the crypto library wireguard brings
+(#736). It loads a module only when spin-stack signed it: `MODULE_SIG_FORCE`, against the one
+certificate it builds in (kernel/README.md, "Modules"). `build.sh` copies the kernel build's
+`/lib/modules/<release>`, the modules and depmod's files, into `/usr/lib/modules`, and reads back
+`modules.dep`, `modules.alias.bin`, `modules.devname` and `fuse.ko` from the finished filesystem.
+A release signs the modules before the image is built (`spin-machine-dev release`), and a pull
+request's or a laptop's image holds them unsigned, which no kernel loads.
+
+Nothing loads at boot. A module loads when its feature is first asked for, through `kmod`, which
+the image has from Ubuntu: a mount of squashfs or erofs, `ip link add type wireguard`, or an open
+of `/dev/fuse`. That node is there before fuse is loaded because depmod's `modules.devname` names
+it: `kmod-static-nodes.service` writes it as a tmpfiles rule, and a drop-in creates it
+(`kmod-static-nodes.service.d/10-create.conf`, "Units masked"), since the two
+`systemd-tmpfiles-setup-dev` services that would are masked.
 
 ### What build.sh checks, and why
 
@@ -453,12 +472,12 @@ was not separated. Each is also something this machine has no use for, which the
 |---|---|---|---|
 | `systemd-journal-flush.service` | removed | The journal is volatile (see journald below), so there is nothing to flush to. | Nothing beyond the volatile journal. |
 | `systemd-fsck-root.service` | removed | The root is a fresh qcow2 overlay over a base checked at build time. ext4's journal still replays at mount. | No `fsck` of the root at boot after an unclean shutdown; journal recovery still runs. |
-| `systemd-modules-load.service`, `modprobe@configfs.service`, `modprobe@drm.service`, `modprobe@fuse.service`, `modprobe@efi_pstore.service` | removed | The kernel has `CONFIG_MODULES` off. What it has is built in, so these can only fail. | Nothing: configfs and FUSE are built in. |
+| `systemd-modules-load.service`, `modprobe@configfs.service`, `modprobe@drm.service`, `modprobe@fuse.service`, `modprobe@efi_pstore.service` | removed | configfs is built in and the kernel has no drm or efi_pstore. fuse is a module that loads when `/dev/fuse` is first opened ("Kernel modules"), not at every boot. Nothing names a module to load at boot. | Nothing: FUSE loads when it is used. |
 | `systemd-hibernate-clear.service` | removed | No hibernation in a VM. | Nothing. |
 | `systemd-pstore.service` | removed | No pstore backend: no EFI, and `efi_pstore` is not built. | Nothing. |
 | `systemd-random-seed.service` | identity | Under "Identity". | Nothing. |
 | `sys-kernel-debug.mount`, `sys-kernel-tracing.mount` | removed | Not mounted at boot. | debugfs and tracefs are not mounted. debugfs mounts by hand (`mount -t debugfs nodev /sys/kernel/debug`). tracefs cannot be used: the kernel runs `lockdown=confidentiality`, which keeps every file out of it, so `/sys/kernel/tracing` has no `trace` whether or not the unit is masked or tracefs is mounted. `boot:workspace` checks both (lab 45036254377). |
-| `systemd-tmpfiles-setup-dev.service`, `systemd-tmpfiles-setup-dev-early.service` | removed | They create static device nodes for modules not yet loaded. With no modules, devtmpfs and udev already made every node. | Nothing. |
+| `systemd-tmpfiles-setup-dev.service`, `systemd-tmpfiles-setup-dev-early.service` | removed | They create static device nodes for modules not yet loaded, and every tmpfiles rule under `/dev`. The one module with a node, fuse, gets it from `kmod-static-nodes.service`'s drop-in, which creates only what depmod's `modules.devname` names ("Kernel modules"). | Nothing. |
 | `dev-hugepages.mount` | removed | No huge pages are configured. | No `/dev/hugepages`; a program that wants it mounts hugetlbfs by hand. |
 | `dev-mqueue.mount` | removed | The kernel has POSIX message queues and the syscalls work without the mount. | No `/dev/mqueue` to list queues in. |
 | `systemd-timedated.service` | configuration | Time is the host's. timedated would let a session set a clock it does not own. It is bus-activated, never part of the boot, so the mask costs and saves no boot time. | function | `timedatectl` fails ("Unit dbus-org.freedesktop.timedate1.service is masked"). A restored guest's clock is stepped by spin (spin-stack/spin#1498). |
@@ -530,6 +549,7 @@ and `basic.target`; each of these drop-ins keeps `Conflicts=shutdown.target` and
 | Deviation | Category | Why | Evidence | A workspace gives up |
 |---|---|---|---|---|
 | `containerd.socket`, `sockets.target.wants/containerd.socket`; `multi-user.target.wants/docker.service` and `multi-user.target.wants/containerd.service` removed | deferred | dockerd and containerd start at the first connection to their socket, not at boot: when a workspace first runs `docker` (or anything that dials `/run/docker.sock` or containerd's socket), never before, and never if it does not. A checkpoint taken before that holds neither daemon. | measured: +13.9 [+11.4, +18.2] cold, +55.7 [+12.0, +73.9] restored, +40.7 [+33.5, +59.0] restored into prestarted (lab 45034963004) | Deferred: the first `docker` command waits for dockerd and containerd to start, 0.47 s from the command to `docker info` answering on two vCPUs (`boot:workspace`, lab 45036254377; one vCPU not timed). Later commands do not wait. docker is started by Docker's own `docker.socket`, 0660 and group docker, which `spin` is in. The image's own unit (0666, group root, since the first commit with no recorded reason) let any local uid reach a daemon that is root on the guest, and was deleted (#509): first login +1.7 [−5.3, +10.0], restored +0.4 [−0.6, +1.3] evicted, within noise (bench, spin's shape and login, 20 a side, labs 45111147182, 45111147449). |
+| `kmod-static-nodes.service.d/10-create.conf`, and `/usr/lib/modules/<release>` | added | The kernel's modules and depmod's files, signed by a release, and the static nodes `modules.devname` names created at boot, which the masked `systemd-tmpfiles-setup-dev` services would have done: `/dev/fuse` is there before fuse loads, and opening it loads fuse ("Kernel modules", #736). | to be measured: lab run in #736's pull request | Nothing. A module spin-stack did not sign does not load, as no module did before. |
 | `/etc/docker/daemon.json` | configuration | Container logs rotate at 10 MB, 3 files, so a long-running container does not fill the overlay; default address pools of /24s. | function | Nothing. |
 | `/etc/apt/sources.list.d/docker.sources`, `/etc/apt/keyrings/docker.asc` | added | Docker's repository, so `apt upgrade` updates docker in a workspace. The key is a file in `rootfs/` (fingerprint `9DC858229FC7DD38854AE2D88D81803C0EBFCD88`, no expiry), not fetched at build: the build installs the pinned packages by their SHA-256 and never reads Docker's repository. | function | Nothing. |
 | `/etc/apt/sources.list.d/resolute.sources` | added | mkosi writes the archive's sources: the release, `-updates` and `-security`, with `deb-src`. Ubuntu's installer writes `ubuntu.sources` with the same pockets. | function | Nothing. |

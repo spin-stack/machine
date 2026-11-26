@@ -25,7 +25,7 @@ const shirudoNote = "from shirudo's testing/kernel/patches"
 // shirudoDeclined is each patch of shirudo's not carried here, by Subject, and why. An upstream
 // patch neither carried nor here fails `bump shirudo` until it is one or the other.
 var shirudoDeclined = map[string]string{
-	"kbuild: drop a .0 sublevel and the -rc suffix from the kernel release": "it names shirudo's nodes' packages and module directory; this kernel has no modules and no packages, and its release keeps the sublevel its tarball names (7.4.0-rc4), which libbpf's get_kernel_version reads as three numbers",
+	"kbuild: drop a .0 sublevel and the -rc suffix from the kernel release": "it names shirudo's nodes' packages and module directory; this kernel has no packages, its modules are in the image's /lib/modules under the release it reports, and that release keeps the sublevel its tarball names (7.4.0-rc4), which libbpf's get_kernel_version reads as three numbers",
 	"riscv: build without LLVM's GlobalMerge pass":                          "riscv only; this machine is x86-64",
 }
 

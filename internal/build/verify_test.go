@@ -5,6 +5,9 @@ package build
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/pem"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/spin-stack/go-tools/versions"
 
+	"github.com/spin-stack/machine/internal/modsign"
 	"github.com/spin-stack/machine/machine"
 )
 
@@ -492,5 +496,41 @@ func TestTheTraceableConfigIsTheReleasesLessLockdown(t *testing.T) {
 	}
 	if err := TraceableConfig(filepath.Join(dir, "none"), release); err == nil || !strings.Contains(err.Error(), "reading the kernel config") {
 		t.Errorf("a config not there: %v", err)
+	}
+}
+
+// A module certificate that is not one is refused by name, whatever the kernel carries, and so is
+// a kernel that is not there to look in.
+func TestAModuleCertificateThatIsNotOneIsRefused(t *testing.T) {
+	root := t.TempDir()
+	cert := filepath.Join(root, ModuleCertificate)
+	if err := os.MkdirAll(filepath.Dir(cert), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"not PEM":                     "a certificate\n",
+		"PEM that is not a cert":      "-----BEGIN CERTIFICATE-----\nZ2FyYmFnZQ==\n-----END CERTIFICATE-----\n",
+		"PEM of another kind of data": "-----BEGIN PRIVATE KEY-----\nZ2FyYmFnZQ==\n-----END PRIVATE KEY-----\n",
+	} {
+		if err := os.WriteFile(cert, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := TrustsModuleCertificate(root, filepath.Join(root, "vmlinux")); err == nil || !strings.Contains(err.Error(), ModuleCertificate) {
+			t.Errorf("a certificate that is %s: %v", name, err)
+		}
+	}
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := modsign.Certificate(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cert, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := TrustsModuleCertificate(root, filepath.Join(root, "absent")); err == nil || !strings.Contains(err.Error(), "absent") {
+		t.Errorf("a kernel that is not there: %v", err)
 	}
 }

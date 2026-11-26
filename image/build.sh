@@ -32,6 +32,13 @@ test -d "$tree" || { echo "ERROR: mkosi produced no tree at $tree" >&2; exit 1; 
 
 install -D -m 0755 /out/guest/spin-machine-pressure "$tree/usr/libexec/spin-machine-pressure"
 
+# docs/image.md, "Kernel modules"
+release=$(ls /modules)
+test "$(echo "$release" | wc -w)" = 1 && test -s "/modules/$release/modules.dep" || {
+    echo "ERROR: /modules holds '$release', not one kernel release's modules - spin-machine-dev build kernel" >&2; exit 1; }
+mkdir -p "$tree/usr/lib/modules"
+cp -a "/modules/$release" "$tree/usr/lib/modules/"
+
 # docs/image.md, "What build.sh checks, and why"
 : > "$tree/etc/machine-id"
 rm -f "$tree/var/lib/dbus/machine-id"
@@ -397,6 +404,19 @@ for f in /etc/pam.d/sshd /etc/pam.d/login; do
         exit 1
     fi
 done
+
+# docs/image.md, "Kernel modules"
+for f in modules.dep modules.alias.bin modules.devname kernel/fs/fuse/fuse.ko; do
+    "$bin/debugfs" -R "dump -p /usr/lib/modules/$release/$f /work/module.bin" /work/base.raw 2>/dev/null
+    cmp -s /work/module.bin "/modules/$release/$f" || {
+        echo "ERROR: /usr/lib/modules/$release/$f is not in the image as the kernel build left it" >&2
+        exit 1; }
+done
+rm -f /work/module.bin
+"$bin/debugfs" -R "cat /etc/systemd/system/kmod-static-nodes.service.d/10-create.conf" /work/base.raw 2>/dev/null |
+        grep -q '^ExecStartPost=.*systemd-tmpfiles' || {
+    echo "ERROR: kmod-static-nodes.service does not create the static nodes, and /dev/fuse would not be there" >&2
+    exit 1; }
 
 # docs/image.md, "The filesystem"
 echo "==> qemu-img: wrapping it"

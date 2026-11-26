@@ -316,7 +316,10 @@ func TestEveryEditTheErrorNamesIsOne(t *testing.T) {
 		t.Fatalf("an unknown edit: %v", err)
 	}
 	for name := range strings.SplitSeq(list, ", ") {
-		e, err := namedEdit(name, checkoutRoot(t), t.TempDir())
+		// A tree whose kernel brought its modules, which the modules edit installs.
+		dir := t.TempDir()
+		write(t, filepath.Join(dir, "kernel/modules/7.4.0/modules.dep"), nil)
+		e, err := namedEdit(name, checkoutRoot(t), dir)
 		if err != nil || len(e.Files)+len(e.Links) == 0 && e.Setup == "" {
 			t.Errorf("edit %s: %+v, %v", name, e, err)
 		}
@@ -463,6 +466,40 @@ func TestAVmlinuxThatRandomizesItselfIsBootedThroughPVH(t *testing.T) {
 }
 
 func pvhKernel() []byte { return elftest.Kernel([]uint32{18, 19}, []byte{1, 0, 0, 0}) }
+
+// A kernel run's modules come into the tree with its vmlinux, and the modules edit puts them, and
+// the image's drop-in that makes their static nodes, into every overlay. A tree whose kernel brought
+// none, a release's, has nothing for the edit to install, and is refused rather than measured as if
+// it had.
+func TestAKernelRunsModulesGoIntoTheOverlay(t *testing.T) {
+	base := fakeRelease(t, "release kernel")
+	cache := t.TempDir()
+	s := Sources{Checkout: checkoutRoot(t), Cache: cache, Log: io.Discard}
+	write(t, filepath.Join(cache, "runs/11/vmlinux/vmlinux-abc/vmlinux"), pvhKernel())
+	write(t, filepath.Join(cache, "runs/11/vmlinux/vmlinux-abc/modules/7.4.0/kernel/fs/fuse/fuse.ko"), []byte("fuse"))
+	tr, err := MakeTree(filepath.Join(t.TempDir(), "m"), TreeSpec{Name: "m", From: base, Kernel: "run:11", Edits: []string{"modules"}}, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(tr.Dir, "kernel/modules/7.4.0/kernel/fs/fuse/fuse.ko")) != "fuse" {
+		t.Error("the run's modules are not in the tree")
+	}
+	e := tr.Manifest.Edits[0].Edit
+	if !strings.Contains(e.Setup, filepath.Join(tr.Dir, "kernel/modules/7.4.0")+` "$MNT/usr/lib/modules/"`) ||
+		!strings.Contains(e.Files["/etc/systemd/system/kmod-static-nodes.service.d/10-create.conf"], "systemd-tmpfiles") {
+		t.Errorf("the modules edit: %+v", e)
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "r"), TreeSpec{Name: "r", From: base, Edits: []string{"modules"}}, s); err == nil ||
+		!strings.Contains(err.Error(), "no modules") {
+		t.Errorf("a tree whose kernel has no modules, with the modules edit: %v", err)
+	}
+	two := t.TempDir()
+	write(t, filepath.Join(two, "kernel/modules/7.4.0/modules.dep"), nil)
+	write(t, filepath.Join(two, "kernel/modules/7.5.0/modules.dep"), nil)
+	if _, err := namedEdit("modules", checkoutRoot(t), two); err == nil {
+		t.Error("a tree with two kernels' modules was given the edit: which would the kernel load?")
+	}
+}
 
 // A release's traceable kernel is downloaded beside the release once its signature is release.yml's,
 // kept in the cache, and booted from there; one that is not signed is not kept. A release publishes

@@ -19,6 +19,7 @@ import (
 	"github.com/spin-stack/go-tools/provenance"
 
 	"github.com/spin-stack/machine/internal/build"
+	"github.com/spin-stack/machine/internal/modsign"
 	"github.com/spin-stack/machine/internal/release"
 )
 
@@ -28,7 +29,8 @@ func releaseCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "release",
 		Short: "Build everything that is missing or stale and pack one versioned tarball, refusing one with anything missing",
-		Long: `Build every part (as build does), then pack them into _output/release: one tarball, one
+		Long: `Build every part (as build does), the kernel's modules signed with spin-stack/ci's KMS key before
+the image installs them, then pack them into _output/release: one tarball, one
 version - QEMU and its firmware, the kernel, the base image and the tools that make and read its
 filesystem - with LICENSE, NOTICE, every patch each part was built with, machine.env (the
 manifest: versions and checksums), SOURCES (where every part came from) and a CycloneDX SBOM,
@@ -45,6 +47,15 @@ else. So every file is required, and a patch directory ships whole, never as a l
 				return err
 			}
 			o := f.options(c, w)
+			kernel, _ := build.Plan([]string{"kernel"}) // a part Parts has, which needs none
+			if _, err := build.Make(c.Context(), o, kernel); err != nil {
+				return couldNot(err)
+			}
+			n, err := signModules(c.Context(), w, openModuleKey)
+			if err != nil {
+				return couldNot(err)
+			}
+			say(c, "kernel modules: %d signed with %s", n, modsign.Key)
 			if _, err := build.Make(c.Context(), o, build.Parts); err != nil {
 				return couldNot(err)
 			}

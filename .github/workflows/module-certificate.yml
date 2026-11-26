@@ -1,0 +1,69 @@
+name: Module certificate
+
+# The certificate the guest kernel trusts its modules by (#736): spin-stack/ci's KMS key's public
+# half, self-signed, which `spin-machine-dev certificate` writes to kernel/module-signing.crt and
+# names in the kernel's config. The kernel verifies a builtin certificate's self-signature, so
+# making it takes one signature by the key, which only this repository's release environment may
+# ask KMS for: here, on main, once, by hand. What it writes is proposed as a pull request, as the
+# release app. The certificate is the same bytes each time it is made, so a run after it is merged
+# proposes nothing.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certificate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The environment whose OIDC subject alone may assume the module signing role.
+    environment: release
+    permissions:
+      # The OIDC token the role is assumed with.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The proposal is pushed as the app, below, and not with this run's token.
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # This job signs: its Go comes from no cache another job saved.
+          cache: false
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::277203350136:role/spin-machine-module-signing
+          aws-region: us-west-2
+
+      - name: Make the certificate
+        run: spin-machine-dev certificate
+
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        with:
+          client-id: Iv23licJKNgsPIM00SD0 # spin-stack-release's client ID, public: app-id is deprecated
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          owner: spin-stack
+          repositories: machine
+
+      - name: Commit as the app
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: go tool task git:app
+
+      - name: Propose it
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: spin-machine-dev certificate propose

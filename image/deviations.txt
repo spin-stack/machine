@@ -35,6 +35,7 @@ masked /etc/systemd/system/dev-mqueue.mount
 masked /etc/systemd/system/dpkg-db-backup.timer
 added /etc/systemd/system/fstrim.timer.d/spin.conf
 added /etc/systemd/system/getty@.service.d/term.conf
+added /etc/systemd/system/kmod-static-nodes.service.d/10-create.conf
 masked /etc/systemd/system/modprobe@configfs.service
 masked /etc/systemd/system/modprobe@drm.service
 masked /etc/systemd/system/modprobe@efi_pstore.service

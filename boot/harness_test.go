@@ -68,6 +68,38 @@ func (r *rawRoot) write(p, content string) {
 	}
 }
 
+// read is the file at p in the guest's root, which must be there: debugfs cats nothing, and exits 0,
+// for a path that is not.
+func (r *rawRoot) read(p string) []byte {
+	r.t.Helper()
+	if !strings.Contains(r.stat(p), "Type: regular") {
+		r.t.Fatalf("%s is not a file in the guest's root", p)
+	}
+	b, err := exec.Command(r.debugfs, "-R", "cat "+p, r.path).Output()
+	if err != nil {
+		r.t.Fatalf("reading %s from the guest's root: %v", p, err)
+	}
+	return b
+}
+
+// names is what the directory p holds in the guest's root, less . and ..: debugfs's ls -p, one
+// /inode/mode/uid/gid/name/size/ an entry.
+func (r *rawRoot) names(p string) []string {
+	r.t.Helper()
+	out, err := exec.Command(r.debugfs, "-R", "ls -p "+p, r.path).Output()
+	if err != nil {
+		r.t.Fatalf("listing %s in the guest's root: %v", p, err)
+	}
+	var names []string
+	for line := range strings.Lines(string(out)) {
+		f := strings.Split(line, "/")
+		if len(f) > 5 && f[5] != "." && f[5] != ".." {
+			names = append(names, f[5])
+		}
+	}
+	return names
+}
+
 // remove fails on a path that is not there, so that an experiment removing something the image
 // no longer has fails rather than measuring the image as built under another name.
 func (r *rawRoot) remove(p string) {

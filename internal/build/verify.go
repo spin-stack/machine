@@ -5,9 +5,12 @@ package build
 import (
 	"bytes"
 	"cmp"
+	"crypto/x509"
 	"debug/elf"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -16,6 +19,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/spin-stack/machine/internal/modsign"
 	"github.com/spin-stack/machine/machine"
 )
 
@@ -135,9 +139,60 @@ func verifyTPM(o Options) error {
 
 // VerifyKernel asserts the kernel is the vmlinux the machine enters through PVH, which spin also
 // reads symbols from (spin-stack/spin's hack/machine/place.go), able to put itself at a random
-// base (SelfRandomizing). A release carries no bzImage since #660.
+// base (SelfRandomizing), that its modules came out beside it, and that it trusts the module
+// certificate the tree holds (TrustsModuleCertificate). A release carries no bzImage since #660.
 func VerifyKernel(o Options) error {
-	return SelfRandomizing(filepath.Join(o.Out, "kernel", "vmlinux"))
+	vmlinux := filepath.Join(o.Out, "kernel", "vmlinux")
+	if err := SelfRandomizing(vmlinux); err != nil {
+		return err
+	}
+	if _, err := modsign.Modules(filepath.Join(o.Out, modulesDir)); err != nil {
+		return err
+	}
+	return TrustsModuleCertificate(o.Root, vmlinux)
+}
+
+// ModuleCertificate is where the tree keeps the certificate of the key the modules are signed with,
+// PEM: spin-stack/ci's KMS key's public half, which `spin-machine-dev certificate` makes once and
+// the kernel builds in as its one trusted key (kernel/Dockerfile, SYSTEM_TRUSTED_KEYS).
+const ModuleCertificate = "kernel/module-signing.crt"
+
+// ReadModuleCertificate is root's module certificate.
+func ReadModuleCertificate(root string) (*x509.Certificate, error) {
+	raw, err := os.ReadFile(filepath.Join(root, ModuleCertificate))
+	if err != nil {
+		return nil, fmt.Errorf("reading the module certificate: %w", err)
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("%s is not a PEM certificate", ModuleCertificate)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", ModuleCertificate, err)
+	}
+	return cert, nil
+}
+
+// TrustsModuleCertificate asserts the vmlinux at path carries root's module certificate, whose DER
+// the kernel keeps whole in its builtin list: a kernel built without it loads no module the release
+// signs, and boots all the same. A tree with no certificate yet has nothing to look for (#746).
+func TrustsModuleCertificate(root, path string) error {
+	cert, err := ReadModuleCertificate(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	vmlinux, err := os.ReadFile(path) //nolint:gosec // the kernel this build made
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	if !bytes.Contains(vmlinux, cert.Raw) {
+		return fmt.Errorf("%s does not carry %s: it would load no module the release signs", path, ModuleCertificate)
+	}
+	return nil
 }
 
 // SelfRandomizing is whether the vmlinux at path can be put at a random base with no

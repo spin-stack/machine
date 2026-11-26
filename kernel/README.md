@@ -183,6 +183,53 @@ options: no cost that can be told from noise. Over 20 interleaved boots each, ke
 `Freeing unused kernel image` had a p50 of 196.3 ms with them and 208.3 ms without, on a host at
 load 6-10, where the p95 was 342 ms.
 
+## Modules
+
+A workspace can load more of the kernel than it boots with, but only what spin-stack signed (#736).
+Everything a workspace boots with is built in. The modules are what it may ask for later:
+wireguard, fuse, squashfs and erofs, and the crypto library wireguard brings. Each
+loads when its feature is asked for, never at boot (docs/image.md, "Kernel modules").
+`CONFIG_VIRTIO_FS` is off, built in until #736: the machine has no virtio-fs device, and as a
+module systemd's PID 1 loads it, and fuse with it, in every boot of a guest with a virtio PCI
+device (systemd 259's `src/core/kmod-setup.c`, `may_have_virtio`), on the first login's clock.
+
+- **Signed only.** `CONFIG_MODULE_SIG_FORCE` refuses a module without a valid signature by a
+  trusted key, at every lockdown level, the traceable kernel's none included. Lockdown at
+  integrity would refuse an unsigned one anyway (`LOCKDOWN_MODULE_SIGNATURE`), but the kernel
+  refuses first and lockdown is never asked. A tenant's root can build a module, and the kernel
+  says `Loading of unsigned module is rejected` or `Loading of module with unavailable key is
+  rejected` and loads nothing. `CONFIG_MODULE_UNLOAD` is off, so nothing loaded is taken out.
+- **One trusted key.** The kernel builds in one certificate (`CONFIG_SYSTEM_TRUSTED_KEYS`):
+  `module-signing.crt`, the public half of spin-stack/ci's KMS key
+  `alias/spin-machine-module-signing` (module_signing.tf). That key is RSA-4096. A PKCS #1 v1.5
+  signature is deterministic, so a release's signed modules are reproducible (#732). The kernel
+  verifies a builtin certificate's self-signature before it trusts the key
+  (`x509_check_for_self_signed`), so the certificate takes one signature by the key, which only
+  this repository's `release` environment may ask KMS for: `module-certificate.yml` runs
+  `spin-machine-dev certificate` there and proposes what it writes. The config names the
+  certificate exactly when the tree has it, which `kernel/Dockerfile` checks. Until it does, the
+  kernel trusts no key and loads no module, and a release is refused (#746).
+- **The build never signs.** `CONFIG_MODULE_SIG_ALL` is off and `CONFIG_MODULE_SIG_KEY` is empty,
+  so the build makes no key and signs nothing, and `kernel/Dockerfile` reads that off what came
+  out. A pull request's, a laptop's and a release's vmlinux are the same file, and a module built
+  anywhere but a release loads nowhere.
+- **A release signs.** `spin-machine-dev release` builds the kernel, has KMS sign each module's
+  SHA-256 digest and appends the signature as `scripts/sign-file` does (`internal/modsign`), then
+  builds the image, which installs them. A module is stripped of its debug info before that, by
+  `modules_install`, since a strip after would cut the signature off. A third-party module spin-stack
+  approves is signed the same way, from the same environment, when the first one comes.
+
+What `CONFIG_MODULES` brings with it gives root nothing lockdown or this config takes away. The
+reads and writes of the kernel's memory stay out (`DEVMEM`, `DEVPORT`, `PROC_KCORE`, `KEXEC`, which
+`kernel/Dockerfile` checks), `CONFIG_MODULE_FORCE_LOAD` is off, and `CONFIG_STRICT_MODULE_RWX`
+keeps a module's code read-only. shirudo's programs do not touch module loading: its
+`lsm/kernel_load_data` and `lsm/kernel_read_file` refuse only kexec images, and its
+`lsm/locked_down` refuses `LOCKDOWN_MODULE_SIGNATURE`, which this kernel never asks, as
+`MODULE_SIG_FORCE` decides first. Its `module_signatures` pre-flight check passes on a kernel that
+builds `mod_verify_sig`, and it does not check which keys the kernel trusts. A consumer's BPF LSM
+program can still refuse a load (`kernel_module_request`, `kernel_read_file`), and signed modules
+change nothing for it.
+
 ## shirudo's hooks
 
 shirudo (shirudo-dev/shirudo) enforces policy in a guest with BPF LSM programs and keeps its
@@ -209,8 +256,8 @@ device-mapper and dm-verity, which map shirudo's runtime and config images, with
 config image's signed root hash (`CONFIG_DM_VERITY_VERIFY_ROOTHASH_SIG`, which also makes the
 `.dm-verity` keyring), and `CONFIG_SYSTEM_DATA_VERIFICATION` and `CONFIG_CRYPTO_MLDSA`, which verify
 the PKCS#7 ML-DSA-87 signatures of its loaders and that root hash. shirudo's `CONFIG_MODULE_SIG` row
-asks for module signatures only of a kernel that loads modules, and this one has no
-`CONFIG_MODULES`; module signing comes with modules, signed-only (`CONFIG_MODULE_SIG_FORCE`). A
+asks for module signatures of a kernel that loads modules, and this one has them, signed-only
+("Modules"). A
 shirudo machine runs at integrity (`LockdownShirudo`, #734), since confidentiality
 withholds `bpf_probe_read_kernel`, which shirudo's programs call. Still missing for shirudo to run:
 a TPM in the machine (#719), and with it a booted shirudo, whose `shirudo init --check-only` says
