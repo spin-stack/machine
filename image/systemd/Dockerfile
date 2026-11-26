@@ -21,7 +21,7 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
     apt-get build-dep -y --build-profiles="${DEB_BUILD_PROFILES// /,}" "systemd=${SYSTEMD_SOURCE_VERSION}" && \
     apt-get install -y --no-install-recommends libpcre2-dev libtss2-dev libssl-dev python3-pyelftools
 
-COPY image/systemd/meson-took.py /build/meson-took.py
+COPY image/systemd/meson-took.py image/systemd/tpm2.mk /build/
 COPY image/systemd/*.patch /build/patches/
 WORKDIR /build/src
 RUN for p in /build/patches/*.patch; do patch -p1 --fuzz=0 < "$p"; done && \
@@ -34,6 +34,13 @@ RUN if [ -n "${SYSTEMD_EXPERIMENT}" ]; then \
 RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false -Dlink-systemctl-shared=false -Dlink-journalctl-shared=false" && \
     grep -q -- '-Dselinux=enabled' debian/rules && \
     sed -i 's/-Dselinux=enabled/-Dselinux=disabled/' debian/rules && \
+    case "${SYSTEMD_EXPERIMENT}" in tpm2split*) \
+        sed -i -E '/pcr|tpm2|systemd-measure/s/ <!stage1>//' debian/systemd.install && \
+        echo 'include /build/tpm2.mk' >> debian/rules ;; esac && \
+    case "${SYSTEMD_EXPERIMENT}" in tpm2split-nogen) \
+        sed -i '/systemd-tpm2-generator/d' debian/systemd.install && \
+        sed -i "s|-path '[*]tpm2[*]'|-path '*tpm2*' -not -name systemd-tpm2-generator|" /build/tpm2.mk && \
+        grep -q 'not -name systemd-tpm2-generator' /build/tpm2.mk ;; esac && \
     DEBFULLNAME="spin-machine" DEBEMAIL="noreply@spin-stack.invalid" \
         dch --newversion "${SYSTEMD_SOURCE_VERSION}+spin1" --distribution resolute \
             "Rebuilt by spin-machine: the stage1 profile, SELinux off, ${extra}, $(cd /build/patches && echo *.patch)." && \
@@ -41,7 +48,7 @@ RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false
     sed -i "1,/^ -- /s/^\( -- .*>  \).*/\1${prev}/" debian/changelog && \
     test "$(dpkg-parsechangelog -SDate)" = "${prev}" && \
     CONFFLAGS_UPSTREAM="${extra}" dpkg-buildpackage -b -uc -us -j"$(nproc)" && \
-    meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra}
+    meson introspect --buildoptions obj-* | python3 /build/meson-took.py ${extra} -Dtpm2=disabled -Dopenssl=disabled
 
 COPY image/systemd/tests-passed.py /build/tests-passed.py
 RUN tests="test-engine test-load-fragment" && \
@@ -56,14 +63,21 @@ RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
         ls /debs/${p}_*+spin1_*.deb > /dev/null || { echo "ERROR: no ${p} built"; exit 1; }; \
     done && \
     dpkg-deb -x /debs/libsystemd-shared_*.deb /tmp/shared && \
-    so=$(find /tmp/shared -name 'libsystemd-shared-*.so') && test -n "$so" && \
-    ! ldd "$so" | grep -E 'libselinux|libapparmor|libaudit' && \
+    so=$(find /tmp/shared -name 'libsystemd-shared-[0-9]*.so') && test -n "$so" && \
+    ! ldd "$so" | grep -E 'libselinux|libapparmor|libaudit|libcrypto' && \
     dpkg-deb -x /debs/systemd_*.deb /tmp/systemd && \
     ! ldd /tmp/systemd/usr/lib/systemd/systemd-executor | grep libsystemd && \
     mkdir -p /tmp/no-journal && \
     grep_out=$(/tmp/systemd/usr/bin/journalctl -D /tmp/no-journal --grep x 2>&1) ; \
     case "$grep_out" in *"No entries"*) ;; *) echo "ERROR: journalctl --grep: $grep_out"; exit 1 ;; esac && \
-    echo "OK: $(ls /debs | wc -l) packages, libsystemd-shared without the LSMs it was built without, the executor static, journalctl --grep"
+    case "${SYSTEMD_EXPERIMENT}" in tpm2split*) ;; *) exit 0 ;; esac && \
+    for f in usr/lib/systemd/systemd-pcrextend usr/lib/systemd/system/systemd-pcrphase-initrd.service \
+             usr/lib/systemd/system/tpm2.target; do \
+        test -e "/tmp/systemd/$f" || { echo "ERROR: the systemd package has no $f"; exit 1; }; \
+    done && \
+    tpm2_out=$(LD_LIBRARY_PATH="$(dirname "$so")" /tmp/systemd/usr/bin/systemd-analyze has-tpm2 2>&1 || true) && \
+    case "$tpm2_out" in *"+libraries"*) ;; *) echo "ERROR: systemd-analyze has-tpm2: $tpm2_out"; exit 1 ;; esac && \
+    echo "OK: $(ls /debs | wc -l) packages, libsystemd-shared without the LSMs it was built without, the executor static, journalctl --grep, TPM2 with its libraries"
 
 FROM scratch AS debs
 COPY --from=build /debs/ /

@@ -1,0 +1,8 @@
+diff -ru a/debian/README.source d/debian/README.source
+--- a/debian/README.source	2026-11-26 10:36:50.265556237 -0300
++++ d/debian/README.source	2026-11-26 10:36:50.375947274 -0300
+@@ -116,3 +116,4 @@
+ udeb requirements, and so that udebs get updated less often, to reduce the
+ workload for the D-I team. Ensure that major version updates are uploaded
+ to unstable at the same time, to maintain rough parity.
++Rebuilt as a lab arm.
