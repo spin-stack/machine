@@ -12,7 +12,6 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -100,8 +99,12 @@ const fastAbove = 1536 << 20
 // loadsFast is whether a resume of state runs its guest before its memory is read (fastLoad).
 // Tests replace it.
 var loadsFast = func(state *os.File, saved Saved) bool {
-	return fastLoad(saved.Format, written(state), userfaults("/dev/userfaultfd", "/proc/sys/vm/unprivileged_userfaultfd"))
+	return fastLoad(saved.Format, written(state), userfaults(userfaultfdDevice))
 }
+
+// userfaultfdDevice is the device a fast load's userfaultfds are made from. Start opens it for
+// QEMU (Spec.UserfaultFDSet), so QEMU's user needs no access to it.
+const userfaultfdDevice = "/dev/userfaultfd"
 
 // fastLoad is whether a state in format with data bytes loads fast on a host that grants QEMU a
 // userfaultfd or not: a mapped-ram state, whose pages are at fixed offsets a fault can be served
@@ -110,17 +113,19 @@ func fastLoad(format string, data int64, granted bool) bool {
 	return format == FormatMappedRAM && data > fastAbove && granted
 }
 
-// userfaults is whether this host gives a QEMU, run as a user of its own with no capability, the
-// userfaultfd a fast load serves the guest's faults with: dev, /dev/userfaultfd, a character
-// device every user may read and write, or knob, vm.unprivileged_userfaultfd, at 1. spin's hosts
-// grant the device when their operator chooses to (spin-stack/spin internal/runner/vmm/pool.go,
-// fastLoadRefusal), and a host that does not loads every state in full.
-func userfaults(dev, knob string) bool {
-	if fi, err := os.Stat(dev); err == nil && fi.Mode().Type()&os.ModeCharDevice != 0 && fi.Mode().Perm()&0o006 == 0o006 {
-		return true
+// userfaults is whether this process can open dev, the userfaultfd device, which is what Start
+// asks before it hands QEMU the descriptor (Spec.UserfaultFDSet): a QEMU run as a user of its own
+// with no capability then serves a fast load's faults with it, and no other process on the host
+// is granted the device or vm.unprivileged_userfaultfd (spin-stack/spin#1711). spin's runner is
+// root and always can where the kernel has the device; a process that cannot loads every state
+// in full.
+func userfaults(dev string) bool {
+	f, err := os.OpenFile(dev, os.O_RDWR, 0) // mutate-exempt: the mode is read only with O_CREATE, which this has not
+	if err != nil {
+		return false
 	}
-	b, err := os.ReadFile(knob)
-	return err == nil && strings.TrimSpace(string(b)) == "1"
+	_ = f.Close() // opened to ask, never used
+	return true
 }
 
 // Saved is what a checkpoint is besides its state file: what the caller keeps beside the state

@@ -397,7 +397,8 @@ against today's, and `initcalls` is the kernel's boot by initcall. Every probe t
 options (above) and its own: `restore-first` takes `channels` and `touched=MIB`, `prestart` takes
 `channels`, and `initcalls` takes `top=N`. `touched` writes that many MiB into a tmpfs in the guest
 after its cold login and before its save, so the checkpoint carries them. A state with more than
-1.5 GiB of data loads fast, and a bench runner grants QEMU the userfaultfd that needs. The
+1.5 GiB of data loads fast, and a bench runner gives its user `/dev/userfaultfd`, which
+spin-machine opens and hands QEMU. The
 lab refuses an option the probe does not take. A probe that restores (`restore-first`, `prestart`,
 `restore-together`) hands every restore its tree's machine record (`spin-machine restore
 --target`). The record is read once per tree, before anything is measured, from a machine of the

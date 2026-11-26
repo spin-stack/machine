@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -328,19 +329,18 @@ func touch(m *Measurement, cid uint32) error {
 	return nil
 }
 
-// userfaultfd gives an unprivileged QEMU one on a bench runner, a throwaway host, as a spin host
-// whose operator grants /dev/userfaultfd does: a state over machine.fastAbove then loads fast.
-// Anywhere else the host is left as it is, and loads every state as it allows.
+// userfaultfd gives the runner's user /dev/userfaultfd on a bench runner, a throwaway host:
+// spin-machine, run as that user, opens it and hands QEMU the descriptor (machine.Spec's
+// UserfaultFDSet), as spin's runner does as root, and a state over machine.fastAbove then loads
+// fast. vm.unprivileged_userfaultfd stays 0 and no other user gets the device. Anywhere else the
+// host is left as it is, and loads every state as it allows.
 // mutate-lane: TestEveryProbeMeasuresATree
 func userfaultfd() error {
-	const knob = "/proc/sys/vm/unprivileged_userfaultfd"
-	if os.Getenv("GITHUB_ACTIONS") != "true" {
+	const dev = "/dev/userfaultfd"
+	if os.Getenv("GITHUB_ACTIONS") != "true" || unix.Access(dev, unix.R_OK|unix.W_OK) == nil {
 		return nil
 	}
-	if b, err := os.ReadFile(knob); err == nil && strings.TrimSpace(string(b)) == "1" {
-		return nil
-	}
-	return run("sudo", "sysctl", "-q", "-w", "vm.unprivileged_userfaultfd=1")
+	return run("sudo", "chown", strconv.Itoa(os.Getuid()), dev)
 }
 
 // waitSocket returns once something listens on the Unix socket path.
