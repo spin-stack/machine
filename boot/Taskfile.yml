@@ -281,7 +281,10 @@ tasks:
       this tree built (spin-machine-dev build shirudo) put in it: compat's shirudo job, so a change
       to shirudo, its pins or the kernel it hooks runs shirudo before it merges.
     cmds:
-      - mkdir -p "$SPIN_MACHINE_OUTPUT/guest" && cp {{.OUTPUT_ABS}}/guest/shirudo "$SPIN_MACHINE_OUTPUT/guest/shirudo"
+      # The tree's guest/shirudo is a link into the release's own tree once a release ships one
+      # (v20261126.02 on): replaced by removing the link, never by writing through it, or the
+      # release's copy changes and the check's container, which mounts only this tree, finds none.
+      - mkdir -p "$SPIN_MACHINE_OUTPUT/guest" && rm -f "$SPIN_MACHINE_OUTPUT/guest/shirudo" && cp {{.OUTPUT_ABS}}/guest/shirudo "$SPIN_MACHINE_OUTPUT/guest/shirudo"
       - SPIN_SHIRUDO_TEST=1 go test ./boot/ -run '^TestTheShippedShirudoRunsOnTheRelease$' -count=1 -v -timeout 45m
 
   shirudo-packed:
