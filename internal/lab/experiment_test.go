@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -386,6 +387,7 @@ const ringBufferSample = `[    0.000000] Linux version 7.3.5
 [    0.010000] calling  acpi_init+0x0/0x420 @ 1
 [    0.014000] initcall acpi_init+0x0/0x420 returned 0 after 4000 usecs
 [    0.020000] initcall inet_init+0x0/0x2e0 returned 0 after 1500 usecs
+[    0.060000] sched_clock: Marking stable (60000000, -1000000)->(73000000, -13000000)
 [    0.080000] Freeing unused kernel image (initmem) memory: 2628K
 [    0.090000] systemd-journald[62]: Collecting audit messages is disabled.
 [    0.050000] a reprinted line going backwards
@@ -396,7 +398,7 @@ func TestTheRingBufferIsItsInitcallsItsGapsAndWhenTheKernelWasDone(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.total != 5500 || p.calls["acpi_init+0x0/0x420"] != 4000 || p.calls["inet_init+0x0/0x2e0"] != 1500 || p.freeing != 0.08 {
+	if p.total != 5500 || p.calls["acpi_init+0x0/0x420"] != 4000 || p.calls["inet_init+0x0/0x2e0"] != 1500 || math.Abs(p.freeing-0.093) > 1e-9 {
 		t.Errorf("parsed %+v", p)
 	}
 	gaps := map[string]gap{}
@@ -404,7 +406,7 @@ func TestTheRingBufferIsItsInitcallsItsGapsAndWhenTheKernelWasDone(t *testing.T)
 		gaps[g.before] = g
 	}
 	journald := gaps["systemd-journald[]: Collecting audit messages is disabled."]
-	if len(p.gaps) != 5 || journald.after != "Freeing unused kernel image (initmem) memory: 2628K" || journald.ms < 9.995 || journald.ms > 10.005 {
+	if len(p.gaps) != 6 || journald.after != "Freeing unused kernel image (initmem) memory: 2628K" || journald.ms < 9.995 || journald.ms > 10.005 {
 		t.Errorf("gaps %+v", p.gaps)
 	}
 	if _, err := parseRingBuffer("[    0.1] [    0.2] twice"); err == nil {
@@ -412,6 +414,11 @@ func TestTheRingBufferIsItsInitcallsItsGapsAndWhenTheKernelWasDone(t *testing.T)
 	}
 	if _, err := parseRingBuffer("[    0.100000] sh[1]: [    0.000100] re-stamped"); err == nil || !strings.Contains(err.Error(), "two kernel stamps") {
 		t.Errorf("a re-stamped dump: %v", err)
+	}
+	// printk's clock is 13 ms behind the kernel's from "Marking stable" on; without the line
+	// nothing says by how much, and "Freeing" is refused rather than read short.
+	if _, err := parseRingBuffer(strings.Replace(ringBufferSample, "Marking stable", "Marking", 1)); err == nil || !strings.Contains(err.Error(), "Marking stable") {
+		t.Errorf("no Marking stable: %v", err)
 	}
 	if _, err := parseRingBuffer("[    0.100000] no initcalls here"); err == nil || !strings.Contains(err.Error(), "no initcall lines") {
 		t.Errorf("no initcalls: %v", err)

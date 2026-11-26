@@ -435,8 +435,7 @@ var reSchedOffset = regexp.MustCompile(`kvm-clock: using sched offset of (\d+) c
 // __sched_clock_offset)"). With it, the ledger's kernel_zero lands 0.03-0.14 ms before QEMU's
 // trace stamps a port write at the sched clock's 0, against 11.6-20.9 ms after it without (labs
 // 45229897350 and 45230233764 against 45177818419 and 45177817516, #644).
-// dmesg's own clock is neither: from that line on it is the sched clock plus
-// __sched_clock_offset.
+// dmesg's own clock is neither: see PrintkLag.
 func monotonicLag(journal string) (float64, error) {
 	m := reSchedStable.FindStringSubmatch(journal)
 	if m == nil {
@@ -447,7 +446,23 @@ func monotonicLag(journal string) (float64, error) {
 	return (raw - gtod) / 1e6, nil
 }
 
-var reSchedStable = regexp.MustCompile(`sched_clock: Marking stable \((\d+), -?\d+\)->\((\d+), -?\d+\)`)
+var reSchedStable = regexp.MustCompile(`sched_clock: Marking stable \((\d+), -?\d+\)->\((\d+), (-?\d+)\)`)
+
+// PrintkLag is how far printk's clock, dmesg's and /dev/kmsg's, is behind the kernel's sched
+// clock from late_initcall on, in ms: -__sched_clock_offset. From "Marking stable" on,
+// local_clock(), which printk stamps with, is sched_clock() + __sched_clock_offset, the offset
+// that keeps it level with the CLOCK_MONOTONIC it followed before, which lost the ticks jiffies
+// missed. A line printed after it, "Freeing unused kernel image" among them, is at its stamp plus
+// the lag on the kernel's clock: 10.2-15.0 ms on the bench fleet (#666). log is a boot's kernel
+// log in any form that keeps the line whole.
+func PrintkLag(log string) (float64, error) {
+	m := reSchedStable.FindStringSubmatch(log)
+	if m == nil {
+		return 0, fmt.Errorf("the kernel log has no \"sched_clock: Marking stable\" line: without it nothing says how far printk's clock is behind the kernel's from late_initcall on")
+	}
+	offset, _ := strconv.ParseFloat(m[3], 64) // mutate-exempt: ParseFloat reads any bitSize but 32 as 64
+	return -offset / 1e6, nil
+}
 
 // The windows the ledger probe records by name.
 const (
