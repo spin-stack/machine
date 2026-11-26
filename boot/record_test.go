@@ -126,6 +126,10 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 	seabios, _ := r.target(func(s *machine.Spec) { s.BIOS = "bios-256k.bin" })
 	moreRAM, _ := r.target(func(s *machine.Spec) { s.Memory.BaseMB = 256 })
 	moreTargets, _ := r.target(func(s *machine.Spec) { s.HotplugDisks = 17 })
+	withTPM, _ := r.target(func(s *machine.Spec) {
+		// ReadTarget gives the machine it holds a TPM state of its own.
+		s.TPM = machine.TPM{SWTPM: filepath.Join(out, "bin", "swtpm"), State: "a workspace's"}
+	})
 	for _, tc := range []struct {
 		name     string
 		from, to machine.Target
@@ -137,6 +141,8 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 		{"more base RAM here", base, moreRAM, []string{"machine memory.size", "ram 0000:00:1e.0/mem.growth", "ram pc.ram"}},
 		{"more hotplug targets here", base, moreTargets, nil},
 		{"fewer hotplug targets here", moreTargets, base, []string{"device 1a.0 max_target"}},
+		{"a TPM here", base, withTPM, []string{"device " + machine.TPMDevice}},
+		{"no TPM here", withTPM, base, []string{"device " + machine.TPMDevice}},
 		{"leaf 2 at 0xFF in the checkpoint's machine", leaf2FF, base, []string{"cpu x-consistent-cache"}},
 		{"a checkpoint from before the record held the vCPU's properties", before, base, eachProperty},
 	} {

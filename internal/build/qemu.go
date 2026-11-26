@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -21,7 +22,7 @@ import (
 const PublishedQEMU = "ghcr.io/spin-stack/spin-machine/qemu"
 
 // qemuPins are the entries qemu/Dockerfile is handed, for the build and the published image alike.
-var qemuPins = strings.Fields("qemu-builder alpine qemu debian debian-snapshot qboot")
+var qemuPins = strings.Fields("qemu-builder alpine qemu swtpm libtpms json-glib debian debian-snapshot qboot")
 
 // QEMUVersion is the pinned QEMU's version.
 func QEMUVersion(o Options) (string, error) {
@@ -40,7 +41,7 @@ func FetchQEMU(ctx context.Context, o Options) error {
 		return err
 	}
 	image := PublishedQEMU + ":" + version
-	if err := emptied(o.Out, "bin/qemu-*", "qemu"); err != nil {
+	if err := emptied(o.Out, "bin/qemu-*", "bin/"+SWTPMBinary, "qemu"); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(o.Out, "bin"), 0o755); err != nil {
@@ -59,7 +60,7 @@ func FetchQEMU(ctx context.Context, o Options) error {
 	}
 	cid := strings.TrimSpace(id.String())
 	defer func() { _ = docker(context.WithoutCancel(ctx), Options{Root: o.Root}, "rm", "--force", cid) }()
-	for _, b := range QEMUBinaries {
+	for _, b := range append(slices.Clip(QEMUBinaries), SWTPMBinary) {
 		if err := docker(ctx, o, "cp", cid+":/usr/local/bin/"+b, filepath.Join(o.Out, "bin", b)); err != nil {
 			return err
 		}

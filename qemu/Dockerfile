@@ -84,7 +84,7 @@ ARG QEMU_SHA256
 # configured under the old base, skipped configure, relinked, and produced a dynamically
 # linked binary from a Dockerfile that says --static on every other line. The assertion
 # below is what caught it.
-ARG QEMU_CONFIG_REV=9
+ARG QEMU_CONFIG_REV=10
 
 SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
@@ -189,7 +189,7 @@ ENV QEMU_FLAGS="\
     --disable-parallels \
     --disable-vhdx \
     --disable-vpc \
-    --disable-tpm \
+    --enable-tpm \
     --disable-libusb \
     --disable-usb-redir \
     --disable-smartcard \
@@ -372,6 +372,9 @@ RUN Q=/opt/qemu/bin/qemu-system-x86_64 && \
     $Q -device max-x86_64-cpu,help 2>&1 | grep -q '^ *x-legacy-cpuid2-cache=' && \
     $Q -device help 2>&1 | grep -q 'scsi-hd' && \
     $Q -device help 2>&1 | grep -q 'vmgenid' && \
+    $Q -device help 2>&1 | grep -q '^name "tpm-crb"' && \
+    $Q -tpmdev help 2>&1 | grep -qx 'emulator' && \
+    ! $Q -tpmdev help 2>&1 | grep -qx 'passthrough' && \
     ! $Q -device help 2>&1 | grep -qE '^name "(e1000e?|rtl8139|pcnet|vmxnet3|igb|ne2k_pci|tulip)"' && \
     ! $Q -device help 2>&1 | grep -qE '^name "(usb-kbd|usb-hub|VGA|virtio-vga|sb16|isa-fdc|isa-parallel|vfio-pci|intel-iommu|amd-iommu)"' && \
     $Q -machine help | grep -q '^q35 ' && \
@@ -572,6 +575,69 @@ RUN set -eux; \
     ! grep -q '^	do_setup_pci_bus();$' src/pci.c && grep -q 'spin-machine: no walk of the bus' src/pci.c || { echo "the no-PCI-walk patch is not in the tree that was compiled" >&2; exit 1; }; \
     sha256sum /build/qboot.bin
 
+# swtpm, the TPM a machine asks for (machine.TPM): one beside each QEMU, which machine.Start runs.
+# A host binary in a release, so static as QEMU is, and built on QEMU's builder, whose apk.list
+# has what it links: glib, OpenSSL's libcrypto and libseccomp as static libraries. libtpms, the
+# TPM itself, and json-glib, which Alpine ships with no static library, are built here first.
+# libtasn1-dev is configure's and not the binary's: swtpm's configure asks for it unconditionally,
+# for swtpm_cert, which is not built. Only the swtpm binary is: provisioning a TPM (its
+# endorsement key and certificate) is the caller's, done once when a workspace's TPM is made.
+#
+# -all-static is libtool's word for -static: given -static, libtool links its own libraries
+# statically and the system's dynamically, and the binary asked for libgio-2.0.so.0 at start.
+# PKG_CONFIG with --static so that each library's own dependencies (pcre2, libffi, libintl,
+# zlib) are on the link line. The binary is static and not static-pie as QEMU's is: libtool has
+# no static-pie, and swtpm's hardening (its configure's default) gives it full RELRO, an NX stack
+# and stack canaries, which the checks below hold it to.
+FROM ${QEMU_BUILDER_IMAGE} AS swtpm
+
+ARG JSON_GLIB_VERSION
+ARG JSON_GLIB_SHA256
+ARG LIBTPMS_VERSION
+ARG LIBTPMS_SHA256
+ARG SWTPM_VERSION
+ARG SWTPM_SHA256
+
+SHELL ["/bin/sh", "-o", "pipefail", "-c"]
+
+WORKDIR /build
+RUN curl -fsSL "https://github.com/GNOME/json-glib/archive/refs/tags/${JSON_GLIB_VERSION}.tar.gz" -o json-glib.tar.gz && \
+    curl -fsSL "https://github.com/stefanberger/libtpms/archive/refs/tags/v${LIBTPMS_VERSION}.tar.gz" -o libtpms.tar.gz && \
+    curl -fsSL "https://github.com/stefanberger/swtpm/archive/refs/tags/v${SWTPM_VERSION}.tar.gz" -o swtpm.tar.gz && \
+    printf '%s  %s\n' "${JSON_GLIB_SHA256}" json-glib.tar.gz "${LIBTPMS_SHA256}" libtpms.tar.gz "${SWTPM_SHA256}" swtpm.tar.gz | sha256sum -c - && \
+    for t in json-glib libtpms swtpm; do mkdir "$t" && tar -xzf "$t.tar.gz" -C "$t" --strip-components=1; done
+
+ENV PKG_CONFIG_PATH=/opt/swtpm/lib/pkgconfig
+RUN cd json-glib && \
+    meson setup build --prefix=/opt/swtpm --default-library=static -Dintrospection=disabled \
+        -Dgtk_doc=disabled -Dman=false -Dtests=false -Dnls=disabled -Dconformance=false && \
+    ninja -C build install
+RUN cd libtpms && \
+    ./autogen.sh --prefix=/opt/swtpm --with-openssl --with-tpm2 --disable-shared --enable-static && \
+    make -j"$(nproc)" install
+RUN cd swtpm && \
+    ./autogen.sh --prefix=/opt/swtpm --without-cuse --without-gnutls --with-seccomp \
+        --disable-shared --enable-static --disable-tests PKG_CONFIG="pkg-config --static" && \
+    make -j"$(nproc)" -C src/utils && \
+    make -j"$(nproc)" -C src/swtpm LDFLAGS=-all-static && \
+    install -D -m 0755 -s src/swtpm/swtpm /opt/swtpm/bin/swtpm
+
+# Asked of the binary, as QEMU's devices are: static and hardened, and a TPM 2.0 that offers
+# RSA-3072, the size of shirudo's primaries. --print-capabilities is swtpm saying what libtpms was
+# built with, which a missing OpenSSL algorithm takes out without failing the build.
+RUN b=/opt/swtpm/bin/swtpm && \
+    ! readelf -lW "$b" | grep -q INTERP || { echo "ERROR: $b wants a dynamic loader"; exit 1; }; \
+    ! readelf -dW "$b" | grep -q NEEDED || { echo "ERROR: $b has shared library dependencies"; exit 1; }; \
+    readelf -lW "$b" | grep -q GNU_RELRO || { echo "ERROR: $b has no RELRO segment"; exit 1; }; \
+    readelf -dW "$b" | grep -q 'FLAGS.*BIND_NOW' || { echo "ERROR: $b is lazily bound"; exit 1; }; \
+    case "$(readelf -lW "$b" | grep GNU_STACK)" in *RWE*|'') echo "ERROR: $b has an executable stack"; exit 1 ;; esac; \
+    [ "$(objdump -d --no-show-raw-insn "$b" | grep -c '%fs:0x28')" -gt 0 ] || { echo "ERROR: $b has no stack canaries"; exit 1; }; \
+    caps=$("$b" socket --tpm2 --print-capabilities) && echo "$caps" && \
+    for c in '"tpm-2.0"' '"rsa-keysize-3072"' '"cmdarg-profile"'; do \
+        case "$caps" in *"$c"*) ;; *) echo "ERROR: $b does not offer $c"; exit 1 ;; esac; \
+    done && \
+    echo "OK: swtpm is static and hardened, and its TPM 2.0 offers RSA-3072"
+
 # The runtime image: the binaries and the firmware on a base that exists only so a human can
 # open a shell in it and look around. There are no libraries to install: that is the whole
 # difference static linking makes here. An Ubuntu base with a hand-written apt list would have
@@ -582,13 +648,14 @@ FROM ${ALPINE_IMAGE} AS runtime
 COPY --from=builder /opt/qemu/bin/qemu-system-x86_64 /usr/local/bin/qemu-system-x86_64
 COPY --from=builder /opt/qemu-tcg/bin/qemu-system-x86_64 /usr/local/bin/qemu-system-x86_64-tcg
 COPY --from=builder /opt/qemu/bin/qemu-img /usr/local/bin/qemu-img
+COPY --from=swtpm /opt/swtpm/bin/swtpm /usr/local/bin/swtpm
 COPY --from=builder /build/pc-bios/ /usr/share/spin-stack/qemu/
 COPY --from=qboot /build/qboot.bin /usr/share/spin-stack/qemu/qboot.bin
 
 # The binaries are static, so this proves rather more than it looks: it is the same check a
 # consumer's host performs when it runs them, on a base that shares nothing with the one
 # they were built on.
-RUN /usr/local/bin/qemu-system-x86_64 --version && /usr/local/bin/qemu-img --version
+RUN /usr/local/bin/qemu-system-x86_64 --version && /usr/local/bin/qemu-img --version && /usr/local/bin/swtpm --version
 
 ENTRYPOINT ["/usr/local/bin/qemu-system-x86_64"]
 
@@ -598,6 +665,7 @@ FROM scratch AS extract
 COPY --from=builder /opt/qemu/bin/qemu-system-x86_64 /bin/qemu-system-x86_64
 COPY --from=builder /opt/qemu-tcg/bin/qemu-system-x86_64 /bin/qemu-system-x86_64-tcg
 COPY --from=builder /opt/qemu/bin/qemu-img /bin/qemu-img
+COPY --from=swtpm /opt/swtpm/bin/swtpm /bin/swtpm
 COPY --from=builder /build/pc-bios/ /qemu/
 COPY --from=qboot /build/qboot.bin /qemu/qboot.bin
 # The packages the builder installed, as apk recorded them: the static libraries the binaries

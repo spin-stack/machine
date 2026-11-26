@@ -96,6 +96,11 @@ func run(argv []string) error {
 		if len(spec.Monitors) == 0 {
 			spec.Monitors = []machine.Monitor{{FD: 3}}
 		}
+		// The TPM's control channel is a socket pair Start makes, shown at the descriptor after
+		// the monitor's.
+		if spec.TPM.State != "" {
+			spec.TPM.FD = 4
+		}
 		args, err := spec.Args()
 		if err != nil {
 			return err
@@ -215,6 +220,7 @@ type machineFlags struct {
 	console  string
 	held     bool
 	restore  bool
+	tpm      string
 
 	init     string
 	root     string
@@ -245,6 +251,7 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.qmp, "qmp", "", "listen for QMP on this Unix socket; attach, detach and save connect to it")
 	fs.BoolVar(&o.held, "held", false, "start held, and boot only when start is run (needs --qmp)")
 	fs.BoolVar(&o.restore, "restore", false, "start held for a checkpoint, which restore loads (needs --qmp)")
+	fs.StringVar(&o.tpm, "tpm", "", "give the machine a TPM whose state is this directory, made if missing, and emulated by <release>/bin/swtpm (default: no TPM)")
 	fs.StringVar(&o.console, "console", "mon:stdio",
 		"QEMU chardev for the serial console, e.g. file:/path or unix:/path,server=on,wait=off; empty for none")
 
@@ -297,6 +304,13 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 	}
 	s.Restore = o.restore
 	s.Console = o.console
+	if o.tpm != "" {
+		swtpm, err := rel.SWTPM()
+		if err != nil {
+			return machine.Spec{}, err
+		}
+		s.TPM = machine.TPM{SWTPM: swtpm, State: o.tpm}
+	}
 
 	hasDisk := o.disks.path != "-"
 	if hasDisk {

@@ -6,6 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/CycloneDX/cyclonedx-go v0.12.0
+	github.com/google/go-tpm v0.9.8
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/spin-stack/go-tools v0.20261125.1

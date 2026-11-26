@@ -101,3 +101,11 @@ CONFIG_VIRTIO_SCSI=y
 # virtio-serial is deliberately absent: nothing in this repository or in the code that drives
 # it ever attached a virtconsole.
 CONFIG_SERIAL_ISA=y
+
+# A TPM 2.0 for the machine that asks for one (machine.TPM): the device, and the emulator backend,
+# which talks to the swtpm machine.Start runs beside QEMU. --enable-tpm at configure is
+# CONFIG_TPM; the backend is default y in its Kconfig, which --allnoconfig ignores, so it is named.
+# The passthrough backend, a host's own TPM, is not: no machine here is given one.
+CONFIG_TPM_CRB=y
+CONFIG_TPM_TIS_ISA=y
+CONFIG_TPM_EMULATOR=y
