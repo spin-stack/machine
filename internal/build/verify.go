@@ -24,8 +24,8 @@ import (
 // without it gives a container nowhere to write.
 var QEMUBinaries = []string{"qemu-system-x86_64", "qemu-system-x86_64-tcg", "qemu-img"}
 
-// SWTPMBinary is the TPM's emulator the QEMU build ships beside it: one runs beside each QEMU
-// whose machine has a TPM (#719).
+// SWTPMBinary is the TPM's emulator the QEMU build ships beside it: machine.Start runs one beside
+// each QEMU whose machine has a TPM.
 const SWTPMBinary = "swtpm"
 
 // Firmware is what every consumer of QEMU needs beside it. pvh.bin is the option ROM QEMU adds
@@ -97,9 +97,6 @@ func VerifyQEMU(o Options) error {
 	return nil
 }
 
-// tpmDevice is the TPM's device, the one qemu/devices.mak builds in.
-const tpmDevice = "tpm-crb"
-
 // verifyTPM asks both halves of a machine's TPM what they can do: QEMU for its device and the
 // emulator backend, and swtpm for a TPM 2.0 that makes the RSA-3072 primaries shirudo's init makes.
 // A swtpm built without one of libtpms's algorithms still builds and starts, and the guest's
@@ -110,8 +107,8 @@ func verifyTPM(o Options) error {
 	if err != nil {
 		return fmt.Errorf("asking %s for its devices: %w", QEMUBinaries[0], err)
 	}
-	if !strings.Contains(devices, `name "`+tpmDevice+`"`) {
-		return fmt.Errorf("%s has no %s: a machine with a TPM does not start", QEMUBinaries[0], tpmDevice)
+	if !strings.Contains(devices, `name "`+machine.TPMDevice+`"`) {
+		return fmt.Errorf("%s has no %s: a machine with a TPM does not start", QEMUBinaries[0], machine.TPMDevice)
 	}
 	backends, err := output(qemu, "-tpmdev", "help")
 	if err != nil {

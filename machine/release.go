@@ -27,6 +27,7 @@ const (
 	qemuName    = "bin/qemu-system-x86_64"
 	qemuTCGName = "bin/qemu-system-x86_64-tcg"
 	qemuImgName = "bin/qemu-img"
+	swtpmName   = "bin/swtpm"
 	firmwareDir = "qemu"
 	rootfsName  = "image/rootfs.qcow2"
 	manifest    = "machine.env"
@@ -102,6 +103,11 @@ func (r *Release) QEMUImg() string { return filepath.Join(r.dir, qemuImgName) }
 // they keep working until they read a cluster that moved. A new image is written
 // beside it and renamed over it.
 func (r *Release) Rootfs() (string, error) { return r.optional(rootfsName, "the base image") }
+
+// SWTPM is the swtpm that emulates a machine's TPM (Spec.TPM). Not every release carries one, and
+// OpenRelease does not ask for it: a release from before #719 has none, and is still a machine
+// without a TPM.
+func (r *Release) SWTPM() (string, error) { return r.optional(swtpmName, "swtpm, the TPM's emulator") }
 
 func (r *Release) optional(name, what string) (string, error) {
 	p := filepath.Join(r.dir, name)

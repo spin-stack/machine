@@ -87,7 +87,7 @@ const ok = `{"return": {}}`
 func release(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, f := range []string{"bin/qemu-system-x86_64", "bin/qemu-system-x86_64-tcg", "bin/qemu-img", "kernel/bzImage", "qemu/linuxboot_dma.bin", "qemu/qboot.bin", "image/rootfs.qcow2"} {
+	for _, f := range []string{"bin/qemu-system-x86_64", "bin/qemu-system-x86_64-tcg", "bin/qemu-img", "kernel/bzImage", "qemu/linuxboot_dma.bin", "qemu/qboot.bin", "image/rootfs.qcow2", "bin/swtpm"} {
 		p := filepath.Join(dir, f)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -152,6 +152,9 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	emulated := defaults
 	emulated.Accel, emulated.QEMU = "tcg", filepath.Join(dir, "bin/qemu-system-x86_64-tcg")
 
+	withTPM := defaults
+	withTPM.TPM = machine.TPM{SWTPM: filepath.Join(dir, "bin/swtpm"), State: "/tpm"}
+
 	noDisk := defaults
 	noDisk.Places = nil
 	noDisk.Cmdline = machine.DefaultCmdline()
@@ -170,6 +173,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 			"--root", "/dev/vdb", "--profile", "--append", "a=1 b", "--lockdown", "shirudo"}, every},
 		{"tcg runs the release's TCG build", []string{"--accel", "tcg"}, emulated},
 		{"no disk mounts no root", []string{"--disk", "-"}, noDisk},
+		{"a TPM is its state, emulated by the release's swtpm", []string{"--tpm", "/tpm"}, withTPM},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var o machineFlags
@@ -229,12 +233,34 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 		t.Errorf("args printed %q, want the release's QEMU, held", printed)
 	}
 
+	// The TPM's channel is a descriptor Start makes, shown where Start hands it.
+	r, w, err = os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = run([]string{"args", "--release", dir, "--tpm", "/tpm"})
+	os.Stdout = stdout
+	_ = w.Close()
+	printed, _ = io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(printed), "-chardev \\\n  socket,id=tpm,fd=4 \\\n  -tpmdev \\\n  emulator,id=tpm0,chardev=tpm \\\n  -device \\\n  tpm-crb,tpmdev=tpm0 ") {
+		t.Errorf("args --tpm printed %q, want the TPM's backend on descriptor 4 and its device", printed)
+	}
+	noSWTPM := release(t)
+	if err := os.Remove(filepath.Join(noSWTPM, "bin/swtpm")); err != nil {
+		t.Fatal(err)
+	}
+
 	for _, tc := range []struct {
 		name string
 		argv []string
 		want string
 	}{
 		{"no command", nil, "no command given"},
+		{"a TPM from a release without swtpm", []string{"args", "--release", noSWTPM, "--tpm", "/tpm"}, "swtpm, the TPM's emulator"},
 		{"a release that is not whole", []string{"args", "--release", t.TempDir()}, "is not a whole machine"},
 		{"a machine that cannot be", []string{"args", "--release", dir, "--memory", "0"}, "memory is 0"},
 		{"a flag args does not take", []string{"args", "--nope"}, "flag provided but not defined"},

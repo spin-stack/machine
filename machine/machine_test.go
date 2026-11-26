@@ -90,7 +90,13 @@ func TestArgs(t *testing.T) {
 		want: []string{"-nodefaults", "-sandbox on,obsolete=deny", "vmgenid,guid=auto"},
 		// Anonymous RAM names no backend; the virtio-mem device is only for a ceiling, and a
 		// vsock only for a CID.
-		absent: []string{"memory-backend", "virtio-mem", "-incoming", "vhost-vsock"},
+		absent: []string{"memory-backend", "virtio-mem", "-incoming", "vhost-vsock", "-tpmdev", "tpm-crb"},
+	}, {
+		// The TPM's backend reaches swtpm over the control channel Start made, a descriptor, so
+		// QEMU opens no socket by path.
+		name: "a TPM",
+		set:  func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3} },
+		want: []string{"-chardev socket,id=tpm,fd=3 -tpmdev emulator,id=tpm0,chardev=tpm -device tpm-crb,tpmdev=tpm0 "},
 	}, {
 		// qboot unless told otherwise: SeaBIOS is QEMU's own default, and a Spec that left the
 		// firmware to QEMU would boot it without saying so.
@@ -473,6 +479,11 @@ func TestValidateRefuses(t *testing.T) {
 		{"two places with one serial", func(s *Spec) { s.Places = []Place{{Serial: "a"}, {Serial: "a"}} }},
 		// Held until a monitor says what to do: with none it never starts.
 		{"no monitor", func(s *Spec) { s.Monitors = nil }},
+		// A TPM is its state: a binary or a channel without one is a TPM asked for by halves.
+		{"a TPM with no state", func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", FD: 5} }},
+		{"a TPM's channel with no state", func(s *Spec) { s.TPM = TPM{FD: 5} }},
+		{"a TPM with no swtpm", func(s *Spec) { s.TPM = TPM{State: "/tpm", FD: 5} }},
+		{"a TPM whose channel is stderr", func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 2} }},
 		{"a descriptor set given twice", func(s *Spec) {
 			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}, {ID: 1, FDs: []FD{{Num: 4}}}}
 		}},

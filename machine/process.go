@@ -63,6 +63,10 @@ type StartOptions struct {
 	// process on the calling goroutine, so a privilege dropped here is dropped after the opens,
 	// and a caller that entered a namespace on a locked thread starts QEMU inside it.
 	Cmd func(*exec.Cmd)
+
+	// TPMCmd shapes swtpm as Cmd shapes QEMU, for a Spec with a TPM: its credentials, root and
+	// cgroup. It leaves Stderr and ExtraFiles as Start set them.
+	TPMCmd func(*exec.Cmd)
 }
 
 // Process is a QEMU that Start started: the machine, through the monitor Start connected, and the
@@ -77,6 +81,8 @@ type Process struct {
 	console *panicWatch
 	// sockets are the monitors' sockets Start bound, removed once QEMU has exited.
 	sockets []boundSocket
+	// tpm is the TPM's emulator, when the Spec has a TPM: reaped after QEMU.
+	tpm *swtpm
 	// cgroup is the cgroup QEMU runs in, when it is not its caller's: what Usage reads.
 	cgroup string
 	// watch and host are the machine's probe, when StartOptions.Pressure set one: removed and
@@ -104,7 +110,7 @@ type Exit struct {
 	// console (StartOptions.Console) and it said one. A panic otherwise ends as GuestReset.
 	Panic string
 	// Stderr is the last 4 KiB QEMU wrote on its stderr, or empty when StartOptions.Stderr was a
-	// file, which holds all of it.
+	// file, which holds all of it; then what swtpm said, when the TPM's emulator failed.
 	Stderr string
 }
 
@@ -169,11 +175,23 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 		h.removeSockets()
 		return nil, err
 	}
+	var tpm *swtpm
 	fail := func(err error) (*Process, error) {
 		_ = own.Close()
 		_ = console.Close() // a nil *os.File refuses the close, and there is nothing to close
 		h.removeSockets()
+		if tpm != nil {
+			h.close() // QEMU's end of the control channel, which ends swtpm
+			_ = tpm.end()
+		}
 		return nil, err
+	}
+	if s.TPM.on() {
+		var channel *os.File
+		if tpm, channel, err = startSWTPM(s.TPM, o.TPMCmd); err != nil {
+			return fail(err)
+		}
+		s.TPM.FD = h.add(channel)
 	}
 	args, err := s.Args()
 	if err != nil {
@@ -192,6 +210,7 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 	p := &Process{
 		watch:    o.Pressure,
 		sockets:  h.sockets,
+		tpm:      tpm,
 		attached: make(chan *QEMU, 1),
 		exited:   make(chan struct{}),
 	}
@@ -286,6 +305,13 @@ func (p *Process) wait(read <-chan struct{}) {
 	}
 	if p.console != nil {
 		p.exit.Panic = p.console.panicked()
+	}
+	if p.tpm != nil {
+		// After QEMU, whose exit closed the control channel: swtpm follows it out, and the state
+		// directory is free for the next machine once Exited is closed.
+		if said := p.tpm.end(); said != "" {
+			p.exit.Stderr += "\n" + said
+		}
 	}
 	if m := <-p.attached; m != nil {
 		// QEMU's end closed the monitor, but the client may not have read its last lines yet.

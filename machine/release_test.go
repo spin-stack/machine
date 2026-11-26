@@ -115,6 +115,17 @@ func TestOpenReleaseAcceptsAMachineWithoutTheOptionalParts(t *testing.T) {
 	if _, err := r.Spec("kvm"); err != nil {
 		t.Errorf("Spec(kvm) needs no TCG build: %v", err)
 	}
+	// A release from before #719 has no swtpm, and is a machine without a TPM.
+	if _, err := r.SWTPM(); err == nil || !strings.Contains(err.Error(), "swtpm") {
+		t.Errorf("SWTPM on a release without one returned %v, want an error naming swtpm", err)
+	}
+	withTPM, err := OpenRelease(tree(t, append(slices.Clone(whole), swtpmName)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := withTPM.SWTPM(); err != nil || filepath.Base(got) != "swtpm" {
+		t.Errorf("SWTPM = %q, %v, want the release's bin/swtpm", got, err)
+	}
 }
 
 // machine.env, as spin-machine-dev release writes it and as it can arrive damaged.

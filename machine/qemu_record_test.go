@@ -435,3 +435,34 @@ func TestReadTargetSaysWhyTheMachineDidNotStart(t *testing.T) {
 		t.Errorf("ReadTarget = %v, want why QEMU refused", err)
 	}
 }
+
+// The machine held for a record with a TPM has a TPM state of its own, made for it and removed: the
+// caller's directory is a workspace's, which swtpm would lock and the machine write.
+func TestReadTargetGivesItsMachineATPMOfItsOwn(t *testing.T) {
+	t.Setenv("FAKE_STATUS", "prelaunch")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace-tpm")
+	var used string
+	s := Spec{QEMU: self, Kernel: bzImageStub(t), Firmware: t.TempDir(), Accel: "tcg", BootCPUs: 1, Memory: Memory{BaseMB: 128},
+		TPM: TPM{SWTPM: self, State: workspace}}
+	if _, err := ReadTarget(ctx(t), s, StartOptions{
+		Cmd: func(c *exec.Cmd) { c.Env = append(os.Environ(), fakeMode+"=obeys", "GORACE=atexit_sleep_ms=0") },
+		TPMCmd: func(c *exec.Cmd) {
+			c.Env = append(os.Environ(), fakeMode+"=swtpm", "GORACE=atexit_sleep_ms=0")
+			used = strings.TrimSuffix(strings.TrimPrefix(c.Args[4], "dir="), ",mode=0600")
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if used == "" || used == workspace {
+		t.Errorf("the machine held for its record ran its TPM on %q, the caller's is %q", used, workspace)
+	}
+	for _, dir := range []string{used, workspace} {
+		if _, err := os.Stat(dir); err == nil {
+			t.Errorf("%s is left after ReadTarget", dir)
+		}
+	}
+}
