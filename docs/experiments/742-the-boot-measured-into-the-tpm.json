@@ -1,0 +1,15 @@
+{
+  "decision": "open",
+  "order": 5,
+  "change": "A machine with a TPM has its boot measured into it: qboot extends the kernel, the command line and the initrd into PCRs 4 and 9, from SHA-256 digests the caller supplies, and writes the TCG event log QEMU's TPM2 table points at (#742)",
+  "number": "cold, of a machine with a TPM; a machine without one runs the same qboot with nothing to measure",
+  "phase": "qboot, 33.6 before the kernel's clock (boot:firmware-stages, lab 44787491631): the measuring adds TPM2_Startup, TPM2_GetCapability and 11 TPM2_PCR_Extend through tpm-crb to swtpm, and the log written in RAM. Hashing in qboot instead was ruled out before a run: a portable SHA-256 read 60 MB in 400 ms on a laptop (-Os, 64-bit), SHA-NI in OpenSSL 1.5 GB/s, and qboot never sees the vmlinux QEMU loads for PVH. Prior art: no firmware without EFI measures a QEMU -kernel boot (qboot has no TPM code; SeaBIOS's tcgbios.c measures option ROMs, the MBR and separators, not fw_cfg's kernel, initrd or command line); Stefan Berger's 2011 SeaBIOS series had QEMU hash the kernel, initrd and command line and hand the digests to the firmware through fw_cfg (never merged, seabios list 2011-08-31); QEMU's SEV kernel-hashes and OVMF measure through UEFI; Kata measures through TEE launch digests, Firecracker has no vTPM (firecracker-microvm/firecracker#3629, open)",
+  "decided_by": "`ssh-first`, 20 a side, interleaved: a TPM machine whose spin-machine names the events against one whose spin-machine predates them, on the same QEMU and qboot",
+  "state": "open",
+  "issues": [
+    742
+  ],
+  "runs": [
+    44787491631
+  ]
+}

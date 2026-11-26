@@ -447,7 +447,7 @@ func TestReadTargetGivesItsMachineATPMOfItsOwn(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "workspace-tpm")
 	var used string
 	s := Spec{QEMU: self, Kernel: bzImageStub(t), Firmware: t.TempDir(), Accel: "tcg", BootCPUs: 1, Memory: Memory{BaseMB: 128},
-		TPM: TPM{SWTPM: self, State: workspace}}
+		TPM: TPM{SWTPM: self, State: workspace, Kernel: [32]byte{1}}}
 	if _, err := ReadTarget(ctx(t), s, StartOptions{
 		Cmd: func(c *exec.Cmd) { c.Env = append(os.Environ(), fakeMode+"=obeys", "GORACE=atexit_sleep_ms=0") },
 		TPMCmd: func(c *exec.Cmd) {

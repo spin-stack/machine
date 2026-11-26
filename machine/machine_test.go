@@ -3,6 +3,8 @@
 package machine
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -91,13 +93,18 @@ func TestArgs(t *testing.T) {
 		want: []string{"-nodefaults", "-sandbox on,obsolete=deny", "vmgenid,guid=auto"},
 		// Anonymous RAM names no backend; the virtio-mem device is only for a ceiling, and a
 		// vsock only for a CID.
-		absent: []string{"memory-backend", "virtio-mem", "-incoming", "vhost-vsock", "-tpmdev", "tpm-crb"},
+		absent: []string{"memory-backend", "virtio-mem", "-incoming", "vhost-vsock", "-tpmdev", "tpm-crb", "-fw_cfg"},
 	}, {
 		// The TPM's backend reaches swtpm over the control channel Start made, a descriptor, so
 		// QEMU opens no socket by path.
 		name: "a TPM",
-		set:  func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3} },
+		set:  func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3, Kernel: [32]byte{0xab}} },
 		want: []string{"-chardev socket,id=tpm,fd=3 -tpmdev emulator,id=tpm0,chardev=tpm -device tpm-crb,tpmdev=tpm0 "},
+	}, {
+		// What qboot measures, from the events the machine names: the kernel's digest in PCR 4.
+		name: "a TPM's measurements for the firmware",
+		set:  func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3, Kernel: [32]byte{0xab}} },
+		want: []string{"-fw_cfg name=opt/org.spin-stack/tpm-events,string=00 00000004 ", " 04 0000000d ab" + strings.Repeat("00", 31) + " 4c696e7578206b65726e656c "},
 	}, {
 		// qboot unless told otherwise: SeaBIOS is QEMU's own default, and a Spec that left the
 		// firmware to QEMU would boot it without saying so.
@@ -528,7 +535,16 @@ func TestValidateRefuses(t *testing.T) {
 		{"a TPM with no state", func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", FD: 5} }},
 		{"a TPM's channel with no state", func(s *Spec) { s.TPM = TPM{FD: 5} }},
 		{"a TPM with no swtpm", func(s *Spec) { s.TPM = TPM{State: "/tpm", FD: 5} }},
-		{"a TPM whose channel is stderr", func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 2} }},
+		{"a TPM whose channel is stderr", func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 2, Kernel: [32]byte{1}} }},
+		// A TPM measures what boots, from digests the caller made: none is a boot it cannot measure.
+		{"a TPM with no digest of the kernel", func(s *Spec) { s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 5} }},
+		{"a TPM with no digest of the initrd", func(s *Spec) {
+			s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 5, Kernel: [32]byte{1}}
+			s.Initrd = "/initrd"
+		}},
+		{"a digest of an initrd the machine does not boot", func(s *Spec) {
+			s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 5, Kernel: [32]byte{1}, Initrd: [32]byte{1}}
+		}},
 		{"a descriptor set given twice", func(s *Spec) {
 			s.FDSets = []FDSet{{ID: 1, FDs: []FD{{Num: 3}}}, {ID: 1, FDs: []FD{{Num: 4}}}}
 		}},
@@ -734,5 +750,48 @@ func TestAMachineStartsHeldForABootOrARestore(t *testing.T) {
 		if !strings.Contains(joined, tc.want) || strings.Contains(joined, tc.absent) {
 			t.Errorf("restore %t: want %q and no %q in %s", tc.restore, tc.want, tc.absent, joined)
 		}
+	}
+}
+
+// What a machine with a TPM measures: the separators that end the firmware's PCRs 0-7, the
+// kernel's digest in PCR 4, and in PCR 9 the command line QEMU hands the kernel and the initrd,
+// tagged as Linux's EFI stub tags them. A machine without a TPM measures nothing.
+func TestATPMMeasuresTheKernelItsCommandLineAndItsInitrd(t *testing.T) {
+	s := spec(t)
+	if got := s.TPMEvents(); got != nil {
+		t.Errorf("a machine without a TPM measures %v", got)
+	}
+	s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3, Kernel: [32]byte{1}, Initrd: [32]byte{2}}
+	s.Initrd = "/initrd"
+	args, err := s.Args()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := s.TPMEvents()
+	if len(events) != 11 {
+		t.Fatalf("%d events, want 8 separators, the kernel, the command line and the initrd: %v", len(events), events)
+	}
+	for i, e := range events[:8] {
+		if e.PCR != uint32(i) || e.Type != EvSeparator || e.Digest != sha256.Sum256(e.Data) || !bytes.Equal(e.Data, []byte{0, 0, 0, 0}) {
+			t.Errorf("event %d is %+v, want PCR %d's separator", i, e, i)
+		}
+	}
+	want := []struct {
+		pcr, typ uint32
+		digest   [32]byte
+		data     string
+	}{
+		{4, EvIPL, [32]byte{1}, "Linux kernel"},
+		{9, EvEventTag, sha256.Sum256([]byte(argValue(args, "-append"))), "\xed\x22\x3b\x8f\x1a\x00\x00\x00LOADED_IMAGE::LoadOptions\x00"},
+		{9, EvEventTag, [32]byte{2}, "\xec\x22\x3b\x8f\x0d\x00\x00\x00Linux initrd\x00"},
+	}
+	for i, w := range want {
+		e := events[8+i]
+		if e.PCR != w.pcr || e.Type != w.typ || e.Digest != w.digest || string(e.Data) != w.data {
+			t.Errorf("event %d is %+v, want PCR %d, type %#x, digest %x, data %q", 8+i, e, w.pcr, w.typ, w.digest, w.data)
+		}
+	}
+	if !strings.Contains(argValue(args, "-fw_cfg"), fmt.Sprintf("09 00000006 %x ", sha256.Sum256([]byte(argValue(args, "-append"))))) {
+		t.Errorf("-fw_cfg %s does not hand qboot the command line's event", argValue(args, "-fw_cfg"))
 	}
 }
