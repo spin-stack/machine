@@ -65,4 +65,5 @@ does not change.
 Every release runs `boot:shirudo` on both tarballs before it publishes (release.yml, `shirudo`).
 It runs the operator half in a guest of the release, as above, then boots a machine with
 `--lockdown shirudo` and a TPM from what that made. compat runs the same check on a change that
-reaches shirudo, its pins, the kernel it hooks or the QEMU it boots on (compat.yml, `shirudo`).
+reaches shirudo, its pins, the kernel it hooks or the QEMU it boots on (compat.yml, `shirudo`). A
+change that reaches the base image runs it on the image that change built (parts.yml, `image-shirudo`).

@@ -50,6 +50,8 @@ same change.
 | QEMU, the kernel, shirudo and the image, built and verified | `parts.yml` | a change that reaches the part |
 | a checkpoint of each release resumes, `boot:record`, `boot:cpu-plug`, `boot:lockdown` | `compat.yml`, KVM fleet | a change that reaches the machine, and every release before it is built |
 | `boot:shirudo`, the shipped shirudo's init, status and a signed upatch on a machine of the release | `release.yml`'s `shirudo`, KVM fleet | every release, after it is packed and before it is published |
+| `boot:shirudo` on this change's machine, with the release's image | `compat.yml`'s `shirudo`, KVM fleet | a change that reaches shirudo, its pins, the kernel or QEMU |
+| `boot:shirudo` on the image this change built | `parts.yml`'s `image-shirudo`, KVM fleet | a change that reaches the image |
 | the goal's two numbers, the no-systemd floor beside them, and one boot drawn; an issue when either regressed | `report.yml`, bench | every release, once published |
 | `boot:checkpoint-pause`, the pause a checkpoint stops the guest for | `release.yml`'s `pause`, bench | every release, once published, and a QEMU bump (versions.yaml) |
 | `boot:finish-migrate` | by hand, on a busy host | a QEMU bump (versions.yaml) |

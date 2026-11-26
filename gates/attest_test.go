@@ -26,6 +26,7 @@ func TestEveryUploadIsAttested(t *testing.T) {
 			"codeql.yml/analyze/Keep upstream's results in the touched files":                  "upstream's analysis results, for a person to read; nothing installs or verifies them",
 			"codeql.yml/analyze/Keep the SARIF":                                                "a failed scope's SARIF, for a person to read why; nothing installs or verifies it",
 			"parts.yml/kernel/Upload the kernel":                                               "a lane's kernel and its unsigned modules, for a person and the image job to fetch; a release builds and signs its own",
+			"parts.yml/image/Hand the image to image-shirudo":                                  "a lane's base image with unsigned modules, for image-shirudo to boot, kept a day; a release builds its own",
 			"parts.yml/kernel/Upload the kernel's manifest":                                    "what the image job reads to take the kernel job's build as current; nothing installs it",
 			"lab.yml/lab/Keep the result":                                                      "a measurement's result.json, which lab show reads; nothing installs or verifies it",
 			"parts.yml/qemu/Upload the extracted binaries":                                     "a lane's QEMU for a person to fetch; a release builds its own",
