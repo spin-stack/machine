@@ -1,0 +1,17 @@
+{
+  "decision": "carried",
+  "order": 35,
+  "change": "Kernel 0032: no TPM2_SelfTest after the TPM2_Startup the kernel sends itself, for a machine with a TPM (#745). libtpms tests each algorithm before its first use anyway, so that work moves to the first command that needs it, off the boot",
+  "where": "kernel/patches",
+  "result": "with a TPM, against main's kernel: first login −18.6 [−25.5, −8.7], sshd accepting −19.3 [−25.1, −10.7], 30 a side (lab 45834343191); restored −0.3 [−1.2, +1.0] evicted, 30 a side (lab 45834349809); initcalls −17.7 [−19.2, −16.9], 10 a side (lab 45834358071). A machine without a TPM does not reach the patched path",
+  "evidence": "measured",
+  "source": "labs 45834343191, 45834349809, 45834358071",
+  "issues": [
+    745
+  ],
+  "runs": [
+    45834343191,
+    45834349809,
+    45834358071
+  ]
+}

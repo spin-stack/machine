@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "kernel",
+  "order": 330,
+  "date": "2026-11-26",
+  "change": "`CONFIG_HW_RANDOM_TPM` off, for a machine with a TPM: the TPM not registered as an hwrng, whose registration reads it once for early randomness (#745)",
+  "result": "first login +3.0 [−3.0, +9.5], 30 a side, against main's kernel, both with a TPM (lab 45831227791). The read is one short command; the probe's time was the self test (0032)",
+  "shape": "spin",
+  "source": "lab 45831227791",
+  "issues": [
+    745
+  ],
+  "runs": [
+    45831227791
+  ]
+}

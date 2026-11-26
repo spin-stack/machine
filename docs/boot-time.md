@@ -194,6 +194,33 @@ the flag it checks is set only after the sleep. sshd logs both at `LogLevel DEBU
 44980029214). On a cold boot the vCPU still has boot work to run while sshd sleeps. ("Open
 experiments", #457.)
 
+### A machine with a TPM
+
+spin gives a workspace that runs shirudo a TPM (`machine.Spec.TPM`, #719): swtpm beside QEMU,
+behind `tpm-crb`. Each row is what the TPM adds to a phase, a machine with one against the same
+machine without, interleaved, spin's shape, v20261126.01's parts (#745, 2026-11-26).
+
+| Phase | Δ with a TPM | Source | How well known |
+|---|---|---|---|
+| QEMU's exec to the guest's first instruction: swtpm's start and QEMU's backend waiting on it | +4.8 [+4.1, +9.7] | `ledger` `qemu_start`, lab 45830006273, 3 a side | measured, not split |
+| The kernel's clock to PID 1: `crb_acpi_driver_init` | +19.1 [+17.3, +21.5] | `initcalls`, lab 45829990377, 10 a side; the ledger's kernel window +18.8 of idle, the kernel's CPU unchanged | measured |
+| … of it, TPM2_SelfTest after the kernel's TPM2_Startup | 16.7 | function_graph under `tpm_transmit`, lab 45833173266, 2 boots, traced: the refused self test 1.6, TPM2_Startup 1.2, the locality 0.6, the rest under 1.3 | measured, traced |
+| PID 1 to the login | none seen | no TPM unit on the login's chains; CPU by process within ±1 ms (`bootchart`, lab 45829997996, 3 a side); the ledger's windows from PID 1 move either way | bounded |
+| **Cold first login** | **+31.7 [+22.0, +36.0]**; +9.5 [+4.5, +19.5] with 0032 | `ssh-first`, lab 45829973230, 30 a side; with 0032, lab 45834343191 | measured |
+| Restored first login, evicted | +6.3 [+5.3, +7.0] | `restore-first` `running` +6.4, `listening` +0.0: swtpm's start and its state in the stream, lab 45829981897, 30 a side | measured |
+
+**The cold cost was the kernel waiting on libtpms's self test.** qboot does not start the TPM,
+so the kernel's first TPM2_SelfTest is refused, it sends TPM2_Startup, and then asks for the self
+test again, which right after a startup tests every algorithm libtpms has. The vCPU sleeps
+through it in 1 ms polls. A TPM tests an algorithm before its first use anyway, so 0032 drops
+that second self test ("What the machine carries"), and the first command that needs an
+algorithm pays its test instead: shirudo's first RSA-3072 primary, after the login. What is
+left, ~10 ms, is swtpm's start before the guest runs, the refused self test, the startup and
+the driver's capability reads, each under the noise alone. The image's systemd is built without
+TPM2 (docs/image.md, "Two rebuilt packages"), so nothing after PID 1 waits on the TPM; a systemd
+with TPM2 brings its generator and units onto that path, and the "PID 1 to the login" row is
+measured again then.
+
 ## What the machine carries
 
 This table lists every change the tree makes for boot time, with what it earns in spin's shape.

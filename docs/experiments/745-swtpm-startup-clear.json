@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 140,
+  "date": "2026-11-26",
+  "change": "swtpm started with `--flags startup-clear`, so the TPM is started before the guest's first command and the kernel's first self test is not refused (a machine change on branch `exp/745-startup-clear`, #745)",
+  "result": "first login −0.1 [−6.3, +7.5], 30 a side, against main's spin-machine, both with a TPM (lab 45830336920). The kernel's first self test then runs the whole self test, which was the time; 0032 drops it instead",
+  "shape": "spin",
+  "source": "lab 45830336920",
+  "issues": [
+    745
+  ],
+  "runs": [
+    45830336920
+  ]
+}

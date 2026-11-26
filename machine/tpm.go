@@ -36,9 +36,9 @@ type TPM struct {
 
 // TPMDevice is the TPM's interface to the guest, the one QEMU is built with (qemu/devices.mak, which
 // has the measurement it was chosen by): a command buffer in memory the guest writes a whole
-// command to, where tpm-tis is a FIFO with an exit a byte. A TPM costs the cold first login +36 ms
-// with it, and a restored one +6 ms (labs 45748711725, 45748711747, 2026-11-26), which is why it is
-// a machine's to ask for and not every machine's.
+// command to, where tpm-tis is a FIFO with an exit a byte. A TPM costs the cold first login +9.5 ms
+// with it since kernel 0032 (+31.7 before), and a restored one +6 ms (labs 45834343191, 45829981897,
+// 2026-11-26), which is why it is a machine's to ask for and not every machine's.
 const TPMDevice = "tpm-crb"
 
 func (t TPM) on() bool { return t.State != "" }
