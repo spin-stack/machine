@@ -26,6 +26,13 @@ func checkOnConsole(t *testing.T, rel *machine.Release, root *rawRoot, ok, faile
 // written to it.
 func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed string, shape func(*machine.Spec), said func(m *machine.QEMU, console string)) string {
 	t.Helper()
+	return checkGuestFor(t, 2*time.Minute, rel, root, ok, failed, shape, said)
+}
+
+// checkGuestFor is checkGuest for a check that takes longer than two minutes, with more disks
+// beside root, each at its serial.
+func checkGuestFor(t *testing.T, limit time.Duration, rel *machine.Release, root *rawRoot, ok, failed string, shape func(*machine.Spec), said func(m *machine.QEMU, console string), more ...machine.DiskPath) string {
+	t.Helper()
 	accel := "kvm"
 	if _, err := os.Stat("/dev/kvm"); err != nil {
 		accel = "tcg"
@@ -42,8 +49,11 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 	c.Root = "/dev/vda"
 	c.Init = "/sbin/init"
 	spec.Cmdline = c
+	for _, m := range more {
+		spec.Places = append(spec.Places, machine.Place{Serial: m.Serial})
+	}
 	shape(&spec)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	console := newScreen()
 	p, err := machine.Start(ctx, spec, machine.StartOptions{Console: console})
@@ -56,7 +66,16 @@ func checkGuest(t *testing.T, rel *machine.Release, root *rawRoot, ok, failed st
 		t.Fatal(err)
 	}
 	defer func() { _ = d.Close() }()
-	if err := p.Boot(ctx, d); err != nil {
+	disks := []machine.Disk{d}
+	for _, m := range more {
+		x, err := machine.OpenDisk(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = x.Close() }()
+		disks = append(disks, x)
+	}
+	if err := p.Boot(ctx, disks...); err != nil {
 		t.Fatalf("booting: %v", err)
 	}
 	for {

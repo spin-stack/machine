@@ -88,6 +88,16 @@ func tree(t *testing.T) (root, out string) {
 	put(t, filepath.Join(out, build.ShirudoBinary), "shirudo", 0o755)
 	put(t, filepath.Join(out, build.ShirudoLicenses), "shirudo's licences", 0o644)
 	put(t, filepath.Join(out, build.ShirudoPackages), "libc6-dev 2.43-2ubuntu2.7 amd64\nlibelf-dev 0.194-4 amd64\n", 0o644)
+	op := filepath.Join(out, build.ShirudoOperator)
+	put(t, filepath.Join(op, "install"), "#!/bin/sh\n", 0o755)
+	put(t, filepath.Join(op, build.ShirudoBuild), "shirudo-build", 0o755)
+	put(t, filepath.Join(op, build.ShirudoClang), "clang", 0o755)
+	put(t, filepath.Join(op, "libexec/shirudo/llvm/bin/llvm-objcopy"), "llvm-objcopy", 0o755)
+	if err := os.Symlink("llvm-objcopy", filepath.Join(op, "libexec/shirudo/llvm/bin/llvm-strip")); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(op, "debs/dracut-core_110-11ubuntu0.1_amd64.deb"), "deb", 0o644)
+	put(t, filepath.Join(out, build.ShirudoOperatorPackages), "dracut-core 110-11ubuntu0.1 amd64\n", 0o644)
 	put(t, filepath.Join(out, "sbom/e2fsprogs.apk"), apkDB("libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"), 0o644)
 	return root, out
 }
@@ -233,6 +243,83 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	}
 	if !pedigree["openssh-source"] {
 		t.Error("the SBOM's openssh-source has no pedigree")
+	}
+}
+
+// shirudo's operator half is a tarball of its own beside the main one, which never carries it: it
+// unpacks over the main tree, with its links, its sha256 and its SBOM inside and beside it.
+func TestTheOperatorHalfIsATarballOfItsOwn(t *testing.T) {
+	root, out := tree(t)
+	o := options(t, root, out)
+	packed, err := Pack(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for f := range listing(t, packed.Tarball) {
+		if strings.Contains(f, build.ShirudoOperator) {
+			t.Errorf("the main tarball carries %s", f)
+		}
+	}
+	name := Name(o.Version)
+	tarball := filepath.Join(out, "release", OperatorTarball(o.Version))
+	share := "usr/share/spin-stack/"
+	got := listing(t, tarball)
+	for f, mode := range map[string]int64{share + "shirudo-operator/install": 0o755, share + "shirudo-operator/" + build.ShirudoBuild: 0o755,
+		share + "shirudo-operator/" + build.ShirudoClang: 0o755, share + "shirudo-operator/debs/dracut-core_110-11ubuntu0.1_amd64.deb": 0o644,
+		share + "sbom/shirudo-operator.cdx.json": 0o644} {
+		if m, ok := got[f]; !ok || m != mode {
+			t.Errorf("%s: in the operator tarball %v, mode %o; want %o", f, ok, m, mode)
+		}
+	}
+	if len(got) != 6 {
+		t.Errorf("the operator tarball holds %d files, want 6: %v", len(got), got)
+	}
+	if l := link(t, tarball, name+"/"+share+"shirudo-operator/libexec/shirudo/llvm/bin/llvm-strip"); l != "llvm-objcopy" {
+		t.Errorf("llvm-strip in the operator tarball links to %q", l)
+	}
+	sum, _ := build.FileSHA256(tarball)
+	if b, _ := os.ReadFile(tarball + ".sha256"); string(b) != sum+"  "+OperatorTarball(o.Version)+"\n" {
+		t.Errorf("the operator tarball's sha256 file says %q", b)
+	}
+	b, err := sbom.Read(filepath.Join(out, "release", name+".shirudo-operator.cdx.json"))
+	if err != nil || sbom.Check(b) != nil {
+		t.Fatalf("the operator tarball's SBOM: %v", err)
+	}
+	if b.Metadata.Component.Name != OperatorTarball(o.Version) || len(*b.Metadata.Component.Hashes) == 0 {
+		t.Errorf("the operator tarball's SBOM describes %+v", b.Metadata.Component)
+	}
+	raw, _ := io.ReadAll(mustOpen(t, filepath.Join(out, "release", name+".shirudo-operator.cdx.json")))
+	llvm, _ := pins(t).Get("llvm")
+	for _, c := range []string{"pkg:deb/ubuntu/dracut-core@110-11ubuntu0.1", "pkg:deb/ubuntu/libelf-dev@0.194-4",
+		`"name": "shirudo-build"`, `"name": "clang"`, llvm.Pin} {
+		if !strings.Contains(string(raw), c) {
+			t.Errorf("the operator tarball's SBOM does not name %s", c)
+		}
+	}
+	if err := os.Remove(filepath.Join(out, build.ShirudoOperator, "install")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Pack(context.Background(), o); err == nil || !strings.Contains(err.Error(), "operator half") {
+		t.Errorf("a build without the operator half packed: %v", err)
+	}
+}
+
+// link is where the symlink at name in the tarball points, or "" when it has none.
+func link(t *testing.T, path, name string) string {
+	t.Helper()
+	z, err := gzip.NewReader(mustOpen(t, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := tar.NewReader(z)
+	for {
+		h, err := r.Next()
+		if err != nil {
+			return ""
+		}
+		if h.Name == name && h.Typeflag == tar.TypeSymlink {
+			return h.Linkname
+		}
 	}
 }
 
@@ -431,5 +518,42 @@ func TestTheTraceableKernelIsPublishedUnderAName(t *testing.T) {
 	}
 	if got, want := TraceableBzImage("v20261123.01"), "spin-machine-v20261123.01-linux-x86_64.lab-only-traceable.bzImage"; got != want {
 		t.Errorf("TraceableBzImage = %q, want %q", got, want)
+	}
+}
+
+// The operator half's SBOM refuses what it cannot name: a package list the build did not leave, a
+// binary that is not there, and a pin it reads from versions.yaml that is not there.
+func TestTheOperatorHalfsSBOMRefusesWhatItCannotName(t *testing.T) {
+	without := func(t *testing.T, name string) *versions.Versions {
+		t.Helper()
+		v := pins(t)
+		v.Entries = slices.DeleteFunc(v.Entries, func(e versions.Entry) bool { return e.Name == name })
+		return v
+	}
+	for what, c := range map[string]struct {
+		remove string
+		pins   *versions.Versions
+		want   string
+	}{
+		"no package list":  {remove: build.ShirudoOperatorPackages, want: "missing " + build.ShirudoOperatorPackages},
+		"no linked list":   {remove: build.ShirudoPackages, want: "missing " + build.ShirudoPackages},
+		"no shirudo-build": {remove: filepath.Join(build.ShirudoOperator, build.ShirudoBuild), want: "shirudo-build"},
+		"no clang":         {remove: filepath.Join(build.ShirudoOperator, build.ShirudoClang), want: "clang"},
+		"no shirudo pin":   {pins: without(t, "shirudo"), want: "shirudo"},
+		"no llvm pin":      {pins: without(t, "llvm"), want: "llvm"},
+	} {
+		root, out := tree(t)
+		o := options(t, root, out)
+		if c.pins != nil {
+			o.Pins = c.pins
+		}
+		if c.remove != "" {
+			if err := os.Remove(filepath.Join(out, c.remove)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := OperatorBOM(o); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", what, err, c.want)
+		}
 	}
 }

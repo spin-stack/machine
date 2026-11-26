@@ -31,6 +31,12 @@ import (
 // Name is the release's name, which its tarball and directory carry.
 func Name(version string) string { return "spin-machine-" + version + "-linux-" + build.Arch }
 
+// OperatorTarball is the name of the release's second tarball: shirudo's operator half
+// (build.ShirudoOperator), under the same top directory as the first, so it unpacks over it.
+// Apart, because only a shirudo operator wants its clang: 89 MB more for every host, image and
+// lab that unpacks the machine and never runs it (#800).
+func OperatorTarball(version string) string { return Name(version) + ".shirudo-operator.tar.gz" }
+
 // TraceableVmlinux is the name the lab's kernel of release version is published under beside the
 // release: its vmlinux built from the same source and config with lockdown forced to none, so the
 // ledger can read a scheduler trace (kernel/README.md), and entered through PVH as the release's is.
@@ -153,6 +159,9 @@ func Pack(ctx context.Context, o Options) (Packed, error) {
 	if err := sbom.Write(filepath.Join(rel, name+".cdx.json"), tarBOM); err != nil {
 		return Packed{}, err
 	}
+	if err := packOperator(ctx, o, rel, name); err != nil {
+		return Packed{}, err
+	}
 	// The manifest again, beside the tarball rather than inside it, so it is published as an
 	// asset of its own and read without the gigabyte around it.
 	if err := os.WriteFile(filepath.Join(rel, "machine.env"), []byte(FormatEnv(manifest)), 0o644); err != nil { //nolint:gosec // published
@@ -229,6 +238,103 @@ func shipped(o Options, top, share string) ([]file, error) {
 		file{fromOut("licenses.txt"), at("licenses.txt"), "the image's licence texts", 0o644},
 	)
 	return files, nil
+}
+
+// packOperator packs shirudo's operator half into OperatorTarball beside the main tarball, with its
+// .sha256 and its SBOM, inside it and beside it, as the main tarball has them. Packed from Out as
+// it is, each name put under the main tarball's tree: only names, so llvm-strip still links to the
+// llvm-objcopy beside it.
+func packOperator(ctx context.Context, o Options, rel, name string) error {
+	if _, err := os.Stat(filepath.Join(o.Out, build.ShirudoOperator, "install")); err != nil {
+		return fmt.Errorf("missing shirudo's operator half (spin-machine-dev build shirudo makes it): %w", err)
+	}
+	opBOM, err := OperatorBOM(o)
+	if err != nil {
+		return err
+	}
+	const inner = "sbom/shirudo-operator.cdx.json"
+	if err := sbom.Write(filepath.Join(o.Out, inner), opBOM); err != nil {
+		return err
+	}
+	file := OperatorTarball(o.Version)
+	tarball := filepath.Join(rel, file)
+	// The modes are the build's and the SBOM's is set, whatever the packer's umask.
+	tar := exec.CommandContext(ctx, "tar", "-czf", tarball, "--mode=go-w",
+		"--transform", "flags=r;s,^,"+name+"/usr/share/spin-stack/,", "-C", o.Out, build.ShirudoOperator, inner)
+	if out, err := tar.CombinedOutput(); err != nil {
+		return fmt.Errorf("packing %s: %w: %s", tarball, err, out)
+	}
+	sum, err := build.FileSHA256(tarball)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(tarball+".sha256", []byte(sum+"  "+file+"\n"), 0o644); err != nil { //nolint:gosec // published
+		return fmt.Errorf("writing %s.sha256: %w", tarball, err)
+	}
+	subject, err := hashed(file, o.Version, tarball)
+	if err != nil {
+		return err
+	}
+	tarBOM, err := sbom.Merge(subject, o.Epoch, opBOM)
+	if err != nil {
+		return err
+	}
+	// release sign attests each tarball with the .cdx.json of its name.
+	return sbom.Write(filepath.Join(rel, strings.TrimSuffix(file, ".tar.gz")+".cdx.json"), tarBOM)
+}
+
+// OperatorBOM is what shirudo's operator half is made of, under Out: shirudo-build and clang by
+// their hashes, the libraries shirudo-build links, which are guest/shirudo's, the Ubuntu packages
+// in its debs/, and the sources they were built from.
+func OperatorBOM(o Options) (*cdx.BOM, error) {
+	shirudo, err := o.Pins.Get("shirudo")
+	if err != nil {
+		return nil, err
+	}
+	llvm, err := o.Pins.Get("llvm")
+	if err != nil {
+		return nil, err
+	}
+	var parts []*cdx.BOM
+	for _, l := range []struct{ name, list string }{
+		{"shirudo-build-libraries", build.ShirudoPackages},
+		{"shirudo-operator-packages", build.ShirudoOperatorPackages},
+	} {
+		raw, err := os.ReadFile(filepath.Join(o.Out, l.list))
+		if err != nil {
+			return nil, fmt.Errorf("missing %s (spin-machine-dev build shirudo makes it): %w", l.list, err)
+		}
+		pkgs, err := sbom.Dpkg(raw, "ubuntu")
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, sbom.New(subject(l.name, shirudo.Pin), pkgs, nil, o.Epoch))
+	}
+	pins, err := sbom.Pins(o.Pins, strings.Fields("shirudo llvm openssl curl tpm2-tss ubuntu")...)
+	if err != nil {
+		return nil, err
+	}
+	parts = append(parts, sbom.New(subject("shirudo-operator-sources", o.Version), pins, nil, o.Epoch))
+	op := filepath.Join(o.Out, build.ShirudoOperator)
+	for _, f := range []struct{ path, version string }{
+		{build.ShirudoBuild, shirudo.Pin},
+		{build.ShirudoClang, llvm.Version},
+		{"libexec/shirudo/llvm/bin/llvm-objcopy", llvm.Version},
+	} {
+		c, err := sbom.File(filepath.Base(f.path), f.version, filepath.Join(op, f.path))
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, sbom.New(c, nil, nil, o.Epoch))
+	}
+	b, err := sbom.Merge(subject("shirudo-operator", o.Version), o.Epoch, parts...)
+	if err != nil {
+		return nil, err
+	}
+	if err := sbom.Check(b); err != nil {
+		return nil, fmt.Errorf("the operator half's SBOM: %w", err)
+	}
+	return b, nil
 }
 
 // install copies f, refusing one that is not there.

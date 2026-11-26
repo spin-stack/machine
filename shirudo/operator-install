@@ -1,0 +1,48 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Makes a guest of this release an operator of shirudo: run as root in the guest, from this tree
+# where the guest sees it, unpacked over the release's own (guest/shirudo beside it), on a disk of
+# its own: clang alone is larger than the base image's free space. docs/shirudo.md.
+#
+# Root because shirudo locks its memory, which a host's memlock limit refuses a user. Offline: the
+# Ubuntu packages come from debs/ alone, and a package that would replace one the image has is
+# refused, so the guest's systemd, which the initrd is made of, stays the image's.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+die() { echo "install: $*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || die "run as root, in a guest of the release"
+[ -x "$here/../guest/shirudo" ] || die "no guest/shirudo beside $here: unpack this over the release's tarball"
+
+state=$(mktemp -d)
+trap 'rm -rf "$state"' EXIT
+mkdir -p "$state/lists/partial"
+echo "deb [trusted=yes] file:$here/debs ./" >"$state/sources.list"
+apt() {
+	DEBIAN_FRONTEND=noninteractive apt-get -q -o Dir::Etc::SourceList="$state/sources.list" \
+		-o Dir::Etc::SourceParts=/nonexistent -o Dir::State::Lists="$state/lists" \
+		-o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache= -o APT::Sandbox::User=root "$@"
+}
+packages=$(cat "$here/debs/wanted")
+apt update
+# shellcheck disable=SC2086 # one word a package
+plan=$(apt install -s --no-install-recommends $packages)
+if echo "$plan" | grep '^Inst [^ ]* \['; then
+	die "the packages above would replace the image's own"
+fi
+# shellcheck disable=SC2086
+apt install -y --no-install-recommends $packages
+
+# The paths shirudo and shirudo-build have compiled in: shirudo-build, clang, the BPF headers and
+# vmlinux.h, all under /usr/local as shirudo's install-operator puts them.
+mkdir -p /usr/local/libexec /usr/local/share /usr/local/bin
+ln -sfn "$here/libexec/shirudo" /usr/local/libexec/shirudo
+ln -sfn "$here/share/shirudo" /usr/local/share/shirudo
+ln -sf "$here/../guest/shirudo" /usr/local/bin/shirudo
+ln -sf /usr/local/libexec/shirudo/shirudo-build /usr/local/bin/shirudo-build
+ln -sf /usr/local/libexec/shirudo/llvm/bin/llvm-objcopy /usr/local/bin/llvm-strip
+# The scripts find what they source beside themselves, so a link on PATH would not do.
+for s in gen-image/shirudo-gen-image gen-image/shirudo-gen-verity gen-image/shirudo-gen-runtime gen-initrd/shirudo-gen-initrd; do
+	printf '#!/bin/sh\nexec /usr/local/libexec/shirudo/%s "$@"\n' "$s" >"/usr/local/bin/${s#*/}"
+	chmod 0755 "/usr/local/bin/${s#*/}"
+done
+shirudo version

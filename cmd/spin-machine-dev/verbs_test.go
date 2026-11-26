@@ -588,6 +588,23 @@ func packed(t *testing.T, dir string) string {
 	put(t, filepath.Join(out, build.ShirudoBinary), string(staticELF())+"shirudo "+sh.Pin[:7], 0o755)
 	put(t, filepath.Join(out, build.ShirudoLicenses), "shirudo's licences", 0o644)
 	put(t, filepath.Join(out, build.ShirudoPackages), "libc6-dev 2.43-2ubuntu2.7 amd64\n", 0o644)
+	// And its operator half: shirudo-build as static as shirudo, the pinned clang, the install and
+	// the packages it installs.
+	llvm, err := v.Get("llvm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := func(p string) string { return filepath.Join(out, build.ShirudoOperator, p) }
+	put(t, op(build.ShirudoBuild), string(staticELF())+"shirudo-build "+sh.Pin[:7], 0o755)
+	put(t, op(build.ShirudoClang), "#!/bin/sh\necho "+llvm.Version+"\n", 0o755)
+	put(t, op("libexec/shirudo/llvm/bin/llvm-objcopy"), "llvm-objcopy", 0o755)
+	put(t, op("libexec/shirudo/gen-initrd/shirudo-gen-initrd"), "#!/bin/sh\n", 0o755)
+	put(t, op("share/shirudo/vmlinux.h"), "struct x;\n", 0o644)
+	put(t, op("install"), "#!/bin/sh\n", 0o755)
+	put(t, op("licenses.txt"), "licences", 0o644)
+	put(t, op("debs/Packages"), "Package: dracut-core\n", 0o644)
+	put(t, op("debs/wanted"), "dracut-core\n", 0o644)
+	put(t, filepath.Join(out, build.ShirudoOperatorPackages), "dracut-core 110-11ubuntu0.1 amd64\n", 0o644)
 	// And Docker's packages as dpkg records those versions.yaml pins: release pack refuses an image without them.
 	list := "bash 5.2-1 amd64\n"
 	for _, e := range v.Entries {

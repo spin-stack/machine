@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spin-stack/go-tools/versions"
 )
 
 // patchText is a format-patch of one file, the line it adds placed after context, with or
@@ -155,15 +157,37 @@ func TestAKernelPatchHasASubjectAndADiff(t *testing.T) {
 	}
 }
 
-// shirudoTree lays out what the shirudo part leaves in out: bin, a binary, and its licences and
-// packages.
-func shirudoTree(t *testing.T, out, bin string) {
+// shirudoTree lays out what the shirudo part leaves in out: bin as the guest's shirudo and the
+// operator's shirudo-build, their licences and packages, a clang of the pinned LLVM and the rest of
+// the operator half.
+func mustCopy(t *testing.T, from, to string) {
+	t.Helper()
+	b, err := os.ReadFile(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(to, b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func shirudoTree(t *testing.T, out, bin string, v *versions.Versions) {
 	t.Helper()
 	b, err := os.ReadFile(bin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for f, content := range map[string][]byte{ShirudoBinary: b, ShirudoLicenses: []byte("licences"), ShirudoPackages: []byte("libc6-dev 2.43 amd64\n")} {
+	llvm, _ := v.Get("llvm")
+	op := func(p string) string { return filepath.Join(ShirudoOperator, p) }
+	for f, content := range map[string][]byte{
+		ShirudoBinary: b, ShirudoLicenses: []byte("licences"), ShirudoPackages: []byte("libc6-dev 2.43 amd64\n"),
+		ShirudoOperatorPackages: []byte("dracut-core 110 amd64\n"),
+		op(ShirudoBuild):        b, op(ShirudoClang): []byte("#!/bin/sh\necho " + llvm.Version + "\n"),
+		op("install"): []byte("#!/bin/sh\n"), op("licenses.txt"): []byte("licences"),
+		op("debs/Packages"): []byte("Package: dracut-core\n"), op("debs/wanted"): []byte("dracut-core\n"),
+		op("libexec/shirudo/gen-initrd/shirudo-gen-initrd"): []byte("#!/bin/sh\n"),
+		op("share/shirudo/vmlinux.h"):                       []byte("struct x;\n"),
+	} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(out, f)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -191,14 +215,21 @@ func TestShirudoVerifiesAsAStaticBinaryOfThePin(t *testing.T) {
 	}
 	load := []elf.Prog64{{Type: uint32(elf.PT_LOAD)}}
 	out := t.TempDir()
-	shirudoTree(t, out, named(t, load, e.Pin[:7]))
+	shirudoTree(t, out, named(t, load, e.Pin[:7]), v)
 	o := Options{Out: out, Pins: v}
 	if err := VerifyShirudo(o); err != nil {
 		t.Errorf("a static shirudo of the pin: %v", err)
 	}
-	for name, want := range map[string]string{ShirudoLicenses: "missing " + ShirudoLicenses, ShirudoPackages: "missing " + ShirudoPackages} {
+	for name, want := range map[string]string{
+		ShirudoLicenses: "missing " + ShirudoLicenses, ShirudoPackages: "missing " + ShirudoPackages,
+		ShirudoOperatorPackages:                       "missing " + ShirudoOperatorPackages,
+		filepath.Join(ShirudoOperator, "install"):     "missing " + filepath.Join(ShirudoOperator, "install"),
+		filepath.Join(ShirudoOperator, "debs/wanted"): "missing " + filepath.Join(ShirudoOperator, "debs/wanted"),
+		filepath.Join(ShirudoOperator, ShirudoClang):  "missing clang",
+		filepath.Join(ShirudoOperator, ShirudoBuild):  "missing shirudo-build",
+	} {
 		out := t.TempDir()
-		shirudoTree(t, out, named(t, load, e.Pin[:7]))
+		shirudoTree(t, out, named(t, load, e.Pin[:7]), v)
 		_ = os.Remove(filepath.Join(out, name))
 		if err := VerifyShirudo(Options{Out: out, Pins: v}); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("no %s: %v", name, err)
@@ -213,44 +244,36 @@ func TestShirudoVerifiesAsAStaticBinaryOfThePin(t *testing.T) {
 	} {
 		out := t.TempDir()
 		if _, err := os.Stat(c.bin); err == nil {
-			shirudoTree(t, out, c.bin)
+			shirudoTree(t, out, c.bin, v)
 		}
 		if err := VerifyShirudo(Options{Out: out, Pins: v}); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", what, err, c.want)
 		}
 	}
+	dynamic := t.TempDir()
+	shirudoTree(t, dynamic, named(t, load, e.Pin[:7]), v)
+	mustCopy(t, named(t, append(load, elf.Prog64{Type: uint32(elf.PT_INTERP)}), e.Pin[:7]), filepath.Join(dynamic, ShirudoOperator, ShirudoBuild))
+	if err := VerifyShirudo(Options{Out: dynamic, Pins: v}); err == nil || !strings.Contains(err.Error(), "is linked dynamically") {
+		t.Errorf("a dynamic shirudo-build: %v", err)
+	}
+	other := t.TempDir()
+	shirudoTree(t, other, named(t, load, e.Pin[:7]), v)
+	if err := os.WriteFile(filepath.Join(other, ShirudoOperator, ShirudoClang), []byte("#!/bin/sh\necho 22.1.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyShirudo(Options{Out: other, Pins: v}); err == nil || !strings.Contains(err.Error(), "is clang 22.1.0") {
+		t.Errorf("another clang: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(other, ShirudoOperator, ShirudoClang), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyShirudo(Options{Out: other, Pins: v}); err == nil || !strings.Contains(err.Error(), "clang -dumpversion") {
+		t.Errorf("a clang that does not run: %v", err)
+	}
+	if err := VerifyShirudo(Options{Out: out, Pins: pinsWithout(t, "llvm")}); err == nil {
+		t.Error("no llvm pin gave no error")
+	}
 	if err := VerifyShirudo(Options{Out: out, Pins: pinsWithout(t, "shirudo")}); err == nil {
 		t.Error("no shirudo pin gave no error")
-	}
-}
-
-// What a check of the shipped shirudo makes its key, images and initrd with is built as the part
-// is, from its pins and against the kernel beside it, and loaded under the tag asked for.
-func TestShirudosToolsAreBuiltAsThePartIs(t *testing.T) {
-	v := pins(t)
-	root, out := t.TempDir(), t.TempDir()
-	log := fakeDocker(t, "")
-	o := Options{Root: root, Out: out, Pins: v}
-	if err := ShirudoImage(context.Background(), o, "operator", "x:check"); err != nil {
-		t.Fatal(err)
-	}
-	got := calls(t, log)
-	p, _ := Lookup("shirudo")
-	args, _ := partArgs(o, p)
-	for _, want := range []string{"buildx build --file shirudo/Dockerfile --target operator ", strings.Join(args, " "),
-		"--build-context kernel=" + filepath.Join(out, "kernel") + " --tag x:check --load ."} {
-		if len(got) != 1 || !strings.Contains(got[0], want) {
-			t.Errorf("docker ran %q, want %q in it", got, want)
-		}
-	}
-	if err := ShirudoImage(context.Background(), o, "initrd", "y:check", "rootfs=/r"); err != nil {
-		t.Fatal(err)
-	}
-	if got := calls(t, log); len(got) != 2 || !strings.Contains(got[1], "--target initrd ") ||
-		!strings.Contains(got[1], "--build-context kernel="+filepath.Join(out, "kernel")+" --build-context rootfs=/r --tag y:check --load .") {
-		t.Errorf("docker ran %q for the initrd's builder", got)
-	}
-	if err := ShirudoImage(context.Background(), Options{Root: root, Out: out, Pins: pinsWithout(t, "tpm2-tss")}, "initrd", "x"); err == nil {
-		t.Error("no tpm2-tss pin gave no error")
 	}
 }

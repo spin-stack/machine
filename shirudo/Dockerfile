@@ -126,32 +126,62 @@ RUN set -e; \
       cat "/usr/share/doc/$p/copyright" >> "$l"; \
     done
 
-FROM scratch AS extract
-COPY --from=build /out/ /
+# The Ubuntu packages the operator half installs in a guest of the release that its image does
+# not carry (docs/shirudo.md, "The operator half"): dracut and tpm2-tools for the initrd,
+# cryptsetup's veritysetup for the images, binutils' readelf for shirudo-gen-runtime, zstd and cpio,
+# python3 for kernel-obs's rodata generator. From the same snapshot as the build, as a flat apt
+# repository: resolved against a bare Ubuntu, so a package the guest's image already has is in it
+# too, and apt in the guest keeps the image's own (shirudo/operator-install). The names asked for
+# are `wanted`, which the install reads; the packages' versions, the SBOM's.
+FROM ubuntu AS operator-debs
+ENV LC_ALL=C
+WORKDIR /debs
+RUN echo dracut-core tpm2-tools zstd cpio cryptsetup-bin binutils python3 > wanted && \
+    apt-get install -y --download-only --no-install-recommends $(cat wanted) && \
+    mv /var/cache/apt/archives/*.deb . && \
+    for d in *.deb; do \
+      dpkg-deb -f "$d"; \
+      printf 'Filename: ./%s\nSize: %s\nSHA256: %s\n\n' "$d" "$(stat -c %s "$d")" "$(sha256sum "$d" | cut -d' ' -f1)"; \
+    done > Packages && \
+    mkdir -p /out/sbom && \
+    for d in *.deb; do dpkg-deb --show --showformat '${Package} ${Version} ${Architecture}\n' "$d"; done > /out/sbom/shirudo-operator.dpkg
 
-# What a release's check of shirudo (boot:shirudo) runs on the host, from the same commit and
-# against the same kernel as the binary it checks: the operator's shirudo and shirudo-build, which
-# make a key, sign the images and the upatch, and shirudo-gen-runtime. Never shipped: the release
-# ships what a guest runs, and an operator builds its own tools from the commit SOURCES names.
+# The operator half, which a release ships as a tarball of its own beside the main one
+# (docs/shirudo.md): shirudo-build, static as guest/shirudo is and from the same objects' commit and
+# dependencies, the scripts, dracut module, units, headers and upatch sources around it
+# (shirudo/operator.mk), the clang guest/shirudo's BPF objects are compiled with and its own
+# headers, which shirudo-build execs at the path compiled in, and llvm-strip, which
+# shirudo-gen-runtime strips guest/shirudo with. It runs in a guest of the release, as root
+# (shirudo/operator-install); the main tarball, and every file a machine boots, is untouched by it.
 FROM build AS operator
+ARG LLVM_VERSION
+ARG LLVM_LICENSE_VERSION
+ARG LLVM_LICENSE_SHA256
+COPY shirudo/operator.mk shirudo/operator-install /spin/
 RUN --network=none --mount=type=bind,from=kernel,source=vmlinux,target=/kernel/vmlinux \
-    make -j"$(nproc)" BPF_VMLINUX_BTF=/kernel/vmlinux all shirudo-build
-ENV PATH=/src/shirudo:/src/shirudo/tools/shirudo-build:/src/shirudo/tools/gen-image:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" make -f Makefile.shirudo -f /spin/operator.mk -j"$(nproc)" \
+      PROFILE=target CONFIG_MK=config-target.mk BPF_VMLINUX_BTF=/kernel/vmlinux \
+      libexecdir=/usr/local/libexec sharedir=/usr/local/share \
+      SHIRUDO_CLANG_PATH=/usr/local/libexec/shirudo/llvm/bin/clang OPERATOR=/out/shirudo-operator operator
+RUN set -e; o=/out/shirudo-operator; l=$o/libexec/shirudo/llvm; \
+    mkdir -p "$l/bin" "$l/lib/clang/${LLVM_VERSION%%.*}"; \
+    llvm-strip -o "$l/bin/clang" /opt/llvm/bin/clang-${LLVM_VERSION%%.*}; \
+    llvm-strip -o "$l/bin/llvm-objcopy" /opt/llvm/bin/llvm-objcopy; \
+    ln -s llvm-objcopy "$l/bin/llvm-strip"; \
+    cp -R "/opt/llvm/lib/clang/${LLVM_VERSION%%.*}/include" "$l/lib/clang/${LLVM_VERSION%%.*}/include"; \
+    test "$("$l/bin/clang" -dumpversion)" = "${LLVM_VERSION}"; \
+    install -m 0755 /spin/operator-install "$o/install"
+COPY --from=operator-debs /debs /out/shirudo-operator/debs
+COPY --from=operator-debs /out/sbom /out/sbom
+# The licences of what the operator half carries beyond the debs, whose own are inside them: what
+# shirudo-build links, which is what guest/shirudo links, and LLVM's, which its release tarball
+# does not carry, from the tag's source (versions.yaml, llvm-license).
+RUN set -e; \
+    test "${LLVM_LICENSE_VERSION}" = "${LLVM_VERSION}" || { echo "llvm-license ${LLVM_LICENSE_VERSION} is not llvm ${LLVM_VERSION}'s"; exit 1; }; \
+    curl -fsSL "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-${LLVM_LICENSE_VERSION}/llvm/LICENSE.TXT" -o /tmp/llvm-license && \
+    echo "${LLVM_LICENSE_SHA256}  /tmp/llvm-license" | sha256sum -c - && \
+    { cat /out/shirudo-licenses.txt; printf '\n==> LLVM %s: clang, llvm-objcopy and clang'"'"'s headers\n\n' "${LLVM_VERSION}"; cat /tmp/llvm-license; } \
+      > /out/shirudo-operator/licenses.txt
 
-# The systemd initrd shirudo's init runs in, made by shirudo-gen-initrd with dracut from the
-# machine's own base image: its files are the `rootfs` build context (boot/shirudo_test.go), so the
-# initrd's systemd, udev and tpm2-tss are the image's, the +spin1 build with TPM2 (#767, #777).
-# dracut and tpm2-tools, which the image leaves out, come from the snapshot the other stages take,
-# in place of the image's own sources.
-FROM scratch AS initrd
-COPY --from=rootfs / /
-COPY --from=ubuntu /etc/apt/sources.list.d/snapshot.sources /etc/apt/sources.list.d/
-ENV DEBIAN_FRONTEND=noninteractive
-RUN rm /etc/apt/sources.list.d/resolute.sources /etc/apt/sources.list.d/docker.sources && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends dracut-core tpm2-tools cpio zstd file && \
-    test -e /usr/lib/systemd/system/systemd-pcrphase-initrd.service && \
-    dpkg-query -W -f '${Version}' systemd | grep -q '+spin' && \
-    rm -rf /var/lib/apt/lists/*
-COPY --from=build /src/shirudo/tools/gen-initrd /opt/gen-initrd
-COPY --from=build /src/shirudo/systemd /opt/shirudo-units
+FROM scratch AS extract
+COPY --from=operator /out/ /
