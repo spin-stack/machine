@@ -39,12 +39,16 @@ RUN extra="-Dpcre2=enabled -Dlink-executor-shared=false -Dlink-udev-shared=false
         echo 'include /build/tpm2.mk' >> debian/rules ;; esac && \
     case "${SYSTEMD_EXPERIMENT}" in tpm2split-masked) \
         printf '%s\n' 'usr/share/spin-lab-masks' >> debian/systemd.install && mkdir -p debian/tmp/usr/share && \
-        printf '%s\n' system-generators/systemd-tpm2-generator system/systemd-pcrmachine.service system/systemd-pcrphase.service \
-            system/systemd-pcrphase-sysinit.service system/systemd-pcrproduct.service system/systemd-pcrnvdone.service \
-            system/systemd-tpm2-setup-early.service system/systemd-tpm2-setup.service system/systemd-pcrextend.socket \
-            system/systemd-pcrlock.socket > /build/spin-lab-masks && \
+        printf '%s\n' systemd/system-generators/systemd-tpm2-generator systemd/system/systemd-pcrmachine.service systemd/system/systemd-pcrphase.service \
+            systemd/system/systemd-pcrphase-sysinit.service systemd/system/systemd-pcrproduct.service systemd/system/systemd-pcrnvdone.service \
+            systemd/system/systemd-tpm2-setup-early.service systemd/system/systemd-tpm2-setup.service systemd/system/systemd-pcrextend.socket \
+            systemd/system/systemd-pcrlock.socket > /build/spin-lab-masks && \
         printf '\tinstall -D -m644 /build/spin-lab-masks debian/tmp/usr/share/spin-lab-masks\n' >> /build/tpm2.mk ;; esac && \
-    case "${SYSTEMD_EXPERIMENT}" in tpm2split-nolinks) \
+    case "${SYSTEMD_EXPERIMENT}" in tpm2split-noudev) \
+        printf '%s\n' 'usr/share/spin-lab-masks' >> debian/systemd.install && \
+        printf '%s\n' systemd/system/tpm-udev.path udev/rules.d/60-tpm-udev.rules tmpfiles.d/tpm-udev.conf tmpfiles.d/tpm2-tss-fapi.conf > /build/spin-lab-masks && \
+        printf '\tinstall -D -m644 /build/spin-lab-masks debian/tmp/usr/share/spin-lab-masks\n' >> /build/tpm2.mk ;; esac && \
+    case "${SYSTEMD_EXPERIMENT}" in tpm2split-nolinks|tpm2split-noudev) \
         sed -i -E '/(sysinit|sockets)\.target\.wants\/systemd-(pcr|tpm2)/d; /systemd-tpm2-generator/d' debian/systemd.install && \
         sed -i "s|-path '[*]tpm2[*]'|-path '*tpm2*' -not -name systemd-tpm2-generator -not -path '*/sysinit.target.wants/*' -not -path '*/sockets.target.wants/*'|; s|-path '[*]pcr[*]' |-path '*pcr*' -not -path '*/sysinit.target.wants/*' -not -path '*/sockets.target.wants/*' |" /build/tpm2.mk && \
         grep -q 'sockets.target.wants' /build/tpm2.mk ;; esac && \

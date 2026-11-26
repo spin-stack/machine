@@ -524,8 +524,8 @@ for deb in "$debs"/*.deb; do
 	fi
 	if [ -f "$MNT/usr/share/spin-lab-masks" ]; then
 		while read -r m; do
-			mkdir -p "$MNT/etc/systemd/$(dirname "$m")"
-			ln -sf /dev/null "$MNT/etc/systemd/$m"
+			mkdir -p "$MNT/etc/$(dirname "$m")"
+			ln -sf /dev/null "$MNT/etc/$m"
 		done < "$MNT/usr/share/spin-lab-masks"
 	fi
 	replaced=$((replaced + 1))
