@@ -22,3 +22,20 @@ func TestATPMCheckLineIsReadOnlyWhenItEnds(t *testing.T) {
 		t.Errorf("an unwritten index reads as %q", m)
 	}
 }
+
+// tpmcheck log's last line as a poll can cut it, after the count's first digit and in the banks:
+// no answer until the line ends, and then the whole count and every bank (#788).
+func TestATPMLogLineIsReadOnlyWhenItEnds(t *testing.T) {
+	const line = "SPIN-TPM-LOG events=12 replayed=0x4,0xb,0xc,0xd"
+	for _, cut := range []string{"SPIN-TPM-LOG events=1", "SPIN-TPM-LOG events=12 replayed=0x4,0x", line} {
+		if m := tpmLogSaid.FindStringSubmatch(cut); m != nil {
+			t.Errorf("%q, a line still being printed, reads as %q", cut, m[1:])
+		}
+	}
+	for _, end := range []string{"\n", "\r\n"} {
+		m := tpmLogSaid.FindStringSubmatch("SPIN-TPM-PCR bank=0xd pcr=9 value=ab\r\n" + line + end + "# ")
+		if m == nil || m[1] != "12" || m[2] != "0x4,0xb,0xc,0xd" {
+			t.Errorf("the whole line ended by %q reads as %q", end, m)
+		}
+	}
+}

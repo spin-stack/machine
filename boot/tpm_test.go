@@ -109,10 +109,9 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 		t.Helper()
 		before := len(g.said())
 		g.type_(t, "mount -t securityfs securityfs /sys/kernel/security 2>/dev/null; /usr/local/bin/spin-tpmcheck log || echo TPMCHECK-EXIT-$((5+5))")
-		replayed := regexp.MustCompile(`SPIN-TPM-LOG events=(\d+) replayed=(\S+)`)
-		g.await(t, regexp.MustCompile(`SPIN-TPM-LOG events=\d+|TPMCHECK-EXIT-10`), 60*time.Second)
+		g.await(t, regexp.MustCompile(tpmLogSaid.String()+`|TPMCHECK-EXIT-10`), 60*time.Second)
 		text := g.said()[before:]
-		m := replayed.FindStringSubmatch(text)
+		m := tpmLogSaid.FindStringSubmatch(text)
 		if m == nil {
 			t.Fatalf("the guest's event log does not replay to its PCRs:\n%s", tail([]byte(text), 3000))
 		}
@@ -269,3 +268,7 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 // tpmcheckSaid is a whole line tpmcheck printed. The console is read while the guest writes it, so
 // without the line's end a read mid-line matched the hex printed so far as the NV index (#784).
 var tpmcheckSaid = regexp.MustCompile(`SPIN-TPM rsa3072=([0-9a-f]+) pcr16=([0-9a-f]+) nv=([0-9a-f]+|none)\r?\n`)
+
+// tpmLogSaid is the last line tpmcheck log printed, whole: until it ends, events= and replayed= are
+// what was printed so far (#788). The event and PCR lines come before it.
+var tpmLogSaid = regexp.MustCompile(`SPIN-TPM-LOG events=(\d+) replayed=(\S+)\r?\n`)
