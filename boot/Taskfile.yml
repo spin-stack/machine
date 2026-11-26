@@ -35,7 +35,9 @@ tasks:
     desc: >-
       A machine with a TPM (machine.Spec.TPM) at spin's shape: the guest sees /dev/tpm0 and
       /dev/tpmrm0 and, through the second, makes an RSA-3072 primary, extends PCR 16 and writes an
-      NV index (boot/tpmcheck, a static binary put in a copy of the image); a checkpoint resumed onto
+      NV index (boot/tpmcheck, a static binary put in a copy of the image), and reads the firmware's
+      event log, which has the events the machine named and which every PCR bank replays to
+      (qemu/qboot/tpm.patch); a checkpoint resumed onto
       an empty TPM state reads all three back, a cold boot on that state keeps the primary and the
       index with PCR 16 reset, and a machine without a TPM has neither node (tpm_test.go). Needs a
       built release with swtpm, /dev/kvm and /dev/vhost-vsock.

@@ -45,12 +45,43 @@ configuration-space exits, 5.0 ms on nested KVM against 2.2 on bare metal (boot:
 lab runs 44535161371 and 44535156851, 2026-11-19). `no-pci-walk.patch` keeps the chipset check,
 MMCONFIG and the BIOS32 entry, and drops the walk.
 
+## Measured boot
+
+A machine with a TPM (`machine.Spec.TPM`) is handed the events of its boot in the fw_cfg file
+`opt/org.spin-stack/tpm-events`, and `tpm.patch` makes qboot measure them before it enters the
+kernel (#742). It requests locality 0 of the tpm-crb, sends `TPM2_Startup(SU_CLEAR)`, reads the
+active PCR banks (`TPM2_GetCapability`, `TPM_CAP_PCRS`), extends each event into all of them with
+`TPM2_PCR_Extend`, and writes a TCG2 crypto-agile log (a `Spec ID Event03` naming the banks, then
+one `TCG_PCR_EVENT2` per event) into `etc/tpm/log`, the area QEMU's TPM2 table points at (LASA,
+LAML 64 KiB) and that the ACPI loader allocated. Linux exports it at
+`/sys/kernel/security/tpm0/binary_bios_measurements`. A machine without a TPM has no such file,
+and qboot returns after one lookup of its name.
+
+The machine says what is measured (`machine.Spec.TPMEvents`, `docs/machine.md`, "A TPM"), and
+qboot hashes nothing. The vmlinux QEMU loads for PVH never passes through qboot, so it could not
+hash the kernel at all, and an initrd hashed here is on the first login's clock: a portable
+SHA-256 read 60 MB in 400 ms on a laptop (-Os, 2026-11-26), where OpenSSL with SHA-NI read
+1.5 GB/s. The caller hashes each file once (`machine.FileSHA256`). Stefan Berger's 2011 SeaBIOS series did the
+same split, QEMU hashing the kernel, initrd and command line and the firmware extending, and was
+never merged ([seabios list, 2011-08-31](https://mail.coreboot.org/hyperkitty/list/seabios@seabios.org/message/XMD5XKVUENWGDHUBKKUF7MUBLGD2ZS4R)).
+
+Each event carries one SHA-256 digest. swtpm makes a TPM with SHA-1, SHA-256, SHA-384 and SHA-512
+banks active (the release's swtpm 0.10.2 on an empty state; boot:tpm replayed all four, 2026-11-26),
+and every active bank is extended, with the digest cut to SHA-1's 20 bytes or zero-padded to 48 and 64: no bank is left at zero for the guest to
+extend to the values of a log it wrote. Only the SHA-256 bank holds the algorithm's digests of what
+was measured; SeaBIOS filled its banks the same way until it hashed each with its own algorithm
+(commit 1be65c56, 2021). A TPM that fails or does not answer a command (about a minute of polls)
+stops the measuring and the boot goes on: what was extended before it is in the PCRs and the log
+alike, so a verifier sees a boot measured short, never a log the PCRs disagree with.
+
 ## What holds each patch
 
 The build greps each patch's code out of the tree it compiled, so a patch that applied to nothing
 fails there. What it does is held where it shows: `write-pointer.patch` by `task boot:firmware`
 (vmgenid published and the guest reseeded after a restore), `mtrr.patch` by `task boot:patches`
-(the guest's `/proc/mtrr` has the PCI hole uncachable), which compat runs. `pam.patch` and
+(the guest's `/proc/mtrr` has the PCI hole uncachable), and `tpm.patch` by `task boot:tpm`
+(the guest's log has the events the machine named, and every bank of every PCR in it holds what
+the log replays to), both of which compat runs. `pam.patch` and
 `no-pci-walk.patch` only save time. Taken back alone, cold read +3.9 [−3.4, +8.0] and +5.2
 [−1.7, +9.2] ms, 40 boots a side (lab 44993790452): inside the noise, kept because the upper
 bounds are over +5 ms (docs/measuring.md, rule 5).
@@ -60,7 +91,7 @@ bounds are over +5 ms (docs/measuring.md, rule 5).
 `spin-machine-dev build qemu` builds it, in the `qboot` stage of `qemu/Dockerfile`, and it lands beside
 the SeaBIOS blobs as `_output/qemu/qboot.bin`, where a release, `spin-machine-dev fetch qemu` and CI all
 find it. The stage clones the pinned commit, verifies the SHA-256 of the tar `git archive`
-writes for it, applies `write-pointer.patch`, `pam.patch`, `mtrr.patch` and `no-pci-walk.patch` with no fuzz, and compiles with upstream's
+writes for it, applies `write-pointer.patch`, `pam.patch`, `mtrr.patch`, `no-pci-walk.patch` and `tpm.patch` with no fuzz, and compiles with upstream's
 meson.build flags plus `-Os`. It asserts on what came out: 65536 bytes, the ROM window it is
 linked for, and each patch's code in the tree that was compiled.
 
