@@ -162,3 +162,5 @@ rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 rm -rf /var/log/journal/* 2>/dev/null || true
 
 log "Boot optimization complete!"
+
+rm -f /usr/lib/systemd/systemd-pcrextend
