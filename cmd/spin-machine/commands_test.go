@@ -153,7 +153,11 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	emulated.Accel, emulated.QEMU = "tcg", filepath.Join(dir, "bin/qemu-system-x86_64-tcg")
 
 	withTPM := defaults
-	withTPM.TPM = machine.TPM{SWTPM: filepath.Join(dir, "bin/swtpm"), State: "/tpm"}
+	kernel, err := machine.FileSHA256(defaults.Kernel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withTPM.TPM = machine.TPM{SWTPM: filepath.Join(dir, "bin/swtpm"), State: "/tpm", Kernel: kernel}
 
 	withNet := defaults
 	withNet.NICs = []machine.NIC{{Passt: filepath.Join(dir, "bin/passt"), MAC: "52:54:00:12:34:56"}}

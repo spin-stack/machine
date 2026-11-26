@@ -8,6 +8,7 @@
 //
 //	tpmcheck write   extend PCR 16, write random bytes to the index (defined first if missing), print
 //	tpmcheck read    print
+//	tpmcheck log     print the firmware's event log, each event and whether the PCRs replay to it
 //
 // Diagnostic input, never part of a release.
 package main
@@ -42,8 +43,8 @@ func main() {
 // printed SPIN-TPM-FAILED and why, 2 for arguments it does not take. open is the guest's TPM, and
 // bits its primary's size (run).
 func check(args []string, out, errs io.Writer, open func() (transport.TPMCloser, error), bits int) int {
-	if len(args) != 1 || (args[0] != "write" && args[0] != "read") {
-		_, _ = fmt.Fprintln(errs, "usage: tpmcheck write|read")
+	if len(args) != 1 || (args[0] != "write" && args[0] != "read" && args[0] != "log") {
+		_, _ = fmt.Fprintln(errs, "usage: tpmcheck write|read|log")
 		return 2
 	}
 	tpm, err := open()
@@ -52,13 +53,29 @@ func check(args []string, out, errs io.Writer, open func() (transport.TPMCloser,
 		return 1
 	}
 	defer func() { _ = tpm.Close() }()
-	line, err := run(tpm, bits, args[0] == "write")
+	var line string
+	if args[0] == "log" {
+		line, err = readLog(tpm)
+	} else {
+		line, err = run(tpm, bits, args[0] == "write")
+	}
 	if err != nil {
 		_, _ = fmt.Fprintf(out, "SPIN-TPM-FAILED %v\n", err)
 		return 1
 	}
 	_, _ = fmt.Fprintln(out, line)
 	return 0
+}
+
+// eventLog is where Linux exports the firmware's log, under securityfs.
+const eventLog = "/sys/kernel/security/tpm0/binary_bios_measurements"
+
+func readLog(tpm transport.TPM) (string, error) {
+	b, err := os.ReadFile(eventLog)
+	if err != nil {
+		return "", err
+	}
+	return checkLog(tpm, b)
 }
 
 // run is the line tpmcheck prints, its primary an RSA key of bits, after writing first when write is

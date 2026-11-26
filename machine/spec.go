@@ -3,6 +3,7 @@
 package machine
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -487,6 +488,12 @@ func (s Spec) validate() error {
 	}
 	if err := s.TPM.validate(); err != nil {
 		return err
+	}
+	switch {
+	case s.TPM.on() && s.Initrd != "" && s.TPM.Initrd == [sha256.Size]byte{}:
+		return errors.New("a TPM with no digest of the initrd to measure: TPM.Initrd is FileSHA256 of Spec.Initrd")
+	case s.TPM.Initrd != [sha256.Size]byte{} && s.Initrd == "":
+		return errors.New("a digest of an initrd for a machine that boots none")
 	}
 	for i, n := range s.NICs {
 		if err := n.validate(); err != nil {

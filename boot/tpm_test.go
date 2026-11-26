@@ -5,6 +5,7 @@ package boot_test
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,8 +53,22 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 	root.write("/usr/local/bin/spin-tpmcheck", string(b))
 	root.edit("sif /usr/local/bin/spin-tpmcheck mode 0100755")
 
+	// The digests of what the machine boots, which its firmware measures, made as a caller makes
+	// them: once a file.
+	digest := func(path string) [32]byte {
+		d, err := machine.FileSHA256(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
 	tpm := func(dir string) func(*machine.Spec) {
-		return func(s *machine.Spec) { s.TPM = machine.TPM{SWTPM: swtpm, State: dir} }
+		return func(s *machine.Spec) {
+			s.TPM = machine.TPM{SWTPM: swtpm, State: dir, Kernel: digest(s.Kernel)}
+			if s.Initrd != "" {
+				s.TPM.Initrd = digest(s.Initrd)
+			}
+		}
 	}
 	disk := func(t *testing.T) machine.Disk {
 		d, err := machine.OpenDisk(machine.DiskPath{Serial: "root", Path: root.path, Format: "raw"})
@@ -87,6 +102,37 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 		}
 	}
 	mount := "mount -t proc proc /proc; mount -t sysfs sys /sys; mount -t devtmpfs dev /dev 2>/dev/null; "
+	// The firmware's measurements, as the guest reads them: its log has the events the machine
+	// named (machine.Spec.TPMEvents), in order, and every bank of every PCR in it holds what the
+	// log replays to (qemu/qboot/tpm.patch).
+	event := regexp.MustCompile(`SPIN-TPM-EVENT pcr=(\d+) type=(0x[0-9a-f]+) sha256=([0-9a-f]{64}) data=([0-9a-f]*)`)
+	measured := func(t *testing.T, g *guest, s machine.Spec) {
+		t.Helper()
+		before := len(g.said())
+		g.type_(t, "mount -t securityfs securityfs /sys/kernel/security 2>/dev/null; /usr/local/bin/spin-tpmcheck log || echo TPMCHECK-EXIT-$((5+5))")
+		replayed := regexp.MustCompile(`SPIN-TPM-LOG events=(\d+) replayed=(\S+)`)
+		g.await(t, regexp.MustCompile(`SPIN-TPM-LOG events=\d+|TPMCHECK-EXIT-10`), 60*time.Second)
+		text := g.said()[before:]
+		m := replayed.FindStringSubmatch(text)
+		if m == nil {
+			t.Fatalf("the guest's event log does not replay to its PCRs:\n%s", tail([]byte(text), 3000))
+		}
+		var got []string
+		for _, e := range event.FindAllStringSubmatch(text, -1) {
+			got = append(got, strings.Join(e[1:], " "))
+		}
+		var want []string
+		for _, e := range s.TPMEvents() {
+			want = append(want, fmt.Sprintf("%d %#x %x %x", e.PCR, e.Type, e.Digest, e.Data))
+		}
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("the guest's log has the events\n%s\nand the machine measures\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+		if !strings.Contains(m[2], "0xb") {
+			t.Errorf("the log replays the banks %s, not SHA-256's", m[2])
+		}
+		t.Logf("the guest's log: %d events, replayed in the banks %s", len(got), m[2])
+	}
 
 	first := t.TempDir()
 	s, mac := r.next(t, "/bin/sh")
@@ -108,6 +154,7 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 	case "NO-NODES-3":
 		t.Fatalf("the kernel has tpm_crb and the guest no /dev/tpm0 or /dev/tpmrm0:\n%s", tail([]byte(src.said()), 3000))
 	}
+	measured(t, src, s)
 	saved := run(t, src, "write")
 	if saved[1] == strings.Repeat("0", 64) || saved[2] == "none" {
 		t.Fatalf("PCR 16 or the NV index is not written: %v", saved)
@@ -181,8 +228,8 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 			t.Fatal(err)
 		}
 		s, mac := r.next(t, "/bin/sh")
-		tpm(t.TempDir())(&s)
 		s.Initrd = initrd
+		tpm(t.TempDir())(&s)
 		s.Memory.BaseMB = 512
 		g := startGuest(t, s, mac, nil)
 		if err := g.Boot(ctx, disk(t)); err != nil {
@@ -190,6 +237,7 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 		}
 		g.type_(t, mount+"dmesg | grep -E 'RAMDISK|ACPI: (RSDP|TPM2|Failed)|AE_NO_MEMORY|tpm'; ls /dev/tpm0 && echo TPM-WITH-INITRD-$((4+4))")
 		g.await(t, regexp.MustCompile(`TPM-WITH-INITRD-8\b`), 60*time.Second)
+		measured(t, g, s)
 		// What the kernel printed, not the grep the console echoed.
 		if regexp.MustCompile(`\]\s+ACPI.*(Failed|AE_NO_MEMORY)`).MatchString(g.said()) {
 			t.Errorf("the kernel lost its ACPI tables under a 62 MB initrd:\n%s", tail([]byte(g.said()), 3000))

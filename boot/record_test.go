@@ -134,7 +134,11 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 	if noSWTPM == nil {
 		withTPM, _ = r.target(func(s *machine.Spec) {
 			// ReadTarget gives the machine it holds a TPM state of its own.
-			s.TPM = machine.TPM{SWTPM: swtpm, State: "a workspace's"}
+			kernel, err := machine.FileSHA256(s.Kernel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.TPM = machine.TPM{SWTPM: swtpm, State: "a workspace's", Kernel: kernel}
 		})
 	}
 	for _, tc := range []struct {

@@ -771,7 +771,7 @@ func tpmSpec(t *testing.T, mode string) (Spec, StartOptions, string) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(t.TempDir(), "tpm")
-	return Spec{TPM: TPM{SWTPM: self, State: dir}}, StartOptions{TPMCmd: func(c *exec.Cmd) {
+	return Spec{TPM: TPM{SWTPM: self, State: dir, Kernel: [32]byte{1}}}, StartOptions{TPMCmd: func(c *exec.Cmd) {
 		c.Env = append(os.Environ(), fakeMode+"="+mode, "GORACE=atexit_sleep_ms=0")
 	}}, dir
 }

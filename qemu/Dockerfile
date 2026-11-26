@@ -508,7 +508,8 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
 # report's whole matrix boots on it. Stock qboot cannot run this machine: its ACPI linker
 # loader stops on WRITE_POINTER, which vmgenid needs, and the guest halts with nothing on the
 # console. qboot/write-pointer.patch adds the command, qboot/pam.patch cuts the memory map
-# rebuilds its PAM setup costs QEMU; qboot/README.md says what each does.
+# rebuilds its PAM setup costs QEMU, qboot/tpm.patch measures the boot into a TPM; qboot/README.md
+# says what each does.
 #
 # Built here and not by a Dockerfile of its own, because it ships beside the SeaBIOS blobs it
 # replaces: everything that reads this build's qemu/ directory - a release, `spin-machine-dev fetch qemu`,
@@ -555,7 +556,7 @@ RUN git clone --quiet --branch "${QBOOT_VERSION}" https://github.com/bonzini/qbo
     git -C upstream archive "${QBOOT_COMMIT}" > upstream.tar && \
     echo "${QBOOT_ARCHIVE_SHA256}  upstream.tar" | sha256sum -c -
 
-COPY qemu/qboot/write-pointer.patch qemu/qboot/pam.patch qemu/qboot/mtrr.patch qemu/qboot/no-pci-walk.patch /build/
+COPY qemu/qboot/write-pointer.patch qemu/qboot/pam.patch qemu/qboot/mtrr.patch qemu/qboot/no-pci-walk.patch qemu/qboot/tpm.patch /build/
 
 # Upstream's meson.build flags, with -Os fixed rather than taken from a build type.
 RUN set -eux; \
@@ -565,6 +566,7 @@ RUN set -eux; \
     patch -p1 --fuzz=0 -d src < pam.patch; \
     patch -p1 --fuzz=0 -d src < mtrr.patch; \
     patch -p1 --fuzz=0 -d src < no-pci-walk.patch; \
+    patch -p1 --fuzz=0 -d src < tpm.patch; \
     cd src; \
     for f in *.c *.S; do \
         gcc -Os -m32 -march=i386 -mregparm=3 -fno-stack-protector \
@@ -580,7 +582,8 @@ RUN set -eux; \
 # fail here - it fails as a guest that prints nothing - so the size is checked; and the patches,
 # because a patch that applied to nothing still leaves a tree that compiles: without the first
 # the firmware hangs every machine that has vmgenid, without the second it is slower and says
-# nothing, and without the third every device memory a guest maps reads uncached.
+# nothing, without the third every device memory a guest maps reads uncached, and without the
+# TPM patch a machine with a TPM boots with nothing in its PCRs.
 RUN set -eux; \
     size=$(stat -c%s /build/qboot.bin); \
     test "$size" -eq 65536 || { echo "qboot.bin is $size bytes, not 65536" >&2; exit 1; }; \
@@ -588,6 +591,7 @@ RUN set -eux; \
     grep -q '0x33333330' src/hwsetup.c || { echo "the PAM patch is not in the tree that was compiled" >&2; exit 1; }; \
     grep -q 'setup_mtrr();' src/main.c || { echo "the MTRR patch is not in the tree that was compiled" >&2; exit 1; }; \
     ! grep -q '^	do_setup_pci_bus();$' src/pci.c && grep -q 'spin-machine: no walk of the bus' src/pci.c || { echo "the no-PCI-walk patch is not in the tree that was compiled" >&2; exit 1; }; \
+    grep -q 'tpm_measure_boot();' src/main.c && test -f /build/out/tpm.o || { echo "the TPM patch is not in the tree that was compiled" >&2; exit 1; }; \
     sha256sum /build/qboot.bin
 
 # swtpm, the TPM a machine asks for (machine.TPM): one beside each QEMU, which machine.Start runs.
