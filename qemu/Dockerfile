@@ -597,6 +597,7 @@ RUN set -eux; \
 # libtasn1-dev is configure's and not the binary's: swtpm's configure asks for it unconditionally,
 # for swtpm_cert, which is not built. Only the swtpm binary is: provisioning a TPM (its
 # endorsement key and certificate) is the caller's, done once when a workspace's TPM is made.
+# qemu/swtpm's patches are applied to swtpm's source; its README says what each does.
 #
 # -all-static is libtool's word for -static: given -static, libtool links its own libraries
 # statically and the system's dynamically, and the binary asked for libgio-2.0.so.0 at start.
@@ -622,6 +623,8 @@ RUN curl -fsSL "https://github.com/GNOME/json-glib/archive/refs/tags/${JSON_GLIB
     curl -fsSL "https://github.com/stefanberger/swtpm/archive/refs/tags/v${SWTPM_VERSION}.tar.gz" -o swtpm.tar.gz && \
     printf '%s  %s\n' "${JSON_GLIB_SHA256}" json-glib.tar.gz "${LIBTPMS_SHA256}" libtpms.tar.gz "${SWTPM_SHA256}" swtpm.tar.gz | sha256sum -c - && \
     for t in json-glib libtpms swtpm; do mkdir "$t" && tar -xzf "$t.tar.gz" -C "$t" --strip-components=1; done
+COPY qemu/swtpm/*.patch /build/swtpm-patches/
+RUN for p in /build/swtpm-patches/*.patch; do patch -d swtpm -p1 --forward --fuzz=0 < "$p" || exit 1; done
 
 ENV PKG_CONFIG_PATH=/opt/swtpm/lib/pkgconfig
 RUN cd json-glib && \
