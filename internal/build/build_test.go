@@ -430,7 +430,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	for i, want := range [][]string{
 		{"--output type=local,dest=" + out + " ."},
 		{"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_ARCH=x86_64", "--build-arg KERNEL_LOCKDOWN=integrity", "--output type=local,dest=" + out + " ."},
-		{"--build-arg SHIRUDO_SOURCE=https://github.com/shirudo-dev/shirudo.git", "--build-arg TPM2_TSS_SOURCE=https://github.com/tpm2-software/tpm2-tss.git",
+		{"--build-arg SHIRUDO_SOURCE=https://github.com/spin-stack/shirudo.git", "--build-arg TPM2_TSS_SOURCE=https://github.com/tpm2-software/tpm2-tss.git",
 			"--build-context kernel=" + filepath.Join(out, "kernel") + " --output type=local,dest=" + out + " ."},
 		{"--output type=local,dest=" + out + " ."},
 		{"--build-arg SYSTEMD_EXPERIMENT=exp", "--output type=local,dest=" + filepath.Join(out, "systemd") + " ."},
