@@ -5,8 +5,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"debug/elf"
 	"encoding/binary"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +22,7 @@ import (
 
 	"github.com/spin-stack/machine/internal/build"
 	"github.com/spin-stack/machine/internal/elftest"
+	"github.com/spin-stack/machine/internal/modsign"
 	"github.com/spin-stack/machine/machine"
 )
 
@@ -25,8 +30,32 @@ import (
 func kernelFixture(t *testing.T, out string) {
 	t.Helper()
 	put(t, filepath.Join(out, "kernel/vmlinux"), string(vmlinuxFixture()), 0o644)
-	for _, f := range []string{"kernel/kernel-config", "kernel/sources", "kernel/patches/0001-k.patch"} {
+	for _, f := range []string{"kernel/kernel-config", "kernel/sources", "kernel/patches/0001-k.patch", "kernel/modules/7.4.0/kernel/fs/fuse/fuse.ko"} {
 		put(t, filepath.Join(out, f), f, 0o644)
+	}
+}
+
+// signedFixture signs out's modules with a key made for it, whose certificate it puts in the
+// checkout at dir, beside the vmlinux that carries it: a tree release.yml has signed, so a release
+// asks KMS for nothing.
+func signedFixture(t *testing.T, dir, out string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := modsign.Certificate(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(dir, build.ModuleCertificate), string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), 0o644)
+	put(t, filepath.Join(out, "kernel/vmlinux"), string(append(vmlinuxFixture(), der...)), 0o644)
+	if _, err := modsign.SignTree(filepath.Join(out, "kernel", "modules"), key, cert); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -50,6 +79,7 @@ func everything(t *testing.T, dir string) string {
 		}
 	}
 	kernelFixture(t, fixture)
+	signedFixture(t, dir, fixture)
 	w, _ := open()
 	e, _ := w.pins.Get("e2fsprogs")
 	for _, b := range build.E2fsprogsBinaries {

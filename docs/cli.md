@@ -84,7 +84,14 @@ machine types: a QEMU bump is `spin-machine-dev bump qemu`.
 
 ```
 spin-machine-dev release [--version v]   build every part and spin-machine, then pack the parts; refuses a tree with anything missing
+spin-machine-dev certificate             the module signing key's certificate, kernel/module-signing.crt, named in the kernel's config
 ```
+
+A release signs the kernel's modules between the kernel's build and the image's, with
+spin-stack/ci's KMS key (`alias/spin-machine-module-signing`), and refuses a tree without
+`kernel/module-signing.crt`, which the kernel trusts them by (kernel/README.md, "Modules"). Only
+the `release` environment may sign with the key, so a release is made by release.yml alone, and
+`certificate` by module-certificate.yml, once.
 
 The release is one tarball. It holds QEMU and its firmware, the kernel, the base image, the
 e2fsprogs tools, LICENSE and NOTICE, every patch each part was built with (a directory ships whole,
@@ -121,7 +128,8 @@ parts.yml    changed: spin-machine-dev changed --base $BASE --part <part> <paths
                       publish qemu (main)
              kernel:  spin-machine-dev build kernel --cache-registry ;
                       release traceable-kernel --cache-registry
-             image:   spin-machine-dev build e2fsprogs ; spin-machine-dev build image
+             image:   (after kernel, with its modules) spin-machine-dev build e2fsprogs ;
+                      spin-machine-dev build image
              parts:   spin-machine-dev needs
 compat.yml   changed: spin-machine-dev changed --base $BASE --part <part> <paths>, for the machine,
                       QEMU and the kernel
@@ -135,7 +143,7 @@ release.yml  compat.yml ; spin-machine-dev release version ; release ; release n
              release provenance ; release sign ; release tag ; then the publish action ;
              traceable: spin-machine-dev release traceable-kernel ; release provenance ;
              release sign ; release upload ;
-             report.yml ; pause: spin-machine-dev lab check checkpoint-pause|logind|workspace ;
+             report.yml ; pause: spin-machine-dev lab check checkpoint-pause|logind|modules|workspace ;
                     on a failure, spin-machine-dev releases failed TAG ;
              task trace ; task ship-it:wake
 refresh.yml  task git:app ; spin-machine-dev refresh kernel|systemd|openssh|builders
@@ -146,6 +154,8 @@ report.yml   task bin ; task vsock ; spin-machine-dev releases measure TAG... ; 
              spin-machine-dev releases propose
 withdraw.yml task bin ; spin-machine-dev releases withdraw|restore TAG ; task git:app ;
              spin-machine-dev releases propose --branch --title
+module-certificate.yml  task bin ; spin-machine-dev certificate ; task git:app ;
+             spin-machine-dev certificate propose
 osv.yml      spin-machine-dev osv --issues ; spin-machine-dev cves
 lab.yml      task vsock ; task lab:ci
 pages.yml    task bin ; spin-machine-dev releases site --out _site ; spin-machine-dev docs site --out _site
@@ -239,6 +249,9 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
 - `--edit pressure`: the pressure probe's guest sender, its unit and its enable, as this checkout
   builds them into the image, put into a published release's overlays.
 - `--edit nolinger`: spin not lingering, as this checkout builds the image.
+- `--edit modules`: the tree's kernel's modules in every overlay's `/usr/lib/modules`, with the
+  image's drop-in that creates their static nodes (docs/image.md, "Kernel modules"). Its kernel is
+  `--kernel run:N` of a parts.yml run from #736 on, whose artifact carries them.
 - `--edit forwarder-early`: `login=spin`'s forwarder, which stands for spin's supervisor, without
   systemd's default dependencies.
 - `--edit carry-masks`, `carry-generators` and `carry-coldplug`: what

@@ -91,7 +91,7 @@ func root() *cobra.Command {
 		labCommand(lab.Probes),
 		shellCmd(), vsockCmd("/dev/vhost-vsock"), menuconfigCmd(), cleanCmd(),
 		outdatedCmd(), bumpCmd(), refreshCmd(),
-		releaseCmd(),
+		releaseCmd(), certificateCmd(),
 		releasesCommand(), docsCommand(),
 		osvCmd(), cvesCmd(),
 		patchedCmd(),

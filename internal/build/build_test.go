@@ -289,6 +289,43 @@ func TestAPartIsBuiltWhenMissingOrStaleAndNotOtherwise(t *testing.T) {
 	}
 }
 
+// A part made with the kernel is made with its modules as they are, signed or not: an image built
+// before a release signed them is stale once it has, and is built again with the signed ones. With
+// no modules there, as from a kernel before #736, it cannot say what it would install.
+func TestAPartMadeWithTheKernelIsMadeWithItsModulesAsSigned(t *testing.T) {
+	root, out := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "part"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o := Options{Root: root, Out: out, Pins: &versions.Versions{}}
+	made := 0
+	var checked error
+	p := fakePart(&made, &checked, nil)
+	p.Needs = []string{"kernel"}
+	if err := WriteManifest(out, Manifest{Part: "kernel", Inputs: "one", From: "build"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Make(context.Background(), o, []Part{p}); err == nil || !strings.Contains(err.Error(), "kernel/modules") {
+		t.Errorf("a part made with a kernel that has no modules: %v", err)
+	}
+	fuse := filepath.Join(out, "kernel/modules/7.4.0/kernel/fs/fuse/fuse.ko")
+	if err := os.MkdirAll(filepath.Dir(fuse), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fuse, []byte("unsigned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Make(context.Background(), o, []Part{p}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fuse, []byte("unsigned"+"~Module signature appended~\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Make(context.Background(), o, []Part{p}); err != nil || made != 2 {
+		t.Errorf("modules signed did not make the part stale: made %d, %v", made, err)
+	}
+}
+
 func TestAPartIsMadeWithTheManifestsOfWhatItNeeds(t *testing.T) {
 	root, out := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "part"), 0o755); err != nil {
@@ -383,7 +420,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 		"buildx build --file image/systemd/Dockerfile --target debs --platform linux/amd64 " + reg + ":systemd",
 		"buildx build --file image/openssh/Dockerfile --target debs --platform linux/amd64 " + reg + ":openssh",
 		"buildx build --file image/Dockerfile --platform linux/amd64 " + reg + ":image",
-		"run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined --cap-add SYS_ADMIN -v " + out + ":/out -v " + filepath.Join(root, ".cache", "mkosi") + ":/cache -v " + filepath.Join(out, "systemd") + ":/debs/systemd:ro -v " + filepath.Join(out, "openssh") + ":/debs/openssh:ro " + imageBuilder,
+		"run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined --cap-add SYS_ADMIN -v " + out + ":/out -v " + filepath.Join(root, ".cache", "mkosi") + ":/cache -v " + filepath.Join(out, "systemd") + ":/debs/systemd:ro -v " + filepath.Join(out, "openssh") + ":/debs/openssh:ro -v " + filepath.Join(out, "kernel", "modules") + ":/modules:ro " + imageBuilder,
 	} {
 		if i >= len(got) || !strings.HasPrefix(got[i], want) {
 			t.Errorf("call %d = %q, want it to start %q", i, at(got, i), want)

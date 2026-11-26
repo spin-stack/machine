@@ -234,14 +234,22 @@ jobs:
         run: spin-machine-dev build kernel --cache-registry --cache-export="$CACHE_EXPORT"
 
       # Still named vmlinux-<sha>: lab tree --kernel run:<id> finds a kernel run's artifact by that name.
+      # The whole kernel directory, the modules with it: the image job installs them rather than
+      # compiling the kernel a second time, with the manifest that says they are this commit's.
       - name: Upload the kernel
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vmlinux-${{ github.sha }}
-          path: |
-            _output/kernel/vmlinux
-            _output/kernel/kernel-config
+          path: _output/kernel/
           retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload the kernel's manifest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kernel-manifest-${{ github.sha }}
+          path: _output/manifest/kernel.json
+          retention-days: 1
           if-no-files-found: error
 
   # The lab's traceable kernel, as release.yml's traceable job builds it once a release is out: the
@@ -290,9 +298,12 @@ jobs:
   # unsharing a user and mount namespace and BuildKit forbids it. See image/Dockerfile — the
   # alternative was a buildkitd started with an entitlement flag, which would make the build
   # depend on how the runner's builder was created.
+  # The image installs the kernel's modules (docs/image.md, "Kernel modules"), so it waits on the
+  # kernel job and takes what that job built. When the change does not reach the kernel, that job is
+  # skipped and the build here makes the kernel from main's cache.
   image:
-    needs: changed
-    if: needs.changed.outputs.image == 'true'
+    needs: [changed, kernel]
+    if: ${{ always() && needs.changed.outputs.image == 'true' && (needs.kernel.result == 'success' || needs.kernel.result == 'skipped') }}
     runs-on: runs-on/fleet=build/env=production
     timeout-minutes: 60
     steps:
@@ -318,6 +329,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Take the kernel the kernel job built
+        if: needs.kernel.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vmlinux-${{ github.sha }}
+          path: _output/kernel
+
+      - name: Take its manifest
+        if: needs.kernel.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: kernel-manifest-${{ github.sha }}
+          path: _output/manifest
 
       # The image is made and checked with the static e2fsprogs this repository builds, not
       # the build container's, and image/build.sh stops when it is not there.

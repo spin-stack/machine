@@ -187,6 +187,12 @@ func (s Sources) placeKernel(what, dir string) (string, error) {
 		if bz, err = one(d, "bzImage"); err != nil && machine.PVH(vmlinux) != nil {
 			return "", fmt.Errorf("kernel run %s: %w, and no vmlinux the machine enters through PVH (a run from before 2026-11-19 built neither)", id, err)
 		}
+		// Its modules, for --edit modules, when the run has them (#736 on).
+		if modules := filepath.Join(filepath.Dir(vmlinux), "modules"); vmlinux != "" && fileExists(modules) {
+			if out, err := exec.Command("cp", "-a", modules, filepath.Join(dir, "kernel", "modules")).CombinedOutput(); err != nil {
+				return "", fmt.Errorf("kernel run %s: copying its modules: %w: %s", id, err, out)
+			}
+		}
 		source = "run " + id
 	default:
 		bz, vmlinux = what, filepath.Join(filepath.Dir(what), "vmlinux")

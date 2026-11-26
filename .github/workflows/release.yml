@@ -51,6 +51,9 @@ jobs:
     needs: compat
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # The environment whose OIDC subject alone may assume the role that signs the kernel's modules
+    # (spin-stack/ci's module_signing.tf). It allows main and nothing else.
+    environment: release
     # A warm run reads main's BuildKit cache and takes a few minutes (2m13s, 2026-09-30). The
     # ceiling is for the cold one, which compiles QEMU and the kernel, each tens of minutes.
     timeout-minutes: 180
@@ -107,11 +110,19 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: spin-machine-dev release version --given "$INPUT_VERSION"
 
+      # The role that may ask KMS to sign the kernel's modules, and nothing else.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::277203350136:role/spin-machine-module-signing
+          aws-region: us-west-2
+
       # Builds all four artefacts and packs them, refusing to produce a tarball with anything
       # missing. A release that installs and then fails for want of an option ROM is worse than
-      # no release. The caches are the ones the per-artefact workflows write on main, named by
-      # the build itself: a release reads what the lane on main already paid to compile, and
-      # writes nothing back - it is built once, and the next one reads main's newer cache.
+      # no release. The kernel first, whose modules KMS signs before the image installs them, and a
+      # tree without kernel/module-signing.crt is refused there. The caches are the ones the
+      # per-artefact workflows write on main, named by the build itself: a release reads what the
+      # lane on main already paid to compile, and writes nothing back - it is built once, and the
+      # next one reads main's newer cache.
       - name: Build the release
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -296,6 +307,11 @@ jobs:
       - name: A first login has its session and its user bus
         id: logind
         run: spin-machine-dev lab check logind --tree "release=--from release:$VERSION"
+      # The release's kernel loads the modules the release signed, and refuses one unsigned or signed
+      # by another key (boot:modules, #736).
+      - name: Only the modules the release signed load
+        id: modules
+        run: spin-machine-dev lab check modules --tree "release=--from release:$VERSION"
       # What a workspace expects of the release's own image, and what docs/image.md says it gives up
       # (boot:workspace). Here and not in compat, for the same reason as the step above.
       - name: A workspace has what it expects

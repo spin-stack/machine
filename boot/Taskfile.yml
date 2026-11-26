@@ -1,5 +1,5 @@
 # The checks of a booted machine - whether its firmware runs it, a checkpoint of the release before
-# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, a workspace grows after one, what a guest sees of each carried patch, sshd delays only a failure, lockdown, logind, a core hot-added - and
+# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, a workspace grows after one, what a guest sees of each carried patch, sshd delays only a failure, lockdown, the modules it loads, logind, a core hot-added - and
 # the probes still Go tests: firmware-stages and waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
 # unless its SPIN_* switch is set, which is what these targets do. Each boots the release tree
 # OUTPUT_DIR names; `spin-machine-dev lab check TARGET --tree NAME=SPEC` runs one on any tree, on the
@@ -234,6 +234,16 @@ tasks:
     deps: [':tools']
     cmds:
       - SPIN_LOCKDOWN_TEST=1 go test ./boot/ -run '^TestTheGuestKernelIsLockedDown$' -count=1 -v -timeout 5m
+
+  modules:
+    desc: >-
+      Check the guest kernel loads the modules the release signed and nothing else (#736): fuse,
+      wireguard, squashfs and erofs load when asked for, and a module unsigned or signed by another
+      key is refused, at confidentiality and at shirudo's integrity, in a disposable guest. Needs a
+      release's image, whose modules a release signed; uses KVM when available, otherwise TCG.
+    deps: [':tools']
+    cmds:
+      - SPIN_MODULES_TEST=1 go test ./boot/ -run '^TestOnlyModulesSpinStackSignedLoad$' -count=1 -v -timeout 5m
 
   kaslr:
     desc: >-

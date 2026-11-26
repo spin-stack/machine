@@ -72,7 +72,9 @@ RUN --mount=type=cache,sharing=locked,id=kernel-aptlib,target=/var/lib/apt \
         # "apparmor: enabled, but apparmor_parser missing" and exits non-zero, failing a
         # configuration that is correct; without sysctl it prints three "sysctl: not found"
         # lines while inspecting the bridge driver.
-        apparmor procps
+        apparmor procps \
+        # depmod, which modules_install runs to write the modules.* files modprobe reads.
+        kmod
 
 # The version, and the tarball it is made of by content, from versions.yaml. See the same
 # argument in qemu/Dockerfile: https says who sent it, not what they sent. It is also what
@@ -159,7 +161,13 @@ RUN cd /usr/src/linux && \
         patch -p1 --forward --fuzz=0 < "$p" || { echo "ERROR: $p does not apply to ${KERNEL_VERSION}"; exit 1; }; \
     done
 
-COPY kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH} /usr/src/linux/.config
+# The certificate of the key that signs the modules (kernel/README.md, "Modules"), with the config,
+# whose SYSTEM_TRUSTED_KEYS names it: the public half of spin-stack/ci's KMS key, made once and
+# committed. Until it is, the pattern matches nothing and the kernel trusts no key, so it loads no
+# module (#746).
+COPY kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH} kernel/module-signing.cr[t] /usr/src/spin/
+RUN cp /usr/src/spin/config-${KERNEL_SERIES}-${KERNEL_ARCH} /usr/src/linux/.config && \
+    if [ -f /usr/src/spin/module-signing.crt ]; then cp /usr/src/spin/module-signing.crt /usr/src/linux/certs/; fi
 
 # integrity, the floor, for every kernel spin boots: the machine's command line raises it to
 # confidentiality unless the machine runs an enforcer that needs integrity (machine.Cmdline). none
@@ -307,9 +315,30 @@ RUN <<EOT
         grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled after olddefconfig!"; exit 1; }
     done
     grep -q '^CONFIG_LSM="lockdown,bpf"' .config || { echo "ERROR: the LSMs are not lockdown and bpf!"; grep '^CONFIG_LSM=' .config; exit 1; }
-    for opt in DEVMEM DEVPORT PROC_KCORE MODULES KEXEC; do
+    for opt in DEVMEM DEVPORT PROC_KCORE KEXEC; do
         ! grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} lets root reach the kernel's memory!"; exit 1; }
     done
+
+    # A module is code root hands the kernel, so the kernel takes only one spin-stack signed
+    # (#736): MODULE_SIG_FORCE refuses any other, at every lockdown level, the traceable kernel's
+    # none included. The build never signs and never makes a key: MODULE_SIG_ALL would sign at
+    # modules_install, and a MODULE_SIG_KEY left at its default makes one, certs/signing_key.pem,
+    # whose certificate the kernel would then trust. So this vmlinux is the same whoever builds it,
+    # and only what release.yml signs with spin-stack/ci's KMS key loads into it
+    # (spin-machine-dev sign modules). The certificate is the one trusted key, and the config names
+    # it exactly when it is in the tree.
+    for opt in MODULES MODULE_SIG MODULE_SIG_FORCE; do
+        grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is not enabled: a module would load unsigned, or none at all!"; exit 1; }
+    done
+    for opt in MODULE_SIG_ALL MODULE_FORCE_LOAD; do
+        ! grep -q "^CONFIG_${opt}=y" .config || { echo "ERROR: CONFIG_${opt} is enabled: the build signs, or a module loads past its checks!"; exit 1; }
+    done
+    grep -q '^CONFIG_MODULE_SIG_KEY=""$' .config || { echo "ERROR: CONFIG_MODULE_SIG_KEY names a key: the build would make or sign with one!"; exit 1; }
+    if [ -f certs/module-signing.crt ]; then trusted=certs/module-signing.crt; else trusted=; fi
+    grep -q "^CONFIG_SYSTEM_TRUSTED_KEYS=\"$trusted\"\$" .config || {
+        echo "ERROR: CONFIG_SYSTEM_TRUSTED_KEYS is not \"$trusted\": it names kernel/module-signing.crt exactly when the tree has it"
+        grep '^CONFIG_SYSTEM_TRUSTED_KEYS=' .config; exit 1; }
+    [ -n "$trusted" ] || echo "WARNING: no kernel/module-signing.crt: this kernel trusts no key and loads no module"
 
     # No virtual consoles. This machine's QEMU ships no VGA at all and its console is one
     # 16550 on ttyS0, so CONFIG_VT builds 64 tty devices that nothing opens and that udev
@@ -450,8 +479,8 @@ RUN <<EOT
     # read of the whole file is under 10 ms, inside a 35 ms launch phase) and then sit in
     # each guest's RAM.
     #
-    # And CONFIG_MODULES is off entirely — 1379 symbols =y and 0 =m — which the lockdown
-    # assertion above holds it to.
+    # That is why the modules (above) are only what a workspace may load and does not boot with:
+    # wireguard, fuse, squashfs and erofs, and the crypto library wireguard brings.
 
     echo "Virtio configuration:"
     grep "CONFIG_VIRTIO" .config | grep -v "^#" || echo "No VIRTIO options enabled!"
@@ -489,7 +518,30 @@ ARG DEBIAN_SNAPSHOT
 RUN cd linux && make ARCH=${KERNEL_ARCH} -j"$(nproc)" \
         KBUILD_BUILD_TIMESTAMP="$(date -u -d "$(echo "${DEBIAN_SNAPSHOT}" | cut -c1-8)")" \
         KBUILD_BUILD_USER=spin-machine KBUILD_BUILD_HOST=build \
-        vmlinux
+        vmlinux modules
+
+# The modules as the image installs them, /lib/modules/<release> with depmod's files, unsigned:
+# release.yml signs each one (spin-machine-dev sign modules), and a signature is only appended, so
+# depmod's files stay true. Stripped of their debug info as Ubuntu's are, before anything signs
+# them: a strip after would cut the signature off. The build signed nothing and made no key, which
+# is read off what came out, as is each module the config asks for.
+RUN <<EOT
+    set -eu
+    cd linux
+    make ARCH=${KERNEL_ARCH} INSTALL_MOD_PATH=/build/modules INSTALL_MOD_STRIP=1 modules_install
+    release=$(make -s kernelrelease)
+    dir=/build/modules/lib/modules/$release
+    rm -f "$dir/build" "$dir/source"
+    for m in fs/fuse/fuse.ko drivers/net/wireguard/wireguard.ko fs/squashfs/squashfs.ko fs/erofs/erofs.ko; do
+        [ -s "$dir/kernel/$m" ] || { echo "ERROR: no $m in $dir"; exit 1; }
+    done
+    [ -s "$dir/modules.dep" ] && [ -s "$dir/modules.alias" ] && [ -s "$dir/modules.devname" ] || {
+        echo "ERROR: depmod wrote no modules.dep, modules.alias or modules.devname in $dir"; exit 1; }
+    signed=$(find "$dir" -name '*.ko' -exec sh -c 'tail -c 28 "$1" | grep -q "~Module signature appended~" && echo "$1"' _ {} \;)
+    [ -z "$signed" ] || { echo "ERROR: the build signed modules: $signed"; exit 1; }
+    ! ls certs/*.pem certs/*.key 2>/dev/null | grep -v '^certs/module-signing' || { echo "ERROR: the build made a key: $(ls certs/*.pem certs/*.key)"; exit 1; }
+    echo "modules: $(find "$dir" -name '*.ko' | wc -l) for $release, unsigned"
+EOT
 
 # Each patch in patches/, asserted on the vmlinux it went into, while it still has its symbol
 # table. `patch --fuzz=0` above says a patch applied; a patch deleted from the directory, or one
@@ -792,3 +844,4 @@ COPY --from=kernel-build /build/vmlinux /kernel/vmlinux
 COPY --from=kernel-build /build/kernel-config /kernel/kernel-config
 COPY --from=kernel-build /build/sources /kernel/sources
 COPY --from=kernel-build /build/patches /kernel/patches
+COPY --from=kernel-build /build/modules/lib/modules /kernel/modules
