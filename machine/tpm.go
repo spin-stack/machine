@@ -108,8 +108,8 @@ const (
 // NUL; the stub measures UEFI's UTF-16 LoadOptions instead, which a PVH boot has none of.
 //
 // No EV_SEPARATOR ends PCRs 0-7, as a PC firmware's log has: nothing else is measured into them, a
-// verifier that pins PCR 4's value refuses an event the guest adds to it, and each extend is ~1 ms
-// of the nested bench's cold boot (#742).
+// verifier that pins PCR 4's value refuses an event the guest adds to it, and the eight extends
+// cost the cold first login +13 ms on the bench (lab 45838578696).
 func (s Spec) TPMEvents() []TPMEvent {
 	if !s.TPM.on() || s.Restore {
 		return nil

@@ -213,9 +213,8 @@ m, err := machine.Start(ctx, spec, machine.StartOptions{
 - **The firmware measures the boot.** Before the kernel runs, qboot extends what `Spec.TPMEvents`
   names into every active PCR bank and writes the TCG event log the guest reads at
   `/sys/kernel/security/tpm0/binary_bios_measurements` (#742, `qemu/qboot/README.md`, "Measured
-  boot"). The events follow where a UEFI boot puts the same things: an `EV_SEPARATOR` in each of
-  PCRs 0-7, the kernel in PCR 4 (`EV_IPL`, "Linux kernel"), and in PCR 9 the command line and the
-  initrd as `EV_EVENT_TAG`s of the tags Linux's EFI stub uses (`LOADED_IMAGE::LoadOptions`,
+  boot"). The events follow where a UEFI boot puts the same things: the kernel in PCR 4 (`EV_IPL`,
+  "Linux kernel"), and in PCR 9 the command line and the initrd as `EV_EVENT_TAG`s of the tags Linux's EFI stub uses (`LOADED_IMAGE::LoadOptions`,
   `Linux initrd`), which is the PCR shirudo anchors its register in. The digests are SHA-256: the
   kernel's and the initrd's the caller hashes (`TPM.Kernel`, `TPM.Initrd`, `FileSHA256`), once a
   file, since qboot cannot see the vmlinux QEMU loads and hashing a 60 MB initrd would be on the
