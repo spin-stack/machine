@@ -507,6 +507,7 @@ for deb in "$debs"/*.deb; do
 	pkg=$(dpkg-deb -f "$deb" Package)
 	list="$MNT/var/lib/dpkg/info/$pkg.list"
 	[ -f "$list" ] || list="$MNT/var/lib/dpkg/info/$pkg:amd64.list"
+	case $pkg in libtss2-*) list=$(mktemp) ;; esac
 	[ -f "$list" ] || continue
 	new=$(mktemp)
 	dpkg-deb --fsys-tarfile "$deb" | tar -t | sed -e 's|^\./|/|' -e 's|/$||' | sort > "$new"

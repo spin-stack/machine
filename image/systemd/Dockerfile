@@ -19,7 +19,7 @@ RUN apt-get source --download-only "systemd=${SYSTEMD_SOURCE_VERSION}" && \
     echo "${SYSTEMD_SOURCE_SHA256}  systemd_${SYSTEMD_SOURCE_VERSION}.dsc" | sha256sum -c - && \
     dpkg-source -x "systemd_${SYSTEMD_SOURCE_VERSION}.dsc" src && test -f src/debian/rules && \
     apt-get build-dep -y --build-profiles="${DEB_BUILD_PROFILES// /,}" "systemd=${SYSTEMD_SOURCE_VERSION}" && \
-    apt-get install -y --no-install-recommends libpcre2-dev
+    apt-get install -y --no-install-recommends libpcre2-dev libtss2-dev libssl-dev python3-pyelftools
 
 COPY image/systemd/meson-took.py /build/meson-took.py
 COPY image/systemd/*.patch /build/patches/
@@ -51,6 +51,7 @@ RUN tests="test-engine test-load-fragment" && \
     python3 /build/tests-passed.py obj-*/meson-logs/testlog.json $tests
 
 RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
+    (cd /debs && apt-get download libtss2-esys-3.0.2-0t64 libtss2-mu-4.0.1-0t64 libtss2-rc0t64 libtss2-tcti-device0t64) && \
     for p in systemd systemd-sysv udev libsystemd0 libsystemd-shared libudev1 libpam-systemd; do \
         ls /debs/${p}_*+spin1_*.deb > /dev/null || { echo "ERROR: no ${p} built"; exit 1; }; \
     done && \
