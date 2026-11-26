@@ -5,6 +5,7 @@ package boot_test
 import (
 	"cmp"
 	"context"
+	"debug/elf"
 	"fmt"
 	"net"
 	"os"
@@ -31,6 +32,15 @@ import (
 // QEMU that stops the guest early again reads four times over it, and a host somewhat slower
 // than the bench still reads under it.
 const pauseBound = 50 * time.Millisecond
+
+// sanitizedPauseBound is pauseBound for a QEMU built with AddressSanitizer, which sanitize.yml
+// times on the KVM fleet. There the busy-disk guest read 29.8-45.7 ms p50 on 8th-generation
+// hosts and 41.5-54.7 on 7th-generation ones, 49 runs of 3 saves, and its slowest of ~600 saves
+// 60.9 (Sanitize runs 2026-11-23 to 26, #813). The bench's release QEMU read 17.1-23.2 in 18
+// runs: ASan's QEMU stops for longer, more so on the slower CPU, and the busy disk adds ~2 ms
+// either way. 80 is the slowest median and a third; a QEMU that stops the guest early reads
+// ~200 ms without ASan, still over it.
+const sanitizedPauseBound = 80 * time.Millisecond
 
 // What machine.QEMU has no call for: how much RAM QEMU still had to write when it stopped the
 // guest, asked inside the seal.
@@ -81,6 +91,10 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 	}
 	t.Setenv("TMPDIR", scratch)
 	r := newRecorder(t, 4000000)
+	bound := pauseBound
+	if addressSanitized(t, filepath.Join(r.out, "bin", "qemu-system-x86_64")) {
+		bound = sanitizedPauseBound
+	}
 	writer := "dd if=/dev/urandom of=/mnt/src bs=1M count=64 2>/dev/null; dd if=/dev/urandom of=/mnt/ws bs=1M count=512 2>/dev/null; " +
 		"(i=0; while :; do dd if=/mnt/src of=/mnt/ws bs=1M count=64 seek=$(( (i*64) % 512 )) conv=notrunc 2>/dev/null; i=$((i+1)); sleep 0.1; done) &"
 	for _, tc := range []struct {
@@ -159,11 +173,27 @@ func TestACheckpointPausesTheGuestBriefly(t *testing.T) {
 			// The host short of memory is measured, not held: compat's kvm host, 118 GiB of it taken,
 			// stopped that guest 56 ms p50 against 25 on the 32 GiB bench, waiting on the kernel's
 			// dirty-page throttling, which nothing tried shortened (compat 44976542939, #444).
-			if held >= pauseBound && !tc.short {
-				t.Errorf("a checkpoint stopped the %s guest for %.2f ms p50, want under %v", tc.name, ms(held), pauseBound)
+			if held >= bound && !tc.short {
+				t.Errorf("a checkpoint stopped the %s guest for %.2f ms p50, want under %v", tc.name, ms(held), bound)
 			}
 		})
 	}
+}
+
+// addressSanitized says whether the QEMU at path calls into ASan's runtime. The release's QEMU is
+// a static PIE, whose dynamic symbols are none.
+func addressSanitized(t *testing.T, path string) bool {
+	t.Helper()
+	f, err := elf.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	syms, err := f.DynamicSymbols()
+	if err != nil {
+		t.Fatalf("reading %s's symbols: %v", path, err)
+	}
+	return slices.ContainsFunc(syms, func(s elf.Symbol) bool { return s.Name == "__asan_init" })
 }
 
 // held is how long the guest was stopped at least.
