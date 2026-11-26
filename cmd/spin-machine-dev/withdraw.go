@@ -202,7 +202,7 @@ func releasesFlag() *cobra.Command {
 number against the release measured with it has its 95% interval wholly above 0 - slower, beyond
 noise - open an issue saying so: the Δs, the run, and the commits between the two releases that
 could explain it. One issue a pair: one already open or closed is not opened again. It withdraws
-nothing: at 20 boots a side about 1 in 40 flags a number is noise, an accepted cost is not a
+nothing: about 1 in 40 flags a number is noise, an accepted cost is not a
 regression, and a person decides (docs/releasing.md, "Withdrawing a release"). report.yml runs it
 once a release is measured.`,
 		Args: cobra.MinimumNArgs(1),

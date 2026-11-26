@@ -96,9 +96,9 @@ jobs:
       - name: Install graphviz
         run: go tool task graphviz
 
-      # Unquoted: one word a release.
+      # Unquoted: one word a release. At measure's 40 boots a side (#694).
       - name: Measure each release with the one before it
-        run: spin-machine-dev releases measure $VERSIONS --reps 20
+        run: spin-machine-dev releases measure $VERSIONS
 
       # Every sample, which a record keeps only the p50 and p95 of: lab show DIR reads one release's.
       # Only the ladders and each release's boot charts, dependency view and ledger: a release's
