@@ -144,7 +144,7 @@ func TestAFastLoadNeedsNoUserfaultfdGrant(t *testing.T) {
 	if err := r.Loaded(ctx); err != nil {
 		t.Fatalf("loading: %v", err)
 	}
-	if n := userfaultfdsHeld(t, r.Pid()); n != (heldUserfaultfds{}) {
+	if n := userfaultfdsLetGo(t, r.Pid()); n != (heldUserfaultfds{}) {
 		t.Errorf("QEMU that has loaded holds %+v", n)
 	}
 	t.Logf("phases: %v", phases)
@@ -186,4 +186,20 @@ func userfaultfdsHeld(t *testing.T, pid int) heldUserfaultfds {
 		}
 	}
 	return held
+}
+
+// userfaultfdsLetGo is what process pid, a QEMU whose load has completed, still holds of
+// userfaultfd once it has let go of it or 5 s on. QEMU says completed from the thread that read
+// the state, and closes postcopy's userfaultfd after it, from a BH on its main loop (QEMU
+// 11.2.0-rc1, postcopy_incoming_complete_bh).
+func userfaultfdsLetGo(t *testing.T, pid int) heldUserfaultfds {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h := userfaultfdsHeld(t, pid)
+		if h == (heldUserfaultfds{}) || time.Now().After(deadline) {
+			return h
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
