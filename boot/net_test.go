@@ -41,12 +41,14 @@ func TestAGuestOnPasstReachesTheInternet(t *testing.T) {
 	// host that refuses is said here, before a guest boots with no network. Asked of passt itself,
 	// run as Start runs it on a socket whose other end is already closed, since what decides is the
 	// AppArmor profile passt runs under, its own once it is installed, and not this test's.
+	// The host's restriction is logged either way: compat's pass is worth something only with it on.
+	var sysctls []string
+	for _, k := range []string{"kernel/apparmor_restrict_unprivileged_userns", "kernel/apparmor_restrict_unprivileged_unconfined", "user/max_user_namespaces"} {
+		v, _ := os.ReadFile("/proc/sys/" + k)
+		sysctls = append(sysctls, k+"="+strings.TrimSpace(string(v)))
+	}
+	t.Logf("this host: %s", strings.Join(sysctls, " "))
 	if said, err := passtSandboxes(passt); err != nil {
-		var sysctls []string
-		for _, k := range []string{"kernel/apparmor_restrict_unprivileged_userns", "kernel/apparmor_restrict_unprivileged_unconfined", "user/max_user_namespaces"} {
-			v, _ := os.ReadFile("/proc/sys/" + k)
-			sysctls = append(sysctls, k+"="+strings.TrimSpace(string(v)))
-		}
 		t.Fatalf("passt could not make its sandbox on this host: %v: %s(%s). Where AppArmor refuses an unprivileged process a user namespace, passt's own profile lets it make one: "+
 			"spin-machine apparmor --release %s | sudo tee /etc/apparmor.d/%s && sudo apparmor_parser -r /etc/apparmor.d/%s (docs/machine.md, \"A network without root\")",
 			err, said, strings.Join(sysctls, " "), out, machine.PasstProfileName, machine.PasstProfileName)
