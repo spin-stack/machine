@@ -103,6 +103,48 @@ q, err := machine.Dial(ctx, socket, qmp.Observer{}) // a second monitor, or one 
   a QEMU loading a state, which answers no monitor until it is done, or a monitor closed: Stop
   kills it then. ctx bounds every step but the kill. A second Stop returns the first's Exit.
 
+## A network without root
+
+A NIC is a TAP or passt. spin hands each workspace's machine a TAP it made, with vhost-net, and
+its init configures the guest's network. A machine run by hand, without spin and without root
+(spin-stack/shirudo-demo, `spin-machine boot --net`), gets a NIC on passt instead (#751).
+
+```go
+passt, err := release.Passt()   // usr/share/spin-stack/bin/passt; a release from before #751 has none
+spec.NICs = []machine.NIC{{Passt: passt, MAC: "52:54:00:12:34:56"}}
+m, err := machine.Start(ctx, spec, machine.StartOptions{})
+```
+
+- **passt runs beside QEMU, one for each NIC on it.** Start runs it, as it runs swtpm for a TPM,
+  on one end of a socket pair (`--fd`), and hands QEMU the other for a `stream` netdev. passt turns
+  the guest's frames into the host's own TCP, UDP and ICMP sockets, so the guest reaches what the
+  user running it reaches and nothing needs `CAP_NET_ADMIN`, a TAP or a bridge. passt sandboxes
+  itself in namespaces of its own, which an unprivileged user can make: Ubuntu 26.04's
+  `apparmor_restrict_unprivileged_userns=1` let it (2026-11-26). QEMU's exit closes its end and
+  passt follows it out before `Exited` closes; one that failed puts what it said in `Exit.Stderr`.
+  QEMU is still built `--disable-slirp --disable-passt`: a network stack inside the QEMU process
+  every machine runs is what this keeps out.
+- **No vhost.** Frames go through QEMU and passt, so a NIC on passt is slower than spin's TAP with
+  vhost-net. It is a reader's machine, not a workspace's.
+- **Its addresses are fixed, and the guest's configuration is the kernel command line.** The guest
+  is `10.0.2.15/24` behind `10.0.2.2` with `10.0.2.3` as its nameserver, which passt forwards to
+  the host's first resolver (systemd-resolved's `127.0.0.53` included), IPv4 only, whatever the
+  host's addresses are. The image enables neither systemd-networkd nor systemd-network-generator,
+  since spin's guests are configured by spin, and has no systemd-debug-generator, which is what
+  reads `systemd.wants=` ("Generators and tmpfiles rules turned off" in `docs/image.md`). So Args adds two credentials for a NIC on
+  passt and nothing to the image: `tmpfiles.extra`, which writes `/run/systemd/network/50-passt.network`
+  and `/etc/resolv.conf` in the boot's `systemd-tmpfiles-setup`, and `udev.rules.50-passt.rules`,
+  whose rule has systemd start systemd-networkd once `eth<i>` appears (`SYSTEMD_WANTS`).
+  `boot:net` sees the address, the route and the nameserver 3.1 s after the kernel starts, resolves
+  github.com and fetches `https://github.com` (laptop KVM, 2026-11-26).
+- **One NIC on passt.** validate refuses a second, whose passt would give the guest the same
+  address and route, and a NIC with both a TAP's descriptors and passt.
+- **The guest reaches the network, not the host's loopback.** passt is started with `--no-map-gw`,
+  so a connection to the gateway is not one to the host's `127.0.0.1`, and forwards no port into
+  the guest.
+- **The record leaves the backend out.** A NIC on passt reads as a TAP's does: ReadTarget holds
+  each NIC on a hub port and runs no passt.
+
 ## A TPM
 
 A machine asks for a TPM 2.0 with `Spec.TPM`, and the zero value is a machine without one.

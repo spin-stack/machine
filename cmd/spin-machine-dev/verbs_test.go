@@ -352,6 +352,7 @@ case "$1" in --version) echo QEMU;; -accel) printf '` + accels + `\n';; -machine
 	put(t, filepath.Join(src, "bin/qemu-system-x86_64-tcg"), "#!/bin/sh\n"+answer("kvm\\ntcg")+"\n", 0o755)
 	put(t, filepath.Join(src, "bin/qemu-img"), "#!/bin/sh\necho qemu-img\n", 0o755)
 	put(t, filepath.Join(src, "bin/swtpm"), "#!/bin/sh\necho '{ \"features\": [ \"tpm-2.0\", \"rsa-keysize-3072\" ] }'\n", 0o755)
+	put(t, filepath.Join(src, "bin/passt"), "#!/bin/sh\necho '  -F, --fd FD		Use FD as pre-opened connected socket'\n", 0o755)
 	for _, f := range build.Firmware {
 		size := 1
 		if f == "qboot.bin" {
@@ -557,7 +558,7 @@ func packed(t *testing.T, dir string) string {
 	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/a.patch", "qemu/patches/0001-a.patch", "image/openssh/a.patch", "image/systemd/s.patch"} {
 		put(t, filepath.Join(dir, f), f, 0o644)
 	}
-	for _, b := range append(append([]string{build.SWTPMBinary}, build.QEMUBinaries...), build.E2fsprogsBinaries...) {
+	for _, b := range append(append([]string{build.SWTPMBinary, build.PasstBinary}, build.QEMUBinaries...), build.E2fsprogsBinaries...) {
 		put(t, filepath.Join(out, "bin", b), b, 0o755)
 	}
 	for _, f := range build.Firmware {

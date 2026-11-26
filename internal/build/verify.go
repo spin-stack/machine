@@ -32,6 +32,10 @@ var QEMUBinaries = []string{"qemu-system-x86_64", "qemu-system-x86_64-tcg", "qem
 // each QEMU whose machine has a TPM.
 const SWTPMBinary = "swtpm"
 
+// PasstBinary is the network of a NIC on passt, which the QEMU build ships beside it: machine.Start
+// runs one beside each QEMU whose machine has one.
+const PasstBinary = "passt"
+
 // Firmware is what every consumer of QEMU needs beside it. pvh.bin is the option ROM QEMU adds
 // when -kernel is an ELF kernel, the vmlinux the machine boots, and linuxboot_dma.bin the one it
 // adds for a bzImage, which a release from before #645 boots; efi-virtio.rom is the option ROM of
@@ -87,6 +91,9 @@ func VerifyQEMU(o Options) error {
 	if err := verifyTPM(o); err != nil {
 		return err
 	}
+	if err := verifyPasst(o); err != nil {
+		return err
+	}
 	// The versioned q35 every checkpoint is saved on, offered and not deprecated by both binaries.
 	// A newer one is said, and is not a failure: moving to it is a decision, not a bump's side effect.
 	for _, b := range QEMUBinaries[:2] {
@@ -97,6 +104,23 @@ func VerifyQEMU(o Options) error {
 		if notice != "" {
 			say(o.Stderr, "%s", notice)
 		}
+	}
+	return nil
+}
+
+// verifyPasst asks passt for what machine.Start hands it: a connected socket by --fd. A passt that
+// took the socket only by a path at -s would start and wait for a client that never comes.
+func verifyPasst(o Options) error {
+	passt := filepath.Join(o.Out, "bin", PasstBinary)
+	if err := executable(passt); err != nil {
+		return err
+	}
+	help, err := output(passt, "--help")
+	if err != nil {
+		return fmt.Errorf("asking passt for its options: %w", err)
+	}
+	if !strings.Contains(help, "--fd FD") {
+		return fmt.Errorf("passt takes no --fd, which a NIC on passt is handed its socket by: %s", help)
 	}
 	return nil
 }

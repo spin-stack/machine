@@ -47,6 +47,7 @@ func qemuTree(t *testing.T, out string) {
 	script(t, filepath.Join(out, "bin/qemu-system-x86_64-tcg"), answer(true))
 	script(t, filepath.Join(out, "bin/qemu-img"), `echo qemu-img 11.2`)
 	script(t, filepath.Join(out, "bin/swtpm"), `[ "$*" = "socket --tpm2 --print-capabilities" ] && echo '`+swtpmCaps+`'`)
+	script(t, filepath.Join(out, "bin/passt"), `[ "$*" = "--help" ] && printf '`+passtHelp+`\n'`)
 	for _, f := range Firmware {
 		size := 1
 		if f == "qboot.bin" {
@@ -61,10 +62,11 @@ func qemuTree(t *testing.T, out string) {
 	}
 }
 
-// tpm is how QEMU answers for its TPM device and backends, and swtpmCaps what swtpm 0.10.2 printed
-// of its TPM 2.0 (2026-11-25), shortened.
+// tpm is how QEMU answers for its TPM device and backends, swtpmCaps what swtpm 0.10.2 printed
+// of its TPM 2.0 (2026-11-25), shortened, and passtHelp two lines of passt 2026_10_02's --help.
 const (
 	tpm       = `-device) echo 'name "tpm-crb", bus System';; -tpmdev) printf 'Supported TPM types (choose only one):\n    emulator   TPM emulator backend driver\n';;`
+	passtHelp = `  -s, --socket, --socket-path PATH\tUNIX domain socket path\n  -F, --fd FD\t\tUse FD as pre-opened connected socket`
 	swtpmCaps = `{ "type": "swtpm", "features": [ "tpm-1.2", "tpm-2.0", "tpm-send-command-header", "rsa-keysize-1024", "rsa-keysize-2048", "rsa-keysize-3072", "cmdarg-profile" ] }`
 )
 
@@ -115,6 +117,11 @@ func TestAQEMUTreeVerifiesOnlyWhole(t *testing.T) {
 		{"a swtpm without TPM 2.0", func(out string) {
 			script(t, filepath.Join(out, "bin/swtpm"), `echo '{ "features": [ "tpm-1.2", "rsa-keysize-3072" ] }'`)
 		}, "does not offer tpm-2.0"},
+		{"no passt", func(out string) { _ = os.Remove(filepath.Join(out, "bin/passt")) }, "missing passt"},
+		{"a passt that cannot say", func(out string) { script(t, filepath.Join(out, "bin/passt"), "exit 1") }, "asking passt for its options"},
+		{"a passt without --fd", func(out string) {
+			script(t, filepath.Join(out, "bin/passt"), `echo '  -s, --socket, --socket-path PATH'`)
+		}, "passt takes no --fd"},
 		{"the machine type gone", func(out string) {
 			script(t, filepath.Join(out, "bin/qemu-system-x86_64-tcg"), `case "$1" in -accel) echo tcg;; -machine) echo pc-q35-1.0;; esac`)
 		}, "qemu-system-x86_64-tcg"},

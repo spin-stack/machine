@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +50,9 @@ func TestMain(m *testing.M) {
 func fakeQEMUMain(mode string, args []string) int {
 	if strings.HasPrefix(mode, "swtpm") {
 		return fakeSWTPMMain(mode, args)
+	}
+	if strings.HasPrefix(mode, "passt") {
+		return fakePasstMain(mode, args)
 	}
 	if mode == "refuses" {
 		fmt.Fprintln(os.Stderr, "qemu-system-x86_64: warning: something on the way")
@@ -85,6 +89,12 @@ func fakeQEMUMain(mode string, args []string) int {
 					return 2
 				}
 				go f.accept(l)
+			}
+		case "-netdev":
+			// A NIC's socket to passt: what passt reads is QEMU's frames, and QEMU's exit closes it.
+			if m := regexp.MustCompile(`^stream,id=net\d+,server=off,addr.type=fd,addr.str=(\d+)$`).FindStringSubmatch(a); m != nil {
+				n, _ := strconv.Atoi(m[1])
+				_, _ = os.NewFile(uintptr(n), "passt").WriteString("a frame\n")
 			}
 		case "-add-fd":
 			if m := regexp.MustCompile(`^fd=(\d+),set=\d+,opaque=console$`).FindStringSubmatch(a); m != nil && mode == "panics" {
@@ -124,6 +134,34 @@ func fakeSWTPMMain(mode string, args []string) int {
 	}
 	if mode == "swtpm-fails" {
 		fmt.Fprintln(os.Stderr, "swtpm: Could not open lockfile: Resource temporarily unavailable")
+		return 1
+	}
+	return 0
+}
+
+// fakePasstOut is the directory the fake passt writes what it read into: passt has no state
+// directory of its own to say it in.
+const fakePasstOut = "MACHINE_FAKE_PASST_OUT"
+
+// fakePasstMain is passt as Start runs it: its socket, descriptor 3, and its addresses from its
+// command line. It writes what QEMU sent on the socket to fakePasstOut, and exits once QEMU's end
+// is closed, as passt does with --fd: 0, or, as passt-fails, 1 having said why.
+func fakePasstMain(mode string, args []string) int {
+	want := []string{"--foreground", "--fd", "3", "--ipv4-only", "--address", "10.0.2.15/24",
+		"--gateway", "10.0.2.2", "--no-map-gw", "--dns-forward", "10.0.2.3"}
+	if !slices.Equal(args, want) {
+		fmt.Fprintf(os.Stderr, "fake passt: a command line passt would not be given: %q\n", args)
+		return 2
+	}
+	said, err := io.ReadAll(os.NewFile(3, "socket"))
+	if err != nil {
+		return 2
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv(fakePasstOut), "said"), said, 0o600); err != nil {
+		return 2
+	}
+	if mode == "passt-fails" {
+		fmt.Fprintln(os.Stderr, "passt: Couldn't open user namespace /proc/self/ns/user: Permission denied")
 		return 1
 	}
 	return 0
@@ -813,5 +851,74 @@ func TestAQEMUThatCannotRunEndsTheTPM(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "said")); err != nil || len(b) != 0 {
 		t.Errorf("swtpm had not ended when Start returned, or was written to: %q, %v", b, err)
+	}
+}
+
+// passtSpec is a Spec with a NIC on passt whose passt is this test binary, faking it in mode, and
+// the directory it says what it read in.
+func passtSpec(t *testing.T, mode string) (Spec, string) {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	t.Setenv(fakeMode, mode)
+	t.Setenv(fakePasstOut, dir)
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
+	return Spec{NICs: []NIC{{Passt: self, MAC: "52:54:00:12:34:56"}}}, dir
+}
+
+// A NIC on passt runs passt with the machine's fixed addresses on a socket whose other end is
+// QEMU's netdev; passt has ended by the time Exited is closed, and what it said on its way out is
+// in Exit when it failed. No /dev/vhost-net is opened for it.
+func TestStartRunsPasstBesideQEMUAndEndsItWithQEMU(t *testing.T) {
+	for _, tc := range []struct {
+		mode, said string
+	}{{"passt", ""}, {"passt-fails", "passt exit status 1: passt: Couldn't open user namespace"}} {
+		t.Run(tc.mode, func(t *testing.T) {
+			s, dir := passtSpec(t, tc.mode)
+			p, err := startFake(t, ctx(t), "obeys", s, StartOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, a := range p.cmd.Args {
+				if strings.Contains(a, "vhost") {
+					t.Errorf("QEMU was handed %q for a NIC on passt", a)
+				}
+			}
+			e := p.Stop(ctx(t))
+			select {
+			case <-p.Exited():
+			default:
+				t.Fatal("Stop returned before Exited closed")
+			}
+			if b, err := os.ReadFile(filepath.Join(dir, "said")); err != nil || string(b) != "a frame\n" {
+				t.Errorf("passt read %q from its socket (%v), and QEMU wrote a frame", b, err)
+			}
+			if got := e.Stderr; (tc.said == "") != !strings.Contains(got, "passt") || !strings.Contains(got, tc.said) {
+				t.Errorf("Exit.Stderr is %q, want it to say %q", got, tc.said)
+			}
+		})
+	}
+}
+
+// A QEMU that never starts takes its passt with it.
+func TestAStartThatFailsEndsPasst(t *testing.T) {
+	s, dir := passtSpec(t, "passt")
+	if _, err := startFake(t, ctx(t), "refuses", s, StartOptions{}); err == nil {
+		t.Fatal("a QEMU that refused its command line started")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "said")); err != nil {
+		t.Errorf("passt had not ended when Start returned: %v", err)
+	}
+}
+
+// A passt that is not there fails Start before QEMU runs, naming it.
+func TestAMissingPasstFailsTheStart(t *testing.T) {
+	s, _ := passtSpec(t, "passt")
+	s.NICs[0].Passt = filepath.Join(t.TempDir(), "passt")
+	if _, err := startFake(t, ctx(t), "obeys", s, StartOptions{}); err == nil || !strings.Contains(err.Error(), s.NICs[0].Passt) {
+		t.Fatalf("Start with no passt = %v, want an error naming it", err)
 	}
 }

@@ -466,3 +466,29 @@ func TestReadTargetGivesItsMachineATPMOfItsOwn(t *testing.T) {
 		}
 	}
 }
+
+// The machine held for a record with a NIC on passt runs no passt: its NIC is on a hub port as a
+// TAP's is, so the record is the same for both, and the guest's side of passt is not on its
+// command line.
+func TestReadTargetRunsNoPasst(t *testing.T) {
+	t.Setenv("FAKE_STATUS", "prelaunch")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nics := []NIC{{Passt: filepath.Join(t.TempDir(), "no-passt"), MAC: "52:54:00:12:34:56"}}
+	s := Spec{QEMU: self, Kernel: bzImageStub(t), Firmware: t.TempDir(), Accel: "tcg", BootCPUs: 1, Memory: Memory{BaseMB: 128}, NICs: nics}
+	var line string
+	if _, err := ReadTarget(ctx(t), s, StartOptions{Cmd: func(c *exec.Cmd) {
+		c.Env = append(os.Environ(), fakeMode+"=obeys", "GORACE=atexit_sleep_ms=0")
+		line = strings.Join(c.Args, " ")
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(line, "-netdev hubport,id=net0,hubid=0 -device virtio-net-pci,netdev=net0,") || strings.Contains(line, "set_credential") {
+		t.Errorf("the machine held for its record was %s", line)
+	}
+	if s.NICs[0].Passt != nics[0].Passt {
+		t.Errorf("the caller's NIC became %+v", s.NICs[0])
+	}
+}

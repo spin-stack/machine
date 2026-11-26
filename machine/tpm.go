@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"syscall"
-	"time"
 )
 
 // TPM is a machine's TPM 2.0: swtpm, which Start runs beside QEMU, behind QEMU's tpm-emulator
@@ -75,68 +73,18 @@ const (
 	tpmBackend = "tpm0"
 )
 
-// swtpmWait is how long a machine's end waits for swtpm to follow QEMU out, once QEMU's end of the
-// control channel is closed, before it kills it.
-const swtpmWait = 5 * time.Second
-
-// swtpm is the TPM's emulator as Start runs it: one process for one machine, ended by the end of
-// QEMU's control channel.
-type swtpm struct {
-	cmd    *exec.Cmd
-	stderr *tail
-	exited chan struct{}
-}
-
 // startSWTPM starts swtpm on t.State, its control channel one end of a socket pair whose other
 // end it returns, for QEMU. shape is StartOptions.TPMCmd.
 //
-// A pair and not a socket at a path: nothing is bound, so no 108-byte sun_path to fit, no socket
-// file to find or remove, and nothing for another process to connect to; and swtpm takes the
-// connected end (clientfd=), so there is no wait for it to listen. QEMU asks swtpm for the data
-// channel over it, a second pair swtpm makes and passes back.
-func startSWTPM(t TPM, shape func(*exec.Cmd)) (*swtpm, *os.File, error) {
-	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0) // mutate-exempt: protocol 1 is PF_UNIX, which AF_UNIX takes as it takes 0 (unix_create)
-	if err != nil {
-		return nil, nil, fmt.Errorf("making the TPM's control channel: %w", err)
-	}
-	qemu, own := os.NewFile(uintptr(fds[0]), "tpm-qemu"), os.NewFile(uintptr(fds[1]), "tpm-swtpm")
-	defer func() { _ = own.Close() }()
+// swtpm takes the connected end (clientfd=), so there is no wait for it to listen. QEMU asks swtpm
+// for the data channel over it, a second pair swtpm makes and passes back.
+func startSWTPM(t TPM, shape func(*exec.Cmd)) (*beside, *os.File, error) {
 	if err := os.MkdirAll(t.State, 0o700); err != nil {
-		_ = qemu.Close()
 		return nil, nil, fmt.Errorf("making the TPM's state directory: %w", err)
 	}
-	w := &swtpm{stderr: &tail{}, exited: make(chan struct{})}
 	// #nosec G204 -- the caller's swtpm and its state directory
-	w.cmd = exec.Command(t.SWTPM, "socket", "--tpm2",
+	cmd := exec.Command(t.SWTPM, "socket", "--tpm2",
 		"--tpmstate", "dir="+t.State+",mode=0600",
 		"--ctrl", "type=unixio,clientfd=3")
-	w.cmd.ExtraFiles = []*os.File{own}
-	w.cmd.Stderr = w.stderr
-	if shape != nil {
-		shape(w.cmd)
-	}
-	if err := w.cmd.Start(); err != nil {
-		_ = qemu.Close()
-		return nil, nil, fmt.Errorf("starting %s: %w", t.SWTPM, err)
-	}
-	go func() {
-		_ = w.cmd.Wait()
-		close(w.exited)
-	}()
-	return w, qemu, nil
-}
-
-// end waits for swtpm to exit, as it does once QEMU's end of the control channel is closed, and
-// kills it after swtpmWait. What it said is returned when it ended otherwise than with 0.
-func (w *swtpm) end() string {
-	select {
-	case <-w.exited:
-	case <-time.After(swtpmWait):
-		_ = w.cmd.Process.Kill()
-		<-w.exited
-	}
-	if w.cmd.ProcessState.Success() {
-		return ""
-	}
-	return fmt.Sprintf("swtpm %s: %s", w.cmd.ProcessState, w.stderr.String())
+	return startBeside("swtpm", "the TPM's control channel", cmd, shape)
 }

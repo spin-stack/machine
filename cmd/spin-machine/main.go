@@ -98,8 +98,17 @@ func run(argv []string) error {
 		}
 		// The TPM's control channel is a socket pair Start makes, shown at the descriptor after
 		// the monitor's.
+		next := 4
 		if spec.TPM.State != "" {
-			spec.TPM.FD = 4
+			spec.TPM.FD = next
+			next++
+		}
+		// passt's socket, the same: the descriptor after those.
+		for i := range spec.NICs {
+			if spec.NICs[i].Passt != "" {
+				spec.NICs[i].PasstFD = next
+				next++
+			}
 		}
 		args, err := spec.Args()
 		if err != nil {
@@ -221,6 +230,7 @@ type machineFlags struct {
 	held     bool
 	restore  bool
 	tpm      string
+	net      bool
 
 	init     string
 	root     string
@@ -252,6 +262,7 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&o.held, "held", false, "start held, and boot only when start is run (needs --qmp)")
 	fs.BoolVar(&o.restore, "restore", false, "start held for a checkpoint, which restore loads (needs --qmp)")
 	fs.StringVar(&o.tpm, "tpm", "", "give the machine a TPM whose state is this directory, made if missing, and emulated by <release>/bin/swtpm (default: no TPM)")
+	fs.BoolVar(&o.net, "net", false, "give the machine a NIC on <release>/bin/passt, configured by the kernel command line: the guest reaches what this user reaches, IPv4, with DNS through the host's resolver (default: no NIC)")
 	fs.StringVar(&o.console, "console", "mon:stdio",
 		"QEMU chardev for the serial console, e.g. file:/path or unix:/path,server=on,wait=off; empty for none")
 
@@ -262,6 +273,10 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.TextVar(&o.lockdown, "lockdown", machine.LockdownConfidentiality,
 		"the guest's lockdown and keyrings: confidentiality, sealed; shirudo, integrity with the .bpf and .dm-verity keyrings unsealed for shirudo's init to enroll in; kernel, the level the kernel forces, sealed")
 }
+
+// netMAC is the MAC of the NIC --net gives, locally administered (52:54:00 is QEMU's prefix): one
+// machine's NIC on its own passt, so no other host or machine is on its link to clash with.
+const netMAC = "52:54:00:12:34:56"
 
 // spec turns the flags into a machine, filling in every path from the release
 // tree so that the common case is no flags at all.
@@ -310,6 +325,13 @@ func (o *machineFlags) spec() (machine.Spec, error) {
 			return machine.Spec{}, err
 		}
 		s.TPM = machine.TPM{SWTPM: swtpm, State: o.tpm}
+	}
+	if o.net {
+		passt, err := rel.Passt()
+		if err != nil {
+			return machine.Spec{}, err
+		}
+		s.NICs = []machine.NIC{{Passt: passt, MAC: netMAC}}
 	}
 
 	hasDisk := o.disks.path != "-"
