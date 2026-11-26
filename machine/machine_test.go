@@ -3,6 +3,7 @@
 package machine
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -158,6 +159,34 @@ func TestArgs(t *testing.T) {
 		name:   "no MTU",
 		set:    func(s *Spec) { s.NICs = []NIC{nic()} },
 		absent: []string{"host_mtu"},
+	}, {
+		// A NIC on passt is a stream of frames on the descriptor Start made, with no vhost, and the
+		// guest's side of it on the kernel command line: the .network and resolv.conf as tmpfiles
+		// lines, and the udev rule that starts networkd, each a credential (passtGuest).
+		name: "a NIC on passt",
+		set:  func(s *Spec) { s.NICs = []NIC{{Passt: "/passt", PasstFD: 4, MAC: "52:54:00:12:34:56"}} },
+		want: []string{
+			"-netdev stream,id=net0,server=off,addr.type=fd,addr.str=4 -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,romfile=,disable-legacy=on,addr=0x10 ",
+			"systemd.set_credential_binary=tmpfiles.extra:" + base64.StdEncoding.EncodeToString([]byte(
+				"d /run/systemd/network 0755 - - -\n"+
+					`f+ /run/systemd/network/50-passt.network 0644 - - - [Match]\nName=eth0\n[Network]\nAddress=10.0.2.15/24\nGateway=10.0.2.2\n`+"\n"+
+					`f+ /etc/resolv.conf 0644 - - - nameserver 10.0.2.3\n`+"\n")) + " ",
+			"systemd.set_credential_binary=udev.rules.50-passt.rules:" + base64.StdEncoding.EncodeToString([]byte(
+				`SUBSYSTEM=="net", ACTION=="add", KERNEL=="eth0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="systemd-networkd.service"`+"\n")) + " ",
+		},
+		absent: []string{"vhost", "tap,"},
+	}, {
+		// The guest's side names the NIC passt is on: the second NIC is eth1.
+		name: "a NIC on passt after a TAP",
+		set:  func(s *Spec) { s.NICs = []NIC{nic(), {Passt: "/passt", PasstFD: 4, MAC: "52:54:00:12:34:56"}} },
+		want: []string{"-netdev tap,id=net0,fd=3,vhost=on ", "-netdev stream,id=net1,server=off,addr.type=fd,addr.str=4 ",
+			"systemd.set_credential_binary=udev.rules.50-passt.rules:" + base64.StdEncoding.EncodeToString([]byte(
+				`SUBSYSTEM=="net", ACTION=="add", KERNEL=="eth1", TAG+="systemd", ENV{SYSTEMD_WANTS}+="systemd-networkd.service"`+"\n")) + " "},
+	}, {
+		// A machine with no NIC on passt has nothing of it on its command line.
+		name:   "a TAP's guest side is not the machine's",
+		set:    func(s *Spec) { s.NICs = []NIC{nic()} },
+		absent: []string{"set_credential", "stream"},
 	}, {
 		// Each NIC on a slot of its own, counting up from the first.
 		name: "two NICs",
@@ -556,6 +585,16 @@ func TestValidateRefuses(t *testing.T) {
 		// A NIC is its TAP, and the zero value of a descriptor is stdin: NIC{} was a
 		// machine whose network backend read the launcher's terminal.
 		{"a NIC with no TAP", func(s *Spec) { s.NICs = []NIC{{MAC: "52:54:00:00:00:01"}} }},
+		// A NIC is a TAP or passt: both is a NIC whose backend is a guess.
+		{"a NIC on passt and a TAP", func(s *Spec) { s.NICs = []NIC{{TapFD: 3, Passt: "/passt", PasstFD: 4, MAC: "52:54:00:00:00:01"}} }},
+		{"a NIC on passt with /dev/vhost-net", func(s *Spec) { s.NICs = []NIC{{VhostFD: 3, Passt: "/passt", PasstFD: 4, MAC: "52:54:00:00:00:01"}} }},
+		{"a NIC on passt whose socket is stderr", func(s *Spec) { s.NICs = []NIC{{Passt: "/passt", PasstFD: 2, MAC: "52:54:00:00:00:01"}} }},
+		{"a passt socket with no passt", func(s *Spec) { s.NICs = []NIC{{TapFD: 3, PasstFD: 4, MAC: "52:54:00:00:00:01"}} }},
+		// Each passt gives its guest the same address and route.
+		{"two NICs on passt", func(s *Spec) {
+			s.NICs = []NIC{{Passt: "/passt", PasstFD: 3, MAC: "52:54:00:00:00:01"}, {Passt: "/passt", PasstFD: 4, MAC: "52:54:00:00:00:02"}}
+		}},
+		{"a NIC on passt with no MAC", func(s *Spec) { s.NICs = []NIC{{Passt: "/passt", PasstFD: 3}} }},
 		// The MAC goes into an option string: empty is "mac=,", and a comma in it
 		// would be another option.
 		{"a NIC with no MAC", func(s *Spec) { s.NICs = []NIC{{TapFD: 3}} }},
@@ -630,7 +669,7 @@ func TestValidateRefuses(t *testing.T) {
 	s.Memory.BaseMB = 1
 	s.BootCPUs = 1
 	s.VsockCID, s.VsockFD = 3, 3
-	s.NICs = []NIC{{TapFD: 3, VhostFD: 3, MAC: "52:54:00:00:00:01"}}
+	s.NICs = []NIC{{TapFD: 3, VhostFD: 3, MAC: "52:54:00:00:00:01"}, {Passt: "/passt", PasstFD: 3, MAC: "52:54:00:00:00:02"}}
 	if err := s.validate(); err != nil {
 		t.Fatalf("the least each bound allows does not validate: %v", err)
 	}

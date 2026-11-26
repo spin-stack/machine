@@ -126,6 +126,17 @@ func TestOpenReleaseAcceptsAMachineWithoutTheOptionalParts(t *testing.T) {
 	if got, err := withTPM.SWTPM(); err != nil || filepath.Base(got) != "swtpm" {
 		t.Errorf("SWTPM = %q, %v, want the release's bin/swtpm", got, err)
 	}
+	// A release from before #751 has no passt, and is a machine whose NICs are TAPs.
+	if _, err := r.Passt(); err == nil || !strings.Contains(err.Error(), "passt") {
+		t.Errorf("Passt on a release without one returned %v, want an error naming passt", err)
+	}
+	withPasst, err := OpenRelease(tree(t, append(slices.Clone(whole), passtName)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := withPasst.Passt(); err != nil || filepath.Base(got) != "passt" {
+		t.Errorf("Passt = %q, %v, want the release's bin/passt", got, err)
+	}
 }
 
 // machine.env, as spin-machine-dev release writes it and as it can arrive damaged.

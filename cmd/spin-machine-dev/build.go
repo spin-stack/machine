@@ -170,7 +170,7 @@ func verifyCmd() *cobra.Command {
              the machine type every checkpoint is saved on (a newer one is said, not failed), and
              the TCG binary's query-qmp-schema has every QMP command and event the module
              defines, as the module defines it; QEMU has the TPM's device and its emulator
-             backend, and swtpm says it offers a TPM 2.0 with RSA-3072
+             backend, swtpm says it offers a TPM 2.0 with RSA-3072, and passt takes --fd
   kernel     a vmlinux with both Xen notes and a filled .data.reloc
   e2fsprogs  the four tools and mke2fs.conf, and mkfs.ext4 answers the pinned version
   systemd    the packages the image installs

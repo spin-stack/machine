@@ -98,6 +98,21 @@
     mirror of the tag on GitHub: download.gnome.org's path names the minor series, which a
     source template cannot. After the bump: `spin-machine-dev build qemu`.
 
+- name: passt
+  kind: download
+  source: https://passt.top/passt/snapshot/passt-{version}.tar.xz
+  version: 2026_10_02.cba3570
+  pin: aa75616cc43925f0bd6c05bcfbbaecd77397c03d7bd23591b34ef535be5dfcdc
+  track: page https://passt.top/passt/refs/tags
+  note: >-
+    qemu/Dockerfile's passt stage: the network of a NIC on passt (machine.NIC.Passt), one passt
+    beside each QEMU whose machine has one, static. Its releases are tags named by date and commit,
+    which the tags track cannot order, so the newest is the first snapshot the tags page links to;
+    cgit makes the tarball from the tag, the same bytes each time (checked 2026-11-26). After the
+    bump: `spin-machine-dev build qemu`, whose stage refuses a passt that is not static or takes no
+    --fd, then `spin-machine-dev verify qemu` and `task boot:net`, which brings a guest's network up
+    through it and fetches over HTTPS.
+
 - name: alpine
   kind: image
   source: mirror.gcr.io/library/alpine

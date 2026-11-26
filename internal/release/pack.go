@@ -167,6 +167,7 @@ func shipped(o Options, top, share string) ([]file, error) {
 		files = append(files, file{fromOut("bin/" + b), at("bin/" + b), "the " + b + " binary", 0o755})
 	}
 	files = append(files, file{fromOut("bin/" + build.SWTPMBinary), at("bin/" + build.SWTPMBinary), "the swtpm binary", 0o755})
+	files = append(files, file{fromOut("bin/" + build.PasstBinary), at("bin/" + build.PasstBinary), "the passt binary", 0o755})
 	// mkfs.ext4 and the configuration it reads together: what an ext4 is made with is what both
 	// default to. debugfs, e2fsck and dumpe2fs from the same build: the probes edit a copy of the
 	// base image with this debugfs, because an older one refuses features it does not know.
@@ -331,7 +332,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 	parts = append(parts, sbom.New(subject("base-image", o.Version), image, nil, o.Epoch))
 	// QEMU, qboot, the kernel, systemd and OpenSSH are built with this repository's patches: each is in its
 	// component's pedigree, so the SBOM does not say upstream's source is what was compiled.
-	pins, err := sbom.Pins(o.Pins, strings.Fields("qemu qboot swtpm libtpms json-glib e2fsprogs kernel ubuntu systemd-source openssh-source task git-lfs buildkit")...)
+	pins, err := sbom.Pins(o.Pins, strings.Fields("qemu qboot swtpm libtpms json-glib passt e2fsprogs kernel ubuntu systemd-source openssh-source task git-lfs buildkit")...)
 	if err != nil {
 		return nil, err
 	}
@@ -371,6 +372,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		each = append(each, struct{ path, version string }{"bin/" + b, version("e2fsprogs")})
 	}
 	each = append(each, struct{ path, version string }{"bin/" + build.SWTPMBinary, version("swtpm")})
+	each = append(each, struct{ path, version string }{"bin/" + build.PasstBinary, version("passt")})
 	qboot, err := o.Pins.Get("qboot")
 	if err != nil {
 		return nil, err

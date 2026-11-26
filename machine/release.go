@@ -28,6 +28,7 @@ const (
 	qemuTCGName = "bin/qemu-system-x86_64-tcg"
 	qemuImgName = "bin/qemu-img"
 	swtpmName   = "bin/swtpm"
+	passtName   = "bin/passt"
 	firmwareDir = "qemu"
 	rootfsName  = "image/rootfs.qcow2"
 	manifest    = "machine.env"
@@ -108,6 +109,13 @@ func (r *Release) Rootfs() (string, error) { return r.optional(rootfsName, "the 
 // OpenRelease does not ask for it: a release from before #719 has none, and is still a machine
 // without a TPM.
 func (r *Release) SWTPM() (string, error) { return r.optional(swtpmName, "swtpm, the TPM's emulator") }
+
+// Passt is the passt that is the backend of a NIC on passt (NIC.Passt). Not every release carries
+// one, and OpenRelease does not ask for it: a release from before #751 has none, and is still a
+// machine whose NICs are TAPs.
+func (r *Release) Passt() (string, error) {
+	return r.optional(passtName, "passt, a NIC's network without root")
+}
 
 func (r *Release) optional(name, what string) (string, error) {
 	p := filepath.Join(r.dir, name)

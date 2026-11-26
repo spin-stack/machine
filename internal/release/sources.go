@@ -58,11 +58,16 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	p, err := get("passt")
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf(sourcesText,
 		version,
 		q.Version, q.URL(), q.Pin,
 		b.Pin, b.Pin, b.Archive,
 		w.Version, w.URL(), w.Pin, l.Version, l.URL(), l.Pin, j.Version, j.URL(), j.Pin,
+		p.Version, p.URL(), p.Pin,
 		e.Version, e.URL(), e.Pin,
 		k.Version, k.URL(), k.Pin,
 		s.Version, s.Version, s.URL(), s.Pin,
@@ -76,7 +81,7 @@ Sources for the third-party software in this release.
 This release contains software under the GNU General Public License, the GNU Lesser
 General Public License and other licences; see NOTICE for what is under which. The
 complete corresponding source for the GPL and LGPL components is available as set out
-below. The statically linked libraries in the QEMU, swtpm and e2fsprogs binaries are covered by the same offer,
+below. The statically linked libraries in the QEMU, swtpm, passt and e2fsprogs binaries are covered by the same offer,
 which satisfies section 6 of the LGPL by making a relinkable build reproducible from source.
 
 QEMU %s
@@ -117,6 +122,15 @@ json-glib %s, linked into swtpm
   sha256:   %s
   licence:  LGPL-2.1-or-later
   built by: qemu/Dockerfile's swtpm stage, unpatched
+
+passt %s
+  binary:   usr/share/spin-stack/bin/passt
+  source:   %s
+  sha256:   %s
+  licence:  GPL-2.0-or-later
+  built by: qemu/Dockerfile's passt stage, unpatched, statically linked against the musl libc of
+            QEMU's builder (qemu/apk.list), whose source is the Alpine package source for that
+            release
 
 e2fsprogs %s
   binaries: usr/share/spin-stack/bin/mkfs.ext4, debugfs, e2fsck, dumpe2fs

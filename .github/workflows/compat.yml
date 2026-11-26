@@ -182,6 +182,11 @@ jobs:
       - name: A machine with a TPM uses it across a checkpoint
         run: go tool task boot:tpm
 
+      # A machine given a NIC on passt reaches the internet with nothing on the host but the user
+      # running it, and its guest is configured by its command line alone (#751).
+      - name: A guest on passt reaches the internet
+        run: go tool task boot:net
+
       # A patch dropped at a bump, or rebased into doing nothing, still builds and boots; this is
       # where it fails (qemu/README.md, "The patches").
       - name: Each QEMU and qboot patch does what it is carried for, seen from a guest

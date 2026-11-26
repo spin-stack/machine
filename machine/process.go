@@ -81,8 +81,9 @@ type Process struct {
 	console *panicWatch
 	// sockets are the monitors' sockets Start bound, removed once QEMU has exited.
 	sockets []boundSocket
-	// tpm is the TPM's emulator, when the Spec has a TPM: reaped after QEMU.
-	tpm *swtpm
+	// besides are the processes Start ran beside QEMU, swtpm for a TPM and passt for each NIC on
+	// passt: reaped after QEMU.
+	besides []*beside
 	// cgroup is the cgroup QEMU runs in, when it is not its caller's: what Usage reads.
 	cgroup string
 	// watch and host are the machine's probe, when StartOptions.Pressure set one: removed and
@@ -110,7 +111,7 @@ type Exit struct {
 	// console (StartOptions.Console) and it said one. A panic otherwise ends as GuestReset.
 	Panic string
 	// Stderr is the last 4 KiB QEMU wrote on its stderr, or empty when StartOptions.Stderr was a
-	// file, which holds all of it; then what swtpm said, when the TPM's emulator failed.
+	// file, which holds all of it; then what swtpm or passt said, when one of them failed.
 	Stderr string
 }
 
@@ -175,23 +176,35 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 		h.removeSockets()
 		return nil, err
 	}
-	var tpm *swtpm
+	var besides []*beside
 	fail := func(err error) (*Process, error) {
 		_ = own.Close()
 		_ = console.Close() // a nil *os.File refuses the close, and there is nothing to close
 		h.removeSockets()
-		if tpm != nil {
-			h.close() // QEMU's end of the control channel, which ends swtpm
-			_ = tpm.end()
+		h.close() // QEMU's ends of the besides' sockets, which ends them
+		for _, b := range besides {
+			_ = b.end()
 		}
 		return nil, err
 	}
 	if s.TPM.on() {
-		var channel *os.File
-		if tpm, channel, err = startSWTPM(s.TPM, o.TPMCmd); err != nil {
+		b, channel, err := startSWTPM(s.TPM, o.TPMCmd)
+		if err != nil {
 			return fail(err)
 		}
+		besides = append(besides, b)
 		s.TPM.FD = h.add(channel)
+	}
+	for i := range s.NICs {
+		if s.NICs[i].Passt == "" {
+			continue
+		}
+		b, channel, err := startPasst(s.NICs[i].Passt)
+		if err != nil {
+			return fail(err)
+		}
+		besides = append(besides, b)
+		s.NICs[i].PasstFD = h.add(channel)
 	}
 	args, err := s.Args()
 	if err != nil {
@@ -210,7 +223,7 @@ func Start(ctx context.Context, s Spec, o StartOptions) (*Process, error) {
 	p := &Process{
 		watch:    o.Pressure,
 		sockets:  h.sockets,
-		tpm:      tpm,
+		besides:  besides,
 		attached: make(chan *QEMU, 1),
 		exited:   make(chan struct{}),
 	}
@@ -306,10 +319,10 @@ func (p *Process) wait(read <-chan struct{}) {
 	if p.console != nil {
 		p.exit.Panic = p.console.panicked()
 	}
-	if p.tpm != nil {
-		// After QEMU, whose exit closed the control channel: swtpm follows it out, and the state
-		// directory is free for the next machine once Exited is closed.
-		if said := p.tpm.end(); said != "" {
+	// After QEMU, whose exit closed their sockets: each follows it out, and a TPM's state directory
+	// is free for the next machine once Exited is closed.
+	for _, b := range p.besides {
+		if said := b.end(); said != "" {
 			p.exit.Stderr += "\n" + said
 		}
 	}
@@ -579,7 +592,7 @@ func (h *handover) devices(s *Spec, open func(string) (*os.File, error)) error {
 	}
 	s.NICs = slices.Clone(s.NICs)
 	for i := range s.NICs {
-		if s.NICs[i].VhostFD != 0 || s.NICs[i].hub {
+		if s.NICs[i].VhostFD != 0 || s.NICs[i].hub || s.NICs[i].Passt != "" {
 			continue
 		}
 		f, err := open("/dev/vhost-net")

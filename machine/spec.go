@@ -135,15 +135,25 @@ type FD struct {
 	Opaque string
 }
 
-// NIC is one virtio-net device, backed by a TAP file descriptor the caller has
-// already opened and passed to the QEMU process.
+// NIC is one virtio-net device, backed by either a TAP file descriptor the caller has
+// already opened and passed to the QEMU process, or passt, which Start runs beside QEMU
+// (docs/machine.md, "A network without root"). validate refuses a NIC with both or neither.
 type NIC struct {
 	// TapFD is the descriptor number in the QEMU process, so 3 or above.
 	TapFD int
 	// VhostFD is /dev/vhost-net already open, handed to QEMU as a descriptor, for a
 	// QEMU that may open no device node. Zero has QEMU open the node itself.
 	VhostFD int
-	MAC     string
+
+	// Passt is the passt binary (Release.Passt) for a NIC whose backend is passt in place of
+	// a TAP. Setting it is what puts the NIC on passt.
+	Passt string
+	// PasstFD is QEMU's end of the socket passt carries the NIC's frames on. Start makes the
+	// pair; a caller of Args alone names the descriptor the command line it prints would be
+	// handed.
+	PasstFD int
+
+	MAC string
 
 	// MTU is the largest frame the guest may send, announced through
 	// VIRTIO_NET_F_MTU. Zero leaves the guest at its own default, 1500.
@@ -445,7 +455,7 @@ func (s Spec) validate() error {
 	if err := bootable(s.Kernel); err != nil {
 		return err
 	}
-	if err := s.Cmdline.validate(); err != nil {
+	if err := s.cmdline().validate(); err != nil {
 		return fmt.Errorf("kernel command line: %w", err)
 	}
 	for i, m := range s.Monitors {
@@ -483,6 +493,9 @@ func (s Spec) validate() error {
 			return fmt.Errorf("NIC %d: %w", i, err)
 		}
 	}
+	if n := passtNICs(s.NICs); n > 1 {
+		return fmt.Errorf("%d NICs on passt, and the guest is configured for one: each passt gives its guest the same addresses", n)
+	}
 	seen := map[string]bool{}
 	for i, d := range s.Places {
 		switch {
@@ -518,8 +531,14 @@ func (s Spec) fdSets() (map[int]bool, error) {
 
 func (n NIC) validate() error {
 	switch {
-	// TapFD has no "absent": a NIC is its TAP, and the zero value is stdin.
-	case n.TapFD < 3 && !n.hub:
+	case n.Passt != "" && (n.TapFD != 0 || n.VhostFD != 0):
+		return errors.New("a NIC on both passt and a TAP: it is one or the other")
+	case n.Passt != "" && n.PasstFD < 3:
+		return fmt.Errorf("passt's socket is descriptor %d, which is stdin, stdout or stderr (Start makes it)", n.PasstFD)
+	case n.Passt == "" && n.PasstFD != 0:
+		return errors.New("a passt socket for a NIC with no passt binary")
+	// TapFD has no "absent": a NIC without passt is its TAP, and the zero value is stdin.
+	case n.Passt == "" && n.TapFD < 3 && !n.hub:
 		return fmt.Errorf("a TAP descriptor of %d is stdin, stdout or stderr", n.TapFD)
 	case n.VhostFD != 0 && n.VhostFD < 3:
 		return errors.New("a /dev/vhost-net descriptor below 3 is stdin, stdout or stderr")
@@ -616,7 +635,7 @@ func (s Spec) appendBoot(args []string) []string {
 	if s.Initrd != "" {
 		args = append(args, "-initrd", s.Initrd)
 	}
-	return append(args, "-append", s.Cmdline.String())
+	return append(args, "-append", s.cmdline().String())
 }
 
 // appendDevices is every device this machine has whatever it is given: vmgenid, the
@@ -748,7 +767,7 @@ func placeNode(i int, file string, readonly bool) qmp.ThrottleNode {
 		ThrottleGroup: placeGroup, ReadOnly: readonly, Discard: "unmap"}
 }
 
-// appendNICs is each NIC and its TAP backend, on its fixed slot.
+// appendNICs is each NIC and its backend, a TAP or passt, on its fixed slot.
 func (s Spec) appendNICs(args []string) []string {
 	for i, n := range s.NICs {
 		// romfile= loads no option ROM. The card is only ever driven by a guest
@@ -770,6 +789,8 @@ func (s Spec) appendNICs(args []string) []string {
 		switch {
 		case n.hub:
 			netdev = fmt.Sprintf("hubport,id=net%d,hubid=0", i)
+		case n.Passt != "":
+			netdev = passtNetdev(i, n.PasstFD)
 		case n.VhostFD != 0:
 			netdev += fmt.Sprintf(",vhostfd=%d", n.VhostFD)
 		}

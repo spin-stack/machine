@@ -654,6 +654,39 @@ RUN b=/opt/swtpm/bin/swtpm && \
     done && \
     echo "OK: swtpm is static and hardened, and its TPM 2.0 offers RSA-3072"
 
+# passt, the network of a NIC on passt (machine.NIC.Passt): one beside each QEMU whose machine has
+# one, which machine.Start runs on a socket pair. Not QEMU's --enable-passt, which has QEMU spawn
+# it, nor slirp, which puts a network stack inside the QEMU process every machine runs (both stay
+# --disable'd above). A host binary in a release, so static-pie as QEMU is. Only passt itself is
+# built: not passt.avx2, which passt looks for beside it at start and says so on stderr when it is
+# not there, nor pasta, passt-repair or pesto.
+FROM ${QEMU_BUILDER_IMAGE} AS passt
+
+ARG PASST_VERSION
+ARG PASST_SHA256
+
+SHELL ["/bin/sh", "-o", "pipefail", "-c"]
+
+WORKDIR /build
+RUN curl -fsSL "https://passt.top/passt/snapshot/passt-${PASST_VERSION}.tar.xz" -o passt.tar.xz && \
+    printf '%s  %s\n' "${PASST_SHA256}" passt.tar.xz | sha256sum -c - && \
+    mkdir passt && tar -xJf passt.tar.xz -C passt --strip-components=1 && \
+    make -C passt -j"$(nproc)" passt VERSION="${PASST_VERSION}" CFLAGS=-static-pie && \
+    install -D -m 0755 -s passt/passt /opt/passt/bin/passt
+
+# Asked of the binary: static and hardened as swtpm is, and the version it was built from. --fd,
+# which machine.Start hands it, is asked of it by --help.
+RUN b=/opt/passt/bin/passt && \
+    ! readelf -lW "$b" | grep -q INTERP || { echo "ERROR: $b wants a dynamic loader"; exit 1; }; \
+    ! readelf -dW "$b" | grep -q NEEDED || { echo "ERROR: $b has shared library dependencies"; exit 1; }; \
+    readelf -lW "$b" | grep -q GNU_RELRO || { echo "ERROR: $b has no RELRO segment"; exit 1; }; \
+    readelf -dW "$b" | grep -q 'FLAGS.*BIND_NOW' || { echo "ERROR: $b is lazily bound"; exit 1; }; \
+    case "$(readelf -lW "$b" | grep GNU_STACK)" in *RWE*|'') echo "ERROR: $b has an executable stack"; exit 1 ;; esac; \
+    [ "$(objdump -d --no-show-raw-insn "$b" | grep -c '%fs:0x28')" -gt 0 ] || { echo "ERROR: $b has no stack canaries"; exit 1; }; \
+    "$b" --version 2>/dev/null | grep -qx "passt ${PASST_VERSION}" || { echo "ERROR: $b is not passt ${PASST_VERSION}"; exit 1; }; \
+    "$b" --help 2>&1 | grep -q -- '--fd FD' || { echo "ERROR: $b takes no --fd"; exit 1; }; \
+    echo "OK: passt ${PASST_VERSION} is static and hardened"
+
 # The runtime image: the binaries and the firmware on a base that exists only so a human can
 # open a shell in it and look around. There are no libraries to install: that is the whole
 # difference static linking makes here. An Ubuntu base with a hand-written apt list would have
@@ -665,13 +698,14 @@ COPY --from=builder /opt/qemu/bin/qemu-system-x86_64 /usr/local/bin/qemu-system-
 COPY --from=builder /opt/qemu-tcg/bin/qemu-system-x86_64 /usr/local/bin/qemu-system-x86_64-tcg
 COPY --from=builder /opt/qemu/bin/qemu-img /usr/local/bin/qemu-img
 COPY --from=swtpm /opt/swtpm/bin/swtpm /usr/local/bin/swtpm
+COPY --from=passt /opt/passt/bin/passt /usr/local/bin/passt
 COPY --from=builder /build/pc-bios/ /usr/share/spin-stack/qemu/
 COPY --from=qboot /build/qboot.bin /usr/share/spin-stack/qemu/qboot.bin
 
 # The binaries are static, so this proves rather more than it looks: it is the same check a
 # consumer's host performs when it runs them, on a base that shares nothing with the one
 # they were built on.
-RUN /usr/local/bin/qemu-system-x86_64 --version && /usr/local/bin/qemu-img --version && /usr/local/bin/swtpm --version
+RUN /usr/local/bin/qemu-system-x86_64 --version && /usr/local/bin/qemu-img --version && /usr/local/bin/swtpm --version && /usr/local/bin/passt --version
 
 ENTRYPOINT ["/usr/local/bin/qemu-system-x86_64"]
 
@@ -682,6 +716,7 @@ COPY --from=builder /opt/qemu/bin/qemu-system-x86_64 /bin/qemu-system-x86_64
 COPY --from=builder /opt/qemu-tcg/bin/qemu-system-x86_64 /bin/qemu-system-x86_64-tcg
 COPY --from=builder /opt/qemu/bin/qemu-img /bin/qemu-img
 COPY --from=swtpm /opt/swtpm/bin/swtpm /bin/swtpm
+COPY --from=passt /opt/passt/bin/passt /bin/passt
 COPY --from=builder /build/pc-bios/ /qemu/
 COPY --from=qboot /build/qboot.bin /qemu/qboot.bin
 # The packages the builder installed, as apk recorded them: the static libraries the binaries

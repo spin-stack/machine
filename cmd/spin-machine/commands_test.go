@@ -87,7 +87,7 @@ const ok = `{"return": {}}`
 func release(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, f := range []string{"bin/qemu-system-x86_64", "bin/qemu-system-x86_64-tcg", "bin/qemu-img", "kernel/bzImage", "qemu/linuxboot_dma.bin", "qemu/qboot.bin", "image/rootfs.qcow2", "bin/swtpm"} {
+	for _, f := range []string{"bin/qemu-system-x86_64", "bin/qemu-system-x86_64-tcg", "bin/qemu-img", "kernel/bzImage", "qemu/linuxboot_dma.bin", "qemu/qboot.bin", "image/rootfs.qcow2", "bin/swtpm", "bin/passt"} {
 		p := filepath.Join(dir, f)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -155,6 +155,9 @@ func TestFlagsAreTheSpec(t *testing.T) {
 	withTPM := defaults
 	withTPM.TPM = machine.TPM{SWTPM: filepath.Join(dir, "bin/swtpm"), State: "/tpm"}
 
+	withNet := defaults
+	withNet.NICs = []machine.NIC{{Passt: filepath.Join(dir, "bin/passt"), MAC: "52:54:00:12:34:56"}}
+
 	noDisk := defaults
 	noDisk.Places = nil
 	noDisk.Cmdline = machine.DefaultCmdline()
@@ -174,6 +177,7 @@ func TestFlagsAreTheSpec(t *testing.T) {
 		{"tcg runs the release's TCG build", []string{"--accel", "tcg"}, emulated},
 		{"no disk mounts no root", []string{"--disk", "-"}, noDisk},
 		{"a TPM is its state, emulated by the release's swtpm", []string{"--tpm", "/tpm"}, withTPM},
+		{"a network is a NIC on the release's passt", []string{"--net"}, withNet},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var o machineFlags
@@ -249,6 +253,26 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 	if !strings.Contains(string(printed), "-chardev \\\n  socket,id=tpm,fd=4 \\\n  -tpmdev \\\n  emulator,id=tpm0,chardev=tpm \\\n  -device \\\n  tpm-crb,tpmdev=tpm0 ") {
 		t.Errorf("args --tpm printed %q, want the TPM's backend on descriptor 4 and its device", printed)
 	}
+	// passt's socket too, at the descriptor after the TPM's.
+	r, w, err = os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = run([]string{"args", "--release", dir, "--tpm", "/tpm", "--net"})
+	os.Stdout = stdout
+	_ = w.Close()
+	printed, _ = io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(printed), "socket,id=tpm,fd=4 ") || !strings.Contains(string(printed), "-netdev \\\n  stream,id=net0,server=off,addr.type=fd,addr.str=5 ") {
+		t.Errorf("args --tpm --net printed %q, want the TPM's channel on descriptor 4 and passt's socket on 5", printed)
+	}
+	noPasst := release(t)
+	if err := os.Remove(filepath.Join(noPasst, "bin/passt")); err != nil {
+		t.Fatal(err)
+	}
 	noSWTPM := release(t)
 	if err := os.Remove(filepath.Join(noSWTPM, "bin/swtpm")); err != nil {
 		t.Fatal(err)
@@ -260,6 +284,7 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 		want string
 	}{
 		{"no command", nil, "no command given"},
+		{"a network from a release without passt", []string{"args", "--release", noPasst, "--net"}, "passt, a NIC's network without root"},
 		{"a TPM from a release without swtpm", []string{"args", "--release", noSWTPM, "--tpm", "/tpm"}, "swtpm, the TPM's emulator"},
 		{"a release that is not whole", []string{"args", "--release", t.TempDir()}, "is not a whole machine"},
 		{"a machine that cannot be", []string{"args", "--release", dir, "--memory", "0"}, "memory is 0"},

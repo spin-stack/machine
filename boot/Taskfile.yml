@@ -43,6 +43,17 @@ tasks:
     cmds:
       - SPIN_TPM_TEST=1 go test ./boot/ -run '^TestTheGuestUsesItsTPMAcrossACheckpoint$' -count=1 -v -timeout 10m
 
+  net:
+    desc: >-
+      A machine with a NIC on passt (machine.NIC.Passt), as spin-machine boot --net gives one: the
+      guest's systemd brings eth0 up with the address, route and nameserver its kernel command line
+      carries, resolves github.com and fetches https://github.com through passt, and a machine
+      without a NIC has none (net_test.go). Needs a built release with passt and the internet; runs
+      under TCG where there is no /dev/kvm.
+    deps: [':tools']
+    cmds:
+      - SPIN_NET_TEST=1 go test ./boot/ -run '^TestAGuestOnPasstReachesTheInternet$' -count=1 -v -timeout 5m
+
   patches:
     desc: >-
       What a guest sees of each QEMU and qboot patch only a guest can see, at spin's shape: the
