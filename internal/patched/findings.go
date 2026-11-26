@@ -16,20 +16,29 @@ import (
 	"strings"
 )
 
-// A Finding is a result of the analysis on a line the patches added.
+// A Finding is a result of the analysis on a line the patches added. Suppressed is set when the
+// analysis reports it suppressed by a codeql[<rule>] comment on the line before it, and Why is
+// then that comment, which says why it stays.
 type Finding struct {
-	Rule, File, Message string
-	Line                int
+	Rule, File, Message, Why string
+	Line                     int
+	Suppressed               bool
 }
 
 func (f Finding) String() string {
-	return fmt.Sprintf("%s:%d: %s: %s", f.File, f.Line, f.Rule, f.Message)
+	s := fmt.Sprintf("%s:%d: %s: %s", f.File, f.Line, f.Rule, f.Message)
+	if f.Suppressed {
+		s += " (suppressed: " + f.Why + ")"
+	}
+	return s
 }
 
 // Scope reads the SARIF the analysis wrote over dir's tree (dir/sarif/*.sarif) and answers the
 // results on a line the patches added or changed, which it also writes to dir/scoped.sarif, what
-// code scanning is given. A result anywhere else in a touched file is upstream's: it goes to
-// dir/upstream.txt, one a line, and decides nothing. An alert for upstream's code is one nobody
+// code scanning is given. A result the analysis reports suppressed is answered Suppressed, with
+// the comment that suppresses it, and decides nothing: it goes to code scanning with its
+// suppression, which closes its alert. A result anywhere else in a touched file is upstream's: it
+// goes to dir/upstream.txt, one a line, and decides nothing. An alert for upstream's code is one nobody
 // here fixes, and a ruleset that requires CodeQL would block a merge on it (alert #1, system/vl.c's
 // -dump-vmstate fopen, which qemu 0001 does not change, dismissed 2026-11-23).
 //
@@ -81,7 +90,7 @@ func Scope(ctx context.Context, dir string) ([]Finding, error) {
 			if !ok {
 				continue
 			}
-			f := Finding{Rule: r.RuleID, File: file, Line: first, Message: r.Message.Text}
+			f := Finding{Rule: r.RuleID, File: file, Line: first, Message: r.Message.Text, Suppressed: len(r.Suppressions) > 0}
 			ours := false
 			for l := first; l <= last && !ours; l++ {
 				if ours = lines[l]; ours {
@@ -89,6 +98,11 @@ func Scope(ctx context.Context, dir string) ([]Finding, error) {
 				}
 			}
 			if ours {
+				if f.Suppressed {
+					if f.Why, err = lineBefore(filepath.Join(src, file), first); err != nil {
+						return nil, err
+					}
+				}
 				findings = append(findings, f)
 				kept = append(kept, r.raw)
 			} else {
@@ -196,7 +210,8 @@ type result struct {
 	Message struct {
 		Text string `json:"text"`
 	} `json:"message"`
-	Locations []location `json:"locations"`
+	Locations    []location        `json:"locations"`
+	Suppressions []json.RawMessage `json:"suppressions"`
 }
 
 // location is a SARIF location: what this reads of it.
@@ -232,6 +247,22 @@ func (r *result) UnmarshalJSON(b []byte) error {
 func (r result) where(src string) (string, int, int) {
 	l := r.Locations[0]
 	return l.file(src), l.Physical.Region.Start, max(l.Physical.Region.Start, l.Physical.Region.End)
+}
+
+// lineBefore is the line before line in file, trimmed: the codeql[<rule>] comment that suppresses
+// a result starting on line, since CodeQL's AlertSuppression.qll covers the line after the
+// comment. The SARIF's suppression carries no justification ({"kind":"inSource"}, codeql.yml's
+// run 45724244695), so the reason is read where the patch wrote it.
+func lineBefore(file string, line int) (string, error) {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(raw), "\n")
+	if line < 2 || line > len(lines) {
+		return "", fmt.Errorf("%s has no line before %d", file, line)
+	}
+	return strings.TrimSpace(lines[line-2]), nil
 }
 
 // addedLines is every line of now that the patches added or changed against was: the new side
@@ -321,13 +352,10 @@ func Severe(dir string, at float64) ([]Finding, error) {
 			}
 			for _, b := range run.Results {
 				var r result
-				var suppressed struct {
-					Suppressions []json.RawMessage `json:"suppressions"`
-				}
-				if err := errors.Join(json.Unmarshal(b, &r), json.Unmarshal(b, &suppressed)); err != nil {
+				if err := json.Unmarshal(b, &r); err != nil {
 					return nil, fmt.Errorf("reading %s's results: %w", path, err)
 				}
-				if len(suppressed.Suppressions) > 0 || severity[r.RuleID] < at {
+				if len(r.Suppressions) > 0 || severity[r.RuleID] < at {
 					continue
 				}
 				f := Finding{Rule: r.RuleID, Message: r.Message.Text}

@@ -78,7 +78,9 @@ builds generate. Parts that have it: ` + strings.Join(traced(), ", ") + `.`,
 		Short: "Keep an analysis' results in the files a part's patches touch (exits 1 on one in a line they added)",
 		Long: `Keep the results of the SARIF in <out>/patched/<part>/sarif that are in a file the part's
 patches touch, in <out>/patched/<part>/scoped.sarif, for code scanning. Exits 1 when a result is on
-a line the patches added or changed: upstream's own results in those files decide nothing. Exits 2
+a line the patches added or changed, unless the analysis reports it suppressed: a codeql[<rule>]
+comment on the line before says why it stays, and is printed beside it. Upstream's own results in
+those files decide nothing. Exits 2
 naming each touched C file the analysis did not extract, or failed to compile: no result in a file
 it did not read is not a clean one.`,
 		Args: cobra.ExactArgs(1),
@@ -88,16 +90,20 @@ it did not read is not a clean one.`,
 				return err
 			}
 			findings, err := patched.Scope(c.Context(), dir)
+			failing := 0
 			for _, f := range findings {
 				_, _ = fmt.Fprintln(c.OutOrStdout(), f)
+				if !f.Suppressed {
+					failing++
+				}
 			}
 			if err != nil {
 				return couldNot(err)
 			}
-			if len(findings) > 0 {
-				return exitError{code: 1, err: fmt.Errorf("%s: %d results on lines the patches added", p.Name, len(findings))}
+			if failing > 0 {
+				return exitError{code: 1, err: fmt.Errorf("%s: %d results on lines the patches added", p.Name, failing)}
 			}
-			say(c, "%s: no result on a line the patches added", p.Name)
+			say(c, "%s: no unsuppressed result on a line the patches added", p.Name)
 			return nil
 		},
 	}, &cobra.Command{
