@@ -707,10 +707,10 @@ RUN <<EOT
     { dis mm_access; dis may_access_mm; } | grep -q '<security_mm_read_access>' ||
         lost 0031 "mm_access grants CAP_PERFMON a read no LSM saw"
 
-    # 0032: a TPM the kernel started up is not asked to self-test: tpm2_auto_startup sends the self
-    # test once, the probe that finds the TPM not started. tpm2_do_selftest is static and inlined.
-    [ "$(grep -cF 'rc = tpm2_do_selftest(chip);' drivers/char/tpm/tpm2-cmd.c)" = 1 ] ||
-        lost 0032 "tpm2_auto_startup self-tests a TPM it started up"
+    # 0032: no TPM is asked to self-test, whether the kernel or the firmware started it:
+    # tpm2_auto_startup probes with TPM2_Startup. Both are static and inlined, so read in the source.
+    ! grep -qF 'tpm2_do_selftest' drivers/char/tpm/tpm2-cmd.c && grep -qF '	rc = tpm2_startup(chip);' drivers/char/tpm/tpm2-cmd.c ||
+        lost 0032 "tpm2_auto_startup self-tests the TPM"
 
     [ "$failed" = 0 ] || exit 1
     echo "kernel patches: each is in this vmlinux"

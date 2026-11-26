@@ -135,6 +135,11 @@ func TestTpmcheckLogHoldsTheLogToThePCRs(t *testing.T) {
 		t.Errorf("tpmcheck log said\n%s\nwant\n%s", got, want)
 	}
 
+	// A TPM that stops answering fails the check on the PCR it was reading.
+	if _, err := checkLog(&stopping{tpm: tpm}, log); err == nil || !strings.Contains(err.Error(), "reading PCR") {
+		t.Errorf("a TPM that does not answer: %v", err)
+	}
+
 	// The log less its last event: PCR 9 holds an extend it does not account for.
 	short := firmwareLog(banks, events[:2])
 	if _, err := checkLog(tpm, short); err == nil || !strings.Contains(err.Error(), "PCR 9") {

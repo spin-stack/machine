@@ -800,3 +800,20 @@ func TestATPMMeasuresTheKernelItsCommandLineAndItsInitrd(t *testing.T) {
 		t.Errorf("-fw_cfg %s does not hand qboot the command line's event", argValue(args, "-fw_cfg"))
 	}
 }
+
+// A file's digest is SHA-256 of its bytes, and a file that cannot be read says which.
+func TestFileSHA256IsTheDigestOfTheFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "vmlinux")
+	if err := os.WriteFile(p, []byte("a kernel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := FileSHA256(p); err != nil || got != sha256.Sum256([]byte("a kernel")) {
+		t.Errorf("FileSHA256 = %x, %v", got, err)
+	}
+	if _, err := FileSHA256(p + ".missing"); err == nil || !strings.Contains(err.Error(), "vmlinux.missing") {
+		t.Errorf("a missing file: %v", err)
+	}
+	if _, err := FileSHA256(filepath.Dir(p)); err == nil || !strings.Contains(err.Error(), "hashing") {
+		t.Errorf("a directory: %v", err)
+	}
+}
