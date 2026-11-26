@@ -1,0 +1,21 @@
+diff -ru a/debian/not-installed e/debian/not-installed
+--- a/debian/not-installed	2026-11-26 10:36:50.279387943 -0300
++++ e/debian/not-installed	2026-11-26 11:16:33.269115259 -0300
+@@ -15,3 +15,5 @@
+ etc/init.d/
+ etc/X11/xinit/xinitrc.d/
+ var/lib/systemd/
++usr/lib/systemd/systemd-keyutil
++usr/lib/systemd/systemd-sbsign
+diff -ru a/debian/rules e/debian/rules
+--- a/debian/rules	2026-11-26 10:36:50.281808889 -0300
++++ e/debian/rules	2026-11-26 11:16:33.269115259 -0300
+@@ -161,7 +161,7 @@
+ 	-Dlibcurl=disabled \
+ 	-Dimportd=disabled \
+ 	-Dmicrohttpd=disabled \
+-	-Dopenssl=disabled \
++	-Dopenssl=enabled \
+ 	-Dlibfido2=disabled \
+ 	-Dtpm2=disabled \
+ 	-Dp11kit=disabled \

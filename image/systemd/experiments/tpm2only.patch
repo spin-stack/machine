@@ -1,0 +1,12 @@
+diff -ru a/debian/rules f/debian/rules
+--- a/debian/rules	2026-11-26 10:36:50.281808889 -0300
++++ f/debian/rules	2026-11-26 11:16:33.270587809 -0300
+@@ -163,7 +163,7 @@
+ 	-Dmicrohttpd=disabled \
+ 	-Dopenssl=disabled \
+ 	-Dlibfido2=disabled \
+-	-Dtpm2=disabled \
++	-Dtpm2=enabled \
+ 	-Dp11kit=disabled \
+ 	-Dqrencode=disabled \
+ 	-Dpwquality=disabled \
