@@ -768,6 +768,7 @@ func TestATPMMeasuresTheKernelItsCommandLineAndItsInitrd(t *testing.T) {
 	// A restore's firmware never runs: its TPM needs no digests, and QEMU is handed no events.
 	restore := s
 	restore.Restore = true
+	restore.Initrd = "/initrd"
 	restore.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3}
 	if args, err := restore.Args(); err != nil || argValue(args, "-fw_cfg") != "" || restore.TPMEvents() != nil {
 		t.Errorf("a restore with a TPM and no digests: %v, -fw_cfg %q, events %v", err, argValue(args, "-fw_cfg"), restore.TPMEvents())

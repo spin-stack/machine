@@ -147,6 +147,8 @@ func TestTpmcheckLogHoldsTheLogToThePCRs(t *testing.T) {
 	}{
 		{"no log", nil, "EV_NO_ACTION"},
 		{"another first event", append([]byte{0, 0, 0, 0, 3, 0, 0, 0}, make([]byte, 60)...), "Spec ID Event03"},
+		{"a first event of another type", append([]byte{0, 0, 0, 0, 4}, log[5:]...), "EV_NO_ACTION"},
+		{"a byte past the last event", append(log[:len(log)-64:len(log)-64], 1), "event 3: the log ends inside it"},
 		{"cut inside an event's data", log[:len(log)-64-10], "event 2: the log ends inside it"},
 		{"cut inside a digest", log[:len(log)-64-len(events[2].data)-4-10], "event 2: the log ends inside it"},
 		{"cut after an event's digest count", log[:len(log)-64-len(events[2].data)-4-len(banks)*2-10], "event 2: the log ends inside it"},
