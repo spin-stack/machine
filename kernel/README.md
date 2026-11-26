@@ -153,9 +153,18 @@ below.
 The kernel has the TPM driver 0027 hooks (`CONFIG_TCG_TPM`, with `CONFIG_TCG_CRB` and
 `CONFIG_TCG_TIS` for QEMU's `tpm-crb` and `tpm-tis`, which #719 measures against each other), so
 sparse and the effect check read the file the patch changes. Without a TPM device it binds to
-nothing. 7.4 has the BPF signed loader's ABI shirudo loads its programs through. The hooks and the
-driver alone do not run shirudo: it also needs a TPM in the machine (#719) and the configuration
-#720 lists.
+nothing. 7.4 has the BPF signed loader's ABI shirudo loads its programs through.
+
+The kernel also has every other option in shirudo's "Kernel configuration" table
+(`Documentation/operate/plan/system-requirements.rst`), and `kernel/Dockerfile` checks each after
+olddefconfig. Most were on already for BPF, ftrace and the base image; #720's five were not:
+device-mapper and dm-verity, which map shirudo's runtime and config images, with the check of a
+config image's signed root hash (`CONFIG_DM_VERITY_VERIFY_ROOTHASH_SIG`, which also makes the
+`.dm-verity` keyring), and `CONFIG_SYSTEM_DATA_VERIFICATION` and `CONFIG_CRYPTO_MLDSA`, which verify
+the PKCS#7 ML-DSA-87 signatures of its loaders and that root hash. shirudo's `CONFIG_MODULE_SIG` row
+asks for module signatures only of a kernel that loads modules, and this one has no
+`CONFIG_MODULES`; module signing comes with modules, signed-only (`CONFIG_MODULE_SIG_FORCE`). Still missing for shirudo to run: a TPM in the machine (#719), and
+lockdown at confidentiality withholds `bpf_probe_read_kernel`, which shirudo's programs call (#734).
 
 ## Changing it
 
