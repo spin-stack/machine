@@ -156,7 +156,7 @@ func transportCold(m *Measurement) error {
 	if err := evict(c.state); err != nil {
 		return err
 	}
-	t, err := readQMPTrace(m.Dir, mc.PID())
+	t, err := readQMPTrace(m.Dir)
 	if err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func transportRestore(m *Measurement) error {
 	}
 	m.RecordMs("login", login)
 	mc.Stop()
-	t, err := readQMPTrace(dir, mc.PID())
+	t, err := readQMPTrace(dir)
 	if err != nil {
 		return err
 	}

@@ -101,8 +101,7 @@ func TestAPathIsOneMonitorsCommandsUpToTheOneThatEndsIt(t *testing.T) {
 	}
 }
 
-// The traced QEMU is a script that runs the tree's QEMU with the trace into the given directory,
-// and the trace is read back by the machine's PID.
+// The traced QEMU is a script that runs the tree's QEMU with the trace into the given directory.
 func TestTheTracedQEMURunsTheTreesWithItsTrace(t *testing.T) {
 	tree, dir := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tree, "bin"), 0o755); err != nil {
@@ -122,21 +121,46 @@ func TestTheTracedQEMURunsTheTreesWithItsTrace(t *testing.T) {
 	script, _ := os.ReadFile(filepath.Join(dir, "qemu-traced"))
 	events, _ := os.ReadFile(filepath.Join(dir, "qmp-events"))
 	real, _ := filepath.EvalSymlinks(filepath.Join(tree, "bin", "qemu-system-x86_64"))
-	wantScript := "#!/bin/sh\nexec " + real + " -msg timestamp=on -D " + dir + "/qemu-$$.log -trace events=" + dir + "/qmp-events \"$@\"\n"
+	wantScript := "#!/bin/sh\nexec " + real + " -msg timestamp=on -D " + dir + "/qemu.log -trace events=" + dir + "/qmp-events \"$@\"\n"
 	if string(script) != wantScript || string(events) != qmpTraceEvents {
 		t.Errorf("script %q, events %q", script, events)
 	}
 	if _, err := tracedQEMU(&Measurement{Tree: &Tree{Dir: t.TempDir()}}, dir); err == nil {
 		t.Error("a tree with no QEMU traced")
 	}
-	if err := os.WriteFile(filepath.Join(dir, "qemu-42.log"), []byte(sampleTrace), 0o600); err != nil {
+	if _, err := readQMPTrace(dir); err == nil {
+		t.Error("a trace read for a machine that wrote none")
+	}
+}
+
+// The trace is read once the machine has ended, when spin-machine boot started QEMU as its child
+// (machine#753): both processes are gone by then, and the trace is still found.
+func TestATraceOutlivesABootThatStartedQEMUAsItsChild(t *testing.T) {
+	sample := filepath.Join(t.TempDir(), "sample")
+	if err := os.WriteFile(sample, []byte(sampleTrace), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if tr, err := readQMPTrace(dir, 42); err != nil || len(tr.Commands) != 4 {
-		t.Errorf("read back: %d commands, %v", len(tr.Commands), err)
+	tree := fakeSpinMachine(t, `for a; do case $a in --qemu=*) q=${a#--qemu=} ;; esac; done; "$q" & wait`)
+	qemu := "#!/bin/sh\n[ \"$3\" = -D ] && cp " + sample + " \"$4\"\n"
+	if err := os.WriteFile(filepath.Join(tree.Dir, "bin", "qemu-system-x86_64"), []byte(qemu), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := readQMPTrace(dir, 43); err == nil {
-		t.Error("a trace read for a machine that wrote none")
+	m := &Measurement{Tree: tree, Dir: t.TempDir()}
+	traced, err := tracedQEMU(m, m.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc, err := m.Launch(nil, "boot", traced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-mc.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the machine never ended")
+	}
+	if tr, err := readQMPTrace(m.Dir); err != nil || len(tr.Commands) != 4 {
+		t.Errorf("the ended machine's trace: %d commands, %v", len(tr.Commands), err)
 	}
 }
 

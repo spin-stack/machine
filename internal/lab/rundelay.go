@@ -157,7 +157,7 @@ func runDelayCold(m *Measurement) error {
 	if err := evict(c.state); err != nil {
 		return err
 	}
-	t, err := readQMPTrace(m.Dir, s.qemu)
+	t, err := readQMPTrace(m.Dir)
 	if err != nil {
 		return err
 	}
@@ -210,7 +210,7 @@ func runDelayRestore(m *Measurement) error {
 		return err
 	}
 	mc.Stop()
-	t, err := readQMPTrace(dir, s.qemu)
+	t, err := readQMPTrace(dir)
 	if err != nil {
 		return err
 	}
