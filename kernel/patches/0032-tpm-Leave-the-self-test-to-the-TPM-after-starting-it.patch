@@ -2,61 +2,129 @@ From: Manuel de Brito Fontes <aledbf@gmail.com>
 Date: Thu, 26 Nov 2026 10:52:37 -0300
 Subject: [PATCH] tpm: Leave the self test to the TPM after starting it up
 
-When the firmware has not started the TPM, tpm2_auto_startup() sees
-TPM2_SelfTest refused with TPM2_RC_INITIALIZE, sends TPM2_Startup and
-then sends TPM2_SelfTest again. With fullTest NO that asks the TPM to
-test every algorithm it has not tested yet, which right after a
-startup is all of them, and the probe waits for the answer.
+tpm2_auto_startup() sends TPM2_SelfTest with fullTest NO as its probe:
+a TPM nothing has started refuses it with TPM2_RC_INITIALIZE, and the
+kernel then sends TPM2_Startup and the self test again. Whichever of the
+two self tests runs on a started TPM asks it to test every algorithm it
+has not tested yet, which right after a startup is all of them, and the
+probe waits for the answer.
 
 A TPM tests an algorithm before its first use whether or not it was
-asked to (TPM 2.0 Part 1, "Self-Test Modes"), so the second self test
-only moves that work into the probe. Drop it. The startup's own
-response code still says whether the TPM came up, and a TPM in failure
-mode is still found by tpm2_get_cc_attrs_tbl(), whose TPM2_RC_FAILURE
-sets TPM_CHIP_FLAG_FIRMWARE_UPGRADE as before. A TPM the firmware
-started is tested by the first self test as before.
+asked to (TPM 2.0 Part 1, "Self-Test Modes"), so the self test only
+moves that work into the probe. Probe with TPM2_Startup instead, which
+a TPM the firmware started refuses with TPM2_RC_INITIALIZE, and send no
+self test. The startup's own response code still says whether the TPM
+came up, and a TPM in failure mode is still found by
+tpm2_get_cc_attrs_tbl(), whose TPM2_RC_FAILURE sets
+TPM_CHIP_FLAG_FIRMWARE_UPGRADE as before. tpm2_do_selftest() has no
+caller left and goes.
 
 The self test is libtpms' longest command at boot: swtpm 0.10.2 took
 25 ms to answer it on a laptop, and every other command of the probe
-under 2 ms.
-In a nested KVM guest with tpm-crb, the probe slept 18.5 ms on it
-before PID 1 that a machine without a TPM does not.
+under 2 ms. In a nested KVM guest with tpm-crb, the probe slept 18.5 ms
+on it before PID 1 that a machine without a TPM does not, whether the
+kernel or the firmware started the TPM.
 
 "tpm: Start the tpm2 before running a self test" (2023-11) met the same
 unstarted TPM and kept both self tests; the answer was that firmware
-should start the TPM. Under qboot nothing does, and a firmware that did
-would leave the kernel's first self test to pay instead.
+should start the TPM. A firmware that does leaves the kernel's first
+self test to pay instead.
 
 Link: https://patchew.org/linux/20231122065528.1049819-1-hermin.anggawijaya@alliedtelesis.co.nz
 Signed-off-by: Manuel de Brito Fontes <aledbf@gmail.com>
 ---
- drivers/char/tpm/tpm2-cmd.c | 9 +++++----
- 1 file changed, 5 insertions(+), 4 deletions(-)
+ drivers/char/tpm/tpm2-cmd.c | 62 ++++++-------------------------------
+ 1 file changed, 9 insertions(+), 53 deletions(-)
 
 diff --git a/drivers/char/tpm/tpm2-cmd.c b/drivers/char/tpm/tpm2-cmd.c
-index 4b2bb2d..949bac3 100644
+index 4b2bb2d..4e53e7b 100644
 --- a/drivers/char/tpm/tpm2-cmd.c
 +++ b/drivers/char/tpm/tpm2-cmd.c
-@@ -723,14 +723,15 @@ int tpm2_auto_startup(struct tpm_chip *chip)
- 	if (rc && rc != TPM2_RC_INITIALIZE)
+@@ -412,45 +412,6 @@ void tpm2_shutdown(struct tpm_chip *chip, u16 shutdown_type)
+ 	tpm_transmit_cmd(chip, buf, 0, "stopping the TPM");
+ }
+ 
+-/**
+- * tpm2_do_selftest() - ensure that all self tests have passed
+- *
+- * @chip: TPM chip to use
+- *
+- * Return: Same as with tpm_transmit_cmd.
+- *
+- * The TPM can either run all self tests synchronously and then return
+- * RC_SUCCESS once all tests were successful. Or it can choose to run the tests
+- * asynchronously and return RC_TESTING immediately while the self tests still
+- * execute in the background. This function handles both cases and waits until
+- * all tests have completed.
+- */
+-static int tpm2_do_selftest(struct tpm_chip *chip)
+-{
+-	int full;
+-	int rc;
+-
+-	for (full = 0; full < 2; full++) {
+-		struct tpm_buf *buf __free(kfree) = NULL;
+-
+-		buf = kzalloc(TPM_BUFSIZE, GFP_KERNEL);
+-		if (!buf)
+-			return -ENOMEM;
+-
+-		tpm_buf_init(buf, TPM_BUFSIZE);
+-		tpm_buf_reset(buf, TPM2_ST_NO_SESSIONS, TPM2_CC_SELF_TEST);
+-		tpm_buf_append_u8(buf, full);
+-		rc = tpm_transmit_cmd(chip, buf, 0,
+-				      "attempting the self test");
+-		if (rc == TPM2_RC_TESTING)
+-			rc = TPM2_RC_SUCCESS;
+-		if (rc == TPM2_RC_INITIALIZE || rc == TPM2_RC_SUCCESS)
+-			return rc;
+-	}
+-
+-	return rc;
+-}
+-
+ /**
+  * tpm2_probe() - probe for the TPM 2.0 protocol
+  * @chip:	a &tpm_chip instance
+@@ -692,8 +653,6 @@ static int tpm2_startup(struct tpm_chip *chip)
+ {
+ 	struct tpm_buf *buf __free(kfree) = NULL;
+ 
+-	dev_info(&chip->dev, "starting up the TPM manually\n");
+-
+ 	buf = kzalloc(TPM_BUFSIZE, GFP_KERNEL);
+ 	if (!buf)
+ 		return -ENOMEM;
+@@ -719,20 +678,17 @@ int tpm2_auto_startup(struct tpm_chip *chip)
+ 	if (rc)
  		goto out;
  
+-	rc = tpm2_do_selftest(chip);
+-	if (rc && rc != TPM2_RC_INITIALIZE)
 +	/*
-+	 * A TPM tests each algorithm before its first use, so the self test
-+	 * after a startup the kernel made would only move that work into the
-+	 * probe.
++	 * A TPM tests each algorithm before its first use, so a self test here
++	 * would only move that work into the probe. TPM2_Startup is refused
++	 * with TPM2_RC_INITIALIZE when the firmware has started the TPM.
 +	 */
- 	if (rc == TPM2_RC_INITIALIZE) {
- 		rc = tpm2_startup(chip);
- 		if (rc)
- 			goto out;
++	rc = tpm2_startup(chip);
++	if (!rc)
++		dev_info(&chip->dev, "started up the TPM\n");
++	else if (rc != TPM2_RC_INITIALIZE)
+ 		goto out;
+ 
+-	if (rc == TPM2_RC_INITIALIZE) {
+-		rc = tpm2_startup(chip);
+-		if (rc)
+-			goto out;
 -
 -		rc = tpm2_do_selftest(chip);
 -		if (rc)
 -			goto out;
- 	}
- 
+-	}
+-
  	rc = tpm2_get_cc_attrs_tbl(chip);
+ 	if (rc == TPM2_RC_FAILURE || (rc < 0 && rc != -ENOMEM)) {
+ 		dev_info(&chip->dev,
 -- 
 2.53.0
 
