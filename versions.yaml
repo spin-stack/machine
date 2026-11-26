@@ -348,8 +348,8 @@
 - name: systemd-source
   kind: download
   source: https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/systemd/{version}/systemd_{version}.dsc
-  version: 262.2-1ubuntu1
-  pin: 98947ea75806ded79cde72429967f8040ce96ff0bfb5ceaf6b595e1c5490f846
+  version: 262.1-1ubuntu1
+  pin: a368ef53742eb3a6a40d1206ea80461c3254330e5f72830fa5833816bfed72a3
   track: page https://launchpad.net/ubuntu/tenacious/+source/systemd
   note: >-
     image/systemd/Dockerfile: Ubuntu's systemd source package as tenacious's release pocket
