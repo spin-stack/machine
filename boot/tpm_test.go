@@ -96,8 +96,18 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 	if err := src.Boot(ctx, srcDisk); err != nil {
 		t.Fatalf("booting: %v\n%s", err, src.said())
 	}
-	src.type_(t, mount+"ls /dev/tpm0 /dev/tpmrm0 && echo TPM-NODES-$((1+1)); cat /sys/class/tpm/tpm0/tpm_version_major")
-	src.await(t, regexp.MustCompile(`TPM-NODES-2\b`), 60*time.Second)
+	// A kernel with no tpm_crb driver has no node to make: a release's from before #733, which a
+	// tree of it boots until a release carries one. The driver is built in, so it is asked for by
+	// what it makes, its directory on the ACPI bus, never as a module.
+	src.type_(t, mount+"if ls /dev/tpm0 /dev/tpmrm0; then echo TPM-NODES-$((1+1)); elif [ -d /sys/bus/acpi/drivers/tpm_crb ]; then echo TPM-NO-NODES-$((1+2)); else echo TPM-NO-DRIVER-$((2+2)); fi")
+	answer := regexp.MustCompile(`TPM-(NODES-2|NO-NODES-3|NO-DRIVER-4)\b`)
+	src.await(t, answer, 60*time.Second)
+	switch answer.FindStringSubmatch(src.said())[1] {
+	case "NO-DRIVER-4":
+		t.Skipf("the tree's kernel has no tpm_crb driver: a kernel from before #733")
+	case "NO-NODES-3":
+		t.Fatalf("the kernel has tpm_crb and the guest no /dev/tpm0 or /dev/tpmrm0:\n%s", tail([]byte(src.said()), 3000))
+	}
 	saved := run(t, src, "write")
 	if saved[1] == strings.Repeat("0", 64) || saved[2] == "none" {
 		t.Fatalf("PCR 16 or the NV index is not written: %v", saved)

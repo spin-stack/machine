@@ -126,10 +126,17 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 	seabios, _ := r.target(func(s *machine.Spec) { s.BIOS = "bios-256k.bin" })
 	moreRAM, _ := r.target(func(s *machine.Spec) { s.Memory.BaseMB = 256 })
 	moreTargets, _ := r.target(func(s *machine.Spec) { s.HotplugDisks = 17 })
-	withTPM, _ := r.target(func(s *machine.Spec) {
-		// ReadTarget gives the machine it holds a TPM state of its own.
-		s.TPM = machine.TPM{SWTPM: filepath.Join(out, "bin", "swtpm"), State: "a workspace's"}
-	})
+	// The tree's swtpm came with its QEMU, and a QEMU built elsewhere brings none: sanitize.yml's,
+	// built on the runner. The TPM's two cases skip there, saying so; compat.yml holds them.
+	swtpm := filepath.Join(out, "bin", "swtpm")
+	var withTPM machine.Target
+	_, noSWTPM := os.Stat(swtpm)
+	if noSWTPM == nil {
+		withTPM, _ = r.target(func(s *machine.Spec) {
+			// ReadTarget gives the machine it holds a TPM state of its own.
+			s.TPM = machine.TPM{SWTPM: swtpm, State: "a workspace's"}
+		})
+	}
 	for _, tc := range []struct {
 		name     string
 		from, to machine.Target
@@ -149,6 +156,9 @@ func TestTheRecordRefusesWhatQEMULoadsSilently(t *testing.T) {
 		{"a checkpoint from before the record held the vCPU's properties", before, base, eachProperty},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.from.VMM == "" || tc.to.VMM == "" {
+				t.Skipf("the tree's QEMU brought no swtpm, so no record of a machine with a TPM: %v", noSWTPM)
+			}
 			err := machine.CanResume(machine.Saved{Format: machine.FormatMappedRAM, From: tc.from}, tc.to)
 			var refusal *machine.Refusal
 			var named []string
