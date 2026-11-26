@@ -241,12 +241,12 @@ fleet: report.yml runs this there. Exits 1 when a measurement was lost (the ladd
 			return lost
 		},
 	}
-	// 40 a side, not 20: at 20 a run's Δ read a −17 ms cold gain as noise (v20261123.07, #694) and
-	// noise as a +8.9 cold regression (v20261126.01). The same runs' cold boots at 40 a side, with
-	// restore-first's cold boot pooled in, read them −10.2 [−14.5, −3.9] and +5.1 [−0.2, +10.5].
-	// It costs the bench ~8 min more a release (report run 45856619196: 465 s of its boots scale
-	// with it).
-	c.Flags().IntVar(&reps, "reps", 40, "boots of each release for each probe")
+	// 20 a side. The goal is under 250 ms to the first login (#809), and at 20 a release's cold Δ
+	// is ±7 ms on a quiet host (labs 45884961558, 45884965355), which settles that line and any
+	// regression worth acting on against it. 40 a side read a run on a disturbed host right where
+	// 20 did not, a −17 ms gain and a +8.9 regression (#694), but those are the few-ms effects the
+	// goal no longer weighs, and it cost the bench ~8 min more a release.
+	c.Flags().IntVar(&reps, "reps", 20, "boots of each release for each probe")
 	return c
 }
 
