@@ -502,6 +502,13 @@ func TestValidateRefuses(t *testing.T) {
 		})
 	}
 
+	// A line too long says how much of it the kernel keeps: COMMAND_LINE_SIZE less its NUL.
+	long := spec(t)
+	long.Cmdline.Extra = []string{strings.Repeat("x", maxCmdline)}
+	if err := long.validate(); err == nil || !strings.Contains(err.Error(), "the kernel keeps 2047 ") {
+		t.Errorf("an over-long command line: %v", err)
+	}
+
 	// A kernel refused is named, for whoever reads the error and not the code.
 	s := spec(t)
 	s.Kernel = s.QEMU
