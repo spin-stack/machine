@@ -233,7 +233,9 @@ systemd %s+spin1
   sha256:   %s (the .dsc, which holds the tarballs' checksums)
   built by: image/systemd/Dockerfile: Debian's stage1 build profile, SELinux disabled and
             systemd-executor, udevd, systemctl and journalctl linked statically against
-            libsystemd-shared, with a changelog entry for the +spin1 version
+            libsystemd-shared, with a changelog entry for the +spin1 version; the TPM2 tools,
+            units and systemd-analyze from a second build of the same source with TPM2,
+            OpenSSL and the boot loader enabled (image/systemd/tpm2.mk)
 
 OpenSSH 1:%s+spin1
   packages: those in usr/share/spin-stack/packages.txt at 1:%s+spin1

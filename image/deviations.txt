@@ -24,6 +24,7 @@ masked /etc/systemd/system-generators/systemd-hibernate-resume-generator
 masked /etc/systemd/system-generators/systemd-rc-local-generator
 masked /etc/systemd/system-generators/systemd-system-update-generator
 masked /etc/systemd/system-generators/systemd-sysv-generator
+masked /etc/systemd/system-generators/systemd-tpm2-generator
 masked /etc/systemd/system/apt-daily-upgrade.timer
 masked /etc/systemd/system/apt-daily.timer
 added /etc/systemd/system/containerd.socket
