@@ -24,7 +24,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spin-stack/machine/machine"
@@ -57,6 +59,7 @@ const usage = `spin-machine - the machine this repository builds
 Usage:
   spin-machine boot    [flags]   start a VM and wait for it; with --held or --restore, start it held
   spin-machine args    [flags]   print the QEMU command line boot would run
+  spin-machine pcrs    [flags]   print the PCRs a machine with a TPM boots to, from its kernel, initrd and command line
   spin-machine start   [flags]   boot a VM started --held, with its disk
   spin-machine restore [flags]   load a saved state into a VM started --restore, if it is the machine the state was saved on
   spin-machine save    [flags]   stop a running VM and write its state, and the machine it was saved on, to files
@@ -78,17 +81,25 @@ func run(argv []string) error {
 	cmd, argv := argv[0], argv[1:]
 
 	switch cmd {
-	case "boot", "args":
+	case "boot", "args", "pcrs":
 		var o machineFlags
 		if err := parse(cmd, argv, o.register); err != nil {
 			return err
+		}
+		// What the firmware measures is the same with any TPM: pcrs needs none named.
+		if cmd == "pcrs" && o.tpm == "" {
+			o.tpm = "-"
 		}
 		spec, err := o.spec()
 		if err != nil {
 			return err
 		}
-		if cmd == "boot" {
+		switch cmd {
+		case "boot":
 			return boot(spec, o)
+		case "pcrs":
+			printPCRs(os.Stdout, spec)
+			return nil
 		}
 		// The machine's command line as the flags make it, which a caller with --qmp can run
 		// as it is. boot hands QEMU the same machine with its monitors, devices and console
@@ -281,6 +292,17 @@ func (o *machineFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.extra, "append", "", "extra kernel command line arguments")
 	fs.TextVar(&o.lockdown, "lockdown", machine.LockdownConfidentiality,
 		"the guest's lockdown and keyrings: confidentiality, sealed; shirudo, integrity with the .bpf and .dm-verity keyrings unsealed for shirudo's init to enroll in; kernel, the level the kernel forces, sealed")
+}
+
+// printPCRs prints the PCRs spec's firmware extends, as they stand when its kernel starts: a line
+// for each bank and PCR, the bank's name, the PCR and its value in hex, what a verifier pins.
+func printPCRs(w io.Writer, spec machine.Spec) {
+	for _, bank := range machine.PCRBanks {
+		pcrs := spec.PCRs(bank)
+		for _, pcr := range slices.Sorted(maps.Keys(pcrs)) {
+			_, _ = fmt.Fprintf(w, "%s %d %x\n", bank.Name, pcr, pcrs[pcr])
+		}
+	}
 }
 
 // netMAC is the MAC of the NIC --net gives, locally administered (52:54:00 is QEMU's prefix): one

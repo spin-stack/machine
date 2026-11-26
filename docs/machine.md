@@ -218,8 +218,12 @@ m, err := machine.Start(ctx, spec, machine.StartOptions{
   `Linux initrd`), which is the PCR shirudo anchors its register in. The digests are SHA-256: the
   kernel's and the initrd's the caller hashes (`TPM.Kernel`, `TPM.Initrd`, `FileSHA256`), once a
   file, since qboot cannot see the vmlinux QEMU loads and hashing a 60 MB initrd would be on the
-  boot's clock; the command line's is the bytes QEMU hands the kernel, without the NUL. A verifier
-  predicts PCR 4 from `sha256sum vmlinux` and PCR 9 from `/proc/cmdline` and `sha256sum initrd`.
+  boot's clock; the command line's is the bytes QEMU hands the kernel, without the NUL. An operator
+  computes what a machine boots to without booting it: `spin-machine pcrs`, given the flags `boot`
+  takes (`--release`, `--kernel`, `--initrd`, `--append`, ...), prints PCRs 4 and 9 of each bank as
+  they stand when the kernel starts (`machine.Spec.PCRs`), which is what shirudo's operator pins
+  with `--expect-pcr`; boot:tpm holds a guest's TPM to them. The command line is the whole one the
+  machine is booted with, so a PCR 9 is the release's, the initrd's and the caller's flags'.
   Only the SHA-256 bank holds those digests: the other banks are extended with the same 32 bytes,
   cut or zero-padded, so none is left at zero. PCR 11 is untouched: systemd's phase measurements
   (`enter-initrd`, `leave-initrd`) are systemd-pcrphase's, whose units ask for a measured UKI boot,

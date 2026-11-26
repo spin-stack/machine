@@ -3,6 +3,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -260,6 +262,41 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 	if !strings.HasPrefix(string(printed), filepath.Join(dir, "bin/qemu-system-x86_64")) ||
 		!strings.HasSuffix(string(printed), "  -S\n") {
 		t.Errorf("args printed %q, want the release's QEMU, held", printed)
+	}
+
+	// pcrs needs no TPM named, and prints each bank's PCRs 4 and 9 as the machine computes them.
+	r, w, err = os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = run([]string{"pcrs", "--release", dir})
+	os.Stdout = stdout
+	_ = w.Close()
+	printed, _ = io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want strings.Builder
+	var o machineFlags
+	if err := parse("pcrs", []string{"--release", dir, "--tpm", "-"}, o.register); err != nil {
+		t.Fatal(err)
+	}
+	measured, err := o.spec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	printPCRs(&want, measured)
+	kernel, err := machine.FileSHA256(measured.Kernel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pcr4 := sha256.Sum256(append(make([]byte, 32), kernel[:]...))
+	if !strings.Contains(string(printed), fmt.Sprintf("sha256 4 %x\n", pcr4)) {
+		t.Errorf("pcrs printed %q, want PCR 4 of SHA-256 the kernel's digest extended from zero, %x", printed, pcr4)
+	}
+	if lines := strings.Count(string(printed), "\n"); string(printed) != want.String() || lines != 8 {
+		t.Errorf("pcrs printed %q (%d lines), want %q", printed, lines, want.String())
 	}
 
 	// The TPM's channel is a descriptor Start makes, shown where Start hands it.
