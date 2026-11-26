@@ -369,8 +369,18 @@ func TestTheKernelIsCompiledFromItsConfigurationWithoutNamedAddressSpaces(t *tes
 	src, root := t.TempDir(), t.TempDir()
 	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config A\n\tbool\n\nconfig CC_HAS_NAMED_AS\n\tdef_bool $(success,echo x | $(CC))\n\tdepends on CC_IS_GCC\n")
 	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
+	if err := prepareKernel(context.Background(), root, src, []string{"lib/a.c"}, io.Discard); err == nil || !strings.Contains(err.Error(), "module-signing.crt") {
+		t.Errorf("a tree without the module certificate: %v", err)
+	}
+	put(t, filepath.Join(root, "kernel/module-signing.crt"), "the certificate\n")
+	if err := os.Mkdir(filepath.Join(src, "certs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := prepareKernel(context.Background(), root, src, []string{"lib/a.c"}, io.Discard); err != nil {
 		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(src, "certs/module-signing.crt")); got != "the certificate\n" {
+		t.Errorf("certs/module-signing.crt = %q, want the tree's module certificate", got)
 	}
 	if got := read(t, filepath.Join(src, "arch/x86/Kconfig")); got != "config A\n\tbool\n\nconfig CC_HAS_NAMED_AS\n\tdef_bool n\n\tdepends on CC_IS_GCC\n" {
 		t.Errorf("Kconfig = %q", got)
@@ -401,7 +411,9 @@ func TestTheKernelsHostToolsAreBuiltThroughVmlinux(t *testing.T) {
 	calls := fakeTools(t, "")
 	src, root := t.TempDir(), t.TempDir()
 	put(t, filepath.Join(src, "arch/x86/Kconfig"), "config CC_HAS_NAMED_AS\n\tdef_bool y\n")
+	put(t, filepath.Join(src, "certs/Makefile"), "")
 	put(t, filepath.Join(root, "kernel/config-7.3-x86_64"), "CONFIG_X86_64=y\n")
+	put(t, filepath.Join(root, "kernel/module-signing.crt"), "the certificate\n")
 	touched := []string{"lib/a.c", "kernel/b.c", "arch/x86/tools/relocs.c"}
 	if err := prepareKernel(context.Background(), root, src, touched, io.Discard); err != nil {
 		t.Fatal(err)

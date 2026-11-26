@@ -174,8 +174,8 @@ const namedAddressSpaces = "config CC_HAS_NAMED_AS\n\tdef_bool "
 // compiles the tools the way they are built.
 const hostTools = "arch/x86/tools/"
 
-// prepareKernel configures the tree as kernel/Dockerfile does, from the series' configuration but
-// without named address spaces, and makes what the touched files are compiled with: the headers
+// prepareKernel configures the tree as kernel/Dockerfile does, from the series' configuration and
+// the module certificate but without named address spaces, and makes what the touched files are compiled with: the headers
 // every object needs, and vmlinux when a touched file is a host tool. Built here,
 // untraced, the kernel is not extracted whole: the analysis reads only what compileKernel then
 // rebuilds.
@@ -203,6 +203,14 @@ func prepareKernel(ctx context.Context, root, src string, touched []string, out 
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(src, ".config"), raw, 0o644); err != nil {
+		return err
+	}
+	// The configuration's SYSTEM_TRUSTED_KEYS names it, and without it make stops at certs/.
+	crt, err := os.ReadFile(filepath.Join(root, "kernel", "module-signing.crt"))
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(src, "certs", "module-signing.crt"), crt, 0o644); err != nil {
 		return err
 	}
 	if err := shown(ctx, out, "", "make", "-C", src, "ARCH=x86_64", "olddefconfig"); err != nil {
