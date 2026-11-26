@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -56,11 +57,16 @@ func TestEachFileIsAtTheVersionItWasBuiltFrom(t *testing.T) {
 	q, _ := o.Pins.Get("qemu")
 	b, _ := o.Pins.Get("qboot")
 	k, _ := o.Pins.Get("kernel")
+	w, _ := o.Pins.Get("swtpm")
 	got := components(t, filepath.Join(out, "release", Name(o.Version), "usr/share/spin-stack/sbom/machine.cdx.json"))
 	for name, want := range map[string]string{"bios.bin": q.Version, "linuxboot_dma.bin": q.Version, "qemu-img": q.Version, "qboot.bin": b.Pin,
 		"vmlinux": k.Version, "rootfs.qcow2": o.Version} {
 		if v := got[name]; len(v) != 1 || v[0] != want {
 			t.Errorf("%s is %v in the SBOM, want once at %s", name, v, want)
 		}
+	}
+	// swtpm is a source and a file of one name: its pin's tarball, and the binary built from it.
+	if v := got["swtpm"]; !slices.Equal(v, []string{w.Version, w.Version}) {
+		t.Errorf("swtpm is %v in the SBOM, want twice at %s, the source and the binary", v, w.Version)
 	}
 }

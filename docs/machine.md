@@ -103,7 +103,44 @@ q, err := machine.Dial(ctx, socket, qmp.Observer{}) // a second monitor, or one 
   a QEMU loading a state, which answers no monitor until it is done, or a monitor closed: Stop
   kills it then. ctx bounds every step but the kill. A second Stop returns the first's Exit.
 
-## What a host gives a machine
+## A TPM
+
+A machine asks for a TPM 2.0 with `Spec.TPM`, and the zero value is a machine without one.
+shirudo keeps its measurement register in an NV index of it and makes RSA-3072 primaries under
+it (#719), so a workspace that runs shirudo is a machine with one.
+
+```go
+swtpm, err := release.SWTPM()   // usr/share/spin-stack/bin/swtpm; a release from before #719 has none
+spec.TPM = machine.TPM{SWTPM: swtpm, State: "/var/lib/…/workspace/tpm"}
+m, err := machine.Start(ctx, spec, machine.StartOptions{
+	TPMCmd: func(c *exec.Cmd) { c.SysProcAttr = … }, // swtpm's uid, root and cgroup, as Cmd is QEMU's
+})
+```
+
+- **The state is the workspace's, like a disk.** `State` is a directory the caller makes, keeps
+  and hands to every machine of the workspace, and it outlives each of them. The TPM's seeds are
+  in it, so a primary made from the same template is the same key on every boot, and so is an NV
+  index once written. An empty directory is a TPM made at its first start, with seeds of its own
+  and no endorsement key. Provisioning one (an EK and its certificate, swtpm_setup's work or the
+  TPM2 commands') is the caller's, once, when the workspace's TPM is made, and never on a boot's
+  clock. swtpm locks the directory, so two machines cannot run one TPM.
+- **swtpm runs beside QEMU, one for each machine.** Start runs it before QEMU, on one end of a
+  socket pair, and hands QEMU the other end for its `tpm-emulator` backend. Nothing is bound at a
+  path, so there is no socket to fit in 108 bytes, to find or to remove, and no wait for swtpm to
+  listen. QEMU's exit closes its end and swtpm follows it out. `Exited` closes once both have
+  gone, so the next machine of the workspace can take the directory, and a swtpm that failed puts
+  what it said after QEMU's stderr in `Exit.Stderr`. swtpm is not in QEMU's root (`Spec.Files`):
+  it is a process of its own, which `TPMCmd` shapes.
+- **A checkpoint carries the TPM.** QEMU asks swtpm for its state blobs as it saves and hands them
+  to the new swtpm as it loads, in the migration stream with the guest's memory. A machine resumed
+  onto any state directory, an empty one included, has the TPM the guest saw at the save, and
+  the directory holds it from then on. boot:tpm resumes onto an empty one and reads back the same
+  primary, PCR 16 and NV index.
+- **The record holds the device.** `tpm-crb` is a device the machine was started with, so a
+  checkpoint never resumes across a TPM and none (`boot:record`, "a TPM here", "no TPM here").
+- **Nothing measures the boot.** qboot with PVH loads the kernel and the initrd from fw_cfg, so no
+  PCR says what booted and there is no event log (#742).
+
 
 spin runs each QEMU as a user of its own, chrooted into a root it builds, in a cgroup it bounds.
 What goes in the root and how far the bounds reach depend on the machine and its release, so the

@@ -47,6 +47,9 @@ func TestMain(m *testing.M) {
 //   - refuses: it says why on stderr and exits 1, as QEMU refusing its command line does.
 //   - panics: the console says the kernel panicked, and QEMU exits as panic=1 has it.
 func fakeQEMUMain(mode string, args []string) int {
+	if strings.HasPrefix(mode, "swtpm") {
+		return fakeSWTPMMain(mode, args)
+	}
 	if mode == "refuses" {
 		fmt.Fprintln(os.Stderr, "qemu-system-x86_64: warning: something on the way")
 		fmt.Fprintln(os.Stderr, "qemu-system-x86_64: -cpu Fancy: Host doesn't support requested features")
@@ -67,6 +70,11 @@ func fakeQEMUMain(mode string, args []string) int {
 		}
 		switch args[i-1] {
 		case "-chardev":
+			// The TPM's control channel: what swtpm reads first is QEMU's, and QEMU's exit closes it.
+			if m := regexp.MustCompile(`^socket,id=tpm,fd=(\d+)$`).FindStringSubmatch(a); m != nil {
+				n, _ := strconv.Atoi(m[1])
+				_, _ = os.NewFile(uintptr(n), "tpm").WriteString("TPM2_Startup\n")
+			}
 			// A QEMU that panics never serves its monitors: one served first would answer the
 			// handshake before the console is written.
 			if m := regexp.MustCompile(`^socket,id=\w+,fd=(\d+),server=on`).FindStringSubmatch(a); m != nil && mode != "panics" {
@@ -89,6 +97,36 @@ func fakeQEMUMain(mode string, args []string) int {
 		}
 	}
 	return <-f.exit
+}
+
+// fakeSWTPMMain is swtpm as Start runs it: its state directory and its control channel, descriptor 3,
+// from its command line. It writes into the directory the line QEMU sent on the channel, and exits
+// once QEMU's end is closed, as swtpm does: 0, or, as swtpm-fails, 1 having said why.
+func fakeSWTPMMain(mode string, args []string) int {
+	want := []string{"socket", "--tpm2", "--tpmstate", "", "--ctrl", "type=unixio,clientfd=3"}
+	if len(args) != len(want) || !strings.HasPrefix(args[3], "dir=") || !strings.HasSuffix(args[3], ",mode=0600") {
+		fmt.Fprintf(os.Stderr, "fake swtpm: a command line swtpm would not be given: %q\n", args)
+		return 2
+	}
+	for i, w := range want {
+		if w != "" && args[i] != w {
+			fmt.Fprintf(os.Stderr, "fake swtpm: argument %d is %q, not %q\n", i, args[i], w)
+			return 2
+		}
+	}
+	dir := strings.TrimSuffix(strings.TrimPrefix(args[3], "dir="), ",mode=0600")
+	said, err := io.ReadAll(os.NewFile(3, "control"))
+	if err != nil {
+		return 2
+	}
+	if err := os.WriteFile(filepath.Join(dir, "said"), said, 0o600); err != nil {
+		return 2
+	}
+	if mode == "swtpm-fails" {
+		fmt.Fprintln(os.Stderr, "swtpm: Could not open lockfile: Resource temporarily unavailable")
+		return 1
+	}
+	return 0
 }
 
 type fake struct {
@@ -667,5 +705,69 @@ func TestExitSaysHowQEMUEnded(t *testing.T) {
 	}
 	if p.Pid() <= 0 {
 		t.Errorf("pid %d", p.Pid())
+	}
+}
+
+// tpmSpec is a Spec with a TPM whose swtpm is this test binary, faking it in mode.
+func tpmSpec(t *testing.T, mode string) (Spec, StartOptions, string) {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "tpm")
+	return Spec{TPM: TPM{SWTPM: self, State: dir}}, StartOptions{TPMCmd: func(c *exec.Cmd) {
+		c.Env = append(os.Environ(), fakeMode+"="+mode, "GORACE=atexit_sleep_ms=0")
+	}}, dir
+}
+
+// A machine with a TPM runs swtpm on the caller's state directory, made for it, and on a control
+// channel whose other end is QEMU's; swtpm has ended by the time Exited is closed, so the next
+// machine of the workspace can take the directory, and what swtpm said on its way out is in Exit
+// when it failed.
+func TestStartRunsTheTPMBesideQEMUAndEndsItWithQEMU(t *testing.T) {
+	for _, tc := range []struct {
+		mode, said string
+	}{{"swtpm", ""}, {"swtpm-fails", "swtpm exit status 1: swtpm: Could not open lockfile"}} {
+		t.Run(tc.mode, func(t *testing.T) {
+			s, o, dir := tpmSpec(t, tc.mode)
+			p, err := startFake(t, ctx(t), "obeys", s, o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := p.Stop(ctx(t))
+			select {
+			case <-p.Exited():
+			default:
+				t.Fatal("Stop returned before Exited closed")
+			}
+			if b, err := os.ReadFile(filepath.Join(dir, "said")); err != nil || string(b) != "TPM2_Startup\n" {
+				t.Errorf("swtpm read %q from its control channel (%v), and QEMU wrote TPM2_Startup", b, err)
+			}
+			if got := e.Stderr; (tc.said == "") != !strings.Contains(got, "swtpm") || !strings.Contains(got, tc.said) {
+				t.Errorf("Exit.Stderr is %q, want it to say %q", got, tc.said)
+			}
+		})
+	}
+}
+
+// A QEMU that never starts takes its swtpm with it: Start's failure leaves no emulator holding the
+// workspace's TPM.
+func TestAStartThatFailsEndsTheTPM(t *testing.T) {
+	s, o, dir := tpmSpec(t, "swtpm")
+	if _, err := startFake(t, ctx(t), "refuses", s, o); err == nil {
+		t.Fatal("a QEMU that refused its command line started")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "said")); err != nil {
+		t.Errorf("swtpm had not ended when Start returned: %v", err)
+	}
+}
+
+// A swtpm that is not there fails Start before QEMU runs, naming it.
+func TestAMissingSWTPMFailsTheStart(t *testing.T) {
+	s, o, _ := tpmSpec(t, "swtpm")
+	s.TPM.SWTPM = filepath.Join(t.TempDir(), "swtpm")
+	if _, err := startFake(t, ctx(t), "obeys", s, o); err == nil || !strings.Contains(err.Error(), s.TPM.SWTPM) {
+		t.Fatalf("Start with no swtpm = %v, want an error naming it", err)
 	}
 }

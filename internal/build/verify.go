@@ -121,9 +121,6 @@ func verifyTPM(o Options) error {
 	if err := executable(swtpm); err != nil {
 		return err
 	}
-	if err := static(swtpm); err != nil {
-		return err
-	}
 	caps, err := output(swtpm, "socket", "--tpm2", "--print-capabilities")
 	if err != nil {
 		return fmt.Errorf("asking swtpm what its TPM can do: %w", err)

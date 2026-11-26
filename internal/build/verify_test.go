@@ -37,11 +37,12 @@ func qemuTree(t *testing.T, out string) {
 		if tcg {
 			accels += "\\ntcg"
 		}
-		return `case "$1" in --version) echo QEMU 11.2;; -accel) printf '` + accels + `\n';; -machine) printf '` + machines + `\n';; esac`
+		return `case "$1" in --version) echo QEMU 11.2;; -accel) printf '` + accels + `\n';; -machine) printf '` + machines + `\n';; ` + tpm + ` esac`
 	}
 	script(t, filepath.Join(out, "bin/qemu-system-x86_64"), answer(false))
 	script(t, filepath.Join(out, "bin/qemu-system-x86_64-tcg"), answer(true))
 	script(t, filepath.Join(out, "bin/qemu-img"), `echo qemu-img 11.2`)
+	script(t, filepath.Join(out, "bin/swtpm"), `[ "$*" = "socket --tpm2 --print-capabilities" ] && echo '`+swtpmCaps+`'`)
 	for _, f := range Firmware {
 		size := 1
 		if f == "qboot.bin" {
@@ -55,6 +56,13 @@ func qemuTree(t *testing.T, out string) {
 		}
 	}
 }
+
+// tpm is how QEMU answers for its TPM device and backends, and swtpmCaps what swtpm 0.10.2 printed
+// of its TPM 2.0 (2026-11-25), shortened.
+const (
+	tpm       = `-device) echo 'name "tpm-crb", bus System';; -tpmdev) printf 'Supported TPM types (choose only one):\n    emulator   TPM emulator backend driver\n';;`
+	swtpmCaps = `{ "type": "swtpm", "features": [ "tpm-1.2", "tpm-2.0", "tpm-send-command-header", "rsa-keysize-1024", "rsa-keysize-2048", "rsa-keysize-3072", "cmdarg-profile" ] }`
+)
 
 func TestAQEMUTreeVerifiesOnlyWhole(t *testing.T) {
 	for _, tc := range []struct {
@@ -83,6 +91,26 @@ func TestAQEMUTreeVerifiesOnlyWhole(t *testing.T) {
 		{"no accelerators said", func(out string) {
 			script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) exit 1;; esac`)
 		}, "asking qemu-system-x86_64 for its accelerators"},
+		{"no TPM device", func(out string) {
+			script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) echo kvm;; -device) echo 'name "vmgenid"';; esac`)
+		}, "has no tpm-crb"},
+		{"no TPM emulator backend", func(out string) {
+			script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) echo kvm;; -device) echo 'name "tpm-crb"';; -tpmdev) echo '  passthrough   Passthrough TPM backend driver';; esac`)
+		}, "has no emulator TPM backend"},
+		{"QEMU unable to list its devices", func(out string) {
+			script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) echo kvm;; -device) exit 1;; esac`)
+		}, "asking qemu-system-x86_64 for its devices"},
+		{"QEMU unable to list its TPM backends", func(out string) {
+			script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) echo kvm;; -device) echo 'name "tpm-crb"';; -tpmdev) exit 1;; esac`)
+		}, "asking qemu-system-x86_64 for its TPM backends"},
+		{"no swtpm", func(out string) { _ = os.Remove(filepath.Join(out, "bin/swtpm")) }, "missing swtpm"},
+		{"a swtpm that cannot say", func(out string) { script(t, filepath.Join(out, "bin/swtpm"), "exit 1") }, "asking swtpm what its TPM can do"},
+		{"a swtpm without RSA-3072", func(out string) {
+			script(t, filepath.Join(out, "bin/swtpm"), `echo '{ "features": [ "tpm-2.0", "rsa-keysize-2048" ] }'`)
+		}, "does not offer rsa-keysize-3072"},
+		{"a swtpm without TPM 2.0", func(out string) {
+			script(t, filepath.Join(out, "bin/swtpm"), `echo '{ "features": [ "tpm-1.2", "rsa-keysize-3072" ] }'`)
+		}, "does not offer tpm-2.0"},
 		{"the machine type gone", func(out string) {
 			script(t, filepath.Join(out, "bin/qemu-system-x86_64-tcg"), `case "$1" in -accel) echo tcg;; -machine) echo pc-q35-1.0;; esac`)
 		}, "qemu-system-x86_64-tcg"},
@@ -108,7 +136,7 @@ func TestAQEMUTreeVerifiesOnlyWhole(t *testing.T) {
 func TestANewerMachineTypeIsSaidAndNotFailed(t *testing.T) {
 	out := t.TempDir()
 	qemuTree(t, out)
-	script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) echo kvm;; -machine) printf 'pc-q35-99.0  newer\n`+machine.Type+`  pinned\n';; esac`)
+	script(t, filepath.Join(out, "bin/qemu-system-x86_64"), `case "$1" in -accel) echo kvm;; -machine) printf 'pc-q35-99.0  newer\n`+machine.Type+`  pinned\n';; `+tpm+` esac`)
 	var said bytes.Buffer
 	if err := VerifyQEMU(Options{Out: out, Stderr: &said}); err != nil {
 		t.Fatal(err)

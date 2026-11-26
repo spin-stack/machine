@@ -585,8 +585,9 @@ RUN set -eux; \
 #
 # -all-static is libtool's word for -static: given -static, libtool links its own libraries
 # statically and the system's dynamically, and the binary asked for libgio-2.0.so.0 at start.
-# PKG_CONFIG with --static so that each library's own dependencies (pcre2, libffi, libintl,
-# zlib) are on the link line. The binary is static and not static-pie as QEMU's is: libtool has
+# PKG_CONFIG with --static and LIBS so that each library's own dependencies (pcre2, libffi,
+# libintl, zlib) are on the link line, and after the libraries that need them: without LIBS,
+# glib's regex and gobject's closures found no pcre2 or libffi at the link. The binary is static and not static-pie as QEMU's is: libtool has
 # no static-pie, and swtpm's hardening (its configure's default) gives it full RELRO, an NX stack
 # and stack canaries, which the checks below hold it to.
 FROM ${QEMU_BUILDER_IMAGE} AS swtpm
@@ -619,7 +620,7 @@ RUN cd swtpm && \
     ./autogen.sh --prefix=/opt/swtpm --without-cuse --without-gnutls --with-seccomp \
         --disable-shared --enable-static --disable-tests PKG_CONFIG="pkg-config --static" && \
     make -j"$(nproc)" -C src/utils && \
-    make -j"$(nproc)" -C src/swtpm LDFLAGS=-all-static && \
+    make -j"$(nproc)" -C src/swtpm LDFLAGS=-all-static LIBS="$(pkg-config --static --libs gobject-2.0 glib-2.0)" && \
     install -D -m 0755 -s src/swtpm/swtpm /opt/swtpm/bin/swtpm
 
 # Asked of the binary, as QEMU's devices are: static and hardened, and a TPM 2.0 that offers
