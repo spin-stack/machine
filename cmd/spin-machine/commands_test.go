@@ -263,6 +263,9 @@ func TestRunBuildsTheMachineOrSaysWhyNot(t *testing.T) {
 		!strings.HasSuffix(string(printed), "  -S\n") {
 		t.Errorf("args printed %q, want the release's QEMU, held", printed)
 	}
+	if strings.Contains(string(printed), "tpm") {
+		t.Errorf("args without --tpm printed a TPM: %q", printed)
+	}
 
 	// pcrs needs no TPM named, and prints each bank's PCRs 4 and 9 as the machine computes them.
 	r, w, err = os.Pipe()
