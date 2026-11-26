@@ -68,6 +68,7 @@ added /etc/systemd/system/systemd-logind.service.d/30-privatetmp.conf
 masked /etc/systemd/system/systemd-machine-id-commit.service
 masked /etc/systemd/system/systemd-modules-load.service
 masked /etc/systemd/system/systemd-pcrlogin@.service
+masked /etc/systemd/system/systemd-pcrphase-initrd.service
 masked /etc/systemd/system/systemd-pstore.service
 masked /etc/systemd/system/systemd-random-seed.service
 masked /etc/systemd/system/systemd-timedated.service
