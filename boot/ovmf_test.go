@@ -102,6 +102,7 @@ func TestOVMFAgainstQboot(t *testing.T) {
 		{name: "ovmf-trim+tpm uki", ovmf: true, trim: true, kernel: uki("uki.efi", probe), tpm: true},
 		{name: "qboot+tpm ubuntu 60M", kernel: ubuntu, initrd: padded, tpm: true},
 		{name: "ovmf+tpm uki 60M", ovmf: true, kernel: uki("uki-60m.efi", padded), tpm: true},
+		{name: "ovmf+fresh tpm uki", ovmf: true, kernel: uki("uki.efi", probe), tpm: true, freshTPM: true},
 	}
 	for _, a := range arms {
 		t.Logf("%s: kernel %s, %d bytes", a.name, filepath.Base(a.kernel), size(t, a.kernel))
@@ -165,8 +166,11 @@ func TestOVMFAgainstQboot(t *testing.T) {
 const cmdline = "console=ttyS0 quiet loglevel=3 pci=lastbus=0 no_timer_check tsc=reliable TERM=dumb rdinit=/init"
 
 type ovmfArm struct {
-	name                 string
-	ovmf, trim, tpm      bool
+	name            string
+	ovmf, trim, tpm bool
+	// freshTPM is a TPM made at this boot, as a workspace's first; otherwise the arm's TPM state
+	// is kept across its boots, as a workspace's is.
+	freshTPM             bool
 	kernel, initrd, vars string
 	hangs                int
 }
@@ -256,7 +260,10 @@ func (b *ovmfBench) boot(a *ovmfArm) (ovmfSample, error) {
 		}
 		mine, theirs := os.NewFile(uintptr(fds[0]), "swtpm"), os.NewFile(uintptr(fds[1]), "qemu-tpm")
 		defer func() { _ = mine.Close(); _ = theirs.Close() }()
-		state := filepath.Join(b.dir, fmt.Sprintf("tpm-%d", b.n))
+		state := filepath.Join(b.dir, "tpm-"+strings.NewReplacer(" ", "_", "(", "", ")", "", "+", "_").Replace(a.name))
+		if a.freshTPM {
+			state = filepath.Join(b.dir, fmt.Sprintf("tpm-fresh-%d", b.n))
+		}
 		if err := os.MkdirAll(state, 0o700); err != nil {
 			return ovmfSample{}, err
 		}
