@@ -140,10 +140,29 @@ func TestAPartPutIntoATreeIsACopyAndTheBaseIsUntouched(t *testing.T) {
 	write(t, filepath.Join(newQEMU, "bin/qemu-system-x86_64"), []byte("qemu 11.2"))
 	write(t, filepath.Join(newQEMU, "qemu/qboot.bin"), []byte("qboot 2"))
 	write(t, filepath.Join(newQEMU, "qemu/linuxboot_dma.bin"), []byte("rom 2"))
+	write(t, filepath.Join(newQEMU, "bin/swtpm"), []byte("swtpm 0.10"))
 
 	tr, err := MakeTree(filepath.Join(t.TempDir(), "b"), TreeSpec{Name: "b", From: base, Kernel: newKernel, QEMU: newQEMU}, src(t))
 	if err != nil {
 		t.Fatal(err)
+	}
+	// swtpm comes with the QEMU it was built beside, and a QEMU from before #719 brings none.
+	if read(t, filepath.Join(tr.Dir, "bin/swtpm")) != "swtpm 0.10" {
+		t.Error("the tree has not the swtpm of the QEMU put into it")
+	}
+	old := t.TempDir()
+	write(t, filepath.Join(old, "bin/qemu-system-x86_64"), []byte("qemu 11.1"))
+	write(t, filepath.Join(old, "qemu/qboot.bin"), []byte("qboot 1"))
+	write(t, filepath.Join(old, "qemu/linuxboot_dma.bin"), []byte("rom 1"))
+	again, err := MakeTree(filepath.Join(t.TempDir(), "d"), TreeSpec{Name: "d", From: base, QEMU: newQEMU}, src(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src(t).placeQEMU(old, again.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(again.Dir, "bin/swtpm")); err == nil {
+		t.Error("a QEMU with no swtpm left the tree another build's")
 	}
 	if !strings.HasSuffix(read(t, filepath.Join(tr.Dir, "kernel/bzImage")), "branch kernel") ||
 		read(t, filepath.Join(tr.Dir, "kernel/vmlinux")) != "branch elf" ||

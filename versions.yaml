@@ -60,6 +60,42 @@
     member the module defines that QEMU renamed, dropped or deprecated; once it is fixed, record
     the schema CI checks against with `go test ./internal/qmpdef -run TestQEMUKnowsEveryCommand -record`.
 
+- name: swtpm
+  kind: download
+  source: https://github.com/stefanberger/swtpm/archive/refs/tags/v{version}.tar.gz
+  version: 0.10.2
+  pin: f61cf6f1e9bbcb4cefb30b70cafaf1c4df54c6961e65cfa63830e8ad0e220134
+  track: github-release stefanberger/swtpm
+  note: >-
+    qemu/Dockerfile's swtpm stage: the TPM a machine asks for (#719), one swtpm beside each QEMU,
+    statically linked with libtpms and json-glib below. After the bump: `spin-machine-dev build
+    qemu`, whose stage refuses a swtpm that is not static or offers no RSA-3072 (shirudo's
+    primaries are RSA-3072), then `spin-machine-dev verify qemu`, which asks the binary again.
+
+- name: libtpms
+  kind: download
+  source: https://github.com/stefanberger/libtpms/archive/refs/tags/v{version}.tar.gz
+  version: 0.10.2
+  pin: edac03680f8a4a1c5c1d609a10e3f41e1a129e38ff5158f0c8deaedc719fb127
+  track: github-release stefanberger/libtpms
+  note: >-
+    qemu/Dockerfile's swtpm stage: the TPM 2.0 itself, which swtpm links. A TPM's state is
+    libtpms's format, kept in a workspace's TPM state directory and carried in a checkpoint, so a
+    bump is checked as swtpm's is, and its release notes read for a change of the state's format
+    or of the default profile, which a TPM made before the bump keeps.
+
+- name: json-glib
+  kind: download
+  source: https://github.com/GNOME/json-glib/archive/refs/tags/{version}.tar.gz
+  version: 1.10.8
+  pin: 7a114bdac0b2611a7207e981c37fa9b1e70d9cb642470cd9e967b135428cec52
+  track: tags https://gitlab.gnome.org/GNOME/json-glib.git
+  note: >-
+    qemu/Dockerfile's swtpm stage: swtpm reads its profiles and prints its capabilities as JSON
+    through it, and Alpine ships it with no static library, so it is built here, static. GNOME's
+    mirror of the tag on GitHub: download.gnome.org's path names the minor series, which a
+    source template cannot. After the bump: `spin-machine-dev build qemu`.
+
 - name: alpine
   kind: image
   source: mirror.gcr.io/library/alpine

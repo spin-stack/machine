@@ -166,6 +166,7 @@ func shipped(o Options, top, share string) ([]file, error) {
 	for _, b := range build.QEMUBinaries {
 		files = append(files, file{fromOut("bin/" + b), at("bin/" + b), "the " + b + " binary", 0o755})
 	}
+	files = append(files, file{fromOut("bin/" + build.SWTPMBinary), at("bin/" + build.SWTPMBinary), "the swtpm binary", 0o755})
 	// mkfs.ext4 and the configuration it reads together: what an ext4 is made with is what both
 	// default to. debugfs, e2fsck and dumpe2fs from the same build: the probes edit a copy of the
 	// base image with this debugfs, because an older one refuses features it does not know.
@@ -303,7 +304,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 	// The packages each static binary links, by the -static or -dev package that carries the .a,
 	// with musl's libc and gcc's libgcc: the rest of each database built them and is formulation.
 	for _, a := range []struct{ name, db, version, only string }{
-		{"qemu-libraries", "qemu.apk", version("qemu"), "glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,musl-dev,gcc"},
+		{"qemu-libraries", "qemu.apk", version("qemu"), "glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,musl-dev,gcc"},
 		{"e2fsprogs-libraries", "e2fsprogs.apk", version("e2fsprogs"), "libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"},
 	} {
 		raw, err := os.ReadFile(filepath.Join(o.Out, "sbom", a.db))
@@ -330,7 +331,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 	parts = append(parts, sbom.New(subject("base-image", o.Version), image, nil, o.Epoch))
 	// QEMU, qboot, the kernel, systemd and OpenSSH are built with this repository's patches: each is in its
 	// component's pedigree, so the SBOM does not say upstream's source is what was compiled.
-	pins, err := sbom.Pins(o.Pins, strings.Fields("qemu qboot e2fsprogs kernel ubuntu systemd-source openssh-source task git-lfs buildkit")...)
+	pins, err := sbom.Pins(o.Pins, strings.Fields("qemu qboot swtpm libtpms json-glib e2fsprogs kernel ubuntu systemd-source openssh-source task git-lfs buildkit")...)
 	if err != nil {
 		return nil, err
 	}
@@ -369,6 +370,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 	for _, b := range build.E2fsprogsBinaries {
 		each = append(each, struct{ path, version string }{"bin/" + b, version("e2fsprogs")})
 	}
+	each = append(each, struct{ path, version string }{"bin/" + build.SWTPMBinary, version("swtpm")})
 	qboot, err := o.Pins.Get("qboot")
 	if err != nil {
 		return nil, err

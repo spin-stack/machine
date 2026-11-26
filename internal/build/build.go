@@ -441,7 +441,7 @@ func emptied(out string, globs ...string) error {
 }
 
 func makeQEMU(ctx context.Context, o Options, p Part) error {
-	if err := emptied(o.Out, "bin/qemu-*", "qemu", "sbom/qemu.apk"); err != nil {
+	if err := emptied(o.Out, "bin/qemu-*", "bin/"+SWTPMBinary, "qemu", "sbom/qemu.apk"); err != nil {
 		return err
 	}
 	args, err := partArgs(o, p)

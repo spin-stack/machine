@@ -24,6 +24,10 @@ import (
 // without it gives a container nowhere to write.
 var QEMUBinaries = []string{"qemu-system-x86_64", "qemu-system-x86_64-tcg", "qemu-img"}
 
+// SWTPMBinary is the TPM's emulator the QEMU build ships beside it: one runs beside each QEMU
+// whose machine has a TPM (#719).
+const SWTPMBinary = "swtpm"
+
 // Firmware is what every consumer of QEMU needs beside it. pvh.bin is the option ROM QEMU adds
 // when -kernel is an ELF kernel, the vmlinux the machine boots, and linuxboot_dma.bin the one it
 // adds for a bzImage, which a release from before #645 boots; efi-virtio.rom is the option ROM of
@@ -76,6 +80,9 @@ func VerifyQEMU(o Options) error {
 			return fmt.Errorf("%s cannot emulate, so a runner without /dev/kvm has nothing to boot with", c.binary)
 		}
 	}
+	if err := verifyTPM(o); err != nil {
+		return err
+	}
 	// The versioned q35 every checkpoint is saved on, offered and not deprecated by both binaries.
 	// A newer one is said, and is not a failure: moving to it is a decision, not a bump's side effect.
 	for _, b := range QEMUBinaries[:2] {
@@ -85,6 +92,45 @@ func VerifyQEMU(o Options) error {
 		}
 		if notice != "" {
 			say(o.Stderr, "%s", notice)
+		}
+	}
+	return nil
+}
+
+// tpmDevice is the TPM's device, the one qemu/devices.mak builds in.
+const tpmDevice = "tpm-crb"
+
+// verifyTPM asks both halves of a machine's TPM what they can do: QEMU for its device and the
+// emulator backend, and swtpm for a TPM 2.0 that makes the RSA-3072 primaries shirudo's init makes.
+// A swtpm built without one of libtpms's algorithms still builds and starts, and the guest's
+// first TPM2_CreatePrimary is what fails.
+func verifyTPM(o Options) error {
+	qemu := filepath.Join(o.Out, "bin", QEMUBinaries[0])
+	devices, err := output(qemu, "-device", "help")
+	if err != nil {
+		return fmt.Errorf("asking %s for its devices: %w", QEMUBinaries[0], err)
+	}
+	if !strings.Contains(devices, `name "`+tpmDevice+`"`) {
+		return fmt.Errorf("%s has no %s: a machine with a TPM does not start", QEMUBinaries[0], tpmDevice)
+	}
+	backends, err := output(qemu, "-tpmdev", "help")
+	if err != nil {
+		return fmt.Errorf("asking %s for its TPM backends: %w", QEMUBinaries[0], err)
+	}
+	if !slices.Contains(strings.Fields(backends), "emulator") {
+		return fmt.Errorf("%s has no emulator TPM backend, which swtpm is reached through: %s", QEMUBinaries[0], backends)
+	}
+	swtpm := filepath.Join(o.Out, "bin", SWTPMBinary)
+	if err := executable(swtpm); err != nil {
+		return err
+	}
+	caps, err := output(swtpm, "socket", "--tpm2", "--print-capabilities")
+	if err != nil {
+		return fmt.Errorf("asking swtpm what its TPM can do: %w", err)
+	}
+	for _, c := range []string{"tpm-2.0", "rsa-keysize-3072"} {
+		if !strings.Contains(caps, `"`+c+`"`) {
+			return fmt.Errorf("swtpm does not offer %s: %s", c, caps)
 		}
 	}
 	return nil

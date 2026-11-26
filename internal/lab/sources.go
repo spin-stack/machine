@@ -230,7 +230,7 @@ func removeIfThere(path string) error {
 	return nil
 }
 
-// placeQEMU puts QEMU and the firmware beside it - a QEMU run's artifact, or a directory holding
+// placeQEMU puts QEMU, swtpm and the firmware beside them - a QEMU run's artifact, or a directory holding
 // bin/qemu-system-x86_64 and qemu/ - into the tree at dir.
 func (s Sources) placeQEMU(what, dir string) (string, error) {
 	root, source := what, what
@@ -247,6 +247,17 @@ func (s Sources) placeQEMU(what, dir string) (string, error) {
 	}
 	if err := replace(filepath.Join(root, "bin", "qemu-system-x86_64"), filepath.Join(dir, partFiles["qemu"]), 0o755); err != nil {
 		return "", err
+	}
+	// swtpm is built beside QEMU and comes with it; a QEMU from before #719 has none, and its tree
+	// keeps no swtpm of another build's.
+	swtpm := filepath.Join(dir, "bin", "swtpm")
+	if err := removeIfThere(swtpm); err != nil {
+		return "", err
+	}
+	if fileExists(filepath.Join(root, "bin", "swtpm")) {
+		if err := replace(filepath.Join(root, "bin", "swtpm"), swtpm, 0o755); err != nil {
+			return "", err
+		}
 	}
 	firmware := filepath.Join(dir, "qemu")
 	if err := os.RemoveAll(firmware); err != nil {
