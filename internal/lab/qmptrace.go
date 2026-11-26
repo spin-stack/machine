@@ -142,10 +142,10 @@ func span(cs []qmpCommand, until string, through bool) (qmpSpan, bool) {
 	return qmpSpan{}, false
 }
 
-// tracedQEMU is a QEMU for m's tree that writes its QMP trace to dir/qemu-PID.log, and the boot
-// flag that runs it. A shell execs the tree's QEMU with the trace, so the PID is the machine's
-// (Machine.PID). The shell's exec is inside a cold boot's clock: a traced boot is for the split,
-// and its total compares only with another traced boot.
+// tracedQEMU is a QEMU for m's tree that writes its QMP trace to dir/qemu.log, and the boot flag
+// that runs it. dir is the one boot's: the log is named by its directory, not by QEMU's pid, which
+// is gone with the machine once the trace can be read. The shell's exec is inside a cold boot's
+// clock: a traced boot is for the split, and its total compares only with another traced boot.
 func tracedQEMU(m *Measurement, dir string) (string, error) {
 	events := filepath.Join(dir, "qmp-events")
 	if err := os.WriteFile(events, []byte(qmpTraceEvents), 0o600); err != nil {
@@ -156,16 +156,16 @@ func tracedQEMU(m *Measurement, dir string) (string, error) {
 		return "", fmt.Errorf("finding the tree's QEMU: %w", err)
 	}
 	wrapper := filepath.Join(dir, "qemu-traced")
-	script := fmt.Sprintf("#!/bin/sh\nexec %s -msg timestamp=on -D %s/qemu-$$.log -trace events=%s \"$@\"\n", qemu, dir, events)
+	script := fmt.Sprintf("#!/bin/sh\nexec %s -msg timestamp=on -D %s/qemu.log -trace events=%s \"$@\"\n", qemu, dir, events)
 	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { // #nosec G306 -- a script this process runs
 		return "", fmt.Errorf("writing the traced QEMU: %w", err)
 	}
 	return "--qemu=" + wrapper, nil
 }
 
-// readQMPTrace is the trace the traced QEMU of pid wrote in dir, once the machine has ended.
-func readQMPTrace(dir string, pid int) (qmpTrace, error) {
-	b, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("qemu-%d.log", pid)))
+// readQMPTrace is the trace the traced QEMU wrote in dir, once the machine has ended.
+func readQMPTrace(dir string) (qmpTrace, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "qemu.log"))
 	if err != nil {
 		return qmpTrace{}, fmt.Errorf("reading QEMU's trace: %w", err)
 	}
