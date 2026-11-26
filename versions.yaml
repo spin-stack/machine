@@ -177,11 +177,15 @@
 
 - name: shirudo
   kind: git
-  source: https://github.com/shirudo-dev/shirudo.git
-  version: main
-  pin: 5795f8d4a7509af2afeb331046f179300a1756a2
+  source: https://github.com/spin-stack/shirudo.git
+  version: spin
+  pin: a7d0904cfc0e13b5bdba53b0046dfd764de0ff71
   track: branch
   note: >-
+    From spin-stack/shirudo's spin branch, shirudo-dev/shirudo with the changes this machine
+    needs on top, so a fix for a Spinbox guest ships without waiting for upstream. The branch
+    is rebased onto upstream's main to take upstream's changes, and the bump below reads the
+    patches at the new pin either way.
     Where kernel/patches 0026-0031 come from: shirudo's LSM and BPF hooks, its
     testing/kernel/patches, each carried under its own Subject with a "from shirudo's
     testing/kernel/patches" note (kernel/README.md, "shirudo's hooks").
