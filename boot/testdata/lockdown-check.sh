@@ -11,16 +11,13 @@ echo "lockdown: $(cat /sys/kernel/security/lockdown)"
 test "$(cat /sys/kernel/security/lsm)" = "lockdown,capability,bpf"
 
 # The level the kernel forces from its first instruction, below which no command line goes
-# (security/lockdown/lockdown.c, lock_kernel_down only raises): integrity from #734 on. A kernel
-# from before #734 forced confidentiality, and compat boots the newest release's kernel for a
-# change that does not reach the kernel, which until a release carries #734 is one of those
-# (#738 drops this case then).
+# (security/lockdown/lockdown.c, lock_kernel_down only raises): integrity (#734).
 forced=$(zcat /proc/config.gz | sed -n 's/^CONFIG_LOCK_DOWN_KERNEL_FORCE_\(.*\)=y$/\1/p' | tr A-Z a-z)
 echo "forced by the kernel: $forced; asked of it: $(grep -o 'lockdown=[a-z]*' /proc/cmdline || echo nothing)"
-case "$forced" in
-integrity | confidentiality) ;;
-*) echo "the kernel forces '$forced', below integrity"; exit 1 ;;
-esac
+if [ "$forced" != integrity ]; then
+    echo "the kernel forces '$forced', not integrity"
+    exit 1
+fi
 # What the machine asked for (machine.Lockdown): the level, and the .bpf and .dm-verity keyrings
 # sealed, or left open for shirudo's init to enroll its certificates in.
 case "$LOCKDOWN" in
@@ -36,16 +33,12 @@ if [ "${said% }" != "$asked" ]; then
     exit 1
 fi
 
-# Whether each keyring takes a key, which keyring-probe asks by adding one. A kernel before 7.4 has
-# neither, and compat boots the newest release's kernel, which until a release carries 7.4 is one
-# of those (#738 drops this case then).
+# Whether each keyring takes a key, which keyring-probe asks by adding one.
 probed=$(/keyring-probe)
 echo "keyrings: $(echo "$probed" | tr '\n' ' ')"
 if [ "$probed" != "$(printf '.bpf %s\n.dm-verity %s' "$keyrings" "$keyrings")" ]; then
-    case "$(uname -r)" in
-    [0-6].* | 7.[0-3].*) test "$probed" = "$(printf '.bpf unknown\n.dm-verity unknown')" ;;
-    *) echo "a $LOCKDOWN machine's keyrings are not $keyrings"; exit 1 ;;
-    esac
+    echo "a $LOCKDOWN machine's keyrings are not $keyrings"
+    exit 1
 fi
 grep -q "\[$want\]" /sys/kernel/security/lockdown
 
