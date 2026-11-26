@@ -300,8 +300,8 @@
   kind: git
   source: https://git.kernel.org/pub/scm/devel/sparse/sparse.git
   version: master
-  pin: 84ec0658c81db4ccc4aabc420d3dc118c2c6a310
-  archive: a458c571a725f0b33992fc2c31d4008fd61230941e228d70aaae598eb8526dc8
+  pin: 0d159c10fe7d2c1478a399b8f842757a8ba4b87b
+  archive: 6902041ec54ba906edd99655a7637f136f08e6229d41fbb4001a21334ad5acc0
   track: branch
   note: >-
     the checker kernel/Dockerfile runs (make C=2) over the files kernel/patches touch. From
