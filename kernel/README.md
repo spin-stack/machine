@@ -244,6 +244,14 @@ person has to answer: a carried patch upstream rewrote or no longer has, and an 
 neither carried nor declined. A carried patch is remade from upstream's as every patch here is,
 below.
 
+The same commit is the shirudo a release ships, `guest/shirudo`: `shirudo/Dockerfile` builds it,
+static, against this kernel's BTF, so a release carries the hooks and the shirudo that attaches to
+them and never one without the other (#759). It goes beside the kernel and not into the image:
+shirudo's `init` runs from an initrd and a dm-verity runtime image that an operator makes around
+the binary and signs with a key of its own, and spin's guests, which boot the same image, run
+none of it. Before a release is published, `boot:shirudo` deploys that binary on a machine of the
+release as an operator would and runs it (release.yml's `shirudo` job).
+
 The kernel has the TPM driver 0027 hooks (`CONFIG_TCG_TPM`, with `CONFIG_TCG_CRB` and
 `CONFIG_TCG_TIS` for QEMU's `tpm-crb` and `tpm-tis`, which #719 measures against each other), so
 sparse and the effect check read the file the patch changes. Without a TPM device it binds to
@@ -259,9 +267,10 @@ the PKCS#7 ML-DSA-87 signatures of its loaders and that root hash. shirudo's `CO
 asks for module signatures of a kernel that loads modules, and this one has them, signed-only
 ("Modules"). A
 shirudo machine runs at integrity (`LockdownShirudo`, #734), since confidentiality
-withholds `bpf_probe_read_kernel`, which shirudo's programs call. Still missing for shirudo to run:
-a TPM in the machine (#719), and with it a booted shirudo, whose `shirudo init --check-only` says
-whether its programs load at integrity as the source reading predicts.
+withholds `bpf_probe_read_kernel`, which shirudo's programs call. `boot:shirudo` boots one with a
+TPM (#719) and shirudo's initrd: `init` completes, and a signed upatch loads and enforces.
+`shirudo init --check-only` is no evidence of that: it passes its twelve checks when `init`
+itself fails, as it does on a machine whose keyrings are sealed.
 
 Booting shirudo on this kernel found four more that its flow needs beyond that table (#740), and
 `kernel/Dockerfile` checks them too. `CONFIG_RD_ZSTD`: dracut's default initrd is zstd, and without

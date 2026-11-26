@@ -177,6 +177,12 @@ func shipped(o Options, top, share string) ([]file, error) {
 	files = append(files, file{fromOut("bin/" + build.SWTPMBinary), at("bin/" + build.SWTPMBinary), "the swtpm binary", 0o755})
 	files = append(files, file{fromOut("bin/" + build.PasstBinary), at("bin/" + build.PasstBinary), "the passt binary", 0o755})
 	files = append(files, file{fromOut("bin/spin-machine"), at("bin/spin-machine"), "the spin-machine binary", 0o755})
+	// shirudo's guest binary, from the commit the kernel's hooks come from, and the licences of
+	// what is linked into it: a guest's, beside the kernel, for the initrd and runtime image an
+	// operator makes around it (build.ShirudoBinary).
+	files = append(files,
+		file{fromOut(build.ShirudoBinary), at(build.ShirudoBinary), "the shirudo binary", 0o755},
+		file{fromOut(build.ShirudoLicenses), at(build.ShirudoLicenses), "shirudo's licence texts", 0o644})
 	// mkfs.ext4 and the configuration it reads together: what an ext4 is made with is what both
 	// default to. debugfs, e2fsck and dumpe2fs from the same build: the probes edit a copy of the
 	// base image with this debugfs, because an older one refuses features it does not know.
@@ -327,7 +333,21 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		}
 		parts = append(parts, sbom.New(subject(a.name, a.version), shippedPkgs, built, o.Epoch))
 	}
-	raw, err := os.ReadFile(filepath.Join(share, "packages.txt"))
+	// The Ubuntu packages whose static archives shirudo links, as the build recorded them.
+	raw, err := os.ReadFile(filepath.Join(o.Out, build.ShirudoPackages))
+	if err != nil {
+		return nil, fmt.Errorf("missing %s (spin-machine-dev build shirudo makes it): %w", build.ShirudoPackages, err)
+	}
+	linked, err := sbom.Dpkg(raw, "ubuntu")
+	if err != nil {
+		return nil, err
+	}
+	shirudo, err := o.Pins.Get("shirudo")
+	if err != nil {
+		return nil, err
+	}
+	parts = append(parts, sbom.New(subject("shirudo-libraries", shirudo.Pin), linked, nil, o.Epoch))
+	raw, err = os.ReadFile(filepath.Join(share, "packages.txt"))
 	if err != nil {
 		return nil, fmt.Errorf("reading the image's package list: %w", err)
 	}
@@ -341,7 +361,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 	parts = append(parts, sbom.New(subject("base-image", o.Version), image, nil, o.Epoch))
 	// QEMU, qboot, the kernel, systemd and OpenSSH are built with this repository's patches: each is in its
 	// component's pedigree, so the SBOM does not say upstream's source is what was compiled.
-	pins, err := sbom.Pins(o.Pins, strings.Fields("qemu qboot swtpm libtpms json-glib passt e2fsprogs kernel ubuntu systemd-source openssh-source task git-lfs buildkit")...)
+	pins, err := sbom.Pins(o.Pins, strings.Fields("qemu qboot swtpm libtpms json-glib passt e2fsprogs kernel shirudo openssl curl tpm2-tss ubuntu systemd-source openssh-source task git-lfs buildkit")...)
 	if err != nil {
 		return nil, err
 	}
@@ -387,6 +407,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		return nil, err
 	}
 	each = append(each,
+		struct{ path, version string }{build.ShirudoBinary, shirudo.Pin},
 		struct{ path, version string }{"qemu/qboot.bin", qboot.Pin},
 		struct{ path, version string }{"kernel/vmlinux", version("kernel")},
 		struct{ path, version string }{"image/rootfs.qcow2", o.Version},

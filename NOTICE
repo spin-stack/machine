@@ -49,6 +49,15 @@ almost entirely other people's software under other people's licences:
       library and the Go modules it imports, under BSD-style licences whose
       texts usr/share/spin-stack/go-licenses.txt in a release carries.
 
+  guest/shirudo
+      shirudo, BSD-2-Clause, for a guest. Statically linked, so it also contains
+      libbpf (LGPL-2.1 OR BSD-2-Clause, used under BSD-2-Clause), OpenSSL
+      (Apache-2.0), curl (curl), TPM2-TSS (BSD-2-Clause), libelf
+      (LGPL-3.0-or-later OR GPL-2.0-or-later), zlib (Zlib), zstd (BSD-3-Clause OR
+      GPL-2.0-only), LuaJIT (MIT), glibc (LGPL-2.1-or-later) and libgcc
+      (GPL-3.0-or-later WITH GCC-exception-3.1).
+      usr/share/spin-stack/shirudo-licenses.txt in a release carries each text.
+
   bios.bin, bios-256k.bin, vgabios*.bin
       SeaBIOS, LGPL-3.0-or-later, shipped as part of QEMU.
 

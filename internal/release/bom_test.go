@@ -78,6 +78,19 @@ func TestEachFileIsAtTheVersionItWasBuiltFrom(t *testing.T) {
 	if v := got["spin-machine"]; !slices.Equal(v, []string{o.Version, o.Version}) {
 		t.Errorf("spin-machine is %v in the SBOM, want twice at %s, the machine and the binary", v, o.Version)
 	}
+	// shirudo is a file at the pinned commit and a source at its pin's version, the branch; what it
+	// links is at the versions its pins and Ubuntu's archive gave the build.
+	sh, _ := o.Pins.Get("shirudo")
+	if v := got["shirudo"]; !slices.Equal(v, []string{sh.Pin, sh.Version}) {
+		t.Errorf("shirudo is %v in the SBOM, want the binary at %s and the source at %s", v, sh.Pin, sh.Version)
+	}
+	ssl, _ := o.Pins.Get("openssl")
+	tss, _ := o.Pins.Get("tpm2-tss")
+	for name, want := range map[string]string{"openssl": ssl.Version, "tpm2-tss": tss.Version, "libelf-dev": "0.194-4"} {
+		if v := got[name]; len(v) != 1 || v[0] != want {
+			t.Errorf("%s is %v in the SBOM, want once at %s", name, v, want)
+		}
+	}
 	if len(got["golang.org/x/sys"]) != 1 || len(got["stdlib"]) != 1 {
 		t.Errorf("spin-machine's modules are not in the SBOM: x/sys %v, stdlib %v", got["golang.org/x/sys"], got["stdlib"])
 	}

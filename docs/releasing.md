@@ -47,8 +47,9 @@ same change.
 | Check | Where | When |
 | --- | --- | --- |
 | `task lint test coverage mutate`, the schema checks among the tests, `verify args` | `ci.yml` | every pull request and push to main |
-| QEMU, the kernel and the image, built and verified | `parts.yml` | a change that reaches the part |
+| QEMU, the kernel, shirudo and the image, built and verified | `parts.yml` | a change that reaches the part |
 | a checkpoint of each release resumes, `boot:record`, `boot:cpu-plug`, `boot:lockdown` | `compat.yml`, KVM fleet | a change that reaches the machine, and every release before it is built |
+| `boot:shirudo`, the shipped shirudo's init, status and a signed upatch on a machine of the release | `release.yml`'s `shirudo`, KVM fleet | every release, after it is packed and before it is published |
 | the goal's two numbers, the no-systemd floor beside them, and one boot drawn; an issue when either regressed | `report.yml`, bench | every release, once published |
 | `boot:checkpoint-pause`, the pause a checkpoint stops the guest for | `release.yml`'s `pause`, bench | every release, once published, and a QEMU bump (versions.yaml) |
 | `boot:finish-migrate` | by hand, on a busy host | a QEMU bump (versions.yaml) |
@@ -70,7 +71,10 @@ first release whose checkpoints it refuses.
 
 A release is release.yml dispatched on main, and nothing else. A pushed tag starts nothing. Given a
 version, the workflow makes that one. With no input, it generates the next sequence for today.
-Either way, it tags the commit once its files are signed, and writes the notes:
+What it packed is checked before anything is published: the `shirudo` job unpacks the tarball on
+the KVM fleet and runs `boot:shirudo` on it, the shipped `guest/shirudo` deployed and run on a
+machine of the release (kernel/README.md, "shirudo's hooks"), and the `publish` job signs and tags
+only after it passes. Either way, it tags the commit once its files are signed, and writes the notes:
 
 - What changed since the release before (`internal/release`'s `Changes`): the commits that reached the
   machine, by the part they changed; the pins that moved; the kernel options turned on, off or
@@ -179,7 +183,8 @@ withdrawn one stays a release that a host may already run and hold checkpoints o
 restore to the first login, against the release before it in the same run (report.yml), with a
 Δp50 whose 95% interval is wholly above 0: slower, beyond noise. A failed functional check counts
 too: `boot:logind` or `boot:workspace` in release.yml's `pause` job, or compat. Compat runs before a
-release is built, so a release that fails it is never published. A cost that the log (docs/log) records
+release is built, and `boot:shirudo` before it is published, so a release that fails either is
+never published. A cost that the log (docs/log) records
 as accepted is no regression: a correctness change, as #505 was for v20261122.04's +6.8
 [+0.1, +13.6]. With 20 boots a side and a 95% interval, about 1 in 40 flags of each number is
 noise. Detection flags, and a person decides.

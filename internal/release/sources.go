@@ -62,6 +62,22 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	sh, err := get("shirudo")
+	if err != nil {
+		return "", err
+	}
+	ssl, err := get("openssl")
+	if err != nil {
+		return "", err
+	}
+	c, err := get("curl")
+	if err != nil {
+		return "", err
+	}
+	tss, err := get("tpm2-tss")
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf(sourcesText,
 		version,
 		q.Version, q.URL(), q.Pin,
@@ -70,6 +86,8 @@ func Sources(version string, pins *versions.Versions) (string, error) {
 		p.Version, p.URL(), p.Pin,
 		e.Version, e.URL(), e.Pin,
 		k.Version, k.URL(), k.Pin,
+		sh.Pin, sh.Source, sh.Pin,
+		ssl.Version, ssl.URL(), ssl.Pin, c.Version, c.URL(), c.Pin, tss.Version, tss.Source, tss.Pin,
 		version,
 		s.Version, s.Version, s.URL(), s.Pin,
 		o.Version, o.Version, o.URL(), o.Pin,
@@ -82,7 +100,7 @@ Sources for the third-party software in this release.
 This release contains software under the GNU General Public License, the GNU Lesser
 General Public License and other licences; see NOTICE for what is under which. The
 complete corresponding source for the GPL and LGPL components is available as set out
-below. The statically linked libraries in the QEMU, swtpm, passt and e2fsprogs binaries are covered by the same offer,
+below. The statically linked libraries in the QEMU, swtpm, passt, e2fsprogs and shirudo binaries are covered by the same offer,
 which satisfies section 6 of the LGPL by making a relinkable build reproducible from source.
 
 QEMU %s
@@ -149,6 +167,36 @@ Linux %s
             usr/share/spin-stack/kernel/patches applied to that source (each says what
             it changes and why), and the configuration shipped as
             usr/share/spin-stack/kernel/kernel-config
+
+shirudo %s
+  binary:   usr/share/spin-stack/guest/shirudo, for a guest: the shirudo the kernel's hooks above
+            (kernel/patches 0026-0031) come from, which an operator builds its initrd and runtime
+            image around
+  source:   %s, commit %s
+  licence:  BSD-2-Clause; with what is linked into it, usr/share/spin-stack/shirudo-licenses.txt
+  built by: shirudo/Dockerfile: shirudo's own static target build (make target) in its build
+            environment, Ubuntu 26.04 and clang 23, its BPF objects compiled against the BTF of the
+            kernel above, unpatched, statically linked against OpenSSL, curl and TPM2-TSS below
+            and the Ubuntu static archives of glibc, libelf, zlib, zstd, LuaJIT and libgcc that
+            sbom/machine.cdx.json names with their versions, whose sources are those Ubuntu
+            source packages (apt-get source <package>=<version>)
+
+OpenSSL %s, linked into shirudo
+  source:   %s
+  sha256:   %s
+  licence:  Apache-2.0
+  built by: shirudo's Makefile.target-deps, unpatched, static
+
+curl %s, linked into shirudo
+  source:   %s
+  sha256:   %s
+  licence:  curl
+  built by: shirudo's Makefile.target-deps, unpatched, static, against the OpenSSL above
+
+TPM2-TSS %s, linked into shirudo
+  source:   %s, commit %s
+  licence:  BSD-2-Clause
+  built by: shirudo's Makefile.target-deps, unpatched, static, against the OpenSSL above
 
 spin-machine %s
   binary:   usr/share/spin-stack/bin/spin-machine, the tool that boots this release by hand

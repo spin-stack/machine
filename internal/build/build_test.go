@@ -59,7 +59,7 @@ func TestAPlanIsWhatWasNamedAndWhatItIsMadeWith(t *testing.T) {
 		return n
 	}
 	all, err := Plan(nil)
-	if err != nil || !slices.Equal(names(all), []string{"qemu", "kernel", "e2fsprogs", "systemd", "openssh", "image"}) {
+	if err != nil || !slices.Equal(names(all), []string{"qemu", "kernel", "shirudo", "e2fsprogs", "systemd", "openssh", "image"}) {
 		t.Errorf("Plan(nil) = %v, %v; want every part, in order", names(all), err)
 	}
 	image, err := Plan([]string{"image", "kernel"})
@@ -383,7 +383,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	log := fakeDocker(t, "")
 	goLog := fakeGo(t, staticELF(t))
 	o := Options{Root: root, Out: out, Pins: v, Registry: true, Export: true, SystemdExperiment: "exp"}
-	for _, f := range []string{"bin/qemu-img", "qemu/x", "sbom/qemu.apk", "kernel/old.patch", "bin/debugfs", "e2fsprogs/x", "systemd/old.deb", "openssh/old.deb", "bin/keep"} {
+	for _, f := range []string{"bin/qemu-img", "qemu/x", "sbom/qemu.apk", "kernel/old.patch", ShirudoBinary, ShirudoLicenses, ShirudoPackages, "bin/debugfs", "e2fsprogs/x", "systemd/old.deb", "openssh/old.deb", "bin/keep"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(out, f)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -396,7 +396,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 			t.Fatalf("%s: %v", p.Name, err)
 		}
 	}
-	for _, f := range []string{"bin/qemu-img", "qemu", "sbom/qemu.apk", "kernel", "bin/debugfs", "e2fsprogs", "systemd/old.deb", "openssh/old.deb"} {
+	for _, f := range []string{"bin/qemu-img", "qemu", "sbom/qemu.apk", "kernel", ShirudoBinary, ShirudoLicenses, ShirudoPackages, "bin/debugfs", "e2fsprogs", "systemd/old.deb", "openssh/old.deb"} {
 		if _, err := os.Stat(filepath.Join(out, f)); err == nil {
 			t.Errorf("%s survived its part's build", f)
 		}
@@ -416,6 +416,7 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	for i, want := range []string{
 		"buildx build --file qemu/Dockerfile --target extract --platform linux/amd64 " + reg + ":qemu --cache-to type=registry,ref=" + CacheRegistry + ":qemu,mode=max,image-manifest=true,oci-mediatypes=true ",
 		"buildx build --file kernel/Dockerfile --target kernel --platform linux/amd64 " + reg + ":kernel",
+		"buildx build --file shirudo/Dockerfile --target extract --platform linux/amd64 " + reg + ":shirudo",
 		"buildx build --file e2fsprogs/Dockerfile --target extract --platform linux/amd64 " + reg + ":e2fsprogs",
 		"buildx build --file image/systemd/Dockerfile --target debs --platform linux/amd64 " + reg + ":systemd",
 		"buildx build --file image/openssh/Dockerfile --target debs --platform linux/amd64 " + reg + ":openssh",
@@ -429,6 +430,8 @@ func TestEachPartIsBuiltAsItsDockerfileWantsIt(t *testing.T) {
 	for i, want := range [][]string{
 		{"--output type=local,dest=" + out + " ."},
 		{"--build-arg KERNEL_SERIES=" + series, "--build-arg KERNEL_ARCH=x86_64", "--build-arg KERNEL_LOCKDOWN=integrity", "--output type=local,dest=" + out + " ."},
+		{"--build-arg SHIRUDO_SOURCE=https://github.com/shirudo-dev/shirudo.git", "--build-arg TPM2_TSS_SOURCE=https://github.com/tpm2-software/tpm2-tss.git",
+			"--build-context kernel=" + filepath.Join(out, "kernel") + " --output type=local,dest=" + out + " ."},
 		{"--output type=local,dest=" + out + " ."},
 		{"--build-arg SYSTEMD_EXPERIMENT=exp", "--output type=local,dest=" + filepath.Join(out, "systemd") + " ."},
 		{"--output type=local,dest=" + filepath.Join(out, "openssh") + " ."},

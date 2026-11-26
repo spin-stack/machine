@@ -4,6 +4,7 @@ package build
 
 import (
 	"context"
+	"debug/elf"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,5 +152,98 @@ func TestAKernelPatchHasASubjectAndADiff(t *testing.T) {
 	}
 	if _, err := parseKernelPatch("p", "Subject: [PATCH] s\n\nno diff\n"); err == nil {
 		t.Error("no diff")
+	}
+}
+
+// shirudoTree lays out what the shirudo part leaves in out: bin, a binary, and its licences and
+// packages.
+func shirudoTree(t *testing.T, out, bin string) {
+	t.Helper()
+	b, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for f, content := range map[string][]byte{ShirudoBinary: b, ShirudoLicenses: []byte("licences"), ShirudoPackages: []byte("libc6-dev 2.43 amd64\n")} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(out, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(out, f), content, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The shirudo a release ships is a static binary that names the pinned commit, with its licences
+// and the packages it links beside it; anything else is refused, naming what is wrong.
+func TestShirudoVerifiesAsAStaticBinaryOfThePin(t *testing.T) {
+	v := pins(t)
+	e, _ := v.Get("shirudo")
+	named := func(t *testing.T, progs []elf.Prog64, commit string) string {
+		t.Helper()
+		path := writeELF(t, progs)
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = f.WriteString("shirudo version " + commit + "\n")
+		_ = f.Close()
+		return path
+	}
+	load := []elf.Prog64{{Type: uint32(elf.PT_LOAD)}}
+	out := t.TempDir()
+	shirudoTree(t, out, named(t, load, e.Pin[:7]))
+	o := Options{Out: out, Pins: v}
+	if err := VerifyShirudo(o); err != nil {
+		t.Errorf("a static shirudo of the pin: %v", err)
+	}
+	for name, want := range map[string]string{ShirudoLicenses: "missing " + ShirudoLicenses, ShirudoPackages: "missing " + ShirudoPackages} {
+		out := t.TempDir()
+		shirudoTree(t, out, named(t, load, e.Pin[:7]))
+		_ = os.Remove(filepath.Join(out, name))
+		if err := VerifyShirudo(Options{Out: out, Pins: v}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("no %s: %v", name, err)
+		}
+	}
+	for what, c := range map[string]struct {
+		bin, want string
+	}{
+		"a dynamic shirudo":      {named(t, append(load, elf.Prog64{Type: uint32(elf.PT_INTERP)}), e.Pin[:7]), "is linked dynamically"},
+		"another commit's":       {named(t, load, "0000000"), "built from another commit"},
+		"a shirudo that is none": {filepath.Join(t.TempDir(), "none"), "missing shirudo"},
+	} {
+		out := t.TempDir()
+		if _, err := os.Stat(c.bin); err == nil {
+			shirudoTree(t, out, c.bin)
+		}
+		if err := VerifyShirudo(Options{Out: out, Pins: v}); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", what, err, c.want)
+		}
+	}
+	if err := VerifyShirudo(Options{Out: out, Pins: pinsWithout(t, "shirudo")}); err == nil {
+		t.Error("no shirudo pin gave no error")
+	}
+}
+
+// What a check of the shipped shirudo makes its key, images and initrd with is built as the part
+// is, from its pins and against the kernel beside it, and loaded under the tag asked for.
+func TestShirudosToolsAreBuiltAsThePartIs(t *testing.T) {
+	v := pins(t)
+	root, out := t.TempDir(), t.TempDir()
+	log := fakeDocker(t, "")
+	o := Options{Root: root, Out: out, Pins: v}
+	if err := ShirudoImage(context.Background(), o, "operator", "x:check"); err != nil {
+		t.Fatal(err)
+	}
+	got := calls(t, log)
+	p, _ := Lookup("shirudo")
+	args, _ := partArgs(o, p)
+	for _, want := range []string{"buildx build --file shirudo/Dockerfile --target operator ", strings.Join(args, " "),
+		"--build-context kernel=" + filepath.Join(out, "kernel") + " --tag x:check --load ."} {
+		if len(got) != 1 || !strings.Contains(got[0], want) {
+			t.Errorf("docker ran %q, want %q in it", got, want)
+		}
+	}
+	if err := ShirudoImage(context.Background(), Options{Root: root, Out: out, Pins: pinsWithout(t, "tpm2-tss")}, "initrd", "x"); err == nil {
+		t.Error("no tpm2-tss pin gave no error")
 	}
 }

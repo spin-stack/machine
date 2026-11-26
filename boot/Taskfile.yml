@@ -1,5 +1,5 @@
 # The checks of a booted machine - whether its firmware runs it, a checkpoint of the release before
-# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, a workspace grows after one, what a guest sees of each carried patch, sshd delays only a failure, lockdown, the modules it loads, logind, a core hot-added - and
+# resumes, a rollback brings back what a snapshot kept, a checkpoint's pause stays short and its guest continues at once on a busy host, a workspace grows after one, what a guest sees of each carried patch, sshd delays only a failure, lockdown, the modules it loads, the shirudo it ships, logind, a core hot-added - and
 # the probes still Go tests: firmware-stages and waits. They boot VMs, need /dev/kvm and a built release, and `go test ./...` skips every one
 # unless its SPIN_* switch is set, which is what these targets do. Each boots the release tree
 # OUTPUT_DIR names; `spin-machine-dev lab check TARGET --tree NAME=SPEC` runs one on any tree, on the
@@ -259,6 +259,45 @@ tasks:
     deps: [':tools']
     cmds:
       - SPIN_LOCKDOWN_TEST=1 go test ./boot/ -run '^TestTheGuestKernelIsLockedDown$' -count=1 -v -timeout 5m
+
+  shirudo:
+    desc: >-
+      Check the release's shirudo (guest/shirudo) runs on a machine of the release as an operator
+      deploys it (#759): this run's key, the signed config and dm-verity runtime images and a
+      systemd initrd made around the shipped binary by shirudo/Dockerfile's operator and initrd
+      images, from the same commit; booted with --lockdown shirudo and a TPM, init completes in
+      the initrd and the root file system, status is ok with the keyrings sealed, and a signed
+      upatch blocks an AF_ALG socket and leaves AF_UNIX alone (shirudo_test.go). Needs a release
+      tree with guest/shirudo, docker and /dev/kvm.
+    deps: [':tools']
+    cmds:
+      - SPIN_SHIRUDO_TEST=1 go test ./boot/ -run '^TestTheShippedShirudoRunsOnTheRelease$' -count=1 -v -timeout 45m
+
+  shirudo-here:
+    desc: >-
+      boot:shirudo on this change's machine (boot:here's tree, SPIN_MACHINE_OUTPUT) with the shirudo
+      this tree built (spin-machine-dev build shirudo) put in it: compat's shirudo job, so a change
+      to shirudo, its pins or the kernel it hooks runs shirudo before it merges.
+    cmds:
+      - mkdir -p "$SPIN_MACHINE_OUTPUT/guest" && cp {{.OUTPUT_ABS}}/guest/shirudo "$SPIN_MACHINE_OUTPUT/guest/shirudo"
+      - SPIN_SHIRUDO_TEST=1 go test ./boot/ -run '^TestTheShippedShirudoRunsOnTheRelease$' -count=1 -v -timeout 45m
+
+  shirudo-packed:
+    desc: >-
+      boot:shirudo on a packed release, TARBALL, checked against the .sha256 beside it and unpacked
+      there: release.yml's shirudo job, which runs it on what the release job packed before
+      anything is published.
+    requires:
+      vars: [TARBALL]
+    vars:
+      DIR:
+        sh: dirname "{{.TARBALL}}"
+      NAME:
+        sh: basename "{{.TARBALL}}" .tar.gz
+    cmds:
+      - cd "{{.DIR}}" && sha256sum -c "{{.NAME}}.tar.gz.sha256"
+      - tar -xzf "{{.TARBALL}}" -C "{{.DIR}}"
+      - SPIN_MACHINE_OUTPUT="$(realpath "{{.DIR}}/{{.NAME}}/usr/share/spin-stack")" SPIN_SHIRUDO_TEST=1 go test ./boot/ -run '^TestTheShippedShirudoRunsOnTheRelease$' -count=1 -v -timeout 45m
 
   modules:
     desc: >-

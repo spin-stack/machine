@@ -1,6 +1,7 @@
 name: Parts
 
-# The machine's parts built from source: QEMU, the guest kernel, and e2fsprogs with the base image.
+# The machine's parts built from source: QEMU, the guest kernel, shirudo, and e2fsprogs with the
+# base image.
 # Each takes from a minute (cached) to tens of minutes (cold), far too slow for ci.yml's gate, so
 # each is a job here that runs only when the change reaches it, and `parts` at the end says
 # whether every one that ran passed: one check, which a ruleset can require, where three
@@ -54,6 +55,7 @@ jobs:
       qemu: ${{ steps.qemu.outputs.build }}
       kernel: ${{ steps.kernel.outputs.build }}
       image: ${{ steps.image.outputs.build }}
+      shirudo: ${{ steps.shirudo.outputs.build }}
     env:
       BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
@@ -85,6 +87,10 @@ jobs:
       - name: Does the change reach e2fsprogs or the image
         id: image
         run: spin-machine-dev changed --base "$BASE" --part image cmd/spin-machine-dev internal/build .github/workflows/parts.yml
+
+      - name: Does the change reach shirudo
+        id: shirudo
+        run: spin-machine-dev changed --base "$BASE" --part shirudo cmd/spin-machine-dev internal/build .github/workflows/parts.yml
 
   qemu:
     needs: changed
@@ -372,11 +378,63 @@ jobs:
           CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: spin-machine-dev build image --cache-registry --cache-export="$CACHE_EXPORT"
 
+  # The shirudo a release ships (guest/shirudo), from the commit the kernel's hooks come from and
+  # against that kernel's BTF: so after the kernel job, taking what it built as the image job
+  # does, and from main's cache when the change does not reach the kernel. A shirudo bump whose
+  # OpenSSL, curl or TPM2-TSS is not the one versions.yaml pins fails here, naming both.
+  shirudo:
+    needs: [changed, kernel]
+    if: ${{ always() && needs.changed.outputs.shirudo == 'true' && (needs.kernel.result == 'success' || needs.kernel.result == 'skipped') }}
+    runs-on: runs-on/fleet=build/env=production
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: spin-machine-dev
+        run: go tool task bin
+
+      # As the qemu job's: a builder that can export its cache, and the login that reads it.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Packages
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Take the kernel the kernel job built
+        if: needs.kernel.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vmlinux-${{ github.sha }}
+          path: _output/kernel
+
+      - name: Take its manifest
+        if: needs.kernel.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: kernel-manifest-${{ github.sha }}
+          path: _output/manifest
+
+      # Ends in verifying it (verify shirudo): static, and the pinned commit's.
+      - name: Build shirudo
+        env:
+          CACHE_EXPORT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: spin-machine-dev build shirudo --cache-registry --cache-export="$CACHE_EXPORT"
+
   # Every part the change reaches built and verified: the one check of this workflow a ruleset
   # can require. A part the change does not reach is skipped, which is a pass; one that failed or
   # was cancelled, or a `changed` that could not say, is not.
   parts:
-    needs: [changed, qemu, kernel, traceable, image]
+    needs: [changed, qemu, kernel, traceable, image, shirudo]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

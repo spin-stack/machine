@@ -184,13 +184,50 @@
   note: >-
     Where kernel/patches 0026-0031 come from: shirudo's LSM and BPF hooks, its
     testing/kernel/patches, each carried under its own Subject with a "from shirudo's
-    testing/kernel/patches" note (kernel/README.md, "shirudo's hooks"). Nothing builds from it.
+    testing/kernel/patches" note (kernel/README.md, "shirudo's hooks").
     `spin-machine-dev bump shirudo` moves the pin and compares shirudo's patches at the new pin
     with the ones carried here, by Subject: it fails, naming each, on a carried patch whose change
     upstream rewrote or dropped, and on an upstream patch neither carried nor declined in
     internal/build/shirudo.go. Rewrite the carried patch from upstream's (git format-patch -N
     against the kernel pin, as every kernel patch here), or decline the new one there with its
     reason, and bump again.
+    shirudo/Dockerfile builds its guest/shirudo from the same commit, which a release ships: after
+    the bump, `spin-machine-dev build shirudo`, which refuses an openssl, curl or tpm2-tss pin that
+    is not the version shirudo's Makefile.target-deps builds at the new commit, and then
+    `task boot:shirudo`, which runs it on a shirudo machine.
+
+- name: openssl
+  kind: download
+  source: https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz
+  version: 3.5.9
+  pin: 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+  track: github-release openssl/openssl
+  note: >-
+    shirudo/Dockerfile: the OpenSSL statically linked into guest/shirudo, at the version shirudo's
+    Makefile.target-deps names at the shirudo pin, which the build holds this to: it moves with
+    shirudo, never alone. After the bump: `spin-machine-dev build shirudo`, `task boot:shirudo`.
+
+- name: curl
+  kind: download
+  source: https://curl.se/download/curl-{version}.tar.xz
+  version: 8.18.0
+  pin: 40df79166e74aa20149365e11ee4c798a46ad57c34e4f68fd13100e2c9a91946
+  track: github-release curl/curl
+  note: >-
+    shirudo/Dockerfile: the libcurl statically linked into guest/shirudo, built against the
+    OpenSSL above, at the version shirudo's Makefile.target-deps names at the shirudo pin. Moves
+    with shirudo, as openssl does.
+
+- name: tpm2-tss
+  kind: git
+  source: https://github.com/tpm2-software/tpm2-tss.git
+  version: 4.2.0
+  pin: 506c5e6db0c8514f321dc16a0da2580483f3df04
+  track: tags https://github.com/tpm2-software/tpm2-tss.git
+  note: >-
+    shirudo/Dockerfile: the TPM2-TSS statically linked into guest/shirudo, the tag's commit,
+    at the version shirudo's Makefile.target-deps names at the shirudo pin. Moves with shirudo,
+    as openssl does.
 
 - name: debian
   kind: image
@@ -262,7 +299,9 @@
   note: >-
     image/Dockerfile: the container mkosi runs in, and where its apt and keyring come from.
     The base image's packages come from the archive, not from this image. After the bump:
-    `spin-machine-dev build image`.
+    `spin-machine-dev build image`. shirudo/Dockerfile's too, the Ubuntu shirudo builds and
+    tests in (its testing/container), whose static archives guest/shirudo links: then also
+    `spin-machine-dev build shirudo` and `task boot:shirudo`.
 
 - name: systemd-source
   kind: download

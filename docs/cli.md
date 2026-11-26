@@ -95,7 +95,8 @@ the `release` environment may sign with the key, so a release is made by release
 `certificate` by module-certificate.yml, once.
 
 The release is one tarball. It holds QEMU and its firmware, the kernel, the base image, the
-e2fsprogs tools, `spin-machine` and the licence texts of the Go code in it, LICENSE and NOTICE, every patch each part was built with (a directory ships whole,
+e2fsprogs tools, `spin-machine` and the licence texts of the Go code in it, `guest/shirudo` and the
+licence texts of what it links, LICENSE and NOTICE, every patch each part was built with (a directory ships whole,
 never as a list), `machine.env`, `SOURCES` and a CycloneDX SBOM. `machine.env` is the manifest:
 versions and checksums, none of which decides whether checkpoints resume (the machine's record
 does, `machine.CanResume`). The SBOM is inside the tarball and beside it.

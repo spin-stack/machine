@@ -3,6 +3,7 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -197,4 +198,76 @@ func fetchShirudoPatches(ctx context.Context, source, commit string) ([]kernelPa
 	}
 	slices.SortFunc(patches, func(a, b kernelPatch) int { return strings.Compare(a.file, b.file) })
 	return patches, nil
+}
+
+// ShirudoBinary is the shirudo a release ships, under Out: the static binary a guest runs, built
+// from the commit kernel/patches carries shirudo's hooks from (shirudo/Dockerfile). Beside the
+// kernel and not in the image: shirudo's init runs from the initrd and from a dm-verity runtime
+// image, both of which the operator makes and signs around this binary with a key a release does
+// not have, and spin's guests, which boot the same image, run none of it.
+const ShirudoBinary = "guest/shirudo"
+
+// ShirudoLicenses is the licence text of everything linked into ShirudoBinary, under Out.
+const ShirudoLicenses = "shirudo-licenses.txt"
+
+// ShirudoPackages is the Ubuntu packages whose static archives ShirudoBinary links, under Out, as
+// packages.txt lists the image's.
+const ShirudoPackages = "sbom/shirudo.dpkg"
+
+// shirudoPins are the versions.yaml entries shirudo/Dockerfile is handed.
+var shirudoPins = strings.Fields("ubuntu shirudo openssl curl tpm2-tss")
+
+func makeShirudo(ctx context.Context, o Options, p Part) error {
+	if err := emptied(o.Out, ShirudoBinary, ShirudoLicenses, ShirudoPackages); err != nil {
+		return err
+	}
+	args, err := partArgs(o, p)
+	if err != nil {
+		return err
+	}
+	return docker(ctx, o, buildx(o, "shirudo", "shirudo/Dockerfile", "extract", args,
+		"--build-context", "kernel="+filepath.Join(o.Out, "kernel"), "--output", "type=local,dest="+o.Out)...)
+}
+
+// ShirudoImage loads shirudo/Dockerfile's target as tag, built from the shirudo part's pins
+// against the kernel in o.Out: the operator's tools and the initrd's builder a check of the
+// shipped shirudo makes its key, images, upatch and initrd with.
+func ShirudoImage(ctx context.Context, o Options, target, tag string) error {
+	args, err := partArgs(o, Part{Name: "shirudo", Pins: shirudoPins})
+	if err != nil {
+		return err
+	}
+	return docker(ctx, o, buildx(o, "shirudo", "shirudo/Dockerfile", target, args,
+		"--build-context", "kernel="+filepath.Join(o.Out, "kernel"), "--tag", tag, "--load")...)
+}
+
+// VerifyShirudo asserts the shirudo part left a static binary that says it is the pinned commit,
+// with its licences and the packages it links.
+func VerifyShirudo(o Options) error {
+	bin := filepath.Join(o.Out, ShirudoBinary)
+	if err := executable(bin); err != nil {
+		return err
+	}
+	if err := static(bin); err != nil {
+		return err
+	}
+	e, err := o.Pins.Get("shirudo")
+	if err != nil {
+		return err
+	}
+	// Read, not run: every shirudo command locks its memory first, and a build host's or runner's
+	// memlock limit (8 MiB) refuses it. The version is git describe's, the commit abbreviated.
+	b, err := os.ReadFile(bin) // #nosec G304 -- the binary this build made
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", bin, err)
+	}
+	if !bytes.Contains(b, []byte(e.Pin[:7])) {
+		return fmt.Errorf("%s does not name shirudo %s: built from another commit", ShirudoBinary, e.Pin)
+	}
+	for _, f := range []string{ShirudoLicenses, ShirudoPackages} {
+		if _, err := os.Stat(filepath.Join(o.Out, f)); err != nil {
+			return fmt.Errorf("missing %s: %w", f, err)
+		}
+	}
+	return nil
 }
