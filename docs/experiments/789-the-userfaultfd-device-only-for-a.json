@@ -1,0 +1,18 @@
+{
+  "decision": "carried",
+  "order": 577,
+  "change": "`Resume` lends QEMU `/dev/userfaultfd` for a fast load alone, with `add-fd`, and takes it back with `remove-fd` at postcopy-active; qemu/patches/0010 opens the device for each userfaultfd instead of keeping it, and `Start` no longer opens it for a restore (#789)",
+  "where": "machine/checkpoint.go, qemu/patches/0010",
+  "result": "restore-first, spin's shape and login, against the base commit with the release's QEMU: a fast restore (touched=1700, 30 a side) login −7.8 [−38.7, +24.9] evicted, +3.5 [−16.9, +17.8] cached, running +0.1 [−0.8, +0.9] and +0.6 [−0.4, +2.8], within noise (lab 45888553535); taken back after RESUME it read running +1.6 [+0.4, +2.8] cached (lab 45886134311). A restore in full, 20 a side, login +0.4 [−1.2, +2.8] and −0.1 [−1.8, +1.4] (lab 45886134494). ssh-first, 40 a side, first login +1.4 [−3.3, +5.7] (lab 45886662802)",
+  "evidence": "measured, 20 to 40 a side",
+  "source": "labs 45888553535, 45886134311, 45886134494, 45886662802",
+  "issues": [
+    789
+  ],
+  "runs": [
+    45888553535,
+    45886134311,
+    45886134494,
+    45886662802
+  ]
+}
