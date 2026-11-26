@@ -4,6 +4,8 @@ package boot_test
 
 import (
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/spin-stack/machine/machine"
@@ -33,6 +35,18 @@ func TestAGuestOnPasstReachesTheInternet(t *testing.T) {
 	passt, err := rel.Passt()
 	if err != nil {
 		t.Skipf("the tree has no passt (%v): a QEMU built without it, as sanitize.yml's is", err)
+	}
+	// passt sandboxes itself in a user namespace of its own, and dies when it cannot make one: a
+	// host that refuses is said here, by what refused it, and not as a guest with no network.
+	if out, err := exec.Command("unshare", "--user", "true").CombinedOutput(); err != nil {
+		label, _ := os.ReadFile("/proc/self/attr/current")
+		var sysctls []string
+		for _, k := range []string{"kernel/apparmor_restrict_unprivileged_userns", "kernel/apparmor_restrict_unprivileged_unconfined", "user/max_user_namespaces", "kernel/unprivileged_userns_clone"} {
+			v, _ := os.ReadFile("/proc/sys/" + k)
+			sysctls = append(sysctls, k+"="+strings.TrimSpace(string(v)))
+		}
+		t.Fatalf("this host makes no user namespace for an unprivileged process, and passt needs one: unshare --user: %v: %s; AppArmor label %q; %s",
+			err, out, strings.TrimSpace(string(label)), strings.Join(sysctls, " "))
 	}
 	t.Run("on passt", func(t *testing.T) {
 		root := newRawRoot(t, out, base)
