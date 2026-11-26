@@ -195,7 +195,9 @@ func shipped(o Options, top, share string) ([]file, error) {
 	}
 	// Every patch in each directory, never a list of them: mtrr.patch was added to the build and
 	// not to a list here, and v20261001.01 shipped a qboot.bin without the change it was built with.
-	// A changed GPL source is distributed with its changes.
+	// A changed GPL source is distributed with its changes. Each directory is the one its build
+	// applies, so one with no patch is a part built as upstream has it (systemd since 262, #791);
+	// a missing directory is a build or checkout that is not there.
 	for _, d := range []struct{ glob, prefix, what string }{
 		{filepath.Join(o.Root, "qemu/qboot/*.patch"), "qemu/qboot-", "qboot's patch"},
 		{filepath.Join(o.Root, "qemu/swtpm/*.patch"), "qemu/swtpm-", "swtpm's patch"},
@@ -204,10 +206,10 @@ func shipped(o Options, top, share string) ([]file, error) {
 		{filepath.Join(o.Root, "image/openssh/*.patch"), "openssh/", "OpenSSH patch"},
 		{filepath.Join(o.Root, "image/systemd/*.patch"), "systemd/", "systemd patch"},
 	} {
-		found, _ := filepath.Glob(d.glob)
-		if len(found) == 0 {
-			return nil, fmt.Errorf("missing every %s: nothing matches %s", d.what, d.glob)
+		if _, err := os.Stat(filepath.Dir(d.glob)); err != nil {
+			return nil, fmt.Errorf("missing every %s: %w", d.what, err)
 		}
+		found, _ := filepath.Glob(d.glob)
 		slices.Sort(found)
 		for _, p := range found {
 			files = append(files, file{p, at(d.prefix + filepath.Base(p)), d.what + " " + filepath.Base(p), 0o644})
@@ -360,8 +362,9 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		return nil, err
 	}
 	parts = append(parts, sbom.New(subject("base-image", o.Version), image, nil, o.Epoch))
-	// QEMU, qboot, the kernel, systemd and OpenSSH are built with this repository's patches: each is in its
-	// component's pedigree, so the SBOM does not say upstream's source is what was compiled.
+	// QEMU, qboot, the kernel, systemd and OpenSSH are built with this repository's patches, when
+	// their directories hold any: each is in its component's pedigree, so the SBOM does not say
+	// upstream's source is what was compiled.
 	pins, err := sbom.Pins(o.Pins, strings.Fields("qemu qboot swtpm libtpms json-glib passt e2fsprogs kernel shirudo openssl curl tpm2-tss ubuntu systemd-source openssh-source task git-lfs buildkit")...)
 	if err != nil {
 		return nil, err
@@ -378,9 +381,12 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		if !ok {
 			continue
 		}
+		if _, err := os.Stat(dir); err != nil {
+			return nil, fmt.Errorf("%s's patches: %w", c.Name, err)
+		}
 		found, _ := filepath.Glob(filepath.Join(dir, "*.patch"))
 		if len(found) == 0 {
-			return nil, fmt.Errorf("%s has no *.patch in %s", c.Name, dir)
+			continue
 		}
 		slices.Sort(found)
 		if pins[i], err = sbom.Patched(c, found...); err != nil {

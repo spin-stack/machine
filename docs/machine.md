@@ -225,9 +225,14 @@ m, err := machine.Start(ctx, spec, machine.StartOptions{
   with `--expect-pcr`; boot:tpm holds a guest's TPM to them. The command line is the whole one the
   machine is booted with, so a PCR 9 is the release's, the initrd's and the caller's flags'.
   Only the SHA-256 bank holds those digests: the other banks are extended with the same 32 bytes,
-  cut or zero-padded, so none is left at zero. PCR 11 is untouched: systemd's phase measurements
-  (`enter-initrd`, `leave-initrd`) are systemd-pcrphase's, whose units ask for a measured UKI boot,
-  so shirudo still warns that PCR 11 holds no phase measurement (#773).
+  cut or zero-padded, so none is left at zero.
+- **systemd measures the phases into PCR 11.** A machine with a TPM boots with
+  `systemd.tpm2_measured_os=1` (`Spec.cmdline`), so systemd 262's `ConditionSecurity=measured-os`
+  passes without the EFI variable only systemd-stub sets, and `systemd-pcrphase-initrd.service`
+  extends `enter-initrd` and `leave-initrd` into PCR 11 (#773, #791). shirudo's init in the initrd,
+  ordered after it, finds them there and pins its binding to the initrd by them; boot:shirudo
+  checks PCR 11 and the measurement log. The parameter is part of the command line, so PCR 9 and
+  `spin-machine pcrs` include it. A machine without a TPM boots without it.
 
 
 spin runs each QEMU as a user of its own, chrooted into a root it builds, in a cgroup it bounds.

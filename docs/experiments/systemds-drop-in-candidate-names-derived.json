@@ -2,12 +2,15 @@
   "decision": "carried",
   "order": 290,
   "change": "systemd's drop-in candidate names derived once per unit, not once per lookup directory: upstream #42858 (v262), backported to 259",
-  "where": "image/systemd/0001-dropin-derive-candidate-names-once.patch",
+  "where": "upstream in systemd 262 (#791); a patch in image/systemd on 259 until then",
   "result": "first login −6.5 [−9.9, −1.3], 100 a side against systemd rebuilt without it; PID 1's CPU before the login 56.0 → 52.4, p50 of 5 ledgers. Prior art: Eric Curtin's PR, `manager_enumerate()` 45.35 → 38.81 ms (50 runs, ~270 units, a container); Yocto's backport to 259.5",
   "evidence": "measured",
   "source": "labs 45090299768, 45090326943",
   "runs": [
     45090299768,
     45090326943
+  ],
+  "issues": [
+    791
   ]
 }

@@ -21,9 +21,7 @@ masked /etc/systemd/system-generators/systemd-debug-generator
 masked /etc/systemd/system-generators/systemd-factory-reset-generator
 masked /etc/systemd/system-generators/systemd-fstab-generator
 masked /etc/systemd/system-generators/systemd-hibernate-resume-generator
-masked /etc/systemd/system-generators/systemd-rc-local-generator
 masked /etc/systemd/system-generators/systemd-system-update-generator
-masked /etc/systemd/system-generators/systemd-sysv-generator
 masked /etc/systemd/system-generators/systemd-tpm2-generator
 masked /etc/systemd/system/apt-daily-upgrade.timer
 masked /etc/systemd/system/apt-daily.timer
@@ -68,6 +66,7 @@ added /etc/systemd/system/systemd-logind.service.d/10-lane.conf
 added /etc/systemd/system/systemd-logind.service.d/30-privatetmp.conf
 masked /etc/systemd/system/systemd-machine-id-commit.service
 masked /etc/systemd/system/systemd-modules-load.service
+masked /etc/systemd/system/systemd-pcrlogin@.service
 masked /etc/systemd/system/systemd-pstore.service
 masked /etc/systemd/system/systemd-random-seed.service
 masked /etc/systemd/system/systemd-timedated.service

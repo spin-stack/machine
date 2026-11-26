@@ -66,14 +66,20 @@ func passtNICs(nics []NIC) int {
 	return n
 }
 
-// cmdline is the kernel command line s boots with: the caller's, and for a NIC on passt the guest's
-// side of its network, which passt's fixed addresses make a constant.
+// cmdline is the kernel command line s boots with: the caller's, for a NIC on passt the guest's
+// side of its network, which passt's fixed addresses make a constant, and for a TPM
+// systemd.tpm2_measured_os=1. systemd measures its boot phases into PCR 11 only on a measured OS,
+// which without the parameter means one booted through systemd-stub, and this machine boots no
+// UKI (#773, docs/machine.md, "A TPM").
 func (s Spec) cmdline() Cmdline {
 	c := s.Cmdline
 	for i, n := range s.NICs {
 		if n.Passt != "" {
 			c.Extra = append(passtGuest(i), c.Extra...)
 		}
+	}
+	if s.TPM.State != "" {
+		c.Extra = append([]string{"systemd.tpm2_measured_os=1"}, c.Extra...)
 	}
 	return c
 }

@@ -1,0 +1,19 @@
+{
+  "decision": "carried",
+  "order": 316,
+  "change": "systemd 262 (tenacious's 262.1-1ubuntu1, built on resolute) and `systemd.tpm2_measured_os=1` on a machine with a TPM, so systemd-pcrphase measures `enter-initrd` and `leave-initrd` into PCR 11 without EFI; `systemd-tpm` built from the TPM2 build; `systemd-pcrlogin@.service` masked (#791, #773)",
+  "where": "image/systemd/Dockerfile, versions.yaml, machine/passt.go (Spec.cmdline), image/mkosi.conf, optimize-systemd.sh",
+  "result": "functional: a shirudo guest's PCR 11 holds the phases and shirudo's init no longer warns (boot:shirudo). Against v20261126.02, cold first login, no TPM, 100 a side: +3.5 [+1.0, +6.8], accept to login +5.1 [+3.7, +6.3], QEMU RSS +2.0 MiB (lab 45860427795). With `--tpm` and pcrlogin masked: +5.0 [+0.6, +8.8], +2.1 MiB; with pcrlogin running +24.1 [+19.8, +28.5], +8.0 MiB (lab 45862592487). The overlay edit the arms are made with, main's own systemd: −3.9 [−6.8, +2.1] (lab 45862597133)",
+  "evidence": "measured",
+  "source": "labs 45860427795, 45862592487, 45862597133, 45860433504",
+  "issues": [
+    791,
+    773
+  ],
+  "runs": [
+    45860427795,
+    45862592487,
+    45862597133,
+    45860433504
+  ]
+}

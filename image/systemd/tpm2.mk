@@ -1,6 +1,6 @@
 # docs/image.md, "The rebuilt packages"
 TPM2_FLAGS = -Dtpm2=enabled -Dopenssl=enabled -Dbootloader=enabled -Dshared-lib-tag=tpm2
-TPM2_FILES = -path '*pcr*' -not -name cryptsetup.nvpcr -o -path '*tpm2*' -o -name systemd-measure -o -name systemd-analyze
+TPM2_FILES = -path '*pcr*' -not -name cryptsetup.nvpcr -o -path '*tpm2*' -not -name 60-tpm2-id.rules -o -name systemd-measure -o -name systemd-analyze
 
 execute_after_dh_auto_install:
 	dh_auto_configure --builddirectory=tpm2-build -- $(CONFFLAGS) $(CONFFLAGS_DISTRO) $(CONFFLAGS_UPSTREAM) $(TPM2_FLAGS)

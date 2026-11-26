@@ -243,6 +243,13 @@ func TestShirudosToolsAreBuiltAsThePartIs(t *testing.T) {
 			t.Errorf("docker ran %q, want %q in it", got, want)
 		}
 	}
+	if err := ShirudoImage(context.Background(), o, "initrd", "y:check", "rootfs=/r"); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls(t, log); len(got) != 2 || !strings.Contains(got[1], "--target initrd ") ||
+		!strings.Contains(got[1], "--build-context kernel="+filepath.Join(out, "kernel")+" --build-context rootfs=/r --tag y:check --load .") {
+		t.Errorf("docker ran %q for the initrd's builder", got)
+	}
 	if err := ShirudoImage(context.Background(), Options{Root: root, Out: out, Pins: pinsWithout(t, "tpm2-tss")}, "initrd", "x"); err == nil {
 		t.Error("no tpm2-tss pin gave no error")
 	}

@@ -71,11 +71,23 @@ func TestTheShippedShirudoRunsOnTheRelease(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
 	o := build.Options{Root: root, Out: out, Pins: pins, Stdout: os.Stderr, Stderr: os.Stderr}
+	// The base image's files, which the initrd's builder starts from, so the initrd's systemd is the
+	// machine's (#777). rdump keeps modes and not owners, which only root sets; the builder's COPY
+	// gives every file to root.
+	r := newRawRoot(t, out, base)
+	rootfs := t.TempDir()
+	if b, err := exec.CommandContext(ctx, r.debugfs, "-R", "rdump / "+rootfs, r.path).CombinedOutput(); err != nil {
+		t.Fatalf("copying the base image's files: %v\n%.2000s", err, b)
+	}
+	if _, err := os.Stat(filepath.Join(rootfs, "usr/lib/systemd/systemd")); err != nil {
+		t.Fatalf("the base image's files: %v", err)
+	}
 	const operator, initrdImage = "spin-machine/shirudo-operator:check", "spin-machine/shirudo-initrd:check"
-	for target, tag := range map[string]string{"operator": operator, "initrd": initrdImage} {
-		if err := build.ShirudoImage(ctx, o, target, tag); err != nil {
-			t.Fatalf("building shirudo's %s image: %v", target, err)
-		}
+	if err := build.ShirudoImage(ctx, o, "operator", operator); err != nil {
+		t.Fatalf("building shirudo's operator image: %v", err)
+	}
+	if err := build.ShirudoImage(ctx, o, "initrd", initrdImage, "rootfs="+rootfs); err != nil {
+		t.Fatalf("building shirudo's initrd image: %v", err)
 	}
 
 	work := t.TempDir()
@@ -107,7 +119,6 @@ func TestTheShippedShirudoRunsOnTheRelease(t *testing.T) {
 	// The root file system as the boot integration guide leaves a target: the images, the
 	// certificate and the root file system's unit with the runtime image's
 	// drop-in, enabled; and the upatch and the check.
-	r := newRawRoot(t, out, base)
 	put := func(from, to, mode string) {
 		t.Helper()
 		b, err := os.ReadFile(from)
