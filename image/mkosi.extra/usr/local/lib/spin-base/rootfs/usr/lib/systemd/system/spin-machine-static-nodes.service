@@ -1,0 +1,10 @@
+# docs/image.md, "Kernel modules"
+[Unit]
+Description=The device nodes of the kernel's modules, before they are loaded
+ConditionFileNotEmpty=/lib/modules/%v/modules.devname
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/kmod static-nodes --format=tmpfiles --output=/run/tmpfiles.d/static-nodes.conf
+ExecStart=/usr/bin/systemd-tmpfiles --prefix=/dev --create --boot /run/tmpfiles.d/static-nodes.conf

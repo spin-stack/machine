@@ -468,7 +468,7 @@ func TestAVmlinuxThatRandomizesItselfIsBootedThroughPVH(t *testing.T) {
 func pvhKernel() []byte { return elftest.Kernel([]uint32{18, 19}, []byte{1, 0, 0, 0}) }
 
 // A kernel run's modules come into the tree with its vmlinux, and the modules edit puts them, and
-// the image's drop-in that makes their static nodes, into every overlay. A tree whose kernel brought
+// the image's unit that makes their static nodes after the first login, into every overlay. A tree whose kernel brought
 // none, a release's, has nothing for the edit to install, and is refused rather than measured as if
 // it had.
 func TestAKernelRunsModulesGoIntoTheOverlay(t *testing.T) {
@@ -486,7 +486,8 @@ func TestAKernelRunsModulesGoIntoTheOverlay(t *testing.T) {
 	}
 	e := tr.Manifest.Edits[0].Edit
 	if !strings.Contains(e.Setup, filepath.Join(tr.Dir, "kernel/modules/7.4.0")+` "$MNT/usr/lib/modules/"`) ||
-		!strings.Contains(e.Files["/etc/systemd/system/kmod-static-nodes.service.d/10-create.conf"], "systemd-tmpfiles") {
+		!strings.Contains(e.Files["/usr/lib/systemd/system/spin-machine-static-nodes.service"], "kmod static-nodes") ||
+		e.Mask[0] != "kmod-static-nodes.service" || e.Links["/etc/systemd/system/multi-user.target.wants/spin-machine-static-nodes.service"] == "" {
 		t.Errorf("the modules edit: %+v", e)
 	}
 	if _, err := MakeTree(filepath.Join(t.TempDir(), "r"), TreeSpec{Name: "r", From: base, Edits: []string{"modules"}}, s); err == nil ||

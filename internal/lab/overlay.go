@@ -460,9 +460,9 @@ install -D -m 0755 ` + bin + ` "$MNT/usr/libexec/spin-machine-pressure"
 	}, nil
 }
 
-// modulesEdit is the tree's kernel's modules in the overlay's /usr/lib/modules, with the image's
-// drop-in that creates their static nodes, as this checkout builds the image (docs/image.md, "Kernel
-// modules"): a release's image with a kernel run's modules, which a parts.yml run of a change that
+// modulesEdit is the tree's kernel's modules in the overlay's /usr/lib/modules, with the unit that
+// creates their static nodes after the first login and kmod-static-nodes masked, as this checkout
+// builds the image (docs/image.md, "Kernel modules"): a release's image with a kernel run's modules, which a parts.yml run of a change that
 // reaches the kernel publishes beside its vmlinux, and no image job does.
 func modulesEdit(checkout, dir string) (Edit, error) {
 	modules := filepath.Join(dir, "kernel", "modules")
@@ -470,13 +470,15 @@ func modulesEdit(checkout, dir string) (Edit, error) {
 	if err != nil || len(releases) != 1 {
 		return Edit{}, fmt.Errorf("the tree's kernel has no modules of one release in %s (%v): --kernel run:N of a parts.yml run that has them", modules, err)
 	}
-	const dropIn = "/etc/systemd/system/kmod-static-nodes.service.d/10-create.conf"
-	b, err := os.ReadFile(filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", dropIn))
+	const unit = "/usr/lib/systemd/system/spin-machine-static-nodes.service"
+	b, err := os.ReadFile(filepath.Join(checkout, "image", "mkosi.extra", "usr", "local", "lib", "spin-base", "rootfs", unit))
 	if err != nil {
-		return Edit{}, fmt.Errorf("reading the static nodes' drop-in from this checkout: %w", err)
+		return Edit{}, fmt.Errorf("reading the static nodes' unit from this checkout: %w", err)
 	}
 	return Edit{
-		Files: map[string]string{dropIn: string(b)},
+		Mask:  []string{"kmod-static-nodes.service"},
+		Files: map[string]string{unit: string(b)},
+		Links: map[string]string{"/etc/systemd/system/multi-user.target.wants/spin-machine-static-nodes.service": unit},
 		Setup: `test ! -e "$MNT/usr/lib/modules/` + releases[0].Name() + `"
 mkdir -p "$MNT/usr/lib/modules"
 cp -a ` + filepath.Join(modules, releases[0].Name()) + ` "$MNT/usr/lib/modules/"

@@ -250,7 +250,7 @@ laid out as one (`--from _output`). It replaces what its flags ask for:
   builds them into the image, put into a published release's overlays.
 - `--edit nolinger`: spin not lingering, as this checkout builds the image.
 - `--edit modules`: the tree's kernel's modules in every overlay's `/usr/lib/modules`, with the
-  image's drop-in that creates their static nodes (docs/image.md, "Kernel modules"). Its kernel is
+  image's unit that creates their static nodes and `kmod-static-nodes.service` masked (docs/image.md, "Kernel modules"). Its kernel is
   `--kernel run:N` of a parts.yml run from #736 on, whose artifact carries them.
 - `--edit forwarder-early`: `login=spin`'s forwarder, which stands for spin's supervisor, without
   systemd's default dependencies.

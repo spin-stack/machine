@@ -413,9 +413,12 @@ for f in modules.dep modules.alias.bin modules.devname kernel/fs/fuse/fuse.ko; d
         exit 1; }
 done
 rm -f /work/module.bin
-"$bin/debugfs" -R "cat /etc/systemd/system/kmod-static-nodes.service.d/10-create.conf" /work/base.raw 2>/dev/null |
-        grep -q '^ExecStartPost=.*systemd-tmpfiles' || {
-    echo "ERROR: kmod-static-nodes.service does not create the static nodes, and /dev/fuse would not be there" >&2
+stat_in_image /etc/systemd/system/kmod-static-nodes.service | grep -q '/dev/null' || {
+    echo "ERROR: kmod-static-nodes.service is not masked, and holds sysinit.target, so the first login, for a node nothing uses at boot" >&2
+    exit 1; }
+stat_in_image /etc/systemd/system/multi-user.target.wants/spin-machine-static-nodes.service |
+        grep -qF '/usr/lib/systemd/system/spin-machine-static-nodes.service' || {
+    echo "ERROR: spin-machine-static-nodes.service is not wanted by multi-user.target, and /dev/fuse would not be there" >&2
     exit 1; }
 
 # docs/image.md, "The filesystem"
