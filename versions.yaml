@@ -286,8 +286,8 @@
 - name: moby-check-config
   kind: download
   source: https://raw.githubusercontent.com/moby/moby/{version}/contrib/check-config.sh
-  version: 3c9882e7f214a320dcd579fa48e758b08d2b72c1
-  pin: fda4343e9b50c47896653ca774ccbe9614bfcdb60f080d2b6277baf27efc0a71
+  version: 94b6688c6ab646368c5a81b8da16e4b24d50f307
+  pin: 07dd6666c6f1edb3c8f6e534aeb0926683967e4dca358c4e7df53582713f7f4d
   track: commit https://github.com/moby/moby.git master
   note: >-
     kernel/Dockerfile runs it over the kernel's config: the options a container runtime needs,
