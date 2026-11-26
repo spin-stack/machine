@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 380,
+  "date": "2026-11-26",
+  "change": "The TPM2 build's sysinit and sockets units (`systemd-pcrmachine`, `-pcrphase`, `-pcrphase-sysinit`, `-pcrproduct`, `-pcrnvdone`, `-tpm2-setup-early`, `-tpm2-setup`, `systemd-pcrextend.socket`, `systemd-pcrlock.socket`) masked rather than their wants left out of the package (#767)",
+  "result": "against main, first login +4.6 [+1.5, +10.2], 40 a side (lab 45841667450); with `--tpm` +1.7 [−5.4, +9.8] (lab 45841705511). A masked unit is still loaded. The wants left out of the package instead: −0.1 [−3.3, +2.9], 60 a side (lab 45843865731)",
+  "shape": "spin",
+  "source": "labs 45841667450, 45841705511, 45843865731, #786",
+  "issues": [
+    767
+  ],
+  "runs": [
+    45841667450,
+    45841705511,
+    45843865731
+  ]
+}

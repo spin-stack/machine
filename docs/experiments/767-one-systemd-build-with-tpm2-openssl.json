@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 370,
+  "date": "2026-11-26",
+  "change": "systemd built once with TPM2, OpenSSL and the boot loader, so the image's systemd has `systemd-pcrextend` and `systemd-pcrphase-initrd.service` (#767)",
+  "result": "first login +20.0 [+15.5, +26.8], QEMU RSS +4.0 MiB, 30 a side (lab 45835078883); with `--tpm` +17.1 [+8.9, +25.2] (lab 45835128161). OpenSSL alone +9.7 [+1.6, +14.6], TPM2 alone −1.0 [−7.2, +7.6] (lab 45837372412): OpenSSL linked into libsystemd-shared makes PID 1, the executor of every unit and every daemon load libcrypto. Replaced by a second build the boot never loads",
+  "shape": "spin",
+  "source": "labs 45835078883, 45835128161, 45837372412, #786",
+  "issues": [
+    767
+  ],
+  "runs": [
+    45835078883,
+    45835128161,
+    45837372412
+  ]
+}

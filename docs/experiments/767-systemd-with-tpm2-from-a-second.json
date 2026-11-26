@@ -1,0 +1,19 @@
+{
+  "decision": "carried",
+  "order": 315,
+  "change": "systemd with TPM2 from a second build of the same source the boot never loads: the pcr and tpm2 tools, units, generator and data, `systemd-measure` and `systemd-analyze` with their own `libsystemd-shared-tpm2.so` and `libsystemd-core-tpm2.so`; the tpm2 generator masked and the TPM2 units' sysinit and sockets wants left out of the package; tpm2-tss and tpm-udev installed (#767)",
+  "where": "image/systemd/tpm2.mk, image/systemd/Dockerfile, image/mkosi.conf",
+  "result": "functional: a guest builds shirudo's initrd itself. Against main, cold first login, no TPM, 100 a side: +0.9 [−0.5, +4.0], within noise (lab 45850857558); with `--tpm`, 100 a side: +1.6 [−3.1, +5.2], within noise (lab 45856077593). Restored first login, evicted: +0.5 [−1.8, +3.6] and with `--tpm` −0.8 [−2.4, +1.8] (labs 45846635465, 45846692031). The generator run: +10.2 [+6.4, +13.1] and QEMU RSS +6.0 MiB, against +6.4 [+0.9, +10.3] and +0.1 MiB without it (lab 45839499964)",
+  "evidence": "measured",
+  "source": "labs 45850857558, 45856077593, 45846635465, 45846692031, 45839499964, #786",
+  "issues": [
+    767
+  ],
+  "runs": [
+    45850857558,
+    45856077593,
+    45846635465,
+    45846692031,
+    45839499964
+  ]
+}
