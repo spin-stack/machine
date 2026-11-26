@@ -3,7 +3,10 @@
 package machine
 
 import (
+	"crypto"
+	_ "crypto/sha1" // #nosec G505 -- a PCR bank's algorithm, replayed, not chosen
 	"crypto/sha256"
+	_ "crypto/sha512"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -120,6 +123,37 @@ func (s Spec) TPMEvents() []TPMEvent {
 		events = append(events, tagged(s.TPM.Initrd, 0x8f3b22ec, "Linux initrd"))
 	}
 	return events
+}
+
+// PCRBank is a PCR bank of the TPM: its algorithm, as a verifier names it, and its hash.
+type PCRBank struct {
+	Name string
+	Hash crypto.Hash
+}
+
+// PCRBanks are the banks swtpm makes active on an empty state, all four, in the order a TPM lists
+// them.
+var PCRBanks = []PCRBank{{"sha1", crypto.SHA1}, {"sha256", crypto.SHA256}, {"sha384", crypto.SHA384}, {"sha512", crypto.SHA512}}
+
+// PCRs is what the firmware's measurements leave in each PCR they extend, in bank, from PCRs at
+// zero: what a verifier pins for a machine that boots s, computed from its kernel, initrd and
+// command line without booting it (`spin-machine pcrs`). A bank of another size than SHA-256's is
+// extended with the SHA-256 digest cut or zero-padded to its size, as qboot extends it.
+func (s Spec) PCRs(bank PCRBank) map[uint32][]byte {
+	pcrs := map[uint32][]byte{}
+	for _, e := range s.TPMEvents() {
+		h := bank.Hash.New()
+		v, ok := pcrs[e.PCR]
+		if !ok {
+			v = make([]byte, h.Size())
+		}
+		d := make([]byte, h.Size())
+		copy(d, e.Digest[:])
+		h.Write(v)
+		h.Write(d)
+		pcrs[e.PCR] = h.Sum(nil)
+	}
+	return pcrs
 }
 
 // tagged is an EV_EVENT_TAG in PCR 9: a TCG_PCClientTaggedEvent of the tag and its description

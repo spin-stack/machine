@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -130,6 +131,7 @@ func TestTpmcheckLogHoldsTheLogToThePCRs(t *testing.T) {
 	want := fmt.Sprintf("SPIN-TPM-EVENT pcr=4 type=0xd sha256=%x data=%x\n", events[0].sha256, events[0].data) +
 		fmt.Sprintf("SPIN-TPM-EVENT pcr=9 type=0x6 sha256=%x data=%x\n", events[1].sha256, events[1].data) +
 		fmt.Sprintf("SPIN-TPM-EVENT pcr=9 type=0x6 sha256=%x data=%x\n", events[2].sha256, events[2].data) +
+		pcrLines(t, tpm, banks) +
 		"SPIN-TPM-LOG events=3 replayed=" + strings.Join(names, ",")
 	if got != want {
 		t.Errorf("tpmcheck log said\n%s\nwant\n%s", got, want)
@@ -164,6 +166,25 @@ func TestTpmcheckLogHoldsTheLogToThePCRs(t *testing.T) {
 			t.Errorf("%s: %v, want an error saying %q", tc.name, err, tc.says)
 		}
 	}
+}
+
+// pcrLines is what tpmcheck log says the TPM holds in PCRs 4 and 9 of each bank.
+func pcrLines(t *testing.T, tpm transport.TPM, banks []tpm2.TPMAlgID) string {
+	t.Helper()
+	var b strings.Builder
+	for _, alg := range []tpm2.TPMAlgID{tpm2.TPMAlgSHA1, tpm2.TPMAlgSHA256, tpm2.TPMAlgSHA384, tpm2.TPMAlgSHA512} {
+		if !slices.Contains(banks, alg) {
+			continue
+		}
+		for _, pcr := range []uint32{4, 9} {
+			v, err := readPCRBank(tpm, alg, pcr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprintf(&b, "SPIN-TPM-PCR bank=%#x pcr=%d value=%x\n", alg, pcr, v)
+		}
+	}
+	return b.String()
 }
 
 // Every bank replays with its own hash: SHA-384's PCR is SHA-384 of the PCR and the digest.

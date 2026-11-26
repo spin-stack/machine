@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/google/go-tpm/tpm2"
@@ -146,7 +148,8 @@ func replay(events []event) (map[tpm2.TPMAlgID]map[uint32][]byte, error) {
 }
 
 // checkLog is what tpmcheck log prints of the log b and the TPM: a line for each event, its PCR,
-// type, SHA-256 digest and data, then SPIN-TPM-LOG with the event count and the banks whose every
+// type, SHA-256 digest and data, a line for each PCR the log names in each bank with the value the
+// TPM holds, then SPIN-TPM-LOG with the event count and the banks whose every
 // PCR the log names holds what the log replays to. A PCR that does not is an error.
 func checkLog(tpm transport.TPM, b []byte) (string, error) {
 	events, err := parseLog(b)
@@ -163,14 +166,15 @@ func checkLog(tpm transport.TPM, b []byte) (string, error) {
 	}
 	var replayed []string
 	for _, alg := range []tpm2.TPMAlgID{tpm2.TPMAlgSHA1, tpm2.TPMAlgSHA256, tpm2.TPMAlgSHA384, tpm2.TPMAlgSHA512} {
-		for pcr, v := range want[alg] {
+		for _, pcr := range slices.Sorted(maps.Keys(want[alg])) {
 			got, err := readPCRBank(tpm, alg, pcr)
 			if err != nil {
 				return "", err
 			}
-			if !bytes.Equal(got, v) {
-				return "", fmt.Errorf("PCR %d of bank %#x holds %x, and the log replays to %x", pcr, alg, got, v)
+			if !bytes.Equal(got, want[alg][pcr]) {
+				return "", fmt.Errorf("PCR %d of bank %#x holds %x, and the log replays to %x", pcr, alg, got, want[alg][pcr])
 			}
+			fmt.Fprintf(&out, "SPIN-TPM-PCR bank=%#x pcr=%d value=%x\n", alg, pcr, got)
 		}
 		if want[alg] != nil {
 			replayed = append(replayed, fmt.Sprintf("%#x", alg))

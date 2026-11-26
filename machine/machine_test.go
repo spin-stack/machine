@@ -3,6 +3,8 @@
 package machine
 
 import (
+	"bytes"
+	"crypto"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -815,5 +817,38 @@ func TestFileSHA256IsTheDigestOfTheFile(t *testing.T) {
 	}
 	if _, err := FileSHA256(filepath.Dir(p)); err == nil || !strings.Contains(err.Error(), "hashing") {
 		t.Errorf("a directory: %v", err)
+	}
+}
+
+// What a verifier pins: each PCR the firmware extends, replayed from zero in each bank, the SHA-256
+// digest cut or zero-padded to the bank's size.
+func TestPCRsAreTheEventsReplayedFromZero(t *testing.T) {
+	s := spec(t)
+	if got := s.PCRs(PCRBanks[1]); len(got) != 0 {
+		t.Errorf("a machine without a TPM extends %v", got)
+	}
+	s.TPM = TPM{SWTPM: "/swtpm", State: "/tpm", FD: 3, Kernel: [32]byte{1}}
+	extend := func(h crypto.Hash, pcr []byte, digest [32]byte) []byte {
+		d := make([]byte, h.Size())
+		copy(d, digest[:])
+		x := h.New()
+		x.Write(pcr)
+		x.Write(d)
+		return x.Sum(nil)
+	}
+	events := s.TPMEvents()
+	for _, bank := range PCRBanks {
+		zero := make([]byte, bank.Hash.Size())
+		want4 := extend(bank.Hash, zero, events[0].Digest)
+		want9 := extend(bank.Hash, zero, events[1].Digest)
+		got := s.PCRs(bank)
+		if len(got) != 2 || !bytes.Equal(got[4], want4) || !bytes.Equal(got[9], want9) {
+			t.Errorf("%s: %x, want PCR 4 %x and PCR 9 %x", bank.Name, got, want4, want9)
+		}
+	}
+	s.Initrd, s.TPM.Initrd = "/initrd", [32]byte{2}
+	nine := extend(crypto.SHA256, extend(crypto.SHA256, make([]byte, 32), s.TPMEvents()[1].Digest), [32]byte{2})
+	if got := s.PCRs(PCRBanks[1])[9]; !bytes.Equal(got, nine) {
+		t.Errorf("PCR 9 with an initrd: %x, want the command line's and then the initrd's extend, %x", got, nine)
 	}
 }

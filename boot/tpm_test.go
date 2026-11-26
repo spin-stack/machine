@@ -132,6 +132,17 @@ func TestTheGuestUsesItsTPMAcrossACheckpoint(t *testing.T) {
 		if !strings.Contains(m[2], "0xb") {
 			t.Errorf("the log replays the banks %s, not SHA-256's", m[2])
 		}
+		// What the TPM holds is what a verifier computes from the files without booting them
+		// (spin-machine pcrs, machine.Spec.PCRs), in every bank.
+		ids := map[string]string{"sha1": "0x4", "sha256": "0xb", "sha384": "0xc", "sha512": "0xd"}
+		for _, bank := range machine.PCRBanks {
+			for pcr, v := range s.PCRs(bank) {
+				line := fmt.Sprintf("SPIN-TPM-PCR bank=%s pcr=%d value=%x", ids[bank.Name], pcr, v)
+				if !strings.Contains(text, line) {
+					t.Errorf("the guest's TPM does not hold what spin-machine pcrs computes: no %q in\n%s", line, tail([]byte(text), 3000))
+				}
+			}
+		}
 		t.Logf("the guest's log: %d events, replayed in the banks %s", len(got), m[2])
 	}
 

@@ -137,8 +137,14 @@ func TestTheShippedShirudoRunsOnTheRelease(t *testing.T) {
 
 	t.Log(checkGuest(t, rel, r, "SHIRUDO_CHECK_OK", "SHIRUDO_CHECK_FAILED", func(s *machine.Spec) {
 		s.Cmdline.Lockdown = machine.LockdownShirudo
-		s.TPM = machine.TPM{SWTPM: swtpm, State: t.TempDir()}
 		s.Initrd = initrd
+		s.TPM = machine.TPM{SWTPM: swtpm, State: t.TempDir()}
+		// The digests of what the firmware measures, as a caller makes them, once a file.
+		for path, digest := range map[string]*[32]byte{s.Kernel: &s.TPM.Kernel, s.Initrd: &s.TPM.Initrd} {
+			if *digest, err = machine.FileSHA256(path); err != nil {
+				t.Fatal(err)
+			}
+		}
 		// An initrd of ~62 MB unpacked into the guest's memory: at 1 GiB the boot is short of it.
 		s.Memory.BaseMB = 4096
 	}, func(*machine.QEMU, string) {}))
