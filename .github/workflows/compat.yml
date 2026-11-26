@@ -6,8 +6,8 @@ name: Compat
 # guest is loaded into - the machine's definition, QEMU, the kernel, the firmware and their pins -
 # and before every release. And whether that kernel, booted, is locked down (boot:lockdown) and at
 # a random base every boot (boot:kaslr), and whether a guest checkpointed and continued still grows
-# (boot:cpu-plug). And, for a change that reaches shirudo or the kernel it hooks, whether the
-# shirudo it builds runs on that machine (boot:shirudo).
+# (boot:cpu-plug). And, for a change that reaches shirudo, the kernel it hooks or the QEMU it boots
+# on, whether the shirudo it builds runs on that machine (boot:shirudo).
 #
 # How long a checkpoint stops the guest (boot:checkpoint-pause) is a bound, not compatibility: it
 # runs on the bench, on each release (release.yml's pause) and at a QEMU bump (versions.yaml).
@@ -112,10 +112,11 @@ jobs:
         id: kernel
         run: spin-machine-dev changed --base "$BASE" --part kernel go.mod cmd/spin-machine-dev internal/build
 
-      # shirudo, its pins, the kernel it hooks, the machine it boots on and the check itself.
+      # shirudo, its pins, the kernel it hooks, the QEMU it boots on (swtpm and qboot's measured
+      # boot are built there), the machine and the check itself.
       - name: Does the change reach shirudo
         id: shirudo
-        run: spin-machine-dev changed --base "$BASE" --part shirudo --part kernel machine cmd/spin-machine-dev internal/build boot/shirudo_test.go boot/testdata/shirudo-check.sh boot/testdata/shirudo-operator.sh boot/harness_test.go boot/console_test.go boot/Taskfile.yml go.mod .github/workflows/compat.yml
+        run: spin-machine-dev changed --base "$BASE" --part shirudo --part kernel --part qemu machine cmd/spin-machine-dev internal/build boot/shirudo_test.go boot/testdata/shirudo-check.sh boot/testdata/shirudo-operator.sh boot/harness_test.go boot/console_test.go boot/Taskfile.yml go.mod .github/workflows/compat.yml
 
   resume:
     needs: changed
@@ -239,10 +240,12 @@ jobs:
 
   # The shirudo this change builds (guest/shirudo, from versions.yaml's shirudo pin and against the
   # kernel built here), deployed and run on this change's machine as release.yml's shirudo job runs
-  # a release's (boot:shirudo): no change to shirudo, its pins or the kernel it hooks merges without
-  # a run of shirudo. The kernel is built, from main's cache when the change does not reach it, so
-  # that shirudo's BPF objects and the kernel booted are one build. Not in a release's call: there
-  # release.yml checks the tarball it packed.
+  # a release's (boot:shirudo): no change to shirudo, its pins, the kernel it hooks or the QEMU it
+  # boots on merges without a run of shirudo. The kernel is built, from main's cache when the change
+  # does not reach it, so that shirudo's BPF objects and the kernel booted are one build. QEMU is
+  # built when the change reaches it, as resume's: main's published one would leave a change to
+  # swtpm or qboot unrun (#783). Not in a release's call: there release.yml checks the tarball it
+  # packed.
   shirudo:
     needs: changed
     if: needs.changed.outputs.shirudo == 'true' && !inputs.release
@@ -275,7 +278,12 @@ jobs:
       - name: Load vhost_vsock
         run: spin-machine-dev vsock
 
+      - name: Build this change's QEMU
+        if: needs.changed.outputs.qemu == 'true'
+        run: spin-machine-dev build qemu --cache-registry --cache-export=false
+
       - name: Main's published QEMU
+        if: needs.changed.outputs.qemu != 'true'
         run: spin-machine-dev fetch qemu
 
       - name: Build this change's kernel and shirudo
