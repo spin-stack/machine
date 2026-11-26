@@ -60,6 +60,7 @@ masked /etc/systemd/system/systemd-firstboot.service
 masked /etc/systemd/system/systemd-fsck-root.service
 masked /etc/systemd/system/systemd-hibernate-clear.service
 masked /etc/systemd/system/systemd-journal-flush.service
+masked /etc/systemd/system/systemd-journalctl.socket
 added /etc/systemd/system/systemd-logind-varlink.socket.d/10-seats.conf
 added /etc/systemd/system/systemd-logind-varlink.socket.d/20-lane.conf
 added /etc/systemd/system/systemd-logind.service.d/10-lane.conf
@@ -83,6 +84,7 @@ added /etc/systemd/system/user@.service.d/10-lane.conf
 masked /etc/systemd/user-generators/systemd-xdg-autostart-generator
 added /etc/systemd/user/dbus.socket.d/10-env.conf
 added /etc/systemd/user/ssh-agent.socket.d/10-env.conf
+masked /etc/systemd/user/systemd-journalctl.socket
 added /etc/tmpfiles.d/lru-gen.conf
 masked /etc/tmpfiles.d/systemd-network.conf
 masked /etc/tmpfiles.d/systemd-nologin.conf

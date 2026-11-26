@@ -32,6 +32,8 @@ MASK_UNITS=(
 
     systemd-pcrlogin@.service
 
+    systemd-journalctl.socket
+
     modprobe@configfs.service
     modprobe@drm.service
     modprobe@fuse.service
@@ -77,6 +79,10 @@ done
 # spin's shape, against v20261122.06, lab 45070150688, #527).
 mkdir -p /etc/systemd/user-generators
 ln -sf /dev/null /etc/systemd/user-generators/systemd-xdg-autostart-generator
+
+# docs/image.md, "Units masked": systemd 262's journal access socket, in root's manager too.
+mkdir -p /etc/systemd/user
+ln -sf /dev/null /etc/systemd/user/systemd-journalctl.socket
 
 log "Masking unnecessary tmpfiles rules..."
 mkdir -p /etc/tmpfiles.d

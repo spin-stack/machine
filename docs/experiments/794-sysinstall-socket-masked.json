@@ -1,0 +1,16 @@
+{
+  "decision": "rejected",
+  "section": "image",
+  "order": 390,
+  "date": "2026-11-26",
+  "change": "`systemd-sysinstall.socket` masked: systemd 262's `io.systemd.SysInstall` Varlink socket, new in `sockets.target` (#794)",
+  "result": "cold first login −0.3 [−2.9, +2.7], sshd accepting +0.7 [−1.9, +2.6], 100 a side, against main's 262 (lab 45885609644). Left as shipped",
+  "shape": "spin",
+  "source": "lab 45885609644",
+  "issues": [
+    794
+  ],
+  "runs": [
+    45885609644
+  ]
+}
