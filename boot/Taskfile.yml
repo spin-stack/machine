@@ -43,13 +43,27 @@ tasks:
     cmds:
       - SPIN_TPM_TEST=1 go test ./boot/ -run '^TestTheGuestUsesItsTPMAcrossACheckpoint$' -count=1 -v -timeout 10m
 
+  passt-apparmor:
+    desc: >-
+      passt's AppArmor profile for the tree's passt, installed and loaded with the commands
+      docs/machine.md gives a reader ("A network without root"): what lets passt make its user
+      namespace on a host whose AppArmor refuses one to an unprivileged process, as the runners'
+      Ubuntu 26.04 image does (run 45798835676). compat.yml runs it before boot:net, with the
+      restriction left on. Needs sudo.
+    cmds:
+      - |
+        set -euo pipefail
+        "$SPIN_MACHINE_OUTPUT/bin/spin-machine" apparmor --release "$SPIN_MACHINE_OUTPUT" | sudo tee /etc/apparmor.d/spin-machine-passt > /dev/null
+        sudo apparmor_parser -r /etc/apparmor.d/spin-machine-passt
+
   net:
     desc: >-
       A machine with a NIC on passt (machine.NIC.Passt), as spin-machine boot --net gives one: the
       guest's systemd brings eth0 up with the address, route and nameserver its kernel command line
       carries, resolves github.com and fetches https://github.com through passt, and a machine
-      without a NIC has none (net_test.go). Needs a built release with passt and the internet; runs
-      under TCG where there is no /dev/kvm.
+      without a NIC has none (net_test.go). Needs a built release with passt and the internet, and
+      on a host whose AppArmor refuses passt its user namespace, passt-apparmor first; runs under
+      TCG where there is no /dev/kvm.
     deps: [':tools']
     cmds:
       - SPIN_NET_TEST=1 go test ./boot/ -run '^TestAGuestOnPasstReachesTheInternet$' -count=1 -v -timeout 5m
