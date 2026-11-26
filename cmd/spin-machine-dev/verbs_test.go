@@ -557,7 +557,7 @@ func TestReleaseVersionIsGivenOrTheNextOfToday(t *testing.T) {
 func packed(t *testing.T, dir string) string {
 	t.Helper()
 	out := filepath.Join(dir, "_output")
-	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/a.patch", "qemu/patches/0001-a.patch", "image/openssh/a.patch", "image/systemd/s.patch"} {
+	for _, f := range []string{"LICENSE", "NOTICE", "qemu/qboot/COPYING", "qemu/qboot/a.patch", "qemu/swtpm/a.patch", "qemu/patches/0001-a.patch", "image/openssh/a.patch", "image/systemd/s.patch"} {
 		put(t, filepath.Join(dir, f), f, 0o644)
 	}
 	for _, b := range append(append([]string{build.SWTPMBinary, build.PasstBinary}, build.QEMUBinaries...), build.E2fsprogsBinaries...) {

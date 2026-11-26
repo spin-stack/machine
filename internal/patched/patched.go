@@ -54,6 +54,7 @@ var Parts = []Part{
 	{Name: "qboot", Pin: "qboot", Patches: "qemu/qboot/*.patch"},
 	{Name: "systemd", Pin: "systemd-source", Patches: "image/systemd/*.patch"},
 	{Name: "openssh", Pin: "openssh-source", Patches: "image/openssh/*.patch"},
+	{Name: "swtpm", Pin: "swtpm", Patches: "qemu/swtpm/*.patch"},
 }
 
 // Names is every part's name.

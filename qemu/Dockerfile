@@ -657,6 +657,16 @@ RUN b=/opt/swtpm/bin/swtpm && \
     done && \
     echo "OK: swtpm is static and hardened, and its TPM 2.0 offers RSA-3072"
 
+# qemu/swtpm/openssl-unconfigured.patch, held by what it is for: an OpenSSL configuration file
+# whose provider cannot load leaves an unpatched swtpm no algorithm, and it exits at its TPM's
+# start; this one reads no such file, and its TPM is still running when timeout ends it.
+RUN b=/opt/swtpm/bin/swtpm && d=$(mktemp -d) && \
+    printf 'config_diagnostics = 1\nopenssl_conf = init\n[init]\nproviders = providers\n[providers]\nmissing = missing\n[missing]\nactivate = 1\n' > "$d/openssl.cnf" && \
+    { OPENSSL_CONF="$d/openssl.cnf" timeout 2 "$b" socket --tpm2 --tpmstate dir="$d" --flags not-need-init \
+        --ctrl type=unixio,path="$d/ctrl" --server type=unixio,path="$d/data"; rc=$?; } ; \
+    [ "$rc" = 124 ] || { echo "ERROR: $b read an OpenSSL configuration file (exit $rc): qemu/swtpm/openssl-unconfigured.patch is lost"; exit 1; }; \
+    rm -rf "$d" && echo "OK: swtpm reads no OpenSSL configuration file"
+
 # passt, the network of a NIC on passt (machine.NIC.Passt): one beside each QEMU whose machine has
 # one, which machine.Start runs on a socket pair. Not QEMU's --enable-passt, which has QEMU spawn
 # it, nor slirp, which puts a network stack inside the QEMU process every machine runs (both stay

@@ -85,7 +85,7 @@ func TestPatchedScopeExitsOneOnAResultOnAnAddedLine(t *testing.T) {
 func TestPatchedNamesItsParts(t *testing.T) {
 	checkout(t)
 	for _, v := range []string{"tree", "scope"} {
-		if _, stderr, status := verb(t, "patched", v, "seabios"); status != 2 || !strings.Contains(stderr, "kernel, qemu, qboot, systemd, openssh") {
+		if _, stderr, status := verb(t, "patched", v, "seabios"); status != 2 || !strings.Contains(stderr, "kernel, qemu, qboot, systemd, openssh, swtpm") {
 			t.Errorf("%s of an unknown part: status %d, %s", v, status, stderr)
 		}
 	}
