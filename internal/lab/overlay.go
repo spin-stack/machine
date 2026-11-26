@@ -507,7 +507,7 @@ for deb in "$debs"/*.deb; do
 	pkg=$(dpkg-deb -f "$deb" Package)
 	list="$MNT/var/lib/dpkg/info/$pkg.list"
 	[ -f "$list" ] || list="$MNT/var/lib/dpkg/info/$pkg:amd64.list"
-	case $pkg in libtss2-*) list=$(mktemp) ;; esac
+	case $pkg in libtss2-*|tpm-udev) list=$(mktemp) ;; esac
 	[ -f "$list" ] || continue
 	new=$(mktemp)
 	dpkg-deb --fsys-tarfile "$deb" | tar -t | sed -e 's|^\./|/|' -e 's|/$||' | sort > "$new"
@@ -516,6 +516,11 @@ for deb in "$debs"/*.deb; do
 	done
 	rm -f "$new"
 	dpkg-deb --fsys-tarfile "$deb" | tar -x -C "$MNT" --exclude=./etc
+	if [ "$pkg" = tpm-udev ]; then
+		systemd-sysusers --root "$MNT" "$MNT/usr/lib/sysusers.d/tpm2-tss.conf"
+		mkdir -p "$MNT/etc/systemd/system/paths.target.wants"
+		ln -sf /usr/lib/systemd/system/tpm-udev.path "$MNT/etc/systemd/system/paths.target.wants/tpm-udev.path"
+	fi
 	replaced=$((replaced + 1))
 done
 touch -m -d "@$usr_mtime" "$MNT/usr"

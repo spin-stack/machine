@@ -51,7 +51,7 @@ RUN tests="test-engine test-load-fragment" && \
     python3 /build/tests-passed.py obj-*/meson-logs/testlog.json $tests
 
 RUN mkdir -p /debs && cp /build/*.deb /debs/ && \
-    (cd /debs && apt-get download libtss2-esys-3.0.2-0t64 libtss2-mu-4.0.1-0t64 libtss2-rc0t64 libtss2-tcti-device0t64) && \
+    case "${SYSTEMD_EXPERIMENT}" in tpm2*) (cd /debs && apt-get download libtss2-esys-3.0.2-0t64 libtss2-mu-4.0.1-0t64 libtss2-rc0t64 libtss2-sys1t64 libtss2-tcti-cmd0t64 libtss2-tcti-device0t64 libtss2-tcti-mssim0t64 libtss2-tcti-swtpm0t64 tpm-udev) ;; esac && \
     for p in systemd systemd-sysv udev libsystemd0 libsystemd-shared libudev1 libpam-systemd; do \
         ls /debs/${p}_*+spin1_*.deb > /dev/null || { echo "ERROR: no ${p} built"; exit 1; }; \
     done && \
