@@ -21,6 +21,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -318,6 +319,11 @@ func MakeTree(dir string, spec TreeSpec, src Sources) (*Tree, error) {
 	default:
 		return nil, fmt.Errorf("--cpu is baseline or left out, not %q: a named model is --boot --cpu=NAME", spec.CPU)
 	}
+	if strings.HasPrefix(spec.Kernel, "traceable:") {
+		if err := keepUnlocked(&m, dir); err != nil {
+			return nil, fmt.Errorf("tree %s: %w", spec.Name, err)
+		}
+	}
 	for _, name := range []string{"kernel", "qemu", "spin-machine"} {
 		p := m.Parts[name]
 		file, err := partFile(dir, name)
@@ -461,4 +467,33 @@ func (t *Tree) Edited(dir string) (string, error) {
 		return "", err
 	}
 	return dir, nil
+}
+
+// keepUnlocked keeps a tree that boots a traceable kernel at lockdown none. That kernel forces
+// none, and a spin-machine from #734 on raises every machine to confidentiality with lockdown= on
+// its command line unless asked not to, which would take the trace away again: the boots then pass
+// --lockdown-integrity, which leaves lockdown= out. A spin-machine from before #734 knows no such
+// flag and passes no lockdown=. Which one the tree has is read from the command line its
+// spin-machine prints (args), and that line is checked to have no lockdown= before anything boots.
+func keepUnlocked(m *Manifest, dir string) error {
+	line := func() (string, error) {
+		args := append([]string{"args", "--release", dir, "--disk", "-"}, m.Boot...)
+		out, err := exec.Command(filepath.Join(dir, "bin", "spin-machine"), args...).CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("asking its spin-machine for the command line a boot runs: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return string(out), nil
+	}
+	out, err := line()
+	if err != nil || !strings.Contains(out, "lockdown=") {
+		return err
+	}
+	m.Boot = append(m.Boot, "--lockdown-integrity")
+	if out, err = line(); err != nil {
+		return err
+	}
+	if strings.Contains(out, "lockdown=") {
+		return fmt.Errorf("its traceable kernel would boot locked down, and its trace could not be read: %s", out)
+	}
+	return nil
 }

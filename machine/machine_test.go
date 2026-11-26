@@ -302,6 +302,8 @@ func TestCmdline(t *testing.T) {
 	withRoot.Root = "/dev/vda"
 	noConsole := DefaultCmdline()
 	noConsole.Console = ""
+	integrity := DefaultCmdline()
+	integrity.LockdownIntegrity = true
 
 	for _, tc := range []struct {
 		name   string
@@ -324,9 +326,24 @@ func TestCmdline(t *testing.T) {
 			// fails if it goes, the machine just takes five times as long.
 			"TERM=dumb",
 			"console=ttyS0",
+			// The kernel forces only integrity (kernel/README.md); a guest that does not ask
+			// for less reads none of the kernel's memory.
+			"lockdown=confidentiality",
 		},
 		// No root named, no root= at all: an empty one would be a kernel looking for "".
 		absent: []string{"root="},
+	}, {
+		// A consumer that builds its own Cmdline and has never heard of lockdown gets
+		// confidentiality too.
+		name: "zero value",
+		c:    Cmdline{},
+		want: []string{"lockdown=confidentiality"},
+	}, {
+		// An enforcer that reads kernel memory runs at the kernel's floor, which no command
+		// line can lower; a lockdown= of any value here would only raise it.
+		name:   "lockdown integrity",
+		c:      integrity,
+		absent: []string{"lockdown="},
 	}, {
 		name: "root",
 		c:    withRoot,
@@ -442,6 +459,13 @@ func TestValidateRefuses(t *testing.T) {
 		// other than what the caller wrote.
 		{"a root device with a space", func(s *Spec) { s.Cmdline.Root = "/dev/vda quiet" }},
 		{"an extra parameter that ends the kernel's part", func(s *Spec) { s.Cmdline.Extra = []string{"quiet -- x"} }},
+		// The kernel keeps the higher of two lockdown levels, so the one in Extra would silently
+		// undo LockdownIntegrity, or claim a level the machine does not run.
+		{"an extra lockdown, raising an integrity machine", func(s *Spec) {
+			s.Cmdline.LockdownIntegrity = true
+			s.Cmdline.Extra = []string{"quiet lockdown=confidentiality"}
+		}},
+		{"an extra lockdown, claiming a level below confidentiality", func(s *Spec) { s.Cmdline.Extra = []string{"lockdown=integrity"} }},
 		{"a command line the kernel would truncate", func(s *Spec) {
 			s.Cmdline.Extra = []string{strings.Repeat("x", maxCmdline)}
 		}},

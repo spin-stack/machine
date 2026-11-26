@@ -161,10 +161,12 @@ RUN cd /usr/src/linux && \
 
 COPY kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH} /usr/src/linux/.config
 
-# confidentiality for every kernel spin boots. none only for the lab's traceable kernel, built
-# beside a release from this config with that one option swapped and never in it
-# (kernel/README.md, "Lockdown and the BPF LSM"): spin-machine-dev release traceable-kernel
-# holds its config to the release kernel's, less that option.
+# integrity, the floor, for every kernel spin boots: the machine's command line raises it to
+# confidentiality unless the machine runs an enforcer that needs integrity (machine.Cmdline). none
+# only for the lab's traceable kernel, built beside a release from this config with that one
+# option swapped and never in it (kernel/README.md, "Lockdown and the BPF LSM"):
+# spin-machine-dev release traceable-kernel holds its config to the release kernel's, less that
+# option.
 ARG KERNEL_LOCKDOWN
 
 # Every check below is a symbol that olddefconfig can silently drop and whose absence
@@ -175,9 +177,9 @@ RUN <<EOT
 
     cp .config /tmp/config.committed
     case "${KERNEL_LOCKDOWN}" in
-    confidentiality) ;;
-    none) sed -i 's/^CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY=y$/CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y/' .config ;;
-    *) echo "ERROR: KERNEL_LOCKDOWN is confidentiality or none, not '${KERNEL_LOCKDOWN}'"; exit 1 ;;
+    integrity) ;;
+    none) sed -i 's/^CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y$/CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y/' .config ;;
+    *) echo "ERROR: KERNEL_LOCKDOWN is integrity or none, not '${KERNEL_LOCKDOWN}'"; exit 1 ;;
     esac
     make ARCH=${KERNEL_ARCH} olddefconfig
 
@@ -186,7 +188,7 @@ RUN <<EOT
     # v20261124.01, with nobody reading it in the file. A file olddefconfig changes is one to
     # commit as olddefconfig writes it (spin-machine-dev menuconfig saves it so). The traceable
     # kernel swaps one option above, and `release traceable-kernel` holds it to this one.
-    if [ "${KERNEL_LOCKDOWN}" = confidentiality ] && ! cmp -s .config /tmp/config.committed; then
+    if [ "${KERNEL_LOCKDOWN}" = integrity ] && ! cmp -s .config /tmp/config.committed; then
         diff /tmp/config.committed .config || true
         echo "ERROR: olddefconfig changed kernel/config-${KERNEL_SERIES}-${KERNEL_ARCH}: commit the configuration it writes"
         exit 1
@@ -283,8 +285,9 @@ RUN <<EOT
 
     # The guest defends spin's security from its own root (spin's F2b): the supervisor loads BPF
     # LSM programs that refuse an agent what its mark does not cover and refuse anybody
-    # detaching them, and lockdown keeps root from reading or writing the kernel those
-    # programs and the supervisor's keys live in. Without any one of these a root that wants
+    # detaching them, and lockdown keeps root from writing the kernel those programs and the
+    # supervisor's keys live in, and from reading it at confidentiality, which the machine's
+    # command line raises every guest to but one whose enforcer needs integrity (#734). Without any one of these a root that wants
     # to, gets around them in silence. DEVMEM and PROC_KCORE are the two reads of the kernel's
     # memory, and DEVPORT its I/O ports, gone rather than left to lockdown alone, which refuses
     # opening each (LOCKDOWN_DEV_MEM) and ioperm and iopl (LOCKDOWN_IOPORT). DEVPORT defaults to

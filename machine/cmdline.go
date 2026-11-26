@@ -42,13 +42,33 @@ type Cmdline struct {
 	// Extra is appended verbatim, before init, so a caller can say something this
 	// machine has no opinion about. Each element is one or more parameters as the
 	// kernel reads them; a "--" among them is refused, because everything after one
-	// is init's and not the kernel's.
+	// is init's and not the kernel's. So is a lockdown=, which LockdownIntegrity decides.
 	Extra []string
+
+	// LockdownIntegrity runs the guest at lockdown integrity, for a guest whose BPF LSM
+	// enforcer reads kernel memory (shirudo, #734), and the zero value at confidentiality.
+	//
+	// The kernel forces integrity from its first instruction and no command line goes below it:
+	// lockdown only ever rises (security/lockdown/lockdown.c, lock_kernel_down). String raises it
+	// to confidentiality with lockdown=, and leaves that out for a machine with this set.
+	// Confidentiality is integrity and also no reading of the kernel's memory, and
+	// bpf_probe_read_kernel is such a read: a BPF program that calls it, as every BPF_CORE_READ
+	// does, fails to load (LOCKDOWN_BPF_READ_KERNEL). What the guest gives up is that root can
+	// read the kernel's memory through BPF and tracing until the enforcer starts refusing it
+	// (kernel/README.md, "Lockdown and the BPF LSM").
+	//
+	// The level is the booted guest's: a checkpoint resumes the guest it saved, at the level it
+	// booted at, whatever the command line of the machine it resumes into says, because the guest
+	// kernel read its command line once, at boot. So it is not part of the machine's record
+	// (Target): it cannot make a resume load wrongly, and only the guest can say what it runs.
+	//
+	// On the lab's traceable kernel, which forces none, leaving lockdown= out leaves it at none.
+	LockdownIntegrity bool
 }
 
 // DefaultCmdline is a production boot: a console on ttyS0 that only errors reach
 // (quiet, loglevel=3), plus what String always adds — the PCI scan stopped at
-// bus 0 and the timing shortcuts a KVM guest can take.
+// bus 0, the timing shortcuts a KVM guest can take, and lockdown at confidentiality.
 func DefaultCmdline() Cmdline {
 	return Cmdline{
 		Console:  "ttyS0",
@@ -216,6 +236,10 @@ func (c Cmdline) String() string {
 	// 687 ms to 19 ms.
 	parts = append(parts, "TERM=dumb")
 
+	if !c.LockdownIntegrity {
+		parts = append(parts, "lockdown=confidentiality")
+	}
+
 	parts = append(parts, c.Extra...)
 
 	if c.Init != "" {
@@ -241,8 +265,12 @@ func (c Cmdline) validate() error {
 		}
 	}
 	for _, e := range c.Extra {
-		if slices.Contains(strings.FieldsFunc(e, isSpace), "--") {
+		fields := strings.FieldsFunc(e, isSpace)
+		if slices.Contains(fields, "--") {
 			return fmt.Errorf("extra parameter %q holds --, which would hand the rest of the line to init", e)
+		}
+		if slices.ContainsFunc(fields, func(f string) bool { return strings.HasPrefix(f, "lockdown=") }) {
+			return fmt.Errorf("extra parameter %q sets lockdown, which LockdownIntegrity decides: the kernel keeps the higher of two", e)
 		}
 	}
 	if n := len(c.String()); n >= maxCmdline {

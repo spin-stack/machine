@@ -206,8 +206,8 @@ tasks:
 
   lockdown:
     desc: >-
-      Check the guest kernel runs lockdown at confidentiality and the BPF LSM, has no
-      /dev/mem or /proc/kcore, and is at a random address (KASLR), in a disposable guest. Needs a built release; uses KVM when
+      Check the guest kernel runs lockdown at confidentiality, or at integrity for a machine
+      that asks for it (#734), and the BPF LSM, has no /dev/mem or /proc/kcore, and is at a random address (KASLR), in a disposable guest. Needs a built release; uses KVM when
       available, otherwise TCG.
     deps: [':tools']
     cmds:

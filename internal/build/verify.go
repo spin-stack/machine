@@ -199,7 +199,7 @@ func hasLine(text, line string) bool {
 }
 
 // TraceableConfig holds the traceable kernel's config, at traceable, to the release kernel's, at
-// release: lockdown forced to none where the release forces confidentiality, and every other option
+// release: lockdown forced to none where the release forces integrity, and every other option
 // as the release has it. A ledger is read on that kernel as if it were the release's, and an
 // option that moved with the swap would make it another kernel. traceable is the .config the
 // kernel was compiled with, which kernel/Dockerfile keeps after olddefconfig; release is the
@@ -215,8 +215,8 @@ func TraceableConfig(release, traceable string) error {
 		return err
 	}
 	swapped := map[string]struct{ release, traceable string }{
-		"CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY": {"y", "n"},
-		"CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE":            {"n", "y"},
+		"CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY": {"y", "n"},
+		"CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE":      {"n", "y"},
 	}
 	keys := slices.Collect(maps.Keys(r))
 	for k := range t {

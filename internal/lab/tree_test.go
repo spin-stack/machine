@@ -49,6 +49,18 @@ func fakeRelease(t *testing.T, kernel string) string {
 	return dir
 }
 
+// spinMachineArgs is a spin-machine whose args prints a command line with lockdown in it, left out
+// for --lockdown-integrity; "always" is one that prints it either way.
+func spinMachineArgs(lockdown string) string {
+	if lockdown == "always" {
+		return "#!/bin/sh\necho '-append console=ttyS0 lockdown=confidentiality'\n"
+	}
+	return `#!/bin/sh
+[ "$1" = args ] || exit 1
+case " $* " in *" --lockdown-integrity "*) echo '-append console=ttyS0' ;; *) echo '-append console=ttyS0 ` + lockdown + `' ;; esac
+`
+}
+
 func write(t *testing.T, path string, b []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -450,6 +462,7 @@ d=""; while [ $# -gt 0 ]; do case "$1" in -D) d=$2;; -p) [ -f "` + pub + `/$tag/
 	write(t, filepath.Join(bin, "gh"), []byte("#!/bin/sh\n"+gh+"\n"))
 	write(t, filepath.Join(bin, "go"), []byte("#!/bin/sh\nexit 1\n"))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	write(t, filepath.Join(base, "bin/spin-machine"), []byte(spinMachineArgs("lockdown=confidentiality")))
 	s := Sources{Checkout: checkoutRoot(t), Cache: cache, Log: io.Discard}
 	spec := TreeSpec{Name: "t", From: base, Kernel: "traceable:v1"}
 	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err == nil || !strings.Contains(err.Error(), "signature") {
@@ -477,6 +490,34 @@ d=""; while [ $# -gt 0 ]; do case "$1" in -D) d=$2;; -p) [ -f "` + pub + `/$tag/
 		booted != filepath.Join(tr.Dir, "kernel/vmlinux") || read(t, booted) != string(pvhKernel()) {
 		t.Errorf("v2's tree boots %s: %+v", booted, tr.Manifest.Parts["kernel"])
 	}
+
+	// The traceable kernel forces lockdown none, and a lockdown= on its command line would raise it
+	// and take its trace away: its boots leave lockdown= out, with a spin-machine that would add one
+	// and with one from before it did, and a tree whose boots would carry one anyway is no tree.
+	for _, c := range []struct {
+		name, lockdown string
+		boot           []string
+	}{
+		{"raises lockdown unless told not to", "lockdown=confidentiality", []string{"--lockdown-integrity"}},
+		{"from before lockdown= on the command line", "", nil},
+		{"raises lockdown whatever it is told", "always", nil},
+	} {
+		write(t, filepath.Join(base, "bin/spin-machine"), []byte(spinMachineArgs(c.lockdown)))
+		tr, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s)
+		if c.lockdown == "always" {
+			if err == nil || !strings.Contains(err.Error(), "would boot locked down") {
+				t.Errorf("a spin-machine that %s: %v", c.name, err)
+			}
+			continue
+		}
+		if err != nil || !slices.Equal(tr.Manifest.Boot, c.boot) {
+			t.Errorf("a spin-machine that %s: boots with %q, %v", c.name, tr.Manifest.Boot, err)
+		}
+	}
+	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), TreeSpec{Name: "t", From: base}, s); err != nil {
+		t.Errorf("a tree on the release's own kernel asked its spin-machine about lockdown: %v", err)
+	}
+	write(t, filepath.Join(base, "bin/spin-machine"), []byte(spinMachineArgs("lockdown=confidentiality")))
 
 	spec.Kernel = "traceable:v4"
 	if _, err := MakeTree(filepath.Join(t.TempDir(), "t"), spec, s); err == nil || !strings.Contains(err.Error(), "listing release v4's files") {

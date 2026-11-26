@@ -80,20 +80,54 @@ entries` is the new work that shows up in the log.
 The guest's root is not the kernel's. The kernel runs two LSMs, `lockdown` and `bpf`
 (`CONFIG_LSM="lockdown,bpf"`):
 
-- **Lockdown** is forced to *confidentiality* from the first instruction, and no write to
-  `/sys/kernel/security/lockdown` lowers it. Root can then neither rewrite the running kernel
-  (kexec, `/dev/port`, MSRs, ACPI table overrides) nor read it (kprobes, `bpf_probe_read_kernel`,
-  perf on the kernel).
+- **Lockdown** is forced to *integrity* from the first instruction, and the machine's command line
+  raises every guest to *confidentiality* (`lockdown=confidentiality`, `machine.Cmdline`) unless
+  it runs an enforcer that needs integrity. Lockdown only rises: no command line and no write to
+  `/sys/kernel/security/lockdown` takes it below the level the kernel forces, and a write cannot
+  take it below the one the command line asked for (security/lockdown/lockdown.c,
+  `lock_kernel_down`). At integrity root cannot rewrite the running kernel (kexec, `/dev/port`,
+  MSRs, ACPI table overrides); at confidentiality it cannot read it either (kprobes,
+  `bpf_probe_read_kernel`, perf on the kernel, tracefs).
 - **`/dev/mem`, `/dev/port` and `/proc/kcore`** are not built at all, rather than left to lockdown.
 - **The BPF LSM** is there so a consumer can enforce policy in the guest with programs it loads
   before handing the machine to its tenant. Lockdown is what makes such policy hold: without
   it, root reads or rewrites the kernel those programs live in.
 
+### The floor, the default and the choice
+
+A guest runs at confidentiality: `machine.Cmdline`'s zero value puts `lockdown=confidentiality` on
+the line, so a consumer that builds its own command line and has never heard of lockdown gets it
+too, and a workspace without an enforcer keeps the protection every release before #734 forced in
+the kernel. A machine whose `Cmdline.LockdownIntegrity` is set (spin-machine's
+`--lockdown-integrity`) leaves `lockdown=` out and runs at the kernel's floor, integrity. That is
+for a guest whose BPF LSM enforcer reads kernel memory: shirudo's programs read it through about
+140 `BPF_CORE_READ`s, each a `bpf_probe_read_kernel()`, and at confidentiality the kernel refuses
+the helper (`LOCKDOWN_BPF_READ_KERNEL`), so they do not load (#734). A signed-programs exception
+was read in the source and ruled out before any patch (#734's last comment): shirudo loads the
+objects that hold the reads without a signature, and every gen_loader loader calls the helper
+itself.
+
+What a shirudo machine trades: from the first instruction until shirudo's `init` seals, root can
+read the kernel's memory through BPF and tracing, which confidentiality would refuse. That window
+is the boot up to `init`, which runs from the measured initrd (shirudo's A6), before the workspace
+is handed to anyone. From the seal on, shirudo refuses an unsigned BPF program load to every
+caller, `init` included (shirudo Documentation/internals/enforcement.rst:253-254), and its
+`lsm/locked_down` refuses what integrity refuses whatever the command line says. Root's other
+kernel reads that confidentiality refuses, kprobes, perf on the kernel and tracefs, are shirudo's
+policy's to refuse or not; this machine does not check what it does with them. The rewrites stay
+refused by the kernel: integrity is the floor.
+
+`machine.Spec` validation refuses a `lockdown=` in `Cmdline.Extra`, since the kernel keeps the
+higher of two and one there would silently undo the choice. The level is the booted guest's, and
+not in the machine's record: a checkpoint resumes the guest it saved, at the level it booted at
+(docs/machine.md, "The kernel command line").
+
 What enforcing the policy is for, and how, is the consumer's. `kernel/Dockerfile` checks after
-olddefconfig that this kernel does both, and `task boot:lockdown` asks a booted guest.
+olddefconfig that this kernel does both and forces integrity, and `task boot:lockdown` asks a
+booted guest of each kind: one at confidentiality and one at integrity.
 `compat.yml` runs `boot:lockdown` on every kernel change on main and before every release.
 
-Lockdown at confidentiality also takes away the tenant's kernel tracing: kprobes,
+Lockdown at confidentiality, every guest's but an enforcer's, also takes away the tenant's kernel tracing: kprobes,
 `bpf_probe_read_kernel` and perf on the kernel. User-space tracing and networking eBPF are
 untouched, and so is a BPF LSM program that reads no kernel memory.
 
@@ -104,15 +138,17 @@ the kernel itself (function_graph, scheduler events) needs a kernel built with
 
 So each release has a traceable kernel beside it, for the lab and nothing else. `release.yml`'s
 `traceable` job builds this config with `KERNEL_LOCKDOWN=none`, which `Dockerfile` swaps for the
-confidentiality option before olddefconfig and checks in its place. `spin-machine-dev release
+integrity option before olddefconfig and checks in its place. `spin-machine-dev release
 traceable-kernel` then holds the result's config to the release kernel's, which is this file to
 the line: lockdown swapped, and every other option the same. `parts.yml`'s traceable job builds it
 the same way on every change that reaches the kernel, so a change that breaks it fails there,
 before a release. The job signs the bzImage as the release's files are signed and
 publishes it on the release as `spin-machine-TAG-linux-x86_64.lab-only-traceable.bzImage`. It is
 in no tarball and in nothing spin boots, and `lab tree --kernel traceable:TAG` checks its
-signature before a tree boots it. Every kernel spin boots is built with
-`KERNEL_LOCKDOWN=confidentiality`.
+signature before a tree boots it. Its boots pass `--lockdown-integrity` when the tree's
+spin-machine would put `lockdown=` on the line, so the kernel stays at none, and the tree is
+refused if its command line would carry one anyway (`internal/lab`, `keepUnlocked`). Every kernel
+spin boots is built with `KERNEL_LOCKDOWN=integrity`.
 
 Under the archive's systemd, the console showed two lines at boot that read like missing
 protection and are lockdown working:
@@ -128,8 +164,9 @@ it. The image's systemd (`image/systemd/Dockerfile`) is built without the BPF fr
 asks for nothing lockdown refuses and neither line appears. `task boot:lockdown` holds that for an
 image built with it (#261). What that costs is the directives the framework implements:
 `RestrictFileSystems=`, `SocketBind*=` and `RestrictNetworkInterfaces=` do nothing in the guest,
-and nothing here uses them. Confidentiality is kept on purpose. Integrity would give PID 1 its
-helper back, and with it root's reads of the kernel's memory. Logins are unaffected (`task boot:logind`).
+and nothing here uses them. Confidentiality is every guest's on purpose. Integrity would give PID 1
+its helper back, and with it root's reads of the kernel's memory, so only a machine whose enforcer
+needs the helper runs at it. Logins are unaffected (`task boot:logind`).
 
 Measured 2026-10-01 with the probe of the time, `task boot:initcalls`, and `SPIN_KERNEL_B` set to the kernel without these
 options: no cost that can be told from noise. Over 20 interleaved boots each, kernel start to
@@ -163,8 +200,11 @@ config image's signed root hash (`CONFIG_DM_VERITY_VERIFY_ROOTHASH_SIG`, which a
 `.dm-verity` keyring), and `CONFIG_SYSTEM_DATA_VERIFICATION` and `CONFIG_CRYPTO_MLDSA`, which verify
 the PKCS#7 ML-DSA-87 signatures of its loaders and that root hash. shirudo's `CONFIG_MODULE_SIG` row
 asks for module signatures only of a kernel that loads modules, and this one has no
-`CONFIG_MODULES`; module signing comes with modules, signed-only (`CONFIG_MODULE_SIG_FORCE`). Still missing for shirudo to run: a TPM in the machine (#719), and
-lockdown at confidentiality withholds `bpf_probe_read_kernel`, which shirudo's programs call (#734).
+`CONFIG_MODULES`; module signing comes with modules, signed-only (`CONFIG_MODULE_SIG_FORCE`). A
+shirudo machine runs at integrity (`Cmdline.LockdownIntegrity`, #734), since confidentiality
+withholds `bpf_probe_read_kernel`, which shirudo's programs call. Still missing for shirudo to run:
+a TPM in the machine (#719), and with it a booted shirudo, whose `shirudo init --check-only` says
+whether its programs load at integrity as the source reading predicts.
 
 ## Changing it
 

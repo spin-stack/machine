@@ -191,7 +191,8 @@ jobs:
       - name: A checkpoint of every release whose machine is this one resumes here
         run: spin-machine-dev lab compat --here "$SPIN_MACHINE_OUTPUT"
 
-      # The tree's kernel, booted: lockdown at confidentiality that root cannot lower, the BPF
+      # The tree's kernel, booted: lockdown that root cannot lower, at confidentiality and at
+      # integrity for a machine that asks for it (#734), the BPF
       # LSM, no /dev/mem or /proc/kcore, and _text at a random address. kernel/Dockerfile checks
       # the config; this checks the kernel that came out of it, entered the way this change
       # enters it. A change that does not reach the kernel boots the release's, checked when it

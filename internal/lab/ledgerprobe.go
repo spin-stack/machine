@@ -109,9 +109,10 @@ const LedgerSuffix = "-" + ledgerName
 // diagnostic and never a goal number: the trace and sshd's DEBUG1 run beside the boot they record,
 // and what that costs is measured (docs/measuring.md, "The ledger").
 //
-// It needs a kernel that lets the trace be read: the release's forces lockdown at confidentiality,
+// It needs a kernel that lets the trace be read: a release's guest runs lockdown at confidentiality,
 // which takes tracefs away (kernel/README.md), and a tree boots the one built beside each release
-// with lockdown forced to none (--kernel traceable:TAG), which the release does not ship.
+// with lockdown forced to none (--kernel traceable:TAG), which the release does not ship, and
+// whose boots leave lockdown= off the command line (keepUnlocked).
 //
 // The first login is ssh-first's, on the first connection accepted, with /usr/bin/true for its
 // command so that the trace shows where the command started and exited. The host then asks the
