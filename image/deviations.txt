@@ -35,7 +35,7 @@ masked /etc/systemd/system/dev-mqueue.mount
 masked /etc/systemd/system/dpkg-db-backup.timer
 added /etc/systemd/system/fstrim.timer.d/spin.conf
 added /etc/systemd/system/getty@.service.d/term.conf
-added /etc/systemd/system/kmod-static-nodes.service.d/10-create.conf
+masked /etc/systemd/system/kmod-static-nodes.service
 masked /etc/systemd/system/modprobe@configfs.service
 masked /etc/systemd/system/modprobe@drm.service
 masked /etc/systemd/system/modprobe@efi_pstore.service
@@ -44,6 +44,7 @@ masked /etc/systemd/system/motd-news.timer
 unwanted /etc/systemd/system/multi-user.target.wants/containerd.service
 unwanted /etc/systemd/system/multi-user.target.wants/docker.service
 added /etc/systemd/system/multi-user.target.wants/spin-machine-pressure.service
+added /etc/systemd/system/multi-user.target.wants/spin-machine-static-nodes.service
 added /etc/systemd/system/serial-getty@.service.d/term.conf
 added /etc/systemd/system/sockets.target.wants/containerd.socket
 added /etc/systemd/system/ssh.service.d/10-lane.conf
@@ -95,6 +96,7 @@ added /usr/lib/systemd/system/spin-machine-boot-rest.service
 added /usr/lib/systemd/system/spin-machine-login.target
 added /usr/lib/systemd/system/spin-machine-pressure.service
 added /usr/lib/systemd/system/spin-machine-sshd-keygen.service
+added /usr/lib/systemd/system/spin-machine-static-nodes.service
 added /usr/libexec/spin-machine-pressure
 added /usr/local/bin/buildctl
 added /usr/local/bin/buildkit-cni-bridge

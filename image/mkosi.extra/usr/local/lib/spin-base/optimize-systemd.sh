@@ -34,6 +34,7 @@ MASK_UNITS=(
     modprobe@drm.service
     modprobe@fuse.service
     modprobe@efi_pstore.service
+    kmod-static-nodes.service
 
     sys-kernel-debug.mount
     sys-kernel-tracing.mount
@@ -131,6 +132,9 @@ ln -sf /usr/lib/systemd/system/spin-machine-sshd-keygen.service \
 mkdir -p /etc/systemd/system/multi-user.target.wants
 ln -sf /usr/lib/systemd/system/spin-machine-pressure.service \
     /etc/systemd/system/multi-user.target.wants/spin-machine-pressure.service
+# docs/image.md, "Kernel modules"
+ln -sf /usr/lib/systemd/system/spin-machine-static-nodes.service \
+    /etc/systemd/system/multi-user.target.wants/spin-machine-static-nodes.service
 
 # docs/image.md, "The first login's target"
 log "Setting default target to the first login's..."
