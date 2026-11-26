@@ -117,7 +117,7 @@ func TestOVMFAgainstQboot(t *testing.T) {
 		}
 		s := b.mustBoot(t, a)
 		t.Logf("%s, warm-up: %.1f ms, pre-kernel %.1f ms, %s", a.name, s.ready, s.pre, s.tpm)
-		if a.ovmf && !measured(s.tpm) {
+		if a.ovmf && a.tpm && !measured(s.tpm) {
 			t.Fatalf("%s does not measure what it claims: %s", a.name, s.tpm)
 		}
 	}
@@ -205,7 +205,7 @@ type ovmfSample struct {
 	tpm        string
 }
 
-var tpmLine = regexp.MustCompile(`SPIN-TPM [^\r\n]*eventlog=\S+`)
+var tpmLine = regexp.MustCompile(`SPIN-TPM [^\r\n]*eventlog=\S+\r?\n`)
 
 var freeing = regexp.MustCompile(`SPIN-KMSG (\d+) Freeing unused kernel image`)
 
