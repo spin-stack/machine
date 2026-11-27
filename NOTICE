@@ -32,8 +32,8 @@ almost entirely other people's software under other people's licences:
       QEMU, GPL-2.0-only, with components under other licences. Statically
       linked, so the binaries also contain GLib (LGPL-2.1-or-later), libseccomp
       (LGPL-2.1-only), libcap-ng (LGPL-2.1-or-later), pixman (MIT), zlib
-      (Zlib), liburing (LGPL-2.1-or-later OR MIT), libaio (LGPL-2.1-or-later)
-      and musl (MIT).
+      (Zlib), liburing (LGPL-2.1-or-later OR MIT), libaio (LGPL-2.1-or-later),
+      jemalloc (BSD-2-Clause) and musl (MIT).
 
   mkfs.ext4, e2fsprogs/mke2fs.conf
       e2fsprogs: the programs GPL-2.0-only, lib/ext2fs and lib/e2p
