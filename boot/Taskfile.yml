@@ -234,6 +234,19 @@ tasks:
     cmds:
       - SPIN_FASTLOAD_TEST=1 go test ./machine/ -exec 'sudo -n --preserve-env=SPIN_FASTLOAD_TEST,SPIN_MACHINE_OUTPUT env TMPDIR={{.TMPDIR | default "/tmp"}}' -run '^TestAFastLoadNeedsNoUserfaultfdGrant$' -count=1 -v -timeout 10m
 
+  fastload-reads:
+    desc: >-
+      A guest reading its disk keeps running through fast loads (qemu/patches/0011,
+      spin-stack/spin#1747): checkpointed and loaded fast SPIN_FASTLOAD_READS_ROUNDS times
+      (default 10) with the host's page cache of its state and disks dropped before each load, it
+      reads on and the load reads to its end every time; on a stop it prints each QEMU thread's
+      wait (fastload_reads_lane_test.go). Runs as root through sudo. Needs a built release,
+      /dev/kvm, sudo, ~6 GiB of free memory and SCRATCH (lab check's scratch, default OUTPUT_DIR)
+      on a block device, where the state and the disks are written.
+    cmds:
+      - mkdir -p {{.SCRATCH | default .OUTPUT_ABS}}/fastload-reads
+      - SPIN_FASTLOAD_READS_TEST=1 go test ./machine/ -exec 'sudo -n --preserve-env=SPIN_FASTLOAD_READS_TEST,SPIN_FASTLOAD_READS_ROUNDS,SPIN_MACHINE_OUTPUT env TMPDIR={{.SCRATCH | default .OUTPUT_ABS}}/fastload-reads' -run '^TestAFastLoadReadingAColdDiskKeepsRunning$' -count=1 -v -timeout 60m
+
   sshd-delay:
     desc: >-
       sshd keeps OpenSSH's userauth minimum time for a failure and skips it for a login that
