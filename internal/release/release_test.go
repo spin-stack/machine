@@ -84,7 +84,7 @@ func tree(t *testing.T) (root, out string) {
 		}
 	}
 	put(t, filepath.Join(out, "packages.txt"), list+"bash 5.2-1 amd64\nlibc6 2.39-1 amd64\n", 0o644)
-	put(t, filepath.Join(out, "sbom/qemu.apk"), apkDB("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,musl-dev,gcc"), 0o644)
+	put(t, filepath.Join(out, "sbom/qemu.apk"), apkDB("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,jemalloc-static,musl-dev,gcc"), 0o644)
 	put(t, filepath.Join(out, build.ShirudoBinary), "shirudo", 0o755)
 	put(t, filepath.Join(out, build.ShirudoLicenses), "shirudo's licences", 0o644)
 	put(t, filepath.Join(out, build.ShirudoPackages), "libc6-dev 2.43-2ubuntu2.7 amd64\nlibelf-dev 0.194-4 amd64\n", 0o644)

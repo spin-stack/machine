@@ -10,6 +10,8 @@ glib-dev glib-static pcre2-dev pcre2-static libffi-dev
 pixman-dev pixman-static zlib-dev zlib-static
 libseccomp-dev libseccomp-static libcap-ng-dev libcap-ng-static
 liburing-dev libaio-dev gettext-dev gettext-static
+# jemalloc, QEMU's allocator in place of musl's (qemu/Dockerfile, --enable-malloc).
+jemalloc-static
 # swtpm's stage (qemu/Dockerfile): libtpms and swtpm are autotools trees, libtpms links OpenSSL's
 # libcrypto, and swtpm's configure asks for libtasn1 whether or not anything it builds links it.
 autoconf automake libtool openssl-dev openssl-libs-static libtasn1-dev

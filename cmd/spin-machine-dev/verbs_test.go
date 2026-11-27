@@ -621,7 +621,7 @@ func packed(t *testing.T, dir string) string {
 		}
 		return b.String()
 	}
-	put(t, filepath.Join(out, "sbom/qemu.apk"), apk("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,musl-dev,gcc"), 0o644)
+	put(t, filepath.Join(out, "sbom/qemu.apk"), apk("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,jemalloc-static,musl-dev,gcc"), 0o644)
 	put(t, filepath.Join(out, "sbom/e2fsprogs.apk"), apk("libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"), 0o644)
 	return out
 }

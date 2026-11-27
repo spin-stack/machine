@@ -18,8 +18,9 @@
 # start to a QMP `quit`, 44 ms glibc against 43 ms musl over five runs — no difference. A
 # VM boots, `lspci` inside it shows the slot map this repository declares, io_uring, native
 # aio and thread-pool aio all attach, and the accelerator split holds. What has *not* been
-# measured is a long-running guest under load: musl's allocator and its 128 KiB default
-# thread stack differ from glibc's, and if something surfaces it will surface there.
+# measured is a long-running guest under load: musl's 128 KiB default thread stack differs
+# from glibc's, and if something surfaces it will surface there. musl's allocator is not
+# QEMU's: see --enable-malloc below.
 #
 # ## The flags worth explaining
 #
@@ -41,6 +42,12 @@
 #                    libfdt, so the subproject is how fdt gets built — and MICROVM depends
 #                    on fdt (hw/i386/Kconfig). Without git: `Git program not found, cannot
 #                    download dtc.wrap via git`, at configure.
+#   --enable-malloc=jemalloc
+#                    jemalloc in place of musl's mallocng, which has one lock for every thread
+#                    and gives memory back a page group at a time. QEMU's start spent ~2.3 ms of
+#                    its main thread's 17 ms of CPU in it (#669). Against the same build with
+#                    musl's, bench, spin's shape (#830, 2026-11-27): sshd accepting −5.3 ms,
+#                    QEMU's RSS +6.9 MiB. qemu/README.md, "Static", has the runs.
 #   --disable-tests  QEMU's unit and qtest binaries were compiled and linked in every build and
 #                    never run: nothing here runs `make check`. What says this QEMU works is
 #                    `spin-machine-dev verify qemu`, `verify args` and the boot probes, against this configuration.
@@ -84,7 +91,7 @@ ARG QEMU_SHA256
 # configured under the old base, skipped configure, relinked, and produced a dynamically
 # linked binary from a Dockerfile that says --static on every other line. The assertion
 # below is what caught it.
-ARG QEMU_CONFIG_REV=10
+ARG QEMU_CONFIG_REV=11
 
 SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
@@ -138,6 +145,7 @@ ENV QEMU_FLAGS="\
     --enable-strip \
     --disable-containers \
     --disable-docs \
+    --enable-malloc=jemalloc \
     --disable-tests \
     --disable-debug-info \
     --disable-werror \
@@ -467,6 +475,20 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
         fi; \
     done && \
     echo "OK: every binary is statically linked"
+
+# jemalloc, asked of each binary rather than of meson's summary: musl's malloc and jemalloc both
+# define malloc, and a static link takes whichever archive the linker reached first, silently.
+# stats_print is jemalloc's, and musl's malloc reads no MALLOC_CONF. Captured whole: grep -q
+# leaves at its first match, and the binary, still printing, dies of SIGPIPE.
+RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
+             /opt/qemu-tcg/bin/qemu-system-x86_64; do \
+        out=$(MALLOC_CONF=stats_print:true "$b" --version 2>&1) || { echo "ERROR: $b --version failed"; echo "$out" | head -5; exit 1; }; \
+        case "$out" in \
+            *"Begin jemalloc statistics"*) ;; \
+            *) echo "ERROR: $b printed no jemalloc statistics: it allocates with musl's malloc"; echo "$out" | head -5; exit 1 ;; \
+        esac; \
+    done && \
+    echo "OK: every binary allocates with jemalloc"
 
 # Hardened, asserted for the same reason: QEMU_FLAGS asks for it, and this is what came out.
 # QEMU runs a guest's device emulation on the host, which is where these earn their place.

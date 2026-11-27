@@ -429,7 +429,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 	// The packages each static binary links, by the -static or -dev package that carries the .a,
 	// with musl's libc and gcc's libgcc: the rest of each database built them and is formulation.
 	for _, a := range []struct{ name, db, version, only string }{
-		{"qemu-libraries", "qemu.apk", version("qemu"), "glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,musl-dev,gcc"},
+		{"qemu-libraries", "qemu.apk", version("qemu"), "glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,jemalloc-static,musl-dev,gcc"},
 		{"e2fsprogs-libraries", "e2fsprogs.apk", version("e2fsprogs"), "libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"},
 	} {
 		raw, err := os.ReadFile(filepath.Join(o.Out, "sbom", a.db))
