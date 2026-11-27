@@ -145,8 +145,8 @@
 - name: e2fsprogs-builder
   kind: image
   source: ghcr.io/spin-stack/spin-machine/builder-e2fsprogs
-  version: d65a18202527
-  pin: sha256:235b3d9e8ba19fa88bb2139da0a58d2480f00e3cfb1e390b398f0f4e9633df3c
+  version: 0abe81a64b32
+  pin: sha256:6149d49f1379b1906ffdbcbc764dcff2374393317531989996e2c4c35e5e3ff0
   track: digest
   note: >-
     Alpine with e2fsprogs/apk.list installed (builder/Dockerfile): the static libraries
