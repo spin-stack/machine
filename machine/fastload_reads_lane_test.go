@@ -138,6 +138,9 @@ func TestAFastLoadReadingAColdDiskKeepsRunning(t *testing.T) {
 		t.Fatalf("the guest did not fill and read its disk twice:\n%s", console.String())
 	}
 	spec.Restore = true
+	// The state the running machine was loaded from, removed once that machine is gone: each is
+	// over 2 GiB, and ten of them filled a disk that two hold.
+	loadedFrom := ""
 	for round := 1; round <= rounds; round++ {
 		state, err := os.Create(filepath.Join(t.TempDir(), "state"))
 		if err != nil {
@@ -148,6 +151,10 @@ func TestAFastLoadReadingAColdDiskKeepsRunning(t *testing.T) {
 			t.Fatalf("round %d: checkpointing: %v", round, err)
 		}
 		p.Kill()
+		if loadedFrom != "" {
+			_ = os.Remove(loadedFrom)
+		}
+		loadedFrom = state.Name()
 		if n := written(state); n <= fastAbove {
 			t.Fatalf("round %d: the state holds %d MiB of data, not over fastAbove's %d: it would load in full", round, n>>20, fastAbove>>20)
 		}
@@ -176,7 +183,9 @@ func TestAFastLoadReadingAColdDiskKeepsRunning(t *testing.T) {
 			}
 			asked <- n
 		}()
+		uncached := make(chan struct{})
 		go func() {
+			defer close(uncached)
 			tick := time.NewTicker(100 * time.Millisecond)
 			defer tick.Stop()
 			for {
@@ -188,13 +197,17 @@ func TestAFastLoadReadingAColdDiskKeepsRunning(t *testing.T) {
 				}
 			}
 		}()
+		// A healthy load read 2.1-2.3 GiB through io.max in 39-51 s on the bench (labs
+		// 46015145265, 46016838150); a stopped one never ends.
 		lctx, lcancel := context.WithTimeout(ctx, 3*time.Minute)
 		err = r.Loaded(lctx)
 		lcancel()
 		took := time.Since(resumed)
 		stop()
+		<-uncached
 		if err != nil {
-			t.Fatalf("round %d: the state was not read to its end within 3 minutes of the resume: %v\n%s\nconsole:\n%s", round, err, threads(r.Pid()), rconsole.String())
+			t.Fatalf("round %d: %d MiB of state not read to its end %v after the resume: %v\n%s\nconsole:\n%s",
+				round, written(state)>>20, took.Round(time.Millisecond), err, threads(r.Pid()), rconsole.String())
 		}
 		during := passes(rconsole)
 		if !reads(r, rconsole, during, 2*time.Minute) {
