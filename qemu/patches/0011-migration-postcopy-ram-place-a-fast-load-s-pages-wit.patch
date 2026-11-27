@@ -30,14 +30,14 @@ placed once, by whichever thread takes its bit.  A fast load's faults
 are no longer counted by postcopy-blocktime, whose accounting allocates
 too.
 ---
- migration/postcopy-ram.c | 67 ++++++++++++++++++++++++++--------------
- 1 file changed, 43 insertions(+), 24 deletions(-)
+ migration/postcopy-ram.c | 86 ++++++++++++++++++++++++++--------------
+ 1 file changed, 57 insertions(+), 29 deletions(-)
 
 diff --git a/migration/postcopy-ram.c b/migration/postcopy-ram.c
-index 5509cbd..115fb7c 100644
+index 5509cbd..50ff85e 100644
 --- a/migration/postcopy-ram.c
 +++ b/migration/postcopy-ram.c
-@@ -966,26 +966,43 @@ static bool postcopy_mapped_ram_load_guest_page(MigrationIncomingState *mis,
+@@ -966,28 +966,54 @@ static bool postcopy_mapped_ram_load_guest_page(MigrationIncomingState *mis,
  {
      ERRP_GUARD();
      size_t page = rb_offset / qemu_target_page_size();
@@ -46,6 +46,7 @@ index 5509cbd..115fb7c 100644
 +    off_t pos = rb->pages_offset + rb_offset;
 +    size_t left = qemu_target_page_size();
 +    uint8_t *dst = buf;
++    int err;
  
 -    if (test_bit(page, rb->file_bmap)) {
 -        /*
@@ -56,12 +57,19 @@ index 5509cbd..115fb7c 100644
 -        read =
 -            qemu_get_buffer_at(mis->from_src_file, buf, qemu_target_page_size(),
 -                               rb->pages_offset + rb_offset, errp);
+-
+-        if (read != qemu_target_page_size()) {
+-            error_prepend(errp,
+-                          "Could not read page %zu from RAM Block %s: ", page,
+-                          rb->idstr);
+-            return false;
+-        }
+-    } else {
 +    if (!test_bit(page, rb->file_bmap)) {
-+        memset(buf, '\0', qemu_target_page_size());
+         memset(buf, '\0', qemu_target_page_size());
 +        return true;
 +    }
- 
--        if (read != qemu_target_page_size()) {
++
 +    /*
 +     * qio_channel_pread() and not qemu_get_buffer_at(), which allocates in
 +     * qio_channel_preadv_all_eof(): the threads that place pages must not
@@ -72,6 +80,12 @@ index 5509cbd..115fb7c 100644
 +     * read concurrently, each into its own buffer, and pread() moves no
 +     * file offset.
 +     */
++    err = qemu_file_get_error(mis->from_src_file);
++    if (err) {
++        error_setg(errp, "Cannot read from file: stream is in error state %d",
++                   err);
++        goto fail;
++    }
 +    while (left) {
 +        ssize_t n = qio_channel_pread(ioc, dst, left, pos, errp);
 +
@@ -81,20 +95,22 @@ index 5509cbd..115fb7c 100644
 +            error_setg(errp, "the read would block");
 +        }
 +        if (n <= 0) {
-             error_prepend(errp,
-                           "Could not read page %zu from RAM Block %s: ", page,
-                           rb->idstr);
-             return false;
-         }
--    } else {
--        memset(buf, '\0', qemu_target_page_size());
++            goto fail;
++        }
 +        dst += n;
 +        pos += n;
 +        left -= n;
      }
      return true;
++
++fail:
++    error_prepend(errp, "Could not read page %zu from RAM Block %s: ", page,
++                  rb->idstr);
++    return false;
  }
-@@ -1565,20 +1582,22 @@ static void *postcopy_ram_fault_thread(void *opaque)
+ 
+ /**
+@@ -1565,20 +1591,22 @@ static void *postcopy_ram_fault_thread(void *opaque)
                                                  msg.arg.pagefault.feat.ptid);
  
              if (migrate_mapped_ram()) {
