@@ -473,7 +473,11 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
     echo "OK: every binary is statically linked"
 
 # Experiment #830: the allocator asked of the binary, not of the flags.
-RUN MALLOC_CONF=stats_print:true /opt/qemu/bin/qemu-system-x86_64 -version 2>&1 | grep -q "jemalloc version" && echo "OK: qemu-system-x86_64 runs jemalloc"
+RUN out=$(MALLOC_CONF=stats_print:true /opt/qemu/bin/qemu-system-x86_64 -version 2>&1) && \
+    case "$out" in \
+        *"jemalloc version"*) echo "OK: qemu-system-x86_64 runs jemalloc" ;; \
+        *) echo "ERROR: qemu-system-x86_64 printed no jemalloc statistics"; echo "$out" | head -20; exit 1 ;; \
+    esac
 
 # Hardened, asserted for the same reason: QEMU_FLAGS asks for it, and this is what came out.
 # QEMU runs a guest's device emulation on the host, which is where these earn their place.
