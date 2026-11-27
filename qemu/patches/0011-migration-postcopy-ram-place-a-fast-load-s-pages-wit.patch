@@ -1,0 +1,133 @@
+From: Manuel de Brito Fontes <aledbf@gmail.com>
+Date: Fri, 27 Nov 2026 14:00:00 -0300
+Subject: [PATCH] migration/postcopy-ram: place a fast load's pages without
+ allocating
+
+A fast snapshot load's fault thread and eager thread take the
+allocator's lock for every page they place: qemu_get_buffer_at()
+allocates an iovec in qio_channel_preadv_all_eof(), and the fault
+thread adds each faulting page to page_requested, a GTree, under
+page_request_mutex.  With musl, malloc() has one lock for every thread.
+
+A thread can hold that lock while it waits for one of their pages.
+io_uring runs a buffered read's task work on the thread that submitted
+the read, when that thread next returns to user space from a system
+call or an interrupt, at whatever instruction it had reached.  When the
+read missed the page cache, the task work copies the data into the
+guest's buffer, and a page of it that is not placed yet waits on the
+userfaultfd.  QEMU's main thread submits the disks' reads
+(aio=io_uring), so when it is inside malloc() it holds the lock across
+that wait.  The fault thread then waits for the lock, the main thread
+waits for the fault thread, and the vCPUs wait for pages nobody places.
+The guest stops, and the monitors stop answering: the main thread never
+gets back to user space, and the monitor I/O thread waits for the lock
+too.
+
+Read each page with qio_channel_pread(), which allocates nothing, and
+place a fast load's faulting page without recording a request: a fast
+load has no source to ask, and pending_bmap already has each page
+placed once, by whichever thread takes its bit.  A fast load's faults
+are no longer counted by postcopy-blocktime, whose accounting allocates
+too.
+---
+ migration/postcopy-ram.c | 67 ++++++++++++++++++++++++++--------------
+ 1 file changed, 43 insertions(+), 24 deletions(-)
+
+diff --git a/migration/postcopy-ram.c b/migration/postcopy-ram.c
+index 5509cbd..115fb7c 100644
+--- a/migration/postcopy-ram.c
++++ b/migration/postcopy-ram.c
+@@ -966,26 +966,43 @@ static bool postcopy_mapped_ram_load_guest_page(MigrationIncomingState *mis,
+ {
+     ERRP_GUARD();
+     size_t page = rb_offset / qemu_target_page_size();
+-    size_t read;
++    QIOChannel *ioc = qemu_file_get_ioc(mis->from_src_file);
++    off_t pos = rb->pages_offset + rb_offset;
++    size_t left = qemu_target_page_size();
++    uint8_t *dst = buf;
+ 
+-    if (test_bit(page, rb->file_bmap)) {
+-        /*
+-         * This can happen concurrently, but it's thread-safe because
+-         * qemu_get_buffer_at() is thread-safe, and the caller will be using
+-         * different temporary buffers.
+-         */
+-        read =
+-            qemu_get_buffer_at(mis->from_src_file, buf, qemu_target_page_size(),
+-                               rb->pages_offset + rb_offset, errp);
++    if (!test_bit(page, rb->file_bmap)) {
++        memset(buf, '\0', qemu_target_page_size());
++        return true;
++    }
+ 
+-        if (read != qemu_target_page_size()) {
++    /*
++     * qio_channel_pread() and not qemu_get_buffer_at(), which allocates in
++     * qio_channel_preadv_all_eof(): the threads that place pages must not
++     * take the allocator's lock.  A thread waiting for one of their pages
++     * can hold it, because io_uring runs a read's task work on the thread
++     * that submitted the read, at whatever instruction that thread is at,
++     * and the read's copy into a page not placed yet waits there.  Callers
++     * read concurrently, each into its own buffer, and pread() moves no
++     * file offset.
++     */
++    while (left) {
++        ssize_t n = qio_channel_pread(ioc, dst, left, pos, errp);
++
++        if (n == 0) {
++            error_setg(errp, "end of file");
++        } else if (n == QIO_CHANNEL_ERR_BLOCK) {
++            error_setg(errp, "the read would block");
++        }
++        if (n <= 0) {
+             error_prepend(errp,
+                           "Could not read page %zu from RAM Block %s: ", page,
+                           rb->idstr);
+             return false;
+         }
+-    } else {
+-        memset(buf, '\0', qemu_target_page_size());
++        dst += n;
++        pos += n;
++        left -= n;
+     }
+     return true;
+ }
+@@ -1565,20 +1582,22 @@ static void *postcopy_ram_fault_thread(void *opaque)
+                                                 msg.arg.pagefault.feat.ptid);
+ 
+             if (migrate_mapped_ram()) {
+-                /* Load page directly in case of fast snapshot load */
+-
++                /*
++                 * Load page directly in case of fast snapshot load.  No
++                 * request is recorded: page_requested is for pages asked of
++                 * a source, and adding to it allocates, which this thread
++                 * must not do (postcopy_mapped_ram_load_guest_page()).
++                 * pending_bmap has the page placed once, by whichever thread
++                 * takes its bit.
++                 */
+                 uintptr_t aligned = (uintptr_t)ROUND_DOWN(
+                     msg.arg.pagefault.address, qemu_ram_pagesize(rb));
+ 
+-                if (try_mark_postcopy_blocktime_begin(
+-                        mis, rb, rb_offset, (uintptr_t)aligned,
+-                        msg.arg.pagefault.feat.ptid)) {
+-                    if (!postcopy_mapped_ram_load_page(
+-                            mis, rb, rb_offset, aligned, RAM_CHANNEL_POSTCOPY,
+-                            &local_err)) {
+-                        error_report_err(local_err);
+-                        break;
+-                    }
++                if (!postcopy_mapped_ram_load_page(
++                        mis, rb, rb_offset, aligned, RAM_CHANNEL_POSTCOPY,
++                        &local_err)) {
++                    error_report_err(local_err);
++                    break;
+                 }
+             } else {
+ retry:
+-- 
+2.53.0
+
