@@ -475,7 +475,7 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
 # Experiment #830: the allocator asked of the binary, not of the flags.
 RUN out=$(MALLOC_CONF=stats_print:true /opt/qemu/bin/qemu-system-x86_64 -version 2>&1) && \
     case "$out" in \
-        *"jemalloc version"*) echo "OK: qemu-system-x86_64 runs jemalloc" ;; \
+        *"Begin jemalloc statistics"*) echo "OK: qemu-system-x86_64 runs jemalloc" ;; \
         *) echo "ERROR: qemu-system-x86_64 printed no jemalloc statistics"; echo "$out" | head -20; exit 1 ;; \
     esac
 
