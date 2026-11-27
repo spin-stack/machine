@@ -1,0 +1,21 @@
+{
+  "decision": "carried",
+  "order": 579,
+  "change": "QEMU linked with jemalloc (`--enable-malloc=jemalloc`, Alpine's jemalloc-static 5.3.0) in place of musl's mallocng (#669, #830)",
+  "where": "qemu/Dockerfile, qemu/apk.list",
+  "result": "against the same build with musl's malloc (main's parts QEMU at the release's commit), bench, spin's shape and login, 150 a side: first login −8.6 [−11.0, −6.6], 354 → 345, sshd accepting −8.6 [−10.9, −6.7], accept to login within noise, QEMU's RSS +6.8 MiB, all of it anonymous (lab 46040582036). restore-first, a load in full, 60 a side: login −3.4 [−6.9, −0.4] evicted, −2.6 [−12.6, +2.9] cached, within noise (lab 46040587126). That build read within noise of the release's (first login −3.0 [−7.5, +1.8], lab 46039599786). A fast load (touched=1700, 30 a side): running −4.7 [−6.3, −4.1] evicted, the login within noise (lab 46037246904). At 60 a side jemalloc against main read −2.6 [−6.8, +0.8] on the first login and −5.3 [−8.1, −0.2] to sshd accepting (lab 46039599786, bootstrapped from its samples), which is why the deciding run was 150 a side. musl's thread stacks are unchanged",
+  "evidence": "measured, interleaved against the same build with musl's malloc",
+  "source": "labs 46040582036, 46040587126, 46039599786, 46037246904; parts 46035803657, 46027613031",
+  "issues": [
+    669,
+    830
+  ],
+  "runs": [
+    46040582036,
+    46040587126,
+    46039599786,
+    46037246904,
+    46035803657,
+    46027613031
+  ]
+}

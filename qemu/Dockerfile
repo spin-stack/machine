@@ -46,8 +46,8 @@
 #                    jemalloc in place of musl's mallocng, which has one lock for every thread
 #                    and gives memory back a page group at a time. QEMU's start spent ~2.3 ms of
 #                    its main thread's 17 ms of CPU in it (#669). Against the same build with
-#                    musl's, bench, spin's shape (#830, 2026-11-27): sshd accepting −5.3 ms,
-#                    QEMU's RSS +6.9 MiB. qemu/README.md, "Static", has the runs.
+#                    musl's, bench, spin's shape (#830, 2026-11-27): first login −8.6 ms,
+#                    QEMU's RSS +6.8 MiB. qemu/README.md, "Static", has the runs.
 #   --disable-tests  QEMU's unit and qtest binaries were compiled and linked in every build and
 #                    never run: nothing here runs `make check`. What says this QEMU works is
 #                    `spin-machine-dev verify qemu`, `verify args` and the boot probes, against this configuration.
