@@ -84,7 +84,7 @@ ARG QEMU_SHA256
 # configured under the old base, skipped configure, relinked, and produced a dynamically
 # linked binary from a Dockerfile that says --static on every other line. The assertion
 # below is what caught it.
-ARG QEMU_CONFIG_REV=10
+ARG QEMU_CONFIG_REV=11
 
 SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
@@ -94,6 +94,9 @@ SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 COPY qemu/apk.list /tmp/apk.list
 RUN cmp -s /tmp/apk.list /usr/share/spin-machine/apk.list || \
     { echo "qemu/apk.list is not the list versions.yaml's qemu-builder was made with: spin-machine-dev refresh builders" >&2; exit 1; }
+
+# Experiment #830 only: the allocator this arm links, from Alpine's repository at build time.
+RUN apk add --no-cache mimalloc2-dev
 
 WORKDIR /build
 
@@ -138,6 +141,7 @@ ENV QEMU_FLAGS="\
     --enable-strip \
     --disable-containers \
     --disable-docs \
+    --extra-ldflags=-Wl,--whole-archive,/usr/lib/libmimalloc.a,--no-whole-archive \
     --disable-tests \
     --disable-debug-info \
     --disable-werror \
@@ -467,6 +471,9 @@ RUN for b in /opt/qemu/bin/qemu-system-x86_64 /opt/qemu/bin/qemu-img \
         fi; \
     done && \
     echo "OK: every binary is statically linked"
+
+# Experiment #830: the allocator asked of the binary, not of the flags.
+RUN MIMALLOC_VERBOSE=1 /opt/qemu/bin/qemu-system-x86_64 -version 2>&1 | grep -q "^mimalloc: " && echo "OK: qemu-system-x86_64 runs mimalloc"
 
 # Hardened, asserted for the same reason: QEMU_FLAGS asks for it, and this is what came out.
 # QEMU runs a guest's device emulation on the host, which is where these earn their place.
