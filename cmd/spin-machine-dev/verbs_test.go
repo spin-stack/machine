@@ -980,7 +980,7 @@ func TestOutdatedAndBumpAreGoToolsVersions(t *testing.T) {
 	if _, _, status := verb(t, "bump", "kernel", "7.3.9"); status != 0 {
 		t.Errorf("a bump exited %d", status)
 	}
-	if got := read(t, calls); got != "go tool versions check\ngo tool versions bump kernel 7.3.9\n" {
+	if got := read(t, calls); got != "go tool versions check\ngo tool versions bump -by "+bumpedBy+" kernel 7.3.9\n" {
 		t.Errorf("go ran %q", got)
 	}
 	if _, _, status := verb(t, "bump"); status == 0 {
@@ -1308,5 +1308,24 @@ func TestNeedsPassesOnlyWhatPassedOrWasSkipped(t *testing.T) {
 	t.Setenv("NEEDS", `{"qemu":{"result":"failure"},"kernel":{"result":"success"}}`)
 	if _, stderr, _ := verb(t, "needs"); !strings.Contains(stderr, "kernel: success") || !strings.Contains(stderr, "not every job passed: qemu failure") {
 		t.Errorf("said %q", stderr)
+	}
+}
+
+// qemu and shirudo are checked by this bump past what versions does: their entries name it, so
+// go-tools' common bump refuses them.
+func TestTheEntriesABumpChecksNameIt(t *testing.T) {
+	checkout(t)
+	v, err := versions.Load(versions.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"qemu", "shirudo"} {
+		e, err := v.Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.Bump != bumpedBy {
+			t.Errorf("%s's bump: is %q, not %q: go tool task bump NAME=%s moves it unchecked", name, e.Bump, bumpedBy, name)
+		}
 	}
 }

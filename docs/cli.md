@@ -78,8 +78,9 @@ the builder images, OSV and the kernel's CVEs.
 
 `go tool task versions` and `go tool task bump NAME=<entry> [TO=<ver>]` are the names every
 spin-stack repository has for the same two (go-tools' common tasks, below). They run the
-`versions` of go-tools' latest release, not go.mod's, and `bump NAME=qemu` does not print the
-machine types: a QEMU bump is `spin-machine-dev bump qemu`.
+`versions` of go-tools' latest release, not go.mod's. The entries `spin-machine-dev bump` checks
+past the pin, qemu and shirudo, say `bump: spin-machine-dev bump`, so the common `bump` refuses
+them and names this command.
 
 ## Releasing
 

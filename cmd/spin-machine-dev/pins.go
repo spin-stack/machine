@@ -33,6 +33,11 @@ func outdatedCmd() *cobra.Command {
 	}
 }
 
+// bumpedBy is this command as the entries it checks more than versions does name it in bump:
+// (qemu, shirudo). go-tools' common bump is refused for those, and this one says -by that it is
+// the command they name.
+const bumpedBy = "spin-machine-dev bump"
+
 func bumpCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "bump <entry> [version]",
@@ -53,7 +58,7 @@ or dropped, and each upstream patch neither carried nor declined (internal/build
 			if err != nil {
 				return err
 			}
-			if err := versionsTool(c.Context(), c, root, append([]string{"bump"}, args...)...); err != nil {
+			if err := versionsTool(c.Context(), c, root, append([]string{"bump", "-by", bumpedBy}, args...)...); err != nil {
 				return err
 			}
 			if args[0] != "qemu" && args[0] != "shirudo" {
