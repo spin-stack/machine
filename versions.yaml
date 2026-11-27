@@ -315,7 +315,7 @@
 
 - name: debian-snapshot
   kind: date
-  version: 20261126T000000Z
+  version: 20261127T000000Z
   track: today
   note: >-
     the Debian archive the kernel's toolchain is installed from, as it stood then, and the
