@@ -3,11 +3,17 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -617,14 +623,58 @@ func packed(t *testing.T, dir string) string {
 	apk := func(only string) string {
 		var b strings.Builder
 		for _, p := range strings.Split(only, ",") {
-			b.WriteString("P:" + p + "\nV:1-r0\nA:x86_64\n\n")
+			b.WriteString("P:" + p + "\nV:1-r0\nA:x86_64\no:" + p + "\nc:c0ffee\n\n")
 		}
 		return b.String()
 	}
+	fakeAlpine(t, v)
 	put(t, filepath.Join(out, "sbom/qemu.apk"), apk("glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,jemalloc-static,musl-dev,gcc"), 0o644)
 	put(t, filepath.Join(out, "sbom/e2fsprogs.apk"), apk("libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"), 0o644)
 	return out
 }
+
+// fakeAlpine answers, in place of aports and Alpine's distfiles, every APKBUILD with one naming a
+// tarball whose licence is a LICENSE, and every tarball with that one: release pack fetches the
+// licence texts of the Alpine packages it ships, and a test reaches no network.
+func fakeAlpine(t *testing.T, v *versions.Versions) {
+	t.Helper()
+	var buf bytes.Buffer
+	z := gzip.NewWriter(&buf)
+	w := tar.NewWriter(z)
+	if err := w.WriteHeader(&tar.Header{Name: "p-1/LICENSE", Mode: 0o644, Size: 2}); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("L\n"))
+	if err := errors.Join(w.Close(), z.Close()); err != nil {
+		t.Fatal(err)
+	}
+	tarball := buf.Bytes()
+	sum := sha512.Sum512(tarball)
+	recipe := "pkgver=1\npkgrel=0\nsource=\"p-1.tar.gz::https://example.org/p-1.tar.gz\"\nsha512sums=\"\n" + hex.EncodeToString(sum[:]) + "  p-1.tar.gz\n\"\n"
+	series, err := v.Get("alpine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only Alpine's own hosts answer, and the upstream does not: what release pack reads is theirs.
+	saved := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = saved })
+	http.DefaultTransport = roundTrip(func(r *http.Request) (*http.Response, error) {
+		var body []byte
+		switch {
+		case r.URL.Host == "git.alpinelinux.org" && strings.HasPrefix(r.URL.Path, "/aports/plain/main/") && strings.HasSuffix(r.URL.Path, "/APKBUILD"):
+			body = []byte(recipe)
+		case r.URL.Host == "distfiles.alpinelinux.org" && r.URL.Path == "/distfiles/v"+series.Version+"/p-1.tar.gz":
+			body = tarball
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Body: http.NoBody, Request: r}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(bytes.NewReader(body)), Request: r}, nil
+	})
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestReleasePackPacksWhatOutputHolds(t *testing.T) {
 	dir := checkout(t)

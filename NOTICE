@@ -34,6 +34,9 @@ almost entirely other people's software under other people's licences:
       (LGPL-2.1-only), libcap-ng (LGPL-2.1-or-later), pixman (MIT), zlib
       (Zlib), liburing (LGPL-2.1-or-later OR MIT), libaio (LGPL-2.1-or-later),
       jemalloc (BSD-2-Clause) and musl (MIT).
+      usr/share/spin-stack/alpine-licenses.txt in a release carries each text,
+      as it does for every Alpine library linked into swtpm, passt and the
+      e2fsprogs binaries below.
 
   mkfs.ext4, e2fsprogs/mke2fs.conf
       e2fsprogs: the programs GPL-2.0-only, lib/ext2fs and lib/e2p
@@ -42,7 +45,8 @@ almost entirely other people's software under other people's licences:
       with, as its pkg-config names them: libacl (LGPL-2.1-or-later), expat
       (MIT), zstd (BSD-3-Clause OR GPL-2.0-only), lz4 (BSD-2-Clause), bzip2
       (bzip2-1.0.6), zlib (Zlib), liblzma (0BSD), OpenSSL's libcrypto
-      (Apache-2.0); and musl (MIT).
+      (Apache-2.0); and musl (MIT). usr/share/spin-stack/alpine-licenses.txt
+      in a release carries each text.
 
   spin-machine
       This repository's tool, Apache-2.0, statically linked with Go's standard

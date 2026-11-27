@@ -61,7 +61,10 @@ type Options struct {
 	Commit string
 	Epoch  time.Time
 	// Now is when the release was packed, for the manifest.
-	Now    time.Time
+	Now time.Time
+	// Alpine is where the sources of the Alpine libraries the static binaries link are fetched
+	// from for their licence texts (AlpineLicenses).
+	Alpine AlpineSources
 	Stderr io.Writer
 }
 
@@ -119,6 +122,13 @@ func Pack(ctx context.Context, o Options) (Packed, error) {
 	}
 	if err := os.WriteFile(filepath.Join(share, "go-licenses.txt"), []byte(licenses), 0o644); err != nil { //nolint:gosec // shipped, read by everyone
 		return Packed{}, fmt.Errorf("writing go-licenses.txt: %w", err)
+	}
+	alpine, err := AlpineLicenses(ctx, o)
+	if err != nil {
+		return Packed{}, err
+	}
+	if err := os.WriteFile(filepath.Join(share, "alpine-licenses.txt"), []byte(alpine), 0o644); err != nil { //nolint:gosec // shipped, read by everyone
+		return Packed{}, fmt.Errorf("writing alpine-licenses.txt: %w", err)
 	}
 	machineBOM, err := BOM(o, share)
 	if err != nil {
@@ -426,12 +436,8 @@ func ParseEnv(text string) map[string]string {
 func BOM(o Options, share string) (*cdx.BOM, error) {
 	version := func(name string) string { e, _ := o.Pins.Get(name); return e.Version }
 	var parts []*cdx.BOM
-	// The packages each static binary links, by the -static or -dev package that carries the .a,
-	// with musl's libc and gcc's libgcc: the rest of each database built them and is formulation.
-	for _, a := range []struct{ name, db, version, only string }{
-		{"qemu-libraries", "qemu.apk", version("qemu"), "glib-static,pcre2-static,libffi-dev,pixman-static,zlib-static,libseccomp-static,libcap-ng-static,liburing-dev,libaio-dev,gettext-static,openssl-libs-static,jemalloc-static,musl-dev,gcc"},
-		{"e2fsprogs-libraries", "e2fsprogs.apk", version("e2fsprogs"), "libarchive-static,acl-static,zlib-static,xz-static,zstd-static,bzip2-static,lz4-static,expat-static,openssl-libs-static,musl-dev,gcc"},
-	} {
+	// The packages each static binary links (apkLinked).
+	for _, a := range apkLinked {
 		raw, err := os.ReadFile(filepath.Join(o.Out, "sbom", a.db))
 		if err != nil {
 			return nil, fmt.Errorf("missing the apk database %s (spin-machine-dev build makes it): %w", a.db, err)
@@ -440,7 +446,7 @@ func BOM(o Options, share string) (*cdx.BOM, error) {
 		if err != nil {
 			return nil, err
 		}
-		parts = append(parts, sbom.New(subject(a.name, a.version), shippedPkgs, built, o.Epoch))
+		parts = append(parts, sbom.New(subject(a.name, version(a.pin)), shippedPkgs, built, o.Epoch))
 	}
 	// The Ubuntu packages whose static archives shirudo links, as the build recorded them.
 	raw, err := os.ReadFile(filepath.Join(o.Out, build.ShirudoPackages))

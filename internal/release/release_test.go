@@ -42,11 +42,12 @@ func put(t *testing.T, path, body string, mode os.FileMode) {
 	}
 }
 
-// apkDB is an apk database holding every package of only.
+// apkDB is an apk database holding every package of only, each built from the aport its name
+// without -static or -dev names, at aports commit fakeCommit.
 func apkDB(only string) string {
 	var b strings.Builder
 	for _, p := range strings.Split(only, ",") {
-		b.WriteString("P:" + p + "\nV:1.0-r0\nA:x86_64\n\n")
+		b.WriteString("P:" + p + "\nV:1.0-r0\nA:x86_64\nL:MIT\no:" + origin(p) + "\nc:" + fakeCommit + "\n\n")
 	}
 	return b.String() + "P:make\nV:4.4-r0\nA:x86_64\n"
 }
@@ -105,7 +106,7 @@ func tree(t *testing.T) (root, out string) {
 func options(t *testing.T, root, out string) Options {
 	t.Helper()
 	return Options{Root: root, Out: out, Version: "v20261119.07", Pins: pins(t), Commit: "abc", Epoch: time.Unix(1, 0),
-		Now: time.Date(2026, 11, 19, 1, 2, 3, 0, time.UTC)}
+		Now: time.Date(2026, 11, 19, 1, 2, 3, 0, time.UTC), Alpine: newFakeAlpine(t).sources(t)}
 }
 
 // listing is the tarball's entries, and their modes, past its top directory.
@@ -150,7 +151,7 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 	}
 	share := "usr/share/spin-stack/"
 	got := listing(t, packed.Tarball)
-	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755, share + "bin/swtpm": 0o755, share + "bin/passt": 0o755, share + "bin/spin-machine": 0o755, share + "go-licenses.txt": 0o644,
+	want := map[string]int64{"LICENSE": 0o644, "NOTICE": 0o644, share + "image/rootfs.qcow2": 0o444, share + "bin/qemu-img": 0o755, share + "bin/swtpm": 0o755, share + "bin/passt": 0o755, share + "bin/spin-machine": 0o755, share + "go-licenses.txt": 0o644, share + "alpine-licenses.txt": 0o644,
 		share + "guest/shirudo": 0o755, share + "shirudo-licenses.txt": 0o644,
 		share + "bin/debugfs": 0o755, share + "qemu/qboot.bin": 0o644, share + "qemu/qboot-mtrr.patch": 0o644, share + "qemu/qboot-pam.patch": 0o644,
 		share + "qemu/swtpm-s.patch": 0o644,
@@ -162,8 +163,8 @@ func TestAReleaseShipsEveryPartAndSaysWhatItIs(t *testing.T) {
 			t.Errorf("%s: in the tarball %v, mode %o; want %o", f, ok, m, mode)
 		}
 	}
-	if len(got) != 39 {
-		t.Errorf("the tarball holds %d files, want 39: %v", len(got), slices.Sorted(func(yield func(string) bool) {
+	if len(got) != 40 {
+		t.Errorf("the tarball holds %d files, want 40: %v", len(got), slices.Sorted(func(yield func(string) bool) {
 			for k := range got {
 				if !yield(k) {
 					return
