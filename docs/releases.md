@@ -40,8 +40,9 @@ First SSH login, ms p50/p95. Δ is the p50 against the release before it, booted
 | v20261126.04 | 356 / 364 | +5.0 [-3.3, +9.8] within noise | 70.4 / 76.5 | -0.3 [-1.1, +0.8] within noise | 334 / 340 | 64.4 / 66.8 |
 | v20261127.01 | 356 / 382 | -6.4 [-14.1, +6.3] within noise | 70.2 / 73.6 | +0.0 [-1.0, +1.2] within noise | 326 / 340 | 63.5 / 66.8 |
 | v20261127.02 | 347 / 370 | -2.7 [-15.2, +6.4] within noise | 67.7 / 70.2 | -3.2 [-4.0, -2.4] | 325 / 335 | 63.8 / 67.1 |
+| v20261127.03 | 349 / 357 | -3.0 [-8.6, +2.6] within noise | 67.6 / 70.1 | +0.4 [-0.8, +1.2] within noise | 327 / 346 | 63.1 / 65.7 |
 
-v20261127.02 against the goal: cold +247 ms, restore -32 ms.
+v20261127.03 against the goal: cold +249 ms, restore -32 ms.
 
 ## Diagnostics
 
@@ -77,6 +78,7 @@ Not targets: what moves behind the goal's numbers (AGENTS.md, "The goal"). p50.
 | v20261126.04 | 113 | 159 | 80.3 | 217 |
 | v20261127.01 | 119 | 159 | 84.2 | 217 |
 | v20261127.02 | 114 | 159 | 77.1 | 224 |
+| v20261127.03 | 117 | 159 | 80.2 | 224 |
 
 ## Bounds
 
@@ -112,6 +114,7 @@ Never candidates, measured with each release so that they stay bounds (docs/meas
 | v20261126.04 | 354 / 373 | 186 / 194 | -168.0 [-175.6, -164.4] |
 | v20261127.01 | 364 / 374 | 194 / 199 | -170.7 [-174.1, -164.7] |
 | v20261127.02 | 344 / 359 | 179 / 184 | -165.0 [-169.9, -162.2] |
+| v20261127.03 | 352 / 360 | 186 / 191 | -166.5 [-170.4, -162.9] |
 
 ## Where each was measured
 
@@ -145,3 +148,4 @@ Never candidates, measured with each release so that they stay bounds (docs/meas
 | [v20261126.04](releases/v20261126.04.json) | 2026-11-26 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261126.03 | [45907031308](https://github.com/spin-stack/machine/actions/runs/45907031308) | [processes](releases/v20261126.04-bootchart.svg) | [units](releases/v20261126.04-plot.svg) | [ledger](releases/v20261126.04-ledger.txt) | [chain](releases/v20261126.04-chain.txt) | [order](releases/v20261126.04-order.svg) |
 | [v20261127.01](releases/v20261127.01.json) | 2026-11-27 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261126.04 | [46027708488](https://github.com/spin-stack/machine/actions/runs/46027708488) | [processes](releases/v20261127.01-bootchart.svg) | [units](releases/v20261127.01-plot.svg) | [ledger](releases/v20261127.01-ledger.txt) | [chain](releases/v20261127.01-chain.txt) | [order](releases/v20261127.01-order.svg) |
 | [v20261127.02](releases/v20261127.02.json) | 2026-11-27 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261127.01 | [46053071877](https://github.com/spin-stack/machine/actions/runs/46053071877) | [processes](releases/v20261127.02-bootchart.svg) | [units](releases/v20261127.02-plot.svg) |  | [chain](releases/v20261127.02-chain.txt) | [order](releases/v20261127.02-order.svg) |
+| [v20261127.03](releases/v20261127.03.json) | 2026-11-27 | c8id.4xlarge, nested | 1 of 16 vCPUs, 128 of 8192 MiB, 16 hotplug disks, sized to 2048 MiB, spin's login | 20 | v20261127.02 | [46080473302](https://github.com/spin-stack/machine/actions/runs/46080473302) | [processes](releases/v20261127.03-bootchart.svg) | [units](releases/v20261127.03-plot.svg) | [ledger](releases/v20261127.03-ledger.txt) | [chain](releases/v20261127.03-chain.txt) | [order](releases/v20261127.03-order.svg) |
