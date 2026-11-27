@@ -33,6 +33,7 @@ var notSanitized = map[string]string{
 	"--disable-debug-info":               "a report's frames are named from the debug info",
 	"--extra-cflags=-U_FORTIFY_SOURCE":   "fortify's checked copies stand between ASan's interceptors and the accesses it checks",
 	"--extra-cflags=-D_FORTIFY_SOURCE=3": "fortify's checked copies stand between ASan's interceptors and the accesses it checks",
+	"--enable-malloc=jemalloc":           "ASan replaces malloc with its own, which is how it finds a use after free",
 }
 
 // releaseFlags is the configure flags qemu/Dockerfile builds the release with: its ENV QEMU_FLAGS.
