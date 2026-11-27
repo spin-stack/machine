@@ -54,7 +54,7 @@ spin-machine-dev verify [part|args]   assert what _output holds, building nothin
 spin-machine-dev shell                boot it and get a console in the base image, which is checked unchanged after
 spin-machine-dev vsock                make /dev/vhost-vsock usable, for the probes and verify args
 spin-machine-dev menuconfig           edit the kernel's configuration in place
-spin-machine-dev clean [--cache]      remove _output; with --cache, the BuildKit and mkosi caches too
+spin-machine-dev clean [--cache]      remove _output; with --cache, the BuildKit and mkosi caches and the Alpine sources too
 ```
 
 A part's build first empties what it writes. `--output type=local` writes files and removes none,
@@ -96,11 +96,15 @@ the `release` environment may sign with the key, so a release is made by release
 `certificate` by module-certificate.yml, once.
 
 The release is one tarball. It holds QEMU and its firmware, the kernel, the base image, the
-e2fsprogs tools, `spin-machine` and the licence texts of the Go code in it, `guest/shirudo` and the
+e2fsprogs tools, `spin-machine` and the licence texts of the Go code in it, the licence texts of the
+Alpine libraries the static binaries link (`alpine-licenses.txt`), `guest/shirudo` and the
 licence texts of what it links, LICENSE and NOTICE, every patch each part was built with (a directory ships whole,
 never as a list), `machine.env`, `SOURCES` and a CycloneDX SBOM. `machine.env` is the manifest:
 versions and checksums, none of which decides whether checkpoints resume (the machine's record
 does, `machine.CanResume`). The SBOM is inside the tarball and beside it.
+`alpine-licenses.txt` is read from each package's own source: the APKBUILD at the aports commit the
+build's apk database records, and the tarball it names, checked against its sha512 before it is
+read. The tarballs are kept in `.cache/alpine-sources` and checked again on every pack.
 
 `--help` hides the verbs that only workflows run. These are under `release`:
 

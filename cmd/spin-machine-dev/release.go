@@ -120,6 +120,7 @@ func pack(ctx context.Context, c *cobra.Command, w workspace, version string) (r
 	}
 	return release.Pack(ctx, release.Options{
 		Root: w.root, Out: w.out, Version: version, Pins: w.pins, Commit: commit, Epoch: epoch, Now: time.Now(),
+		Alpine: release.AlpineSources{Cache: filepath.Join(w.root, ".cache", "alpine-sources")},
 		Stderr: c.ErrOrStderr(),
 	})
 }

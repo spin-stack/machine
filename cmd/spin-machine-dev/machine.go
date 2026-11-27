@@ -174,7 +174,8 @@ func cleanCmd() *cobra.Command {
 			}
 			gone := []string{w.out}
 			if cache {
-				gone = append(gone, filepath.Join(w.root, ".cache", "buildkit"), filepath.Join(w.root, ".cache", "mkosi"))
+				gone = append(gone, filepath.Join(w.root, ".cache", "buildkit"), filepath.Join(w.root, ".cache", "mkosi"),
+					filepath.Join(w.root, ".cache", "alpine-sources"))
 			}
 			var errs []error
 			for _, d := range gone {
@@ -188,6 +189,6 @@ func cleanCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().BoolVar(&cache, "cache", false, "remove the BuildKit and mkosi caches too")
+	c.Flags().BoolVar(&cache, "cache", false, "remove the BuildKit and mkosi caches and the Alpine sources too")
 	return c
 }

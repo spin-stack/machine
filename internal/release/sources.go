@@ -168,6 +168,13 @@ e2fsprogs %s
   built by: e2fsprogs/Dockerfile, unpatched, statically linked against the Alpine libraries
             named there; their sources are the Alpine package sources for that release
 
+Alpine libraries, statically linked into QEMU, swtpm, passt and the e2fsprogs binaries
+  packages: the SBOM's qemu-libraries and e2fsprogs-libraries
+  licences: usr/share/spin-stack/alpine-licenses.txt — for each package, the aports commit and
+            APKBUILD it was built from, its source tarball's URL and SHA-512, and the licence
+            texts in that tarball
+  source:   that tarball, with the patches the APKBUILD applies, from aports at that commit
+
 Linux %s
   binary:   usr/share/spin-stack/kernel/vmlinux
   source:   %s
