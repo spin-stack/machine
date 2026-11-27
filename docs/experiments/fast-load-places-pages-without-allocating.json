@@ -1,0 +1,25 @@
+{
+  "decision": "carried",
+  "order": 578,
+  "change": "qemu/patches/0011: a fast load's fault thread and eager thread read each page with `qio_channel_pread` and place a faulting page without a `page_requested` entry, so neither takes musl's malloc lock, which QEMU's main thread can hold while io_uring task work on it waits for a page (spin-stack/spin#1747, #829)",
+  "where": "qemu/patches/0011",
+  "result": "correctness: without it each of three boot:fastload-reads runs stopped at its first load (labs 46015140066, 46016828489, 46016833115), and spin's loop at 8 of 608 fast loads (kvm.yml 46004238975, 46014308166, 46018501292); with it 35 of 35 lane loads (labs 46015145265, 46016838150, 46019688290, compat 46019149732) and 299 of 299 loop loads (kvm.yml 46018501292) read to their end. restore-first, touched=1700, 30 a side: login −0.3 [−23.7, +21.5] evicted, +0.4 [−14.5, +21.2] cached, running +0.3 [−1.5, +1.7] and +1.1 [−0.7, +2.1], within noise (lab 46014684857)",
+  "evidence": "measured: the stop on every run of the lane without it, none in 334 fast loads with it",
+  "source": "labs 46015140066, 46016828489, 46016833115, 46015145265, 46016838150, 46019688290, 46014684857; compat 46019149732; kvm.yml 46004238975, 46014308166, 46018501292",
+  "prs": [
+    829
+  ],
+  "runs": [
+    46015140066,
+    46016828489,
+    46016833115,
+    46004238975,
+    46014308166,
+    46018501292,
+    46015145265,
+    46016838150,
+    46019688290,
+    46019149732,
+    46014684857
+  ]
+}
