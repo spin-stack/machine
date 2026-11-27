@@ -237,7 +237,7 @@
 
 - name: ubuntu-snapshot
   kind: date
-  version: 20261126T000000Z
+  version: 20261127T000000Z
   track: today
   note: >-
     the Ubuntu archive shirudo/Dockerfile installs from, as snapshot.ubuntu.com serves it as it
