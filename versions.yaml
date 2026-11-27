@@ -179,7 +179,7 @@
   kind: git
   source: https://github.com/spin-stack/shirudo.git
   version: spin
-  pin: 6eccbfe555830d3ad68dcab4cc1d3d630490043f
+  pin: 3a05b71ce7b304116c52b8015b32256612e964c5
   track: branch
   note: >-
     From spin-stack/shirudo's spin branch, shirudo-dev/shirudo with the changes this machine
