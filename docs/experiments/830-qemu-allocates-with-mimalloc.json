@@ -1,0 +1,18 @@
+{
+  "decision": "rejected",
+  "section": "firmware",
+  "order": 141,
+  "date": "2026-11-27",
+  "change": "QEMU linked with mimalloc (Alpine's mimalloc2 2.2.7, `libmimalloc.a` linked whole) in place of musl's mallocng (#830)",
+  "result": "against the release, bench, spin's shape and login, 60 a side, beside jemalloc in the same run: first login −4.9 [−7.9, −0.9] against jemalloc's −8.6 [−12.3, −5.1], QEMU's RSS +10.4 MiB against +7.0 (lab 46037242215). restore-first, a load in full: login −2.5 [−4.1, −0.4] evicted against jemalloc's −3.4 [−4.7, −1.5] (lab 46037251403). Rejected for jemalloc, which gained more for less memory. Meson's malloc option offers no mimalloc, so it needs `--extra-ldflags` with `--whole-archive`",
+  "shape": "spin, bench",
+  "source": "labs 46037242215, 46037251403; parts 46032713675",
+  "issues": [
+    830
+  ],
+  "runs": [
+    46037242215,
+    46037251403,
+    46032713675
+  ]
+}

@@ -69,7 +69,16 @@ still wants to `dlopen` an NSS module, and a static binary cannot.
 
 Measured before adopting it, same host and machine line: process start to a QMP `quit`,
 **44 ms glibc against 43 ms musl** over five runs. Not measured: a long-running guest under
-load, where musl's allocator and its smaller default thread stack differ from glibc's.
+load, where musl's smaller default thread stack differs from glibc's.
+
+musl's allocator is not QEMU's: QEMU is linked with jemalloc (`--enable-malloc=jemalloc`).
+mallocng has one lock for every thread and gives memory back a page group at a time, and QEMU's
+start spent ~2.3 of its main thread's 17 ms of CPU in it (#669). Against the same build with
+musl's, on the bench in spin's shape (2026-11-27, #830): the first login **−8.6 ms [−11.0, −6.6]**
+at 150 a side (lab 46040582036), a restore's login −3.4 [−6.9, −0.4] with its state evicted (lab
+46040587126), and QEMU's RSS +6.8 MiB. mimalloc gained less for more memory and was rejected. A
+static link takes whichever malloc it reaches first without a word, so the build asks each
+binary for jemalloc's statistics.
 
 The build makes two binaries: one for KVM alone, and a TCG one for runners with no `/dev/kvm`.
 A host serving tenants must fail at start-up rather than run a tenant's VM ~17 times slower
